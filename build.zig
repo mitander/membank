@@ -49,9 +49,45 @@ pub fn build(b: *std.Build) void {
 
     const run_tidy_tests = b.addRunArtifact(tidy_tests);
 
+    // Simulation tests
+    const simulation_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/simulation_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    // Add source files as dependencies for simulation tests
+    const assert_module = b.createModule(.{
+        .root_source_file = b.path("src/assert.zig"),
+    });
+    const vfs_module = b.createModule(.{
+        .root_source_file = b.path("src/vfs.zig"),
+    });
+    const simulation_vfs_module = b.createModule(.{
+        .root_source_file = b.path("src/simulation_vfs.zig"),
+    });
+    simulation_vfs_module.addImport("vfs", vfs_module);
+    simulation_vfs_module.addImport("assert", assert_module);
+
+    const simulation_module = b.createModule(.{
+        .root_source_file = b.path("src/simulation.zig"),
+    });
+    simulation_module.addImport("assert", assert_module);
+    simulation_module.addImport("vfs", vfs_module);
+    simulation_module.addImport("simulation_vfs", simulation_vfs_module);
+
+    simulation_tests.root_module.addImport("simulation", simulation_module);
+    simulation_tests.root_module.addImport("vfs", vfs_module);
+    simulation_tests.root_module.addImport("assert", assert_module);
+
+    const run_simulation_tests = b.addRunArtifact(simulation_tests);
+
     // Test step that runs all tests
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_unit_tests.step);
+    test_step.dependOn(&run_simulation_tests.step);
 
     // Separate tidy step for code quality checks
     const tidy_step = b.step("tidy", "Run code quality checks");
@@ -60,6 +96,7 @@ pub fn build(b: *std.Build) void {
     // Full check step that runs tests + tidy
     const check_step = b.step("check", "Run tests and code quality checks");
     check_step.dependOn(&run_unit_tests.step);
+    check_step.dependOn(&run_simulation_tests.step);
     check_step.dependOn(&run_tidy_tests.step);
 
     // Format check
@@ -83,6 +120,7 @@ pub fn build(b: *std.Build) void {
     // CI step that runs everything
     const ci_step = b.step("ci", "Run all CI checks (tests, tidy, format)");
     ci_step.dependOn(&run_unit_tests.step);
+    ci_step.dependOn(&run_simulation_tests.step);
     ci_step.dependOn(&run_tidy_tests.step);
     ci_step.dependOn(&fmt_check.step);
 
