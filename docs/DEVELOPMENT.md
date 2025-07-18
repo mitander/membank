@@ -168,11 +168,15 @@ zig build test -- --summary all
 #### Simulation Tests
 ```bash
 # Run deterministic simulations
+zig build test  # Includes simulation tests
+
+# Run only simulation tests
 zig test tests/simulation_test.zig
 
-# Specific simulation scenarios
-zig test tests/partition_test.zig
-zig test tests/byzantine_test.zig
+# Test individual components
+zig test src/vfs.zig
+zig test src/simulation.zig
+zig test src/assert.zig
 ```
 
 #### Benchmarks
@@ -233,14 +237,79 @@ grep -r "FIXME\|TODO" src/       # Should be resolved
 - Document allocation patterns
 
 #### Assertions
-- Use `assert()` for programming invariants
-- Add assertions liberally in debug builds
-- Document preconditions and postconditions
+
+CortexDB uses a comprehensive assertion framework (`src/assert.zig`) for defensive programming:
+
+```bash
+# Test assertion framework
+zig test src/assert.zig
+```
+
+Key assertion patterns:
+- `assert()` - General condition with descriptive message (debug only)
+- `assert_always()` - Critical safety assertions (always active)
+- `assert_buffer_bounds()` - Prevent buffer overflows
+- `assert_range()` - Validate value ranges
+- `assert_state_valid()` - Verify state transitions
+- `assert_index_valid()` - Check array bounds
+
+Example usage:
+```zig
+const assert = @import("assert.zig");
+
+pub fn process_block(block: []const u8, index: usize) !void {
+    assert.assert_not_empty(block, "Block cannot be empty", .{});
+    assert.assert_index_valid(index, MAX_BLOCKS, "Index {} >= {}", .{ index, MAX_BLOCKS });
+    assert.assert_buffer_bounds(0, block.len, BUFFER_SIZE, "Buffer overflow: {} > {}", .{ block.len, BUFFER_SIZE });
+    
+    // Process block...
+}
+```
 
 #### Deterministic Behavior
-- All code must work in simulation
-- Use fixed seeds for reproducible tests
-- Avoid system-dependent behavior
+
+CortexDB uses a deterministic simulation framework for testing:
+
+**Key Components:**
+- **VFS Interface** (`src/vfs.zig`): Abstracts file system operations
+- **Simulation Harness** (`src/simulation.zig`): Manages nodes, network, and time
+- **Simulation VFS** (`src/simulation_vfs.zig`): In-memory file system for testing
+
+**Writing Simulation Tests:**
+```zig
+test "network partition scenario" {
+    const allocator = std.testing.allocator;
+    
+    // Initialize with fixed seed for reproducibility
+    var sim = try Simulation.init(allocator, 0xDEADBEEF);
+    defer sim.deinit();
+    
+    // Add nodes
+    const node1 = try sim.add_node();
+    const node2 = try sim.add_node();
+    
+    // Script scenario
+    sim.tick_multiple(10);
+    sim.partition_nodes(node1, node2);
+    sim.tick_multiple(50);
+    sim.heal_partition(node1, node2);
+    sim.tick_multiple(30);
+    
+    // Assert final state
+    const state = try sim.get_node_filesystem_state(node1);
+    defer /* cleanup state */;
+    
+    // Verify deterministic results
+    try std.testing.expect(state.len > 0);
+}
+```
+
+**Simulation Capabilities:**
+- Network partitions with `partition_nodes()` / `heal_partition()`
+- Packet loss with `set_packet_loss()`
+- Network latency with `set_latency()`
+- Time-controlled filesystem operations
+- Deterministic PRNG for reproducible results
 
 ## Contributing
 

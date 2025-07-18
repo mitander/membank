@@ -23,7 +23,8 @@ cortex-core (Database engine, storage, replication)
 
 *   **Structured Context:** Organizes knowledge into versioned "Context Blocks" with typed relationships, forming a queryable knowledge graph.
 *   **Auto-Update Engine:** Ingestion pipelines monitor data sources (e.g., Git repositories, documentation sites) and automatically update the context.
-*   **Deterministic by Design:** Built on a Virtual File System (VFS), allowing for byte-for-byte reproducible testing of complex scenarios.
+*   **Deterministic by Design:** Built on a Virtual File System (VFS) with comprehensive simulation framework, allowing for byte-for-byte reproducible testing of complex distributed scenarios.
+*   **Defensive Programming:** Comprehensive assertion framework catches bugs early with strategic runtime checks in debug builds.
 *   **Optimized for LLM Retrieval:** Low-latency query engine designed to feed context into LLM prompts efficiently.
 *   **Built in Zig:** Guarantees performance, safety, and simplicity through explicit memory management and `comptime` metaphysics.
 
@@ -72,13 +73,13 @@ zig build test --summary all
 
 **Style:** Enforced by `zig fmt`. All other conventions are documented in `docs/STYLE.md`. We favor simple interfaces, explicit error handling, and a deep aversion to hidden allocations or control flow.
 
-**Testing:** Unit tests, integration tests, and most importantly, deterministic, scripted simulation scenarios that test the system as a whole under failure conditions.
+**Testing:** Unit tests, comprehensive assertion framework, and most importantly, deterministic simulation scenarios that test the system as a whole under failure conditions including network partitions, packet loss, and byzantine faults.
 
 ## Implementation Details
 
 *   **Engine:** Single-threaded, asynchronous design leveraging Zig's `async/await`. Modeled after high-performance financial databases.
 *   **Storage:** A custom log-structured merge-tree (LSMT) tailored for our specific data model. All I/O is batched and routed through the VFS.
-*   **VFS (Virtual File System):** A trait-like interface in Zig that abstracts the file system. The production implementation maps to the OS, while the simulation implementation uses an in-memory hash map, enabling deterministic tests.
+*   **VFS (Virtual File System):** A vtable-based interface that abstracts the file system. The production implementation maps to the OS, while the simulation implementation uses an in-memory data structure, enabling deterministic tests with controllable time progression and network conditions.
 *   **API:** A simple, high-performance binary protocol for client-server communication.
 
 ## Documentation

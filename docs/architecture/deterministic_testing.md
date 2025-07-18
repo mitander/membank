@@ -11,22 +11,29 @@ The test runner (`zig build test`) compiles the entire CortexDB system with simu
 *   **Interface:** The storage engine is not coded to `std.fs` but to a `VFS` interface defined in `src/vfs.zig`.
     ```zig
     pub const VFS = struct {
-        open: *const fn (path: []const u8) anyerror!File,
-        read: *const fn (file: File, buffer: []u8) anyerror!usize,
-        // ... etc
+        ptr: *anyopaque,
+        vtable: *const VTable,
+        
+        pub const VTable = struct {
+            open: *const fn (ptr: *anyopaque, path: []const u8, mode: OpenMode) anyerror!VFile,
+            create: *const fn (ptr: *anyopaque, path: []const u8) anyerror!VFile,
+            remove: *const fn (ptr: *anyopaque, path: []const u8) anyerror!void,
+            exists: *const fn (ptr: *anyopaque, path: []const u8) bool,
+            // ... etc
+        };
     };
     ```
-*   **Production Implementation:** Maps the interface functions directly to `std.fs` calls.
-*   **Simulation Implementation:** Maps to a `std.AutoHashMap(string, ArrayList(u8))`. This in-memory file system can be inspected at the end of a test to assert its state. It can also be instrumented to simulate faults, e.g., a `write` call can be programmed to return `error.DiskFull` after N bytes.
+*   **Production Implementation (`ProductionVFS`):** Maps the interface functions directly to `std.fs` calls through the vtable pattern.
+*   **Simulation Implementation (`SimulationVFS`):** Maps to a `std.StringHashMap(FileData, ...)`. This in-memory file system can be inspected at the end of a test to assert its state. It can also be instrumented to simulate faults, control time progression, and provide deterministic filesystem state comparisons.
 
 ### Virtual Network (VNet)
 
-*   **Interface:** Client and Server communication is written against a `VNet` interface (`send`, `recv`).
-*   **Production Implementation:** Maps to `std.net` TCP sockets.
-*   **Simulation Implementation:** An in-memory message bus. It's a global hash map of `node_id -> message_queue`. The simulation harness controls the "tick" of this network, allowing it to introduce:
-    *   **Latency:** Delaying message delivery by N ticks.
-    *   **Partitions:** Dropping all messages between specified nodes for a duration.
-    *   **Message Loss:** Dropping packets based on the PRNG.
+*   **Interface:** Client and Server communication is written against a `Network` interface defined in `src/simulation.zig`.
+*   **Production Implementation:** Will map to `std.net` TCP sockets (future implementation).
+*   **Simulation Implementation:** An in-memory message bus implemented as hash maps of `node_id -> message_queue`. The simulation harness controls the "tick" of this network, allowing it to introduce:
+    *   **Latency:** Delaying message delivery by N ticks using `set_latency()`.
+    *   **Partitions:** Dropping all messages between specified nodes using `partition_nodes()`.
+    *   **Message Loss:** Dropping packets based on configurable loss rates using `set_packet_loss()`.
 
 ## Writing a Simulation Test Case
 
@@ -34,39 +41,69 @@ A typical test file in `tests/` follows this structure:
 
 ```zig
 const std = @import("std");
-const sim = @import("cortex-sim");
-const expect = std.testing.expect;
+const simulation = @import("simulation");
+const vfs = @import("vfs");
+const assert = @import("assert");
 
-test "a client write succeeds during a brief network partition" {
+const Simulation = simulation.Simulation;
+const NodeId = simulation.NodeId;
+
+test "network partition: write succeeds after partition heals" {
+    const allocator = std.testing.allocator;
+    
     // 1. Initialize the simulation with a static seed for reproducibility.
-    var harness = try sim.Harness.init(0xCAFE_BABE);
-    defer harness.deinit();
-
+    var sim = try Simulation.init(allocator, 0xCAFE_BABE);
+    defer sim.deinit();
+    
     // 2. Configure the cluster.
-    const node1 = harness.addNode();
-    const node2 = harness.addNode();
-    harness.startCluster();
-
-    // 3. Script the scenario tick by tick.
-    harness.tick(); // Allow leader election
-    const client = harness.addClient(node1);
-    client.write("blockA", "content");
-
-    harness.tick();
-    harness.partition(node1, node2); // Create a network partition
-    harness.tick(5); // Run for 5 ticks with the partition active
-    harness.heal(node1, node2); // Heal the partition
-    harness.tick(10); // Allow the system to recover
-
+    const node1 = try sim.add_node();
+    const node2 = try sim.add_node();
+    const node3 = try sim.add_node();
+    
+    // Allow cluster to stabilize
+    sim.tick_multiple(10);
+    
+    // 3. Script the scenario.
+    // Write some initial data to node1
+    const node1_ptr = sim.get_node(node1);
+    var node1_vfs = node1_ptr.get_vfs();
+    
+    var file = try node1_vfs.create("data/block_001.db");
+    defer file.close() catch {};
+    
+    const initial_data = "Initial block data";
+    _ = try file.write(initial_data);
+    try file.close();
+    
+    // Create network partition isolating node3
+    sim.partition_nodes(node1, node3);
+    sim.partition_nodes(node2, node3);
+    
+    // Run simulation for 50 ticks with partition active
+    sim.tick_multiple(50);
+    
+    // Heal the partition
+    sim.heal_partition(node1, node3);
+    sim.heal_partition(node2, node3);
+    
+    // Allow time for cluster to recover and synchronize
+    sim.tick_multiple(30);
+    
     // 4. Assert the final state.
-    // The state of the VFS on both nodes must be identical.
-    const state1 = harness.vfsState(node1);
-    const state2 = harness.vfsState(node2);
-    try expect(std.mem.eql(u8, state1, state2));
-
-    // And it must match the pre-approved "golden" output for this test.
-    const golden = @embedFile("golden/test_partition_write.bin");
-    try expect(std.mem.eql(u8, state1, golden));
+    const final_state = try sim.get_node_filesystem_state(node1);
+    defer {
+        for (final_state) |file_state| {
+            allocator.free(file_state.path);
+            if (file_state.content) |content| {
+                allocator.free(content);
+            }
+        }
+        allocator.free(final_state);
+    }
+    
+    // Verify the expected files are present
+    try std.testing.expect(final_state.len >= 1);
+    try std.testing.expect(std.mem.eql(u8, final_state[0].content.?, initial_data));
 }
 ```
 
