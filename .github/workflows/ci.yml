@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        zig-version: [0.15.0]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: goto-bus-stop/setup-zig@v2
+      with:
+        version: ${{ matrix.zig-version }}
+
+    - name: Cache Zig artifacts
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/zig
+          zig-cache
+        key: ${{ runner.os }}-zig-${{ matrix.zig-version }}-${{ hashFiles('build.zig', 'build.zig.zon') }}
+        restore-keys: |
+          ${{ runner.os }}-zig-${{ matrix.zig-version }}-
+
+    - name: Check formatting
+      run: zig fmt --check .
+
+    - name: Build
+      run: zig build
+
+    - name: Run tests
+      run: zig build test
+
+    - name: Run tidy checks
+      run: zig build tidy
+
+    - name: Build all targets
+      run: |
+        zig build benchmark
+        zig build fuzz
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: goto-bus-stop/setup-zig@v2
+      with:
+        version: 0.15.0
+
+    - name: Generate coverage
+      run: zig build test -- --summary all
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: goto-bus-stop/setup-zig@v2
+      with:
+        version: 0.15.0
+
+    - name: Check for banned patterns
+      run: |
+        if grep -r "std\.BoundedArray" src/; then
+          echo "Error: Found banned pattern std.BoundedArray"
+          exit 1
+        fi
+        if grep -r "std\.StaticBitSet" src/; then
+          echo "Error: Found banned pattern std.StaticBitSet"
+          exit 1
+        fi
+        if grep -r "FIXME\|TODO" src/ --include="*.zig"; then
+          echo "Warning: Found FIXME/TODO comments in source"
+        fi
+
+    - name: Check commit message format
+      if: github.event_name == 'pull_request'
+      run: |
+        # Basic check for conventional commit format
+        if ! echo "${{ github.event.pull_request.title }}" | grep -E '^(feat|fix|docs|style|refactor|test|chore)(\(.+\))?: .+'; then
+          echo "Warning: PR title doesn't follow conventional commit format"
+        fi
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check for secrets
+      run: |
+        if grep -r -i "password\|secret\|key\|token" src/ --include="*.zig" | grep -v "// "; then
+          echo "Warning: Potential hardcoded secrets found"
+        fi
+
+    - name: Check file permissions
+      run: |
+        find . -type f -perm /111 -name "*.zig" | while read file; do
+          echo "Warning: Executable Zig source file: $file"
+        done

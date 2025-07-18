@@ -1,0 +1,129 @@
+#!/bin/sh
+#
+# CortexDB pre-commit hook
+#
+# This script runs code quality checks before allowing commits.
+# It ensures that all code meets CortexDB's standards for:
+# - Code formatting (zig fmt)
+# - Code quality and style (tidy checks)
+# - Basic functionality (tests)
+
+set -e
+
+echo "Running CortexDB pre-commit checks..."
+
+# Check if we're in a git repository
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    echo "Error: Not in a git repository"
+    exit 1
+fi
+
+# Check if zig is available
+if ! command -v zig >/dev/null 2>&1; then
+    echo "Error: Zig compiler not found. Please install Zig."
+    exit 1
+fi
+
+# Function to print colored output
+print_status() {
+    local status=$1
+    local message=$2
+    case $status in
+        "OK")
+            echo "[OK] $message"
+            ;;
+        "FAIL")
+            echo "[FAIL] $message"
+            ;;
+        "INFO")
+            echo "[INFO] $message"
+            ;;
+    esac
+}
+
+# Track overall success
+CHECKS_PASSED=true
+
+# 1. Check code formatting
+print_status "INFO" "Checking code formatting..."
+if zig build fmt >/dev/null 2>&1; then
+    print_status "OK" "Code formatting check passed"
+else
+    print_status "FAIL" "Code formatting check failed"
+    echo ""
+    echo "Run 'zig build fmt-fix' to automatically fix formatting issues."
+    CHECKS_PASSED=false
+fi
+
+# 2. Run tidy checks
+print_status "INFO" "Running code quality checks..."
+if zig build tidy >/dev/null 2>&1; then
+    print_status "OK" "Code quality checks passed"
+else
+    print_status "FAIL" "Code quality checks failed"
+    echo ""
+    echo "Please fix the issues reported by tidy before committing."
+    echo "Run 'zig build tidy' to see detailed error messages."
+    CHECKS_PASSED=false
+fi
+
+# 3. Run unit tests (optional, can be disabled with SKIP_TESTS=1)
+if [ "${SKIP_TESTS:-0}" != "1" ]; then
+    print_status "INFO" "Running unit tests..."
+    if zig build test >/dev/null 2>&1; then
+        print_status "OK" "Unit tests passed"
+    else
+        print_status "FAIL" "Unit tests failed"
+        echo ""
+        echo "Please fix failing tests before committing."
+        echo "Run 'zig build test' to see detailed test results."
+        echo "Or set SKIP_TESTS=1 to skip tests in pre-commit hook."
+        CHECKS_PASSED=false
+    fi
+else
+    print_status "INFO" "Unit tests skipped (SKIP_TESTS=1)"
+fi
+
+# 4. Check for common issues in commit message (if available)
+if [ -f ".git/COMMIT_EDITMSG" ]; then
+    print_status "INFO" "Checking commit message format..."
+
+    # Read the commit message
+    COMMIT_MSG=$(head -1 ".git/COMMIT_EDITMSG" 2>/dev/null || echo "")
+
+    # Check if commit message follows conventional format
+    if echo "$COMMIT_MSG" | grep -qE '^(feat|fix|docs|style|refactor|test|chore)(\(.+\))?: .+'; then
+        print_status "OK" "Commit message format is valid"
+    else
+        print_status "FAIL" "Commit message format is invalid"
+        echo ""
+        echo "Commit messages should follow the format: type(scope): subject"
+        echo "Types: feat, fix, docs, style, refactor, test, chore"
+        echo "Example: feat(query): implement semantic search"
+        CHECKS_PASSED=false
+    fi
+
+    # Check commit message length
+    if [ ${#COMMIT_MSG} -gt 72 ]; then
+        print_status "FAIL" "Commit message subject line too long (${#COMMIT_MSG} > 72 chars)"
+        CHECKS_PASSED=false
+    fi
+fi
+
+# Final result
+echo ""
+if [ "$CHECKS_PASSED" = true ]; then
+    print_status "OK" "All pre-commit checks passed!"
+    echo ""
+    echo "Ready to commit."
+    exit 0
+else
+    print_status "FAIL" "Some pre-commit checks failed!"
+    echo ""
+    echo "Please fix the issues above before committing."
+    echo ""
+    echo "To bypass these checks (not recommended), use:"
+    echo "  git commit --no-verify"
+    echo ""
+    exit 1
+fi
