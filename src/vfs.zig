@@ -20,8 +20,16 @@ pub const VFS = struct {
         exists: *const fn (ptr: *anyopaque, path: []const u8) bool,
         mkdir: *const fn (ptr: *anyopaque, path: []const u8) anyerror!void,
         rmdir: *const fn (ptr: *anyopaque, path: []const u8) anyerror!void,
-        list_dir: *const fn (ptr: *anyopaque, path: []const u8, allocator: std.mem.Allocator) anyerror![][]const u8,
-        rename: *const fn (ptr: *anyopaque, old_path: []const u8, new_path: []const u8) anyerror!void,
+        list_dir: *const fn (
+            ptr: *anyopaque,
+            path: []const u8,
+            allocator: std.mem.Allocator,
+        ) anyerror![][]const u8,
+        rename: *const fn (
+            ptr: *anyopaque,
+            old_path: []const u8,
+            new_path: []const u8,
+        ) anyerror!void,
         stat: *const fn (ptr: *anyopaque, path: []const u8) anyerror!FileStat,
         sync: *const fn (ptr: *anyopaque) anyerror!void,
         deinit: *const fn (ptr: *anyopaque) void,
@@ -64,7 +72,11 @@ pub const VFS = struct {
         return self.vtable.rmdir(self.ptr, path);
     }
 
-    pub fn list_dir(self: *VFS, path: []const u8, allocator: std.mem.Allocator) anyerror![][]const u8 {
+    pub fn list_dir(
+        self: *VFS,
+        path: []const u8,
+        allocator: std.mem.Allocator,
+    ) anyerror![][]const u8 {
         return self.vtable.list_dir(self.ptr, path, allocator);
     }
 
@@ -225,7 +237,11 @@ pub const ProductionVFS = struct {
         try std.fs.cwd().deleteDir(path);
     }
 
-    fn list_dir(ptr: *anyopaque, path: []const u8, allocator: std.mem.Allocator) anyerror![][]const u8 {
+    fn list_dir(
+        ptr: *anyopaque,
+        path: []const u8,
+        allocator: std.mem.Allocator,
+    ) anyerror![][]const u8 {
         _ = ptr;
         var dir = try std.fs.cwd().openDir(path, .{ .iterate = true });
         defer dir.close();

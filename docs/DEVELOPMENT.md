@@ -261,7 +261,7 @@ pub fn process_block(block: []const u8, index: usize) !void {
     assert.assert_not_empty(block, "Block cannot be empty", .{});
     assert.assert_index_valid(index, MAX_BLOCKS, "Index {} >= {}", .{ index, MAX_BLOCKS });
     assert.assert_buffer_bounds(0, block.len, BUFFER_SIZE, "Buffer overflow: {} > {}", .{ block.len, BUFFER_SIZE });
-    
+
     // Process block...
 }
 ```
@@ -279,26 +279,26 @@ CortexDB uses a deterministic simulation framework for testing:
 ```zig
 test "network partition scenario" {
     const allocator = std.testing.allocator;
-    
+
     // Initialize with fixed seed for reproducibility
     var sim = try Simulation.init(allocator, 0xDEADBEEF);
     defer sim.deinit();
-    
+
     // Add nodes
     const node1 = try sim.add_node();
     const node2 = try sim.add_node();
-    
+
     // Script scenario
     sim.tick_multiple(10);
     sim.partition_nodes(node1, node2);
     sim.tick_multiple(50);
     sim.heal_partition(node1, node2);
     sim.tick_multiple(30);
-    
+
     // Assert final state
     const state = try sim.get_node_filesystem_state(node1);
     defer /* cleanup state */;
-    
+
     // Verify deterministic results
     try std.testing.expect(state.len > 0);
 }

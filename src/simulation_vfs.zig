@@ -242,7 +242,11 @@ pub const SimulationVFS = struct {
         }
     }
 
-    fn list_dir(ptr: *anyopaque, path: []const u8, allocator: std.mem.Allocator) anyerror![][]const u8 {
+    fn list_dir(
+        ptr: *anyopaque,
+        path: []const u8,
+        allocator: std.mem.Allocator,
+    ) anyerror![][]const u8 {
         const self: *Self = @ptrCast(@alignCast(ptr));
 
         if (!self.directories.contains(path)) {

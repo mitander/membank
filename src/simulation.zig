@@ -50,7 +50,12 @@ pub const Simulation = struct {
 
     /// Get a node by its ID.
     pub fn get_node(self: *Self, node_id: NodeId) *Node {
-        assert.assert_index_valid(node_id.id, self.nodes.items.len, "Invalid node ID: {}", .{node_id.id});
+        assert.assert_index_valid(
+            node_id.id,
+            self.nodes.items.len,
+            "Invalid node ID: {}",
+            .{node_id.id},
+        );
         return &self.nodes.items[node_id.id];
     }
 
@@ -107,7 +112,10 @@ pub const Simulation = struct {
     }
 
     /// Get the filesystem state for a specific node.
-    pub fn get_node_filesystem_state(self: *Self, node_id: NodeId) ![]sim_vfs.SimulationVFS.FileState {
+    pub fn get_node_filesystem_state(
+        self: *Self,
+        node_id: NodeId,
+    ) ![]sim_vfs.SimulationVFS.FileState {
         const node = self.get_node(node_id);
         return node.filesystem.get_state(self.allocator);
     }
@@ -117,7 +125,12 @@ pub const Simulation = struct {
 pub const NodeId = struct {
     id: usize,
 
-    pub fn format(self: NodeId, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(
+        self: NodeId,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
         _ = fmt;
         _ = options;
         try writer.print("Node{}", .{self.id});
@@ -169,7 +182,13 @@ pub const Node = struct {
     }
 
     /// Send a message to another node.
-    pub fn send_message(self: *Self, target: NodeId, message_type: MessageType, data: []const u8, network: *Network) !void {
+    pub fn send_message(
+        self: *Self,
+        target: NodeId,
+        message_type: MessageType,
+        data: []const u8,
+        network: *Network,
+    ) !void {
         const message = Message{
             .sender = self.id,
             .receiver = target,
@@ -211,10 +230,30 @@ pub const Network = struct {
     allocator: std.mem.Allocator,
     prng: *std.Random.DefaultPrng,
     nodes: std.ArrayList(NodeId),
-    message_queues: std.HashMap(NodeId, std.ArrayList(DelayedMessage), NodeIdContext, std.hash_map.default_max_load_percentage),
-    partitions: std.HashMap(NodePair, void, NodePairContext, std.hash_map.default_max_load_percentage),
-    packet_loss: std.HashMap(NodePair, f32, NodePairContext, std.hash_map.default_max_load_percentage),
-    latencies: std.HashMap(NodePair, u32, NodePairContext, std.hash_map.default_max_load_percentage),
+    message_queues: std.HashMap(
+        NodeId,
+        std.ArrayList(DelayedMessage),
+        NodeIdContext,
+        std.hash_map.default_max_load_percentage,
+    ),
+    partitions: std.HashMap(
+        NodePair,
+        void,
+        NodePairContext,
+        std.hash_map.default_max_load_percentage,
+    ),
+    packet_loss: std.HashMap(
+        NodePair,
+        f32,
+        NodePairContext,
+        std.hash_map.default_max_load_percentage,
+    ),
+    latencies: std.HashMap(
+        NodePair,
+        u32,
+        NodePairContext,
+        std.hash_map.default_max_load_percentage,
+    ),
 
     const Self = @This();
 
@@ -228,7 +267,10 @@ pub const Network = struct {
         b: NodeId,
 
         fn normalize(self: NodePair) NodePair {
-            return if (self.a.id < self.b.id) self else NodePair{ .a = self.b, .b = self.a };
+            return if (self.a.id < self.b.id)
+                self
+            else
+                NodePair{ .a = self.b, .b = self.a };
         }
     };
 
@@ -260,7 +302,8 @@ pub const Network = struct {
             _ = self;
             const norm_a = a.normalize();
             const norm_b = b.normalize();
-            return norm_a.a.id == norm_b.a.id and norm_a.b.id == norm_b.b.id;
+            return norm_a.a.id == norm_b.a.id and
+                norm_a.b.id == norm_b.b.id;
         }
     };
 
@@ -269,10 +312,30 @@ pub const Network = struct {
             .allocator = allocator,
             .prng = prng,
             .nodes = std.ArrayList(NodeId).init(allocator),
-            .message_queues = std.HashMap(NodeId, std.ArrayList(DelayedMessage), NodeIdContext, std.hash_map.default_max_load_percentage).init(allocator),
-            .partitions = std.HashMap(NodePair, void, NodePairContext, std.hash_map.default_max_load_percentage).init(allocator),
-            .packet_loss = std.HashMap(NodePair, f32, NodePairContext, std.hash_map.default_max_load_percentage).init(allocator),
-            .latencies = std.HashMap(NodePair, u32, NodePairContext, std.hash_map.default_max_load_percentage).init(allocator),
+            .message_queues = std.HashMap(
+                NodeId,
+                std.ArrayList(DelayedMessage),
+                NodeIdContext,
+                std.hash_map.default_max_load_percentage,
+            ).init(allocator),
+            .partitions = std.HashMap(
+                NodePair,
+                void,
+                NodePairContext,
+                std.hash_map.default_max_load_percentage,
+            ).init(allocator),
+            .packet_loss = std.HashMap(
+                NodePair,
+                f32,
+                NodePairContext,
+                std.hash_map.default_max_load_percentage,
+            ).init(allocator),
+            .latencies = std.HashMap(
+                NodePair,
+                u32,
+                NodePairContext,
+                std.hash_map.default_max_load_percentage,
+            ).init(allocator),
         };
     }
 
@@ -294,7 +357,10 @@ pub const Network = struct {
 
     pub fn add_node(self: *Self, node_id: NodeId) !void {
         try self.nodes.append(node_id);
-        try self.message_queues.put(node_id, std.ArrayList(DelayedMessage).init(self.allocator));
+        try self.message_queues.put(
+            node_id,
+            std.ArrayList(DelayedMessage).init(self.allocator),
+        );
     }
 
     pub fn send_message(self: *Self, message: Message) !void {
@@ -318,7 +384,8 @@ pub const Network = struct {
 
         // Calculate delivery time
         const base_latency = self.latencies.get(pair.normalize()) orelse 1;
-        const delivery_tick = 0 + base_latency; // TODO: Get current tick from simulation
+        // TODO Get current tick from simulation
+        const delivery_tick = 0 + base_latency;
 
         // Queue the message for delivery
         const delayed_message = DelayedMessage{
@@ -332,7 +399,7 @@ pub const Network = struct {
 
     pub fn process_tick(self: *Self) void {
         _ = self; // Unused for now
-        // TODO: Implement message delivery based on current tick
+        // TODO Implement message delivery based on current tick
         // For now, this is a placeholder
     }
 

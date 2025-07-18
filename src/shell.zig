@@ -29,7 +29,12 @@ pub const Shell = struct {
     }
 
     /// Execute command with options and return stdout.
-    pub fn exec_stdout_options(self: *Shell, options: ExecOptions, comptime cmd: []const u8, args: anytype) ![]const u8 {
+    pub fn exec_stdout_options(
+        self: *Shell,
+        options: ExecOptions,
+        comptime cmd: []const u8,
+        args: anytype,
+    ) ![]const u8 {
         const arena_allocator = self.arena.allocator();
 
         // Format the command with arguments

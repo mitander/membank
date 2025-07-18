@@ -1,6 +1,7 @@
 # CortexDB Design Decisions
 
-This document records the high-level architectural decisions and their rationale. For detailed specifications of individual components, see `docs/architecture/`.
+This document records the high-level architectural decisions and their rationale. For detailed
+specifications of individual components, see `docs/architecture/`.
 
 ## Why Zig?
 

@@ -13,7 +13,7 @@ The test runner (`zig build test`) compiles the entire CortexDB system with simu
     pub const VFS = struct {
         ptr: *anyopaque,
         vtable: *const VTable,
-        
+
         pub const VTable = struct {
             open: *const fn (ptr: *anyopaque, path: []const u8, mode: OpenMode) anyerror!VFile,
             create: *const fn (ptr: *anyopaque, path: []const u8) anyerror!VFile,
@@ -50,45 +50,45 @@ const NodeId = simulation.NodeId;
 
 test "network partition: write succeeds after partition heals" {
     const allocator = std.testing.allocator;
-    
+
     // 1. Initialize the simulation with a static seed for reproducibility.
     var sim = try Simulation.init(allocator, 0xCAFE_BABE);
     defer sim.deinit();
-    
+
     // 2. Configure the cluster.
     const node1 = try sim.add_node();
     const node2 = try sim.add_node();
     const node3 = try sim.add_node();
-    
+
     // Allow cluster to stabilize
     sim.tick_multiple(10);
-    
+
     // 3. Script the scenario.
     // Write some initial data to node1
     const node1_ptr = sim.get_node(node1);
     var node1_vfs = node1_ptr.get_vfs();
-    
+
     var file = try node1_vfs.create("data/block_001.db");
     defer file.close() catch {};
-    
+
     const initial_data = "Initial block data";
     _ = try file.write(initial_data);
     try file.close();
-    
+
     // Create network partition isolating node3
     sim.partition_nodes(node1, node3);
     sim.partition_nodes(node2, node3);
-    
+
     // Run simulation for 50 ticks with partition active
     sim.tick_multiple(50);
-    
+
     // Heal the partition
     sim.heal_partition(node1, node3);
     sim.heal_partition(node2, node3);
-    
+
     // Allow time for cluster to recover and synchronize
     sim.tick_multiple(30);
-    
+
     // 4. Assert the final state.
     const final_state = try sim.get_node_filesystem_state(node1);
     defer {
@@ -100,7 +100,7 @@ test "network partition: write succeeds after partition heals" {
         }
         allocator.free(final_state);
     }
-    
+
     // Verify the expected files are present
     try std.testing.expect(final_state.len >= 1);
     try std.testing.expect(std.mem.eql(u8, final_state[0].content.?, initial_data));
