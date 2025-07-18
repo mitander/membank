@@ -81,6 +81,9 @@ pub const ContextBlock = struct {
     /// Raw content of the block
     content: []const u8,
 
+    /// Minimum serialized size (header only, no variable-length data)
+    pub const MIN_SERIALIZED_SIZE = 36; // 16 + 8 + 4 + 4 + 4
+
     /// Calculate the serialized size in bytes.
     pub fn serialized_size(self: ContextBlock) usize {
         return 16 + // id
@@ -91,6 +94,25 @@ pub const ContextBlock = struct {
             self.source_uri.len +
             self.metadata_json.len +
             self.content.len;
+    }
+
+    /// Compute serialized size from buffer header without full deserialization.
+    /// Used during WAL recovery to determine entry boundaries.
+    pub fn compute_serialized_size_from_buffer(buffer: []const u8) !usize {
+        if (buffer.len < MIN_SERIALIZED_SIZE) return error.BufferTooSmall;
+
+        // Skip id (16 bytes) and version (8 bytes)
+        var offset: usize = 24;
+
+        // Read length fields
+        const source_uri_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+        offset += 4;
+        const metadata_json_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+        offset += 4;
+        const content_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+
+        // Calculate total size
+        return MIN_SERIALIZED_SIZE + source_uri_len + metadata_json_len + content_len;
     }
 
     /// Serialize the Context Block to bytes according to the specification.

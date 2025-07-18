@@ -145,10 +145,11 @@ pub const QueryEngine = struct {
 
         // Retrieve each requested block
         for (query.block_ids) |block_id| {
-            const maybe_block = self.storage_engine.get_block_by_id(block_id) catch |err| switch (err) {
-                storage.StorageError.BlockNotFound => continue, // Skip missing blocks
-                else => return err,
-            };
+            const maybe_block = self.storage_engine.get_block_by_id(block_id) catch |err|
+                switch (err) {
+                    storage.StorageError.BlockNotFound => continue, // Skip missing blocks
+                    else => return err,
+                };
 
             // Clone the block to ensure result ownership
             const cloned_block = ContextBlock{
@@ -178,7 +179,7 @@ pub const QueryEngine = struct {
     pub fn get_statistics(self: *QueryEngine) QueryStatistics {
         return QueryStatistics{
             .total_blocks_stored = self.storage_engine.block_count(),
-            .queries_executed = 0, // TODO: Add query counting
+            .queries_executed = 0, // TODO Add query counting
         };
     }
 };
@@ -256,7 +257,8 @@ test "QueryResult formatting" {
 
     try std.testing.expect(std.mem.indexOf(u8, formatted, "--- BEGIN CONTEXT BLOCK ---") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "--- END CONTEXT BLOCK ---") != null);
-    try std.testing.expect(std.mem.indexOf(u8, formatted, "ID: 0123456789abcdeffedcba9876543210") != null);
+    const expected_id = "ID: 0123456789abcdeffedcba9876543210";
+    try std.testing.expect(std.mem.indexOf(u8, formatted, expected_id) != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "Version: 42") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, test_block.content) != null);
 }

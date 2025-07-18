@@ -42,12 +42,12 @@ const WALEntryType = enum(u8) {
 };
 
 /// WAL entry header structure.
-const WALEntry = struct {
+pub const WALEntry = struct {
     checksum: u64,
     entry_type: WALEntryType,
     payload: []const u8,
 
-    const HEADER_SIZE = 9; // 8 bytes checksum + 1 byte type
+    pub const HEADER_SIZE = 9; // 8 bytes checksum + 1 byte type
 
     /// Calculate CRC-64 checksum of type and payload.
     fn calculate_checksum(entry_type: WALEntryType, payload: []const u8) u64 {
@@ -159,7 +159,12 @@ const WALEntry = struct {
 
 /// In-memory block index for fast lookups.
 const BlockIndex = struct {
-    blocks: std.HashMap(BlockId, ContextBlock, BlockIdContext, std.hash_map.default_max_load_percentage),
+    blocks: std.HashMap(
+        BlockId,
+        ContextBlock,
+        BlockIdContext,
+        std.hash_map.default_max_load_percentage,
+    ),
     allocator: std.mem.Allocator,
 
     const BlockIdContext = struct {
@@ -178,7 +183,12 @@ const BlockIndex = struct {
 
     pub fn init(allocator: std.mem.Allocator) BlockIndex {
         return BlockIndex{
-            .blocks = std.HashMap(BlockId, ContextBlock, BlockIdContext, std.hash_map.default_max_load_percentage).init(allocator),
+            .blocks = std.HashMap(
+                BlockId,
+                ContextBlock,
+                BlockIdContext,
+                std.hash_map.default_max_load_percentage,
+            ).init(allocator),
             .allocator = allocator,
         };
     }
@@ -274,10 +284,16 @@ pub const StorageEngine = struct {
             try self.vfs.mkdir(sst_dir);
         }
 
-        // Create initial WAL file
-        const wal_path = try std.fmt.allocPrint(self.allocator, "{s}/wal/wal_0000.log", .{self.data_dir});
+        // Create initial WAL file (will be wal_0000.log)
+        const wal_path = try std.fmt.allocPrint(
+            self.allocator,
+            "{s}/wal_0000.log",
+            .{wal_dir},
+        );
         defer self.allocator.free(wal_path);
 
+        // For initialization, always create a new WAL file
+        // Existing WAL files will be recovered separately
         self.wal_file = try self.vfs.create(wal_path);
 
         // Create LOCK file to prevent multiple instances
@@ -317,7 +333,10 @@ pub const StorageEngine = struct {
     }
 
     /// Get a Context Block by ID.
-    pub fn get_block_by_id(self: *StorageEngine, block_id: BlockId) StorageError!*const ContextBlock {
+    pub fn get_block_by_id(
+        self: *StorageEngine,
+        block_id: BlockId,
+    ) StorageError!*const ContextBlock {
         assert(self.initialized);
         if (!self.initialized) return StorageError.NotInitialized;
 
@@ -352,7 +371,7 @@ pub const StorageEngine = struct {
         // Write to WAL for durability
         try self.write_wal_entry(wal_entry);
 
-        // TODO: Add edge to graph index when implemented
+        // TODO Add edge to graph index when implemented
     }
 
     /// Get the current number of blocks in storage.
@@ -390,12 +409,204 @@ pub const StorageEngine = struct {
         const wal_dir = try std.fmt.allocPrint(self.allocator, "{s}/wal", .{self.data_dir});
         defer self.allocator.free(wal_dir);
 
-        // TODO: Implement WAL recovery by reading all WAL files
-        // For now, this is a placeholder that would:
-        // 1. List all WAL files in chronological order
-        // 2. Read each file entry by entry
-        // 3. Apply each entry to rebuild the in-memory index
-        // 4. Handle corruption by truncating at the first bad entry
+        // Check if WAL directory exists
+        if (!self.vfs.exists(wal_dir)) {
+            return; // No WAL files to recover
+        }
+
+        // Get list of WAL files
+        const wal_files = try self.list_wal_files(wal_dir);
+        defer {
+            for (wal_files) |file_name| {
+                self.allocator.free(file_name);
+            }
+            self.allocator.free(wal_files);
+        }
+
+        var entries_recovered: u32 = 0;
+        var files_processed: u32 = 0;
+
+        // Process each WAL file in chronological order
+        for (wal_files) |file_name| {
+            const file_path = try std.fmt.allocPrint(
+                self.allocator,
+                "{s}/{s}",
+                .{ wal_dir, file_name },
+            );
+            defer self.allocator.free(file_path);
+
+            const file_entries = self.recover_from_wal_file(file_path) catch |err| switch (err) {
+                StorageError.InvalidChecksum, StorageError.InvalidWALEntryType => {
+                    // Corruption detected - stop recovery at this point
+                    std.log.warn("WAL corruption detected in {s}, stopping recovery", .{file_path});
+                    break;
+                },
+                else => return err,
+            };
+
+            entries_recovered += file_entries;
+            files_processed += 1;
+        }
+
+        std.log.info(
+            "WAL recovery completed: {} files processed, {} entries recovered",
+            .{ files_processed, entries_recovered },
+        );
+    }
+
+    /// List WAL files in chronological order.
+    fn list_wal_files(self: *StorageEngine, wal_dir: []const u8) ![][]const u8 {
+        // Use VFS list_dir to get all files in the WAL directory
+        const all_files = self.vfs.list_dir(wal_dir, self.allocator) catch |err| switch (err) {
+            error.FileNotFound => {
+                // Directory doesn't exist, return empty list
+                return try self.allocator.alloc([]const u8, 0);
+            },
+            else => return err,
+        };
+        defer {
+            for (all_files) |file_name| {
+                self.allocator.free(file_name);
+            }
+            self.allocator.free(all_files);
+        }
+
+        var wal_files = std.ArrayList([]const u8).init(self.allocator);
+        defer wal_files.deinit();
+
+        // Filter for WAL files (wal_XXXX.log pattern)
+        for (all_files) |file_name| {
+            if (std.mem.startsWith(u8, file_name, "wal_") and
+                std.mem.endsWith(u8, file_name, ".log"))
+            {
+                try wal_files.append(try self.allocator.dupe(u8, file_name));
+            }
+        }
+
+        // Sort WAL files in chronological order (by filename)
+        const wal_file_slice = try wal_files.toOwnedSlice();
+        std.mem.sort([]const u8, wal_file_slice, {}, struct {
+            fn less_than(context: void, a: []const u8, b: []const u8) bool {
+                _ = context;
+                return std.mem.order(u8, a, b) == .lt;
+            }
+        }.less_than);
+
+        return wal_file_slice;
+    }
+
+    /// Recover from a single WAL file.
+    fn recover_from_wal_file(self: *StorageEngine, file_path: []const u8) !u32 {
+        var file = self.vfs.open(file_path, .read) catch |err| switch (err) {
+            error.FileNotFound => return 0, // File doesn't exist, nothing to recover
+            else => return err,
+        };
+        defer file.close() catch {};
+
+        const file_size = try file.get_size();
+        if (file_size == 0) return 0; // Empty file
+
+        const file_content = try self.allocator.alloc(u8, file_size);
+        defer self.allocator.free(file_content);
+
+        _ = try file.read(file_content);
+
+        var offset: usize = 0;
+        var entries_recovered: u32 = 0;
+
+        // Create arena for WAL entry processing to avoid memory leaks
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        const temp_allocator = arena.allocator();
+
+        while (offset < file_content.len) {
+            // Check if we have enough bytes for a header
+            if (offset + WALEntry.HEADER_SIZE > file_content.len) {
+                // Incomplete header - likely corruption or partial write
+                break;
+            }
+
+            // Parse entry header to determine payload size
+            const entry_type_byte = file_content[offset + 8];
+            const entry_type = WALEntryType.from_u8(entry_type_byte) catch {
+                break;
+            };
+
+            // Determine payload size based on entry type
+            const payload_size = switch (entry_type) {
+                .delete_block => 16, // BlockId size
+                .put_edge => 40, // GraphEdge.SERIALIZED_SIZE
+                .put_block => blk: {
+                    // For put_block, we need to read the block header to get size
+                    const payload_start = offset + WALEntry.HEADER_SIZE;
+                    if (payload_start + ContextBlock.MIN_SERIALIZED_SIZE > file_content.len) {
+                        break :blk 0; // Will cause break below
+                    }
+
+                    const block_content = file_content[payload_start..];
+                    const computed_size = ContextBlock.compute_serialized_size_from_buffer(
+                        block_content,
+                    ) catch {
+                        break :blk 0;
+                    };
+                    break :blk computed_size;
+                },
+            };
+
+            if (payload_size == 0) break; // Error occurred above
+
+            const total_entry_size = WALEntry.HEADER_SIZE + payload_size;
+            if (offset + total_entry_size > file_content.len) {
+                break;
+            }
+
+            // Deserialize and apply the entry using temporary allocator
+            const entry_buffer = file_content[offset .. offset + total_entry_size];
+            const entry = WALEntry.deserialize(entry_buffer, temp_allocator) catch |err|
+                switch (err) {
+                    StorageError.InvalidChecksum => break,
+                    else => return err,
+                };
+
+            // Apply the entry to rebuild state
+            try self.apply_wal_entry(entry);
+
+            offset += total_entry_size;
+            entries_recovered += 1;
+        }
+
+        return entries_recovered;
+    }
+
+    /// Apply a single WAL entry to rebuild storage state.
+    fn apply_wal_entry(self: *StorageEngine, entry: WALEntry) !void {
+        switch (entry.entry_type) {
+            .put_block => {
+                // Create temporary arena for this operation
+                var arena = std.heap.ArenaAllocator.init(self.allocator);
+                defer arena.deinit();
+                const temp_allocator = arena.allocator();
+
+                const block = try ContextBlock.deserialize(entry.payload, temp_allocator);
+
+                // Add block to in-memory index (put_block will clone the strings)
+                try self.index.put_block(block);
+                // Arena will automatically free the temporary block
+            },
+            .delete_block => {
+                if (entry.payload.len != 16) return error.InvalidPayloadSize;
+
+                const block_id = BlockId{ .bytes = entry.payload[0..16].* };
+                self.index.remove_block(block_id);
+            },
+            .put_edge => {
+                if (entry.payload.len != 40) return error.InvalidPayloadSize;
+
+                const edge = try GraphEdge.deserialize(entry.payload);
+                // Note: Graph edge storage would be implemented when graph indexing is added
+                _ = edge; // Suppress unused variable warning for now
+            },
+        }
     }
 };
 
