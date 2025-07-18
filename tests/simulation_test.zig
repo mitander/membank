@@ -4,9 +4,9 @@
 //! tests for complex distributed system scenarios.
 
 const std = @import("std");
-const simulation = @import("simulation.zig");
-const vfs = @import("vfs.zig");
-const assert = @import("assert.zig");
+const simulation = @import("simulation");
+const vfs = @import("vfs");
+const assert = @import("assert");
 
 const Simulation = simulation.Simulation;
 const NodeId = simulation.NodeId;
@@ -30,6 +30,9 @@ test "network partition: write succeeds after partition heals" {
     // Write some initial data to node1
     const node1_ptr = sim.get_node(node1);
     var node1_vfs = node1_ptr.get_vfs();
+
+    // Create data directory first
+    try node1_vfs.mkdir("data");
 
     var file = try node1_vfs.create("data/block_001.db");
     defer file.close() catch {};

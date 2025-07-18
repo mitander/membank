@@ -5,7 +5,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const vfs = @import("vfs.zig");
+const vfs = @import("vfs");
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;
 
@@ -13,7 +13,7 @@ const VFile = vfs.VFile;
 pub const SimulationVFS = struct {
     allocator: std.mem.Allocator,
     files: std.StringHashMap(FileData),
-    directories: std.StringHashMap(void),
+    file_handle_pool: std.ArrayList(*SimulationFile),
     next_file_id: u64,
     current_time: u64,
 
@@ -30,7 +30,7 @@ pub const SimulationVFS = struct {
         return Self{
             .allocator = allocator,
             .files = std.StringHashMap(FileData).init(allocator),
-            .directories = std.StringHashMap(void).init(allocator),
+            .file_handle_pool = std.ArrayList(*SimulationFile).init(allocator),
             .next_file_id = 1,
             .current_time = 1640995200, // 2022-01-01 00:00:00 UTC
         };
@@ -44,11 +44,11 @@ pub const SimulationVFS = struct {
         }
         self.files.deinit();
 
-        var dir_iterator = self.directories.iterator();
-        while (dir_iterator.next()) |entry| {
-            self.allocator.free(entry.key_ptr.*);
+        // Clean up file handle pool
+        for (self.file_handle_pool.items) |file_handle| {
+            self.allocator.destroy(file_handle);
         }
-        self.directories.deinit();
+        self.file_handle_pool.deinit();
     }
 
     pub fn vfs(self: *Self) VFS {
@@ -137,7 +137,10 @@ pub const SimulationVFS = struct {
             .position = 0,
             .mode = mode,
             .allocator = self.allocator,
+            .vfs = self,
+            .closed = false,
         };
+        try self.file_handle_pool.append(file_wrapper);
 
         return VFile{
             .ptr = file_wrapper,
@@ -150,8 +153,14 @@ pub const SimulationVFS = struct {
 
         // Check if parent directory exists
         if (std.fs.path.dirname(path)) |parent| {
-            if (!self.directories.contains(parent) and !std.mem.eql(u8, parent, ".")) {
-                return error.ParentNotFound;
+            if (!std.mem.eql(u8, parent, ".")) {
+                if (self.files.get(parent)) |parent_data| {
+                    if (!parent_data.is_directory) {
+                        return error.ParentNotFound;
+                    }
+                } else {
+                    return error.ParentNotFound;
+                }
             }
         }
 
@@ -171,7 +180,10 @@ pub const SimulationVFS = struct {
             .position = 0,
             .mode = .read_write,
             .allocator = self.allocator,
+            .vfs = self,
+            .closed = false,
         };
+        try self.file_handle_pool.append(file_wrapper);
 
         return VFile{
             .ptr = file_wrapper,
@@ -192,20 +204,18 @@ pub const SimulationVFS = struct {
 
     fn exists(ptr: *anyopaque, path: []const u8) bool {
         const self: *Self = @ptrCast(@alignCast(ptr));
-        return self.files.contains(path) or self.directories.contains(path);
+        return self.files.contains(path);
     }
 
     fn mkdir(ptr: *anyopaque, path: []const u8) anyerror!void {
         const self: *Self = @ptrCast(@alignCast(ptr));
 
-        if (self.files.contains(path) or self.directories.contains(path)) {
+        if (self.files.contains(path)) {
             return error.PathAlreadyExists;
         }
 
         const path_copy = try self.allocator.dupe(u8, path);
-        try self.directories.put(path_copy, {});
 
-        // Also add to files map as a directory
         const file_data = FileData{
             .content = std.ArrayList(u8).init(self.allocator),
             .created_time = self.current_time,
@@ -218,7 +228,11 @@ pub const SimulationVFS = struct {
     fn rmdir(ptr: *anyopaque, path: []const u8) anyerror!void {
         const self: *Self = @ptrCast(@alignCast(ptr));
 
-        if (!self.directories.contains(path)) {
+        if (self.files.get(path)) |file_data| {
+            if (!file_data.is_directory) {
+                return error.NotDir;
+            }
+        } else {
             return error.DirNotFound;
         }
 
@@ -230,10 +244,6 @@ pub const SimulationVFS = struct {
             {
                 return error.DirNotEmpty;
             }
-        }
-
-        if (self.directories.fetchRemove(path)) |kv| {
-            self.allocator.free(kv.key);
         }
 
         if (self.files.fetchRemove(path)) |kv| {
@@ -249,7 +259,11 @@ pub const SimulationVFS = struct {
     ) anyerror![][]const u8 {
         const self: *Self = @ptrCast(@alignCast(ptr));
 
-        if (!self.directories.contains(path)) {
+        if (self.files.get(path)) |file_data| {
+            if (!file_data.is_directory) {
+                return error.NotDir;
+            }
+        } else {
             return error.NotDir;
         }
 
@@ -327,6 +341,8 @@ const SimulationFile = struct {
     position: usize,
     mode: VFS.OpenMode,
     allocator: std.mem.Allocator,
+    vfs: *SimulationVFS,
+    closed: bool,
 
     const Self = @This();
 
@@ -364,6 +380,10 @@ const SimulationFile = struct {
 
     fn write(ptr: *anyopaque, data: []const u8) anyerror!usize {
         const self: *Self = @ptrCast(@alignCast(ptr));
+
+        if (self.closed) {
+            return error.FileClosed;
+        }
 
         if (self.mode == .read) {
             return error.BadFileDescriptor;
@@ -410,7 +430,11 @@ const SimulationFile = struct {
 
     fn close(ptr: *anyopaque) anyerror!void {
         const self: *Self = @ptrCast(@alignCast(ptr));
-        self.allocator.destroy(self);
+
+        if (!self.closed) {
+            self.closed = true;
+            // Don't destroy immediately - let VFS handle cleanup to prevent double-close segfaults
+        }
     }
 
     fn get_size(ptr: *anyopaque) anyerror!u64 {
