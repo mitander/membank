@@ -1,24 +1,49 @@
-//! By convention, root.zig is the root source file when making a library.
+//! CortexDB library root - exports public API for CortexDB components.
+//!
+//! This module provides access to the core CortexDB functionality including
+//! storage engines, query processing, and context block management.
+
 const std = @import("std");
 
-pub fn buffered_print() !void {
-    // Stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.fs.File.stdout().deprecatedWriter();
-    // Buffering can improve performance significantly in print-heavy programs.
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+// Core data structures
+pub const context_block = @import("context_block.zig");
+pub const ContextBlock = context_block.ContextBlock;
+pub const BlockId = context_block.BlockId;
+pub const GraphEdge = context_block.GraphEdge;
+pub const EdgeType = context_block.EdgeType;
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+// Storage engine
+pub const storage = @import("storage.zig");
+pub const StorageEngine = storage.StorageEngine;
 
-    try bw.flush(); // Don't forget to flush!
-}
+// Query engine
+pub const query_engine = @import("query_engine.zig");
+pub const QueryEngine = query_engine.QueryEngine;
+pub const QueryResult = query_engine.QueryResult;
+pub const GetBlocksQuery = query_engine.GetBlocksQuery;
 
-pub fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
+// Virtual File System
+pub const vfs = @import("vfs.zig");
+pub const VFS = vfs.VFS;
+pub const VFile = vfs.VFile;
 
-test "basic add functionality" {
-    try std.testing.expect(add(3, 7) == 10);
+// Simulation framework
+pub const simulation = @import("simulation.zig");
+pub const Simulation = simulation.Simulation;
+pub const SimulationVFS = simulation.SimulationVFS;
+
+// Utilities
+pub const assert = @import("assert.zig");
+
+test "library exports" {
+    // Verify all core types are accessible
+    const testing = std.testing;
+
+    // Test that we can create basic types
+    const block_id = try BlockId.from_hex("0123456789abcdeffedcba9876543210");
+    try testing.expect(block_id.bytes.len == 16);
+
+    // Test edge type
+    const edge = EdgeType.imports;
+    try testing.expectEqual(@as(u16, 1), edge.to_u16());
 }

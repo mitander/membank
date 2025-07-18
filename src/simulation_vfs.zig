@@ -164,6 +164,12 @@ pub const SimulationVFS = struct {
             }
         }
 
+        // Check if file already exists and clean it up first
+        if (self.files.fetchRemove(path)) |existing| {
+            existing.value.content.deinit();
+            self.allocator.free(existing.key);
+        }
+
         const path_copy = try self.allocator.dupe(u8, path);
         const file_data = FileData{
             .content = std.ArrayList(u8).init(self.allocator),
