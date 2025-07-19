@@ -10,6 +10,7 @@ const vfs = @import("vfs");
 const context_block = @import("context_block");
 const sstable = @import("sstable");
 const buffer_pool = @import("buffer_pool");
+const error_context = @import("error_context");
 
 const VFS = vfs.VFS;
 const ContextBlock = context_block.ContextBlock;
@@ -104,7 +105,15 @@ pub const WALEntry = struct {
         const expected_checksum = calculate_checksum(entry_type, payload);
         if (checksum != expected_checksum) {
             allocator.free(payload);
-            return StorageError.InvalidChecksum;
+            return error_context.wal_error(
+                StorageError.InvalidChecksum,
+                error_context.WALContext{
+                    .operation = "deserialize_wal_entry",
+                    .checksum_expected = expected_checksum,
+                    .checksum_actual = checksum,
+                    .entry_type = @intFromEnum(entry_type),
+                },
+            );
         }
 
         return WALEntry{
@@ -383,11 +392,17 @@ pub const StorageEngine = struct {
             if (table.find_block(block_id) catch null) |block| {
                 // Transfer ownership to index for future fast access
                 self.index.put_block(block) catch {}; // Ignore errors, it's an optimization
-                return self.index.find_block(block_id) orelse return StorageError.BlockNotFound;
+                return self.index.find_block(block_id) orelse return error_context.storage_error(
+                    StorageError.BlockNotFound,
+                    error_context.block_context("find_block_after_sstable_transfer", block_id),
+                );
             }
         }
 
-        return StorageError.BlockNotFound;
+        return error_context.storage_error(
+            StorageError.BlockNotFound,
+            error_context.block_context("find_block_exhaustive_search", block_id),
+        );
     }
 
     /// Delete a Context Block by ID.
@@ -654,7 +669,12 @@ pub const StorageEngine = struct {
             if (self.buffer_pool.acquire_buffer(file_size)) |pooled_buffer| {
                 break :blk pooled_buffer.slice(file_size);
             } else {
-                break :blk try self.allocator.alloc(u8, file_size);
+                break :blk self.allocator.alloc(u8, file_size) catch |err| {
+                    return error_context.storage_error(
+                        err,
+                        error_context.file_context("allocate_wal_recovery_buffer", file_path),
+                    );
+                };
             }
         };
         defer {

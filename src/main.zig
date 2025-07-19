@@ -97,7 +97,7 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 
     // Simple server loop (placeholder)
     while (true) {
-        std.time.sleep(1000000000); // Sleep for 1 second
+        std.Thread.sleep(1000000000); // Sleep for 1 second
     }
 }
 

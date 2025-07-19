@@ -18,6 +18,10 @@ pub fn build(b: *std.Build) void {
     const context_block_module = b.createModule(.{
         .root_source_file = b.path("src/context_block.zig"),
     });
+    const error_context_module = b.createModule(.{
+        .root_source_file = b.path("src/error_context.zig"),
+    });
+    error_context_module.addImport("context_block", context_block_module);
     const simulation_vfs_module = b.createModule(.{
         .root_source_file = b.path("src/simulation_vfs.zig"),
     });
@@ -37,6 +41,7 @@ pub fn build(b: *std.Build) void {
     sstable_module.addImport("context_block", context_block_module);
     sstable_module.addImport("vfs", vfs_module);
     sstable_module.addImport("simulation_vfs", simulation_vfs_module);
+    sstable_module.addImport("error_context", error_context_module);
 
     const storage_module = b.createModule(.{
         .root_source_file = b.path("src/storage.zig"),
@@ -45,6 +50,7 @@ pub fn build(b: *std.Build) void {
     storage_module.addImport("context_block", context_block_module);
     storage_module.addImport("sstable", sstable_module);
     storage_module.addImport("buffer_pool", buffer_pool_module);
+    storage_module.addImport("error_context", error_context_module);
 
     const query_engine_module = b.createModule(.{
         .root_source_file = b.path("src/query_engine.zig"),
@@ -67,6 +73,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("vfs", vfs_module);
     exe.root_module.addImport("context_block", context_block_module);
     exe.root_module.addImport("buffer_pool", buffer_pool_module);
+    exe.root_module.addImport("error_context", error_context_module);
     exe.root_module.addImport("simulation_vfs", simulation_vfs_module);
     exe.root_module.addImport("simulation", simulation_module);
     exe.root_module.addImport("sstable", sstable_module);
@@ -100,6 +107,7 @@ pub fn build(b: *std.Build) void {
     unit_tests.root_module.addImport("vfs", vfs_module);
     unit_tests.root_module.addImport("context_block", context_block_module);
     unit_tests.root_module.addImport("buffer_pool", buffer_pool_module);
+    unit_tests.root_module.addImport("error_context", error_context_module);
     unit_tests.root_module.addImport("simulation_vfs", simulation_vfs_module);
     unit_tests.root_module.addImport("simulation", simulation_module);
     unit_tests.root_module.addImport("sstable", sstable_module);
