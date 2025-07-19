@@ -12,6 +12,7 @@ const context_block = @import("context_block");
 const storage = @import("storage");
 const simulation = @import("simulation");
 const vfs = @import("vfs");
+const simulation_vfs = @import("simulation_vfs");
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
@@ -150,7 +151,7 @@ test "wal recovery: multiple blocks and types" {
 
     // Create multiple blocks
     const block1 = ContextBlock{
-        .id = try BlockId.from_hex("1111111111111111111111111111111"),
+        .id = try BlockId.from_hex("11111111111111111111111111111111"),
         .version = 1,
         .source_uri = "test://block1.zig",
         .metadata_json = "{\"type\":\"struct\"}",
@@ -158,7 +159,7 @@ test "wal recovery: multiple blocks and types" {
     };
 
     const block2 = ContextBlock{
-        .id = try BlockId.from_hex("2222222222222222222222222222222"),
+        .id = try BlockId.from_hex("22222222222222222222222222222222"),
         .version = 2,
         .source_uri = "test://block2.zig",
         .metadata_json = "{\"type\":\"function\"}",
@@ -230,21 +231,21 @@ test "wal recovery: multiple wal files" {
     // Create test WAL files with different blocks
     const blocks = [_]ContextBlock{
         ContextBlock{
-            .id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            .id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             .version = 1,
             .source_uri = "test://file1.zig",
             .metadata_json = "{\"file\":1}",
             .content = "content from file 1",
         },
         ContextBlock{
-            .id = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            .id = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
             .version = 1,
             .source_uri = "test://file2.zig",
             .metadata_json = "{\"file\":2}",
             .content = "content from file 2",
         },
         ContextBlock{
-            .id = try BlockId.from_hex("cccccccccccccccccccccccccccccc"),
+            .id = try BlockId.from_hex("cccccccccccccccccccccccccccccccc"),
             .version = 1,
             .source_uri = "test://file3.zig",
             .metadata_json = "{\"file\":3}",
