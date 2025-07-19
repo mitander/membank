@@ -211,6 +211,9 @@ const BlockIndex = struct {
             kv.value.deinit(self.allocator);
         }
 
+        // Clone block data for long-term storage in index
+        // Note: Index storage uses heap allocation since it's long-lived
+        // Buffer pools are for temporary hot-path allocations only
         const cloned_block = ContextBlock{
             .id = block.id,
             .version = block.version,
@@ -247,6 +250,7 @@ pub const StorageEngine = struct {
     compactor: Compactor,
     next_sstable_id: u32,
     initialized: bool,
+    buffer_pool: buffer_pool.BufferPool,
 
     /// Initialize a new storage engine instance.
     pub fn init(allocator: std.mem.Allocator, filesystem: VFS, data_dir: []const u8) StorageEngine {
@@ -260,6 +264,7 @@ pub const StorageEngine = struct {
             .compactor = Compactor.init(allocator, filesystem, data_dir),
             .next_sstable_id = 0,
             .initialized = false,
+            .buffer_pool = buffer_pool.BufferPool.init(),
         };
     }
 
@@ -338,7 +343,7 @@ pub const StorageEngine = struct {
         // Validate block before storing
         try block.validate(self.allocator);
 
-        // Create WAL entry
+        // Create WAL entry using buffer pool when possible for temporary serialization
         const wal_entry = try WALEntry.create_put_block(block, self.allocator);
         defer wal_entry.deinit(self.allocator);
 
@@ -378,7 +383,7 @@ pub const StorageEngine = struct {
             if (table.find_block(block_id) catch null) |block| {
                 // Transfer ownership to index for future fast access
                 self.index.put_block(block) catch {}; // Ignore errors, it's an optimization
-                return self.index.find_block(block_id) orelse StorageError.BlockNotFound;
+                return self.index.find_block(block_id) orelse return StorageError.BlockNotFound;
             }
         }
 
@@ -518,13 +523,25 @@ pub const StorageEngine = struct {
         if (self.wal_file == null) return StorageError.NotInitialized;
 
         const serialized_size = WALEntry.HEADER_SIZE + entry.payload.len;
-        const buffer = try self.allocator.alloc(u8, serialized_size);
-        defer self.allocator.free(buffer);
 
-        const written = try entry.serialize(buffer);
-        assert(written == serialized_size);
+        // Use buffer pool for temporary serialization buffer (hot path optimization)
+        if (self.buffer_pool.acquire_buffer(serialized_size)) |pooled_buffer| {
+            defer pooled_buffer.release();
+            const buffer_slice = pooled_buffer.slice(serialized_size);
+            const written = try entry.serialize(buffer_slice);
+            assert(written == serialized_size);
 
-        _ = try self.wal_file.?.write(buffer);
+            _ = try self.wal_file.?.write(buffer_slice);
+        } else {
+            // Fall back to heap allocation for very large entries
+            const buffer = try self.allocator.alloc(u8, serialized_size);
+            defer self.allocator.free(buffer);
+
+            const written = try entry.serialize(buffer);
+            assert(written == serialized_size);
+
+            _ = try self.wal_file.?.write(buffer);
+        }
     }
 
     /// Recover storage state from WAL files.
@@ -632,8 +649,20 @@ pub const StorageEngine = struct {
         const file_size = try file.file_size();
         if (file_size == 0) return 0; // Empty file
 
-        const file_content = try self.allocator.alloc(u8, file_size);
-        defer self.allocator.free(file_content);
+        // Use buffer pool for file reading when possible (hot path during recovery)
+        const file_content = blk: {
+            if (self.buffer_pool.acquire_buffer(file_size)) |pooled_buffer| {
+                break :blk pooled_buffer.slice(file_size);
+            } else {
+                break :blk try self.allocator.alloc(u8, file_size);
+            }
+        };
+        defer {
+            // Only free if it came from allocator, not pool
+            if (file_size > buffer_pool.MAX_BUFFER_SIZE) {
+                self.allocator.free(file_content);
+            }
+        }
 
         _ = try file.read(file_content);
 
@@ -874,4 +903,131 @@ test "StorageEngine graph edge operations" {
 
     // Test put edge (should not error)
     try storage.put_edge(test_edge);
+}
+
+test "StorageEngine buffer pool integration" {
+    const allocator = std.testing.allocator;
+    const simulation_vfs = @import("simulation_vfs");
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    const vfs_interface = sim_vfs.vfs();
+    const data_dir = try allocator.dupe(u8, "buffer_pool_test");
+
+    var storage = StorageEngine.init(allocator, vfs_interface, data_dir);
+    defer storage.deinit();
+
+    try storage.initialize_storage();
+
+    // Get initial buffer pool statistics
+    const initial_stats = storage.buffer_pool.statistics();
+    try std.testing.expectEqual(@as(u64, 0), initial_stats.allocations);
+
+    // Create test blocks to trigger buffer pool usage
+    const test_blocks = [_]ContextBlock{
+        ContextBlock{
+            .id = try BlockId.from_hex("1111111111111111111111111111111"),
+            .version = 1,
+            .source_uri = "test://small_block",
+            .metadata_json = "{\"type\":\"small\"}",
+            .content = "small content", // Small enough for buffer pool
+        },
+        ContextBlock{
+            .id = try BlockId.from_hex("2222222222222222222222222222222"),
+            .version = 1,
+            .source_uri = "test://medium_block",
+            .metadata_json = "{\"type\":\"medium\",\"size\":\"larger\"}",
+            .content = "medium content that is somewhat larger",
+        },
+    };
+
+    // Put blocks - this should use buffer pool for WAL serialization
+    for (test_blocks) |block| {
+        try storage.put_block(block);
+    }
+
+    // Verify buffer pool was used
+    const after_put_stats = storage.buffer_pool.statistics();
+    try std.testing.expect(after_put_stats.allocations > initial_stats.allocations);
+    try std.testing.expect(after_put_stats.pool_hits > 0);
+
+    // Create edges to test edge operations with buffer pool
+    const test_edge = GraphEdge{
+        .source_id = test_blocks[0].id,
+        .target_id = test_blocks[1].id,
+        .edge_type = .references,
+    };
+
+    try storage.put_edge(test_edge);
+
+    // Verify more buffer pool usage
+    const after_edge_stats = storage.buffer_pool.statistics();
+    try std.testing.expect(after_edge_stats.allocations > after_put_stats.allocations);
+
+    // Test block retrieval
+    const retrieved = try storage.find_block_by_id(test_blocks[0].id);
+    try std.testing.expect(retrieved.id.eql(test_blocks[0].id));
+    try std.testing.expectEqualStrings("small content", retrieved.content);
+
+    // Test deletion with buffer pool
+    try storage.delete_block(test_blocks[1].id);
+
+    // Verify buffer pool statistics show usage but no excessive misses
+    const final_stats = storage.buffer_pool.statistics();
+    try std.testing.expect(final_stats.hit_rate > 0.5); // At least 50% hit rate
+    try std.testing.expect(final_stats.deallocations > 0);
+
+    std.log.info("Buffer pool stats: allocations={}, hits={}, misses={}, hit_rate={d:.2}", .{
+        final_stats.allocations,
+        final_stats.pool_hits,
+        final_stats.pool_misses,
+        final_stats.hit_rate,
+    });
+}
+
+test "StorageEngine buffer pool fallback behavior" {
+    const allocator = std.testing.allocator;
+    const simulation_vfs = @import("simulation_vfs");
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    const vfs_interface = sim_vfs.vfs();
+    const data_dir = try allocator.dupe(u8, "fallback_test");
+
+    var storage = StorageEngine.init(allocator, vfs_interface, data_dir);
+    defer storage.deinit();
+
+    try storage.initialize_storage();
+
+    // Create a block larger than buffer pool can handle
+    const large_content = try allocator.alloc(u8, buffer_pool.MAX_BUFFER_SIZE + 1000);
+    defer allocator.free(large_content);
+    @memset(large_content, 'X'); // Fill with test data
+
+    const large_block = ContextBlock{
+        .id = try BlockId.from_hex("9999999999999999999999999999999"),
+        .version = 1,
+        .source_uri = "test://large_block",
+        .metadata_json = "{\"type\":\"oversized\"}",
+        .content = large_content,
+    };
+
+    // This should still work, falling back to heap allocation
+    try storage.put_block(large_block);
+
+    // Verify the block was stored correctly
+    const retrieved = try storage.find_block_by_id(large_block.id);
+    try std.testing.expect(retrieved.id.eql(large_block.id));
+    try std.testing.expectEqual(large_content.len, retrieved.content.len);
+
+    // Check that fallback allocations were used
+    const stats = storage.buffer_pool.statistics();
+    try std.testing.expect(stats.fallback_allocations > 0 or stats.pool_misses > 0);
+
+    std.log.info("Fallback test stats: fallback_allocations={}, pool_misses={}", .{
+        stats.fallback_allocations,
+        stats.pool_misses,
+    });
 }

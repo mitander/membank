@@ -11,6 +11,10 @@ pub fn build(b: *std.Build) void {
     const vfs_module = b.createModule(.{
         .root_source_file = b.path("src/vfs.zig"),
     });
+    const buffer_pool_module = b.createModule(.{
+        .root_source_file = b.path("src/buffer_pool.zig"),
+    });
+
     const context_block_module = b.createModule(.{
         .root_source_file = b.path("src/context_block.zig"),
     });
@@ -40,6 +44,7 @@ pub fn build(b: *std.Build) void {
     storage_module.addImport("vfs", vfs_module);
     storage_module.addImport("context_block", context_block_module);
     storage_module.addImport("sstable", sstable_module);
+    storage_module.addImport("buffer_pool", buffer_pool_module);
 
     const query_engine_module = b.createModule(.{
         .root_source_file = b.path("src/query_engine.zig"),
@@ -61,6 +66,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("assert", assert_module);
     exe.root_module.addImport("vfs", vfs_module);
     exe.root_module.addImport("context_block", context_block_module);
+    exe.root_module.addImport("buffer_pool", buffer_pool_module);
     exe.root_module.addImport("simulation_vfs", simulation_vfs_module);
     exe.root_module.addImport("simulation", simulation_module);
     exe.root_module.addImport("sstable", sstable_module);
@@ -93,6 +99,7 @@ pub fn build(b: *std.Build) void {
     unit_tests.root_module.addImport("assert", assert_module);
     unit_tests.root_module.addImport("vfs", vfs_module);
     unit_tests.root_module.addImport("context_block", context_block_module);
+    unit_tests.root_module.addImport("buffer_pool", buffer_pool_module);
     unit_tests.root_module.addImport("simulation_vfs", simulation_vfs_module);
     unit_tests.root_module.addImport("simulation", simulation_module);
     unit_tests.root_module.addImport("sstable", sstable_module);
