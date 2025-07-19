@@ -164,7 +164,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 
     // Query single block
     std.debug.print("Querying single block by ID...\n", .{});
-    const single_result = try query_eng.get_block_by_id(block1_id);
+    const single_result = try query_eng.find_block_by_id(block1_id);
     defer single_result.deinit();
 
     if (single_result.count > 0) {
@@ -191,7 +191,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("{s}", .{formatted});
     std.debug.print("=====================================\n\n", .{});
 
-    std.debug.print("Demo completed successfully! 🎉\n", .{});
+    std.debug.print("Demo completed successfully!\n", .{});
 }
 
 test "main module tests" {

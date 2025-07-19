@@ -257,7 +257,7 @@ pub const SSTable = struct {
         }
 
         // Calculate footer checksum
-        const file_size = try file.get_size();
+        const file_size = try file.file_size();
         const content_size = file_size - FOOTER_SIZE;
 
         var hasher = std.hash.Wyhash.init(0);
@@ -321,8 +321,8 @@ pub const SSTable = struct {
         }.less_than);
     }
 
-    /// Get a block by ID from this SSTable
-    pub fn get_block(self: *SSTable, block_id: BlockId) !?ContextBlock {
+    /// Find a block by ID from this SSTable
+    pub fn find_block(self: *SSTable, block_id: BlockId) !?ContextBlock {
         // Linear search through sorted index (simple implementation)
         var entry: ?IndexEntry = null;
         for (self.index.items) |idx_entry| {

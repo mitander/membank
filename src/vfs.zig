@@ -109,7 +109,7 @@ pub const VFile = struct {
         tell: *const fn (ptr: *anyopaque) anyerror!u64,
         flush: *const fn (ptr: *anyopaque) anyerror!void,
         close: *const fn (ptr: *anyopaque) anyerror!void,
-        get_size: *const fn (ptr: *anyopaque) anyerror!u64,
+        file_size: *const fn (ptr: *anyopaque) anyerror!u64,
     };
 
     pub const SeekFrom = enum {
@@ -142,8 +142,8 @@ pub const VFile = struct {
         return self.vtable.close(self.ptr);
     }
 
-    pub fn get_size(self: *VFile) anyerror!u64 {
-        return self.vtable.get_size(self.ptr);
+    pub fn file_size(self: *VFile) anyerror!u64 {
+        return self.vtable.file_size(self.ptr);
     }
 };
 
@@ -299,7 +299,7 @@ const ProductionFile = struct {
         .tell = tell,
         .flush = flush,
         .close = close,
-        .get_size = get_size,
+        .file_size = file_size,
     };
 
     fn read(ptr: *anyopaque, buffer: []u8) anyerror!usize {
@@ -339,7 +339,7 @@ const ProductionFile = struct {
         self.allocator.destroy(self);
     }
 
-    fn get_size(ptr: *anyopaque) anyerror!u64 {
+    fn file_size(ptr: *anyopaque) anyerror!u64 {
         const self: *Self = @ptrCast(@alignCast(ptr));
         const stat = try self.file.stat();
         return stat.size;

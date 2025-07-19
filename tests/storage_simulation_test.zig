@@ -33,8 +33,8 @@ test "storage stress: high volume writes during network partition" {
     sim.tick_multiple(10);
 
     // Initialize storage engines on each node
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = StorageEngine.init(
         allocator,
@@ -90,7 +90,7 @@ test "storage stress: high volume writes during network partition" {
         defer allocator.free(block_id_hex);
 
         const block_id = try BlockId.from_hex(block_id_hex);
-        const retrieved = try storage_engine.get_block_by_id(block_id);
+        const retrieved = try storage_engine.find_block_by_id(block_id);
         try std.testing.expect(retrieved.id.eql(block_id));
     }
 }
@@ -104,8 +104,8 @@ test "storage recovery: WAL corruption simulation" {
     const node1 = try sim.add_node();
     sim.tick_multiple(5);
 
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = StorageEngine.init(
         allocator,
@@ -170,7 +170,7 @@ test "storage recovery: WAL corruption simulation" {
     //     const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{j});
     //     defer allocator.free(block_id_hex);
     //     const block_id = try BlockId.from_hex(block_id_hex);
-    //     const recovered_block = try storage_engine2.get_block_by_id(block_id);
+    //     const recovered_block = try storage_engine2.find_block_by_id(block_id);
     //     try std.testing.expect(block_id.eql(recovered_block.id));
     //     try std.testing.expectEqual(@as(u64, 1), recovered_block.version);
     //     try std.testing.expectEqualStrings("recovery://test", recovered_block.source_uri);
@@ -190,8 +190,8 @@ test "storage limits: large block handling" {
     const node1 = try sim.add_node();
     sim.tick_multiple(5);
 
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = StorageEngine.init(
         allocator,
@@ -225,7 +225,7 @@ test "storage limits: large block handling" {
     try std.testing.expectEqual(@as(u32, 1), storage_engine.block_count());
 
     // Test retrieving large block
-    const retrieved = try storage_engine.get_block_by_id(block_id);
+    const retrieved = try storage_engine.find_block_by_id(block_id);
     try std.testing.expectEqual(@as(usize, 1024 * 1024), retrieved.content.len);
     try std.testing.expectEqualSlices(u8, large_content, retrieved.content);
 }
@@ -239,8 +239,8 @@ test "storage concurrency: rapid block updates" {
     const node1 = try sim.add_node();
     sim.tick_multiple(5);
 
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = StorageEngine.init(
         allocator,
@@ -270,14 +270,14 @@ test "storage concurrency: rapid block updates" {
         try storage_engine.put_block(block);
 
         // Verify the latest version is stored
-        const retrieved = try storage_engine.get_block_by_id(block_id);
+        const retrieved = try storage_engine.find_block_by_id(block_id);
         try std.testing.expectEqual(version, retrieved.version);
 
         sim.tick_multiple(1);
     }
 
     // Final verification
-    const final_block = try storage_engine.get_block_by_id(block_id);
+    const final_block = try storage_engine.find_block_by_id(block_id);
     try std.testing.expectEqual(@as(u64, 50), final_block.version);
     try std.testing.expect(std.mem.indexOf(u8, final_block.content, "Version 50") != null);
 }
@@ -291,8 +291,8 @@ test "storage integrity: duplicate block handling" {
     const node1 = try sim.add_node();
     sim.tick_multiple(5);
 
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = StorageEngine.init(
         allocator,
@@ -329,7 +329,7 @@ test "storage integrity: duplicate block handling" {
     try std.testing.expectEqual(@as(u32, 1), storage_engine.block_count());
 
     // Verify the updated version is stored
-    const retrieved = try storage_engine.get_block_by_id(block_id);
+    const retrieved = try storage_engine.find_block_by_id(block_id);
     try std.testing.expectEqual(@as(u64, 2), retrieved.version);
     try std.testing.expectEqualStrings("Updated content", retrieved.content);
     try std.testing.expectEqualStrings("dup://test/updated", retrieved.source_uri);
@@ -344,8 +344,8 @@ test "storage edges: graph relationship persistence" {
     const node1 = try sim.add_node();
     sim.tick_multiple(5);
 
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = StorageEngine.init(
         allocator,
@@ -417,7 +417,7 @@ test "storage edges: graph relationship persistence" {
     // Verify blocks are still accessible
     try std.testing.expectEqual(@as(u32, 3), storage_engine.block_count());
 
-    const retrieved_main = try storage_engine.get_block_by_id(main_id);
+    const retrieved_main = try storage_engine.find_block_by_id(main_id);
     try std.testing.expect(std.mem.indexOf(u8, retrieved_main.content, "utils.helper()") != null);
 }
 
@@ -431,13 +431,13 @@ test "storage performance: batch operations under load" {
     const node2 = try sim.add_node();
 
     // High latency and packet loss
-    sim.set_latency(node1, node2, 15);
-    sim.set_packet_loss(node1, node2, 0.3);
+    sim.configure_latency(node1, node2, 15);
+    sim.configure_packet_loss(node1, node2, 0.3);
 
     sim.tick_multiple(10);
 
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = StorageEngine.init(
         allocator,
@@ -492,10 +492,10 @@ test "storage performance: batch operations under load" {
     const first_block_id = try BlockId.from_hex("00000000000000000000000000000000");
     const last_block_id = try BlockId.from_hex("00000000000000000000000000000063"); // 99 in hex
 
-    const first_block = try storage_engine.get_block_by_id(first_block_id);
+    const first_block = try storage_engine.find_block_by_id(first_block_id);
     try std.testing.expect(std.mem.indexOf(u8, first_block.content, "Batch 0 item 0") != null);
 
-    const last_block = try storage_engine.get_block_by_id(last_block_id);
+    const last_block = try storage_engine.find_block_by_id(last_block_id);
     try std.testing.expect(std.mem.indexOf(u8, last_block.content, "Batch 4 item 19") != null);
 }
 
@@ -508,8 +508,8 @@ test "storage robustness: invalid data handling" {
     const node1 = try sim.add_node();
     sim.tick_multiple(5);
 
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = StorageEngine.init(
         allocator,

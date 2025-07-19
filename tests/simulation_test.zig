@@ -28,8 +28,8 @@ test "network partition: write succeeds after partition heals" {
     sim.tick_multiple(10);
 
     // Write some initial data to node1
-    const node1_ptr = sim.get_node(node1);
-    var node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    var node1_vfs = node1_ptr.filesystem_interface();
 
     // Create data directory first
     try node1_vfs.mkdir("data");
@@ -74,7 +74,7 @@ test "network partition: write succeeds after partition heals" {
     try std.testing.expect(node1_vfs.exists("data/block_002.db"));
 
     // Get final filesystem state for verification
-    const final_state = try sim.get_node_filesystem_state(node1);
+    const final_state = try sim.node_filesystem_state(node1);
     defer {
         for (final_state) |file_state| {
             allocator.free(file_state.path);
@@ -118,14 +118,14 @@ test "packet loss scenario: writes eventually succeed" {
     const node2 = try sim.add_node();
 
     // Set high packet loss between nodes
-    sim.set_packet_loss(node1, node2, 0.8); // 80% packet loss
+    sim.configure_packet_loss(node1, node2, 0.8); // 80% packet loss
 
     // Allow initial setup
     sim.tick_multiple(5);
 
     // Write data to node1
-    const node1_ptr = sim.get_node(node1);
-    var node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    var node1_vfs = node1_ptr.filesystem_interface();
 
     var file = try node1_vfs.create("lossy_data.db");
     defer file.close() catch {};
@@ -164,19 +164,19 @@ test "high latency scenario: operations complete despite delays" {
     const node3 = try sim.add_node();
 
     // Set high latency between nodes (simulate slow network)
-    sim.set_latency(node1, node2, 20); // 20 tick delay
-    sim.set_latency(node1, node3, 30); // 30 tick delay
-    sim.set_latency(node2, node3, 25); // 25 tick delay
+    sim.configure_latency(node1, node2, 20); // 20 tick delay
+    sim.configure_latency(node1, node3, 30); // 30 tick delay
+    sim.configure_latency(node2, node3, 25); // 25 tick delay
 
     // Allow cluster to stabilize despite high latency
     sim.tick_multiple(50);
 
     // Write data to multiple nodes
-    const node1_ptr = sim.get_node(node1);
-    const node2_ptr = sim.get_node(node2);
+    const node1_ptr = sim.find_node(node1);
+    const node2_ptr = sim.find_node(node2);
 
-    var node1_vfs = node1_ptr.get_vfs();
-    var node2_vfs = node2_ptr.get_vfs();
+    var node1_vfs = node1_ptr.filesystem_interface();
+    var node2_vfs = node2_ptr.filesystem_interface();
 
     // Write to node1
     var file1 = try node1_vfs.create("high_latency_node1.db");
@@ -214,8 +214,8 @@ test "byzantine scenario: cluster handles corrupted messages" {
     sim.tick_multiple(20);
 
     // Write data to the cluster
-    const node1_ptr = sim.get_node(node1);
-    var node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    var node1_vfs = node1_ptr.filesystem_interface();
 
     var file = try node1_vfs.create("byzantine_test.db");
     defer file.close() catch {};
@@ -226,9 +226,9 @@ test "byzantine scenario: cluster handles corrupted messages" {
 
     // TODO Simulate byzantine behavior (would need message corruption)
     // For now, just simulate high packet loss from node4
-    sim.set_packet_loss(node4, node1, 0.9);
-    sim.set_packet_loss(node4, node2, 0.9);
-    sim.set_packet_loss(node4, node3, 0.9);
+    sim.configure_packet_loss(node4, node1, 0.9);
+    sim.configure_packet_loss(node4, node2, 0.9);
+    sim.configure_packet_loss(node4, node3, 0.9);
 
     // Run simulation
     sim.tick_multiple(100);
@@ -265,13 +265,13 @@ test "deterministic replay: same seed produces identical results" {
     sim1.tick_multiple(10);
 
     // Write some data
-    const node1_ptr_a = sim1.get_node(node1_a);
-    var node1_vfs_a = node1_ptr_a.get_vfs();
+    const node1_ptr_a = sim1.find_node(node1_a);
+    var node1_vfs_a = node1_ptr_a.filesystem_interface();
     var file_a = try node1_vfs_a.create("replay_test.db");
     _ = try file_a.write("Deterministic data");
     try file_a.close();
 
-    const state1 = try sim1.get_node_filesystem_state(node1_a);
+    const state1 = try sim1.node_filesystem_state(node1_a);
     defer {
         for (state1) |file_state| {
             allocator.free(file_state.path);
@@ -295,13 +295,13 @@ test "deterministic replay: same seed produces identical results" {
     sim2.tick_multiple(10);
 
     // Write the same data
-    const node1_ptr_b = sim2.get_node(node1_b);
-    var node1_vfs_b = node1_ptr_b.get_vfs();
+    const node1_ptr_b = sim2.find_node(node1_b);
+    var node1_vfs_b = node1_ptr_b.filesystem_interface();
     var file_b = try node1_vfs_b.create("replay_test.db");
     _ = try file_b.write("Deterministic data");
     try file_b.close();
 
-    const state2 = try sim2.get_node_filesystem_state(node1_b);
+    const state2 = try sim2.node_filesystem_state(node1_b);
     defer {
         for (state2) |file_state| {
             allocator.free(file_state.path);
@@ -313,7 +313,7 @@ test "deterministic replay: same seed produces identical results" {
     }
 
     // Both simulations should produce identical results
-    try std.testing.expect(sim1.get_tick_count() == sim2.get_tick_count());
+    try std.testing.expect(sim1.ticks() == sim2.ticks());
     try std.testing.expect(state1.len == state2.len);
 
     for (state1, state2) |fs1, fs2| {
@@ -352,8 +352,8 @@ test "complex scenario: partition during write operations" {
 
     // Start writing data to multiple nodes
     for (nodes, 0..) |node_id, i| {
-        const node_ptr = sim.get_node(node_id);
-        var node_vfs = node_ptr.get_vfs();
+        const node_ptr = sim.find_node(node_id);
+        var node_vfs = node_ptr.filesystem_interface();
 
         const filename = try std.fmt.allocPrint(allocator, "node_{}_data.db", .{i});
         defer allocator.free(filename);
@@ -383,8 +383,8 @@ test "complex scenario: partition during write operations" {
     sim.tick_multiple(30);
 
     // Write more data during partition
-    const node0_ptr = sim.get_node(nodes[0]);
-    var node0_vfs = node0_ptr.get_vfs();
+    const node0_ptr = sim.find_node(nodes[0]);
+    var node0_vfs = node0_ptr.filesystem_interface();
 
     var partition_file = try node0_vfs.create("partition_write.db");
     defer partition_file.close() catch {};
@@ -406,7 +406,7 @@ test "complex scenario: partition during write operations" {
     try std.testing.expect(node0_vfs.exists("partition_write.db"));
 
     // Get final state
-    const final_state = try sim.get_node_filesystem_state(nodes[0]);
+    const final_state = try sim.node_filesystem_state(nodes[0]);
     defer {
         for (final_state) |file_state| {
             allocator.free(file_state.path);

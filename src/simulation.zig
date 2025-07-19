@@ -49,7 +49,7 @@ pub const Simulation = struct {
     }
 
     /// Get a node by its ID.
-    pub fn get_node(self: *Self, node_id: NodeId) *Node {
+    pub fn find_node(self: *Self, node_id: NodeId) *Node {
         assert.assert_index_valid(
             node_id.id,
             self.nodes.items.len,
@@ -90,19 +90,19 @@ pub const Simulation = struct {
         self.network.heal_partition(node_a, node_b);
     }
 
-    /// Introduce packet loss between two nodes.
-    pub fn set_packet_loss(self: *Self, node_a: NodeId, node_b: NodeId, loss_rate: f32) void {
+    /// Configure packet loss between two nodes.
+    pub fn configure_packet_loss(self: *Self, node_a: NodeId, node_b: NodeId, loss_rate: f32) void {
         assert.assert_range(loss_rate, 0.0, 1.0, "Invalid loss rate: {}", .{loss_rate});
-        self.network.set_packet_loss(node_a, node_b, loss_rate);
+        self.network.configure_packet_loss(node_a, node_b, loss_rate);
     }
 
-    /// Set network latency between two nodes.
-    pub fn set_latency(self: *Self, node_a: NodeId, node_b: NodeId, latency_ticks: u32) void {
-        self.network.set_latency(node_a, node_b, latency_ticks);
+    /// Configure network latency between two nodes.
+    pub fn configure_latency(self: *Self, node_a: NodeId, node_b: NodeId, latency_ticks: u32) void {
+        self.network.configure_latency(node_a, node_b, latency_ticks);
     }
 
     /// Get the current tick count.
-    pub fn get_tick_count(self: *Self) u64 {
+    pub fn ticks(self: *Self) u64 {
         return self.tick_count;
     }
 
@@ -112,12 +112,12 @@ pub const Simulation = struct {
     }
 
     /// Get the filesystem state for a specific node.
-    pub fn get_node_filesystem_state(
+    pub fn node_filesystem_state(
         self: *Self,
         node_id: NodeId,
     ) ![]sim_vfs.SimulationVFS.FileState {
-        const node = self.get_node(node_id);
-        return node.filesystem.get_state(self.allocator);
+        const node = self.find_node(node_id);
+        return node.filesystem.state(self.allocator);
     }
 };
 
@@ -200,7 +200,7 @@ pub const Node = struct {
     }
 
     /// Get the VFS interface for this node.
-    pub fn get_vfs(self: *Self) vfs.VFS {
+    pub fn filesystem_interface(self: *Self) vfs.VFS {
         return self.filesystem.vfs();
     }
 };
@@ -413,12 +413,12 @@ pub const Network = struct {
         _ = self.partitions.remove(pair.normalize());
     }
 
-    pub fn set_packet_loss(self: *Self, node_a: NodeId, node_b: NodeId, loss_rate: f32) void {
+    pub fn configure_packet_loss(self: *Self, node_a: NodeId, node_b: NodeId, loss_rate: f32) void {
         const pair = NodePair{ .a = node_a, .b = node_b };
         self.packet_loss.put(pair.normalize(), loss_rate) catch {};
     }
 
-    pub fn set_latency(self: *Self, node_a: NodeId, node_b: NodeId, latency_ticks: u32) void {
+    pub fn configure_latency(self: *Self, node_a: NodeId, node_b: NodeId, latency_ticks: u32) void {
         const pair = NodePair{ .a = node_a, .b = node_b };
         self.latencies.put(pair.normalize(), latency_ticks) catch {};
     }
@@ -438,13 +438,13 @@ test "simulation basic functionality" {
     try std.testing.expect(node2.id == 1);
 
     // Test basic tick functionality
-    const initial_tick = sim.get_tick_count();
+    const initial_tick = sim.ticks();
     sim.tick();
-    try std.testing.expect(sim.get_tick_count() == initial_tick + 1);
+    try std.testing.expect(sim.ticks() == initial_tick + 1);
 
     // Test multiple ticks
     sim.tick_multiple(5);
-    try std.testing.expect(sim.get_tick_count() == initial_tick + 6);
+    try std.testing.expect(sim.ticks() == initial_tick + 6);
 }
 
 test "simulation node filesystem" {
@@ -454,10 +454,10 @@ test "simulation node filesystem" {
     defer sim.deinit();
 
     const node1 = try sim.add_node();
-    const node = sim.get_node(node1);
+    const node = sim.find_node(node1);
 
     // Test filesystem operations
-    var vfs_interface = node.get_vfs();
+    var vfs_interface = node.filesystem_interface();
 
     var file = try vfs_interface.create("test.txt");
     defer file.close() catch {};
@@ -468,7 +468,7 @@ test "simulation node filesystem" {
     try std.testing.expect(vfs_interface.exists("test.txt"));
 
     // Get filesystem state
-    const state = try sim.get_node_filesystem_state(node1);
+    const state = try sim.node_filesystem_state(node1);
     defer {
         for (state) |file_state| {
             allocator.free(file_state.path);
@@ -503,10 +503,10 @@ test "simulation network partitions" {
     sim.heal_partition(node1, node2);
 
     // Test packet loss
-    sim.set_packet_loss(node1, node2, 0.5);
+    sim.configure_packet_loss(node1, node2, 0.5);
 
     // Test latency
-    sim.set_latency(node1, node2, 10);
+    sim.configure_latency(node1, node2, 10);
 }
 
 test "simulation deterministic behavior" {
@@ -529,7 +529,7 @@ test "simulation deterministic behavior" {
     sim2.tick_multiple(10);
 
     // Both should have the same tick count
-    try std.testing.expect(sim1.get_tick_count() == sim2.get_tick_count());
+    try std.testing.expect(sim1.ticks() == sim2.ticks());
 
     // Both should generate the same random numbers
     const rand1 = sim1.random();

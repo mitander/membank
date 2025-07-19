@@ -65,7 +65,7 @@ pub const SimulationVFS = struct {
 
     /// Get the current state of the filesystem as a sorted list of paths and their contents.
     /// Useful for comparing filesystem states in tests.
-    pub fn get_state(self: *Self, allocator: std.mem.Allocator) ![]FileState {
+    pub fn state(self: *Self, allocator: std.mem.Allocator) ![]FileState {
         var states = std.ArrayList(FileState).init(allocator);
         defer states.deinit();
 
@@ -359,7 +359,7 @@ const SimulationFile = struct {
         .tell = tell,
         .flush = flush,
         .close = close,
-        .get_size = get_size,
+        .file_size = file_size,
     };
 
     fn read(ptr: *anyopaque, buffer: []u8) anyerror!usize {
@@ -443,7 +443,7 @@ const SimulationFile = struct {
         }
     }
 
-    fn get_size(ptr: *anyopaque) anyerror!u64 {
+    fn file_size(ptr: *anyopaque) anyerror!u64 {
         const self: *Self = @ptrCast(@alignCast(ptr));
         return @intCast(self.data.content.items.len);
     }

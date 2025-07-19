@@ -14,32 +14,103 @@ Code style and conventions for CortexDB development.
 
 ### Functions
 
-Use `verb_noun` pattern for actions:
+Use contextual `verb_noun` pattern for actions:
 
 ```zig
+/// Validates block integrity and dependencies.
 pub fn validate_block(block: *const Block) !void
+/// Processes query and returns results.
 pub fn process_query(query: []const u8) !QueryResult
+/// Encodes header into provided buffer.
 pub fn encode_header(header: *Header, buffer: []u8) !void
+/// Verifies cryptographic signature.
+pub fn verify_signature(signature: []const u8) !bool
+/// Receives message from connection.
+pub fn receive_message(connection: *Connection) !Message
+/// Updates block metadata.
+pub fn update_metadata(self: *Block, metadata: Metadata) void
 ```
 
-Use nouns for getters:
+**BANNED:** `get_` and `set_` prefixes. Use TigerBeetle conventions with contextual naming:
+
+```
+// BAD: get_/set_ pattern
+get_id(block) -> u64
+get_block(table, id) -> ?Block
+get_config(engine) -> Config
+get_file_size(file) -> u64
+set_id(block, id)
+set_config(engine, config)
+
+// GOOD: TigerBeetle style with contextual naming
+id(block) -> u64                     // simple property getter
+find_block(table, id) -> ?Block      // search operation
+load_config(engine) -> Config        // data loading operation
+file_size(file) -> u64               // computed property
+update_id(block, id)                 // modify existing value
+configure_engine(engine, config)     // setup operation
+```
+
+**Decision Guide for `get_` Replacements:**
+
+- **Simple properties:** Use nouns → `id()`, `timestamp()`, `capacity()`
+- **Search operations:** Use `find_` → `find_block()`, `find_user()`
+- **Data loading:** Use `load_` → `load_config()`, `load_metadata()`
+- **Computed values:** Use descriptive nouns → `file_size()`, `hash_code()`
+- **Complex retrieval:** Use context → `fetch_from_cache()`, `read_from_disk()`
+
+Use nouns for getters (no `get_` prefix):
 
 ```zig
+/// Returns total number of blocks in storage.
 pub fn block_count(self: *const Storage) u32
+/// Returns query timeout in milliseconds.
 pub fn query_timeout(self: *const Engine) u64
+/// Returns block identifier.
+pub fn id(self: *const Block) u64
+/// Returns event timestamp.
+pub fn timestamp(self: *const Event) u64
+/// Returns buffer capacity.
+pub fn capacity(self: *const Buffer) usize
 ```
 
 Use `is_` prefix for boolean queries:
 
 ```zig
+/// Returns true if block passes validation checks.
 pub fn is_valid(block: *const Block) bool
+/// Returns true if header has corruption indicators.
 pub fn is_corrupted(header: *const Header) bool
+/// Returns true if block depends on given dependency ID.
+pub fn has_dependency(block: *const Block, dep_id: u64) bool
+/// Returns true if query can be executed in current state.
+pub fn can_execute(query: *const Query) bool
 ```
+
+#### Approved Verb Prefixes
+
+**Lifecycle:** `create_`, `destroy_`, `init_`, `deinit_`, `open_`, `close_`, `start_`, `stop_`
+
+**Actions:** `process_`, `execute_`, `handle_`, `perform_`, `apply_`, `revert_`
+
+**Validation:** `validate_`, `verify_`, `check_`, `ensure_`, `confirm_`
+
+**I/O:** `read_`, `write_`, `load_`, `save_`, `send_`, `receive_`, `acquire_`, `release_`
+
+**Transforms:** `parse_`, `encode_`, `decode_`, `serialize_`, `format_`, `convert_`
+
+**Updates:** `update_` (modify existing), `modify_` (change state), `insert_` (add new), `remove_` (take away), `delete_` (destroy), `append_` (add to end), `configure_` (setup), `apply_` (execute changes)
+
+**Search:** `find_`, `search_`, `lookup_`, `locate_`, `discover_`
+
+**Results:** `try_`, `maybe_`, `as_`, `into_`, `to_`, `from_`
 
 Generic functions must end with `Type`:
 
 ```zig
+/// Creates bounded array type with compile-time capacity.
 pub fn BoundedArrayType(comptime T: type, comptime capacity: usize) type
+/// Creates hash map type for given key-value types.
 pub fn HashMapType(comptime K: type, comptime V: type) type
 ```
 
@@ -249,7 +320,7 @@ test "query_engine: handles partition during query" {
 Use assertions for programming invariants:
 
 ```zig
-pub fn get_block_at_index(self: *Storage, index: usize) *Block {
+pub fn block_at_index(self: *Storage, index: usize) *Block {
     assert(index < self.blocks.len);
     assert(self.blocks[index].id != 0);
     return &self.blocks[index];
@@ -285,6 +356,24 @@ const result = try format_header(&buffer, header);
 ```
 
 ## Banned Patterns
+
+### Style Violations
+
+### TigerBeetle Style Violations
+
+- `get_*` functions → use noun getters: `id()` not `get_id()`, `find_block()` not `get_block()`
+- `set_*` functions → use contextual verbs: `update_id()` not `set_id()`, `configure_engine()` not `set_config()`
+- camelCase names → use snake_case consistently
+
+**Contextual Verb Selection Guidelines:**
+
+- Use `update_` for modifying existing values: `update_timestamp()`, `update_metadata()`
+- Use `configure_` for setup/initialization: `configure_pool()`, `configure_limits()`
+- Use `find_` for search operations: `find_block()`, `find_node()`
+- Use `apply_` for executing changes: `apply_migration()`, `apply_patch()`
+- Use `modify_` for state changes: `modify_permissions()`, `modify_behavior()`
+
+### General Bans
 
 - `std.BoundedArray` → use `stdx.BoundedArrayType`
 - `std.StaticBitSet` → use `stdx.BitSetType`

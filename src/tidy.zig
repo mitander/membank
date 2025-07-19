@@ -182,6 +182,14 @@ test "tidy" {
                 return error.NamingViolation;
             }
 
+            if (tidy_unicode_emojis(source_file)) |emoji_error| {
+                std.debug.print(
+                    "{s} error: {s}\n",
+                    .{ source_file.path, emoji_error },
+                );
+                return error.UnicodeEmoji;
+            }
+
             // TODO Re-enable dead declaration detection when AST API is stable
             _ = &dead_declarations;
 
@@ -303,6 +311,51 @@ fn tidy_banned_patterns(source: []const u8) ?[]const u8 {
         return "use TODO without colon for general reminders";
     }
 
+    return null;
+}
+
+/// Checks for Unicode emoji characters (banned in code)
+fn tidy_unicode_emojis(file: SourceFile) ?[]const u8 {
+    for (file.text, 0..) |byte, i| {
+        // Check for common emoji ranges in UTF-8
+        if (byte >= 0xF0) {
+            // 4-byte UTF-8 sequences often contain emojis
+            if (i + 3 < file.text.len) {
+                const bytes = file.text[i .. i + 4];
+                // Check for common emoji ranges
+                if (bytes[0] == 0xF0 and bytes[1] == 0x9F) {
+                    // Range U+1F000-U+1FFFF (includes most emojis)
+                    if ((bytes[2] >= 0x80 and bytes[2] <= 0xBF) or
+                        (bytes[2] >= 0x98 and bytes[2] <= 0x9F) or
+                        (bytes[2] >= 0xA4 and bytes[2] <= 0xAF))
+                    {
+                        return "Unicode emojis are banned in code " ++
+                            "(use ASCII alternatives like '✓' for checkmarks)";
+                    }
+                }
+            }
+        }
+        // Check for 3-byte sequences with common emoji symbols
+        else if (byte == 0xE2) {
+            if (i + 2 < file.text.len) {
+                const bytes = file.text[i .. i + 3];
+                // Check for various emoji-like symbols that should be banned
+                // Allow checkmark ✓ (bytes: E2 9C 93)
+                if (bytes[1] == 0x9C and bytes[2] == 0x93) {
+                    // This is a checkmark, allow it
+                    continue;
+                }
+
+                // Ban other emoji-like symbols
+                if ((bytes[1] == 0x9C and bytes[2] == 0x94) or // question mark variants
+                    (bytes[1] == 0x9D and bytes[2] == 0xA4) or // heart symbols
+                    (bytes[1] == 0x9A and bytes[2] >= 0x80 and bytes[2] <= 0xBF))
+                { // lightning/warning symbols etc
+                    return "Unicode emojis are banned in code (use ASCII alternatives)";
+                }
+            }
+        }
+    }
     return null;
 }
 
@@ -437,6 +490,22 @@ fn check_function_naming(line: []const u8) ?[]const u8 {
         if (std.mem.startsWith(u8, function_name, "test")) return null;
         if (std.mem.startsWith(u8, function_name, "JNI_")) return null;
 
+        // Check for banned get_/set_ patterns (TigerBeetle style)
+        if (std.mem.startsWith(u8, function_name, "get_")) {
+            return "avoid get_ prefix: use nouns for simple getters (id() not get_id()) " ++
+                "or contextual verbs for operations (find_block() not get_block(), " ++
+                "load_config() not get_config())";
+        }
+        if (std.mem.startsWith(u8, function_name, "set_")) {
+            return "use contextual verb prefix instead of set_ " ++
+                "(e.g., update_id(), modify_state(), configure_option())";
+        }
+
+        // Allow generic type functions ending with 'Type' (e.g., BoundedArrayType)
+        if (std.mem.endsWith(u8, function_name, "Type")) {
+            return null; // Type-suffixed functions are allowed to use PascalCase
+        }
+
         // Simple check: if function name has camelCase, reject it
         if (has_camel_case_in_name(function_name)) {
             return "function names should use snake_case, not camelCase";
@@ -463,23 +532,65 @@ fn check_constant_naming(line: []const u8) ?[]const u8 {
 }
 
 fn is_valid_snake_case_function(name: []const u8) bool {
-    // Allow common verb prefixes
+    // TigerBeetle-style verb prefixes (no get_/set_)
     const valid_prefixes = [_][]const u8{
-        "get_",    "set_",     "is_",    "has_",    "can_",      "should_",
-        "create_", "destroy_", "init_",  "deinit_", "validate_", "process_",
-        "handle_", "execute_", "parse_", "encode_", "decode_",   "serialize_",
-        "try_",    "maybe_",   "as_",    "into_",   "to_",
+        // Query prefixes
+        "is_",          "has_",     "can_",     "should_",    "contains_",
+        // Lifecycle prefixes
+        "create_",      "destroy_", "init_",    "deinit_",    "open_",
+        "close_",       "start_",   "stop_",    "begin_",     "end_",
+        "reset_",       "clear_",
+        // Action prefixes
+          "process_", "execute_",   "handle_",
+        "perform_",     "apply_",   "revert_",  "validate_",  "verify_",
+        "check_",       "ensure_",  "assert_",  "confirm_",
+        // IO prefixes
+          "read_",
+        "write_",       "load_",    "save_",    "store_",     "fetch_",
+        "send_",        "receive_", "acquire_", "release_",   "allocate_",
+        "deallocate_",
+        // Transform prefixes
+         "parse_",   "encode_",  "decode_",    "serialize_",
+        "deserialize_", "format_",  "convert_", "transform_", "map_",
+        "filter_",      "reduce_",  "sort_",
+        // Update prefixes (TigerBeetle style: update_id not set_id)
+           "update_",    "modify_",
+        "change_",      "insert_",  "remove_",  "delete_",    "append_",
+        "prepend_",     "push_",    "pop_",     "swap_",      "move_",
+        // Search prefixes
+        "find_",        "search_",  "lookup_",  "locate_",    "discover_",
+        // Result prefixes
+        "try_",         "maybe_",   "as_",      "into_",      "to_",
+        "from_",
+        // Copy/clone prefixes
+               "copy_",    "clone_",   "duplicate_", "merge_",
+        "split_",       "join_",
+        // Debug/logging prefixes
+           "log_",     "trace_",     "debug_",
+        "warn_",        "error_",   "panic_",
+        // Connection prefixes
+          "connect_",   "disconnect_",
+        "bind_",        "unbind_",  "attach_",  "detach_",
+        // State prefixes
+           "commit_",
+        "rollback_",    "flush_",   "sync_",    "refresh_",   "reload_",
     };
 
     for (valid_prefixes) |prefix| {
         if (std.mem.startsWith(u8, name, prefix)) return true;
     }
 
-    // Allow noun getters
+    // Allow noun getters (TigerBeetle style: id() not get_id())
     return !std.mem.containsAtLeast(u8, name, 1, "_") or
         std.mem.endsWith(u8, name, "_count") or
         std.mem.endsWith(u8, name, "_size") or
-        std.mem.endsWith(u8, name, "_len");
+        std.mem.endsWith(u8, name, "_len") or
+        std.mem.endsWith(u8, name, "_capacity") or
+        std.mem.endsWith(u8, name, "_offset") or
+        std.mem.endsWith(u8, name, "_index") or
+        std.mem.endsWith(u8, name, "_timestamp") or
+        std.mem.endsWith(u8, name, "_duration") or
+        std.mem.endsWith(u8, name, "_timeout");
 }
 
 fn has_camel_case_identifier(line: []const u8) bool {
@@ -921,4 +1032,163 @@ test "tidy extensions" {
         // All other files are allowed regardless of extension
     }
     // No extension validation needed - all files are allowed
+}
+
+test "tidy naming conventions: TigerBeetle style enforcement" {
+    const test_cases = [_]struct {
+        code: []const u8,
+        should_pass: bool,
+        expected_error: ?[]const u8,
+    }{
+        // BAD: Banned get_/set_ patterns
+        .{
+            .code = "fn get_id(self: *const Block) u64 { return self.id; }",
+            .should_pass = false,
+            .expected_error = "avoid get_ prefix: use nouns for simple getters " ++
+                "(id() not get_id()) or contextual verbs for operations " ++
+                "(find_block() not get_block(), load_config() not get_config())",
+        },
+        .{
+            .code = "fn set_id(self: *Block, id: u64) void { self.id = id; }",
+            .should_pass = false,
+            .expected_error = "use contextual verb prefix instead of set_ " ++
+                "(e.g., update_id(), modify_state(), configure_option())",
+        },
+
+        // GOOD: TigerBeetle-style noun getters
+        .{
+            .code = "fn id(self: *const Block) u64 { return self.id; }",
+            .should_pass = true,
+            .expected_error = null,
+        },
+        .{
+            .code = "fn timestamp(self: *const Event) u64 { return self.ts; }",
+            .should_pass = true,
+            .expected_error = null,
+        },
+        .{
+            .code = "fn capacity(self: *const Buffer) usize { return self.cap; }",
+            .should_pass = true,
+            .expected_error = null,
+        },
+
+        // GOOD: TigerBeetle-style update prefixes
+        .{
+            .code = "fn update_id(self: *Block, id: u64) void { self.id = id; }",
+            .should_pass = true,
+            .expected_error = null,
+        },
+        .{
+            .code = "fn update_metadata(self: *Block, meta: Metadata) void {}",
+            .should_pass = true,
+            .expected_error = null,
+        },
+
+        // GOOD: Valid verb prefixes
+        .{
+            .code = "fn process_query(query: []const u8) !QueryResult {}",
+            .should_pass = true,
+            .expected_error = null,
+        },
+        .{
+            .code = "fn validate_block(block: *const Block) !void {}",
+            .should_pass = true,
+            .expected_error = null,
+        },
+        .{
+            .code = "fn verify_signature(sig: []const u8) !bool {}",
+            .should_pass = true,
+            .expected_error = null,
+        },
+        .{
+            .code = "fn receive_message(conn: *Connection) !Message {}",
+            .should_pass = true,
+            .expected_error = null,
+        },
+        .{
+            .code = "fn serialize_header(header: *Header) []u8 {}",
+            .should_pass = true,
+            .expected_error = null,
+        },
+        .{
+            .code = "fn find_block_by_id(blocks: []Block, id: u64) ?*Block {}",
+            .should_pass = true,
+            .expected_error = null,
+        },
+
+        // GOOD: Boolean query prefixes
+        .{
+            .code = "fn is_valid(block: *const Block) bool { return true; }",
+            .should_pass = true,
+            .expected_error = null,
+        },
+        .{
+            .code = "fn has_dependency(block: *const Block, dep_id: u64) bool {}",
+            .should_pass = true,
+            .expected_error = null,
+        },
+        .{
+            .code = "fn can_execute(query: *const Query) bool { return true; }",
+            .should_pass = true,
+            .expected_error = null,
+        },
+
+        // BAD: camelCase functions
+        .{
+            .code = "fn processQuery(query: []const u8) !QueryResult {}",
+            .should_pass = false,
+            .expected_error = "function names should use snake_case, not camelCase",
+        },
+        .{
+            .code = "fn validateBlock(block: *const Block) !void {}",
+            .should_pass = false,
+            .expected_error = "function names should use snake_case, not camelCase",
+        },
+
+        // GOOD: Test functions are allowed
+        .{
+            .code = "test \"query processing works\" {}",
+            .should_pass = true,
+            .expected_error = null,
+        },
+        .{
+            .code = "fn testHelper() void {}",
+            .should_pass = true,
+            .expected_error = null,
+        },
+    };
+
+    for (test_cases) |case| {
+        const source_file = SourceFile{
+            .path = "test.zig",
+            .text = @ptrCast(case.code),
+        };
+
+        const result = tidy_naming_conventions(source_file);
+
+        if (case.should_pass) {
+            if (result != null) {
+                std.debug.print("Expected '{s}' to pass, but got error: {s}\n", .{
+                    case.code, result.?.message,
+                });
+                return error.UnexpectedNamingError;
+            }
+        } else {
+            if (result == null) {
+                std.debug.print("Expected '{s}' to fail, but it passed\n", .{
+                    case.code,
+                });
+                return error.MissingNamingError;
+            }
+
+            if (case.expected_error) |expected| {
+                if (!std.mem.eql(u8, result.?.message, expected)) {
+                    std.debug.print("Expected error '{s}' but got '{s}' for code: {s}\n", .{
+                        expected, result.?.message, case.code,
+                    });
+                    return error.WrongNamingError;
+                }
+            }
+        }
+    }
 }

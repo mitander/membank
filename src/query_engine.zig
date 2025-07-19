@@ -145,7 +145,7 @@ pub const QueryEngine = struct {
 
         // Retrieve each requested block
         for (query.block_ids) |block_id| {
-            const maybe_block = self.storage_engine.get_block_by_id(block_id) catch |err|
+            const maybe_block = self.storage_engine.find_block_by_id(block_id) catch |err|
                 switch (err) {
                     storage.StorageError.BlockNotFound => continue, // Skip missing blocks
                     else => return err,
@@ -167,8 +167,8 @@ pub const QueryEngine = struct {
         return QueryResult.init(self.allocator, owned_blocks);
     }
 
-    /// Get a single block by ID. Convenience method for single block queries.
-    pub fn get_block_by_id(self: *QueryEngine, block_id: BlockId) !QueryResult {
+    /// Find a single block by ID. Convenience method for single block queries.
+    pub fn find_block_by_id(self: *QueryEngine, block_id: BlockId) !QueryResult {
         const query = GetBlocksQuery{
             .block_ids = &[_]BlockId{block_id},
         };
@@ -176,7 +176,7 @@ pub const QueryEngine = struct {
     }
 
     /// Get query engine statistics.
-    pub fn get_statistics(self: *QueryEngine) QueryStatistics {
+    pub fn statistics(self: *QueryEngine) QueryStatistics {
         return QueryStatistics{
             .total_blocks_stored = self.storage_engine.block_count(),
             .queries_executed = 0, // TODO Add query counting
@@ -296,7 +296,7 @@ test "QueryEngine basic operations" {
     try storage_engine.put_block(test_block);
 
     // Test single block query
-    const result = try query_engine.get_block_by_id(test_id);
+    const result = try query_engine.find_block_by_id(test_id);
     defer result.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), result.count);
@@ -305,7 +305,7 @@ test "QueryEngine basic operations" {
 
     // Test missing block
     const missing_id = try BlockId.from_hex("fedcba9876543210123456789abcdef0");
-    const missing_result = try query_engine.get_block_by_id(missing_id);
+    const missing_result = try query_engine.find_block_by_id(missing_id);
     defer missing_result.deinit();
 
     try std.testing.expectEqual(@as(u32, 0), missing_result.count);

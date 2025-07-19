@@ -27,8 +27,8 @@ test "wal recovery: empty directory" {
     defer sim.deinit();
 
     const node1 = try sim.add_node();
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = StorageEngine.init(
         allocator,
@@ -53,8 +53,8 @@ test "wal recovery: missing wal directory" {
     defer sim.deinit();
 
     const node1 = try sim.add_node();
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = StorageEngine.init(
         allocator,
@@ -79,8 +79,8 @@ test "wal recovery: single block recovery" {
     defer sim.deinit();
 
     const node1 = try sim.add_node();
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     // First storage engine: write data
     var storage_engine1 = StorageEngine.init(
@@ -120,7 +120,7 @@ test "wal recovery: single block recovery" {
     // Verify block was recovered
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
 
-    const recovered_block = try storage_engine2.get_block_by_id(test_block.id);
+    const recovered_block = try storage_engine2.find_block_by_id(test_block.id);
     try testing.expect(test_block.id.eql(recovered_block.id));
     try testing.expectEqual(test_block.version, recovered_block.version);
     try testing.expectEqualStrings(test_block.source_uri, recovered_block.source_uri);
@@ -135,8 +135,8 @@ test "wal recovery: multiple blocks and types" {
     defer sim.deinit();
 
     const node1 = try sim.add_node();
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     // First storage engine: write data
     var storage_engine1 = StorageEngine.init(
@@ -199,11 +199,11 @@ test "wal recovery: multiple blocks and types" {
     // Block1 should not exist
     try testing.expectError(
         storage.StorageError.BlockNotFound,
-        storage_engine2.get_block_by_id(block1.id),
+        storage_engine2.find_block_by_id(block1.id),
     );
 
     // Block2 should exist
-    const recovered_block2 = try storage_engine2.get_block_by_id(block2.id);
+    const recovered_block2 = try storage_engine2.find_block_by_id(block2.id);
     try testing.expect(block2.id.eql(recovered_block2.id));
     try testing.expectEqual(block2.version, recovered_block2.version);
 }
@@ -215,8 +215,8 @@ test "wal recovery: multiple wal files" {
     defer sim.deinit();
 
     const node1 = try sim.add_node();
-    const node1_ptr = sim.get_node(node1);
-    var node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    var node1_vfs = node1_ptr.filesystem_interface();
 
     // Create multiple WAL files manually to test file discovery
     const data_dir = "wal_multifile_data";
@@ -294,7 +294,7 @@ test "wal recovery: multiple wal files" {
     try testing.expectEqual(@as(u32, 3), storage_engine.block_count());
 
     for (blocks) |expected_block| {
-        const recovered = try storage_engine.get_block_by_id(expected_block.id);
+        const recovered = try storage_engine.find_block_by_id(expected_block.id);
         try testing.expect(expected_block.id.eql(recovered.id));
         try testing.expectEqualStrings(expected_block.content, recovered.content);
     }
@@ -307,8 +307,8 @@ test "wal recovery: corruption handling - invalid checksum" {
     defer sim.deinit();
 
     const node1 = try sim.add_node();
-    const node1_ptr = sim.get_node(node1);
-    var node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    var node1_vfs = node1_ptr.filesystem_interface();
 
     // Create storage and write valid block first
     var storage_engine1 = StorageEngine.init(
@@ -337,7 +337,7 @@ test "wal recovery: corruption handling - invalid checksum" {
     defer corrupt_file.close() catch {};
 
     // Read current content
-    const file_size = try corrupt_file.get_size();
+    const file_size = try corrupt_file.file_size();
     const content = try allocator.alloc(u8, file_size);
     defer allocator.free(content);
     _ = try corrupt_file.read(content);
@@ -374,8 +374,8 @@ test "wal recovery: corruption handling - incomplete entry" {
     defer sim.deinit();
 
     const node1 = try sim.add_node();
-    const node1_ptr = sim.get_node(node1);
-    var node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    var node1_vfs = node1_ptr.filesystem_interface();
 
     // Create directory structure
     const data_dir = "wal_incomplete_data";
@@ -423,8 +423,8 @@ test "wal recovery: deterministic behavior" {
         defer sim.deinit();
 
         const node1 = try sim.add_node();
-        const node1_ptr = sim.get_node(node1);
-        const node1_vfs = node1_ptr.get_vfs();
+        const node1_ptr = sim.find_node(node1);
+        const node1_vfs = node1_ptr.filesystem_interface();
 
         const data_dir = try std.fmt.allocPrint(
             allocator,
@@ -482,8 +482,8 @@ test "wal recovery: large blocks" {
     defer sim.deinit();
 
     const node1 = try sim.add_node();
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     // Create large content (1MB)
     const large_content = try allocator.alloc(u8, 1024 * 1024);
@@ -524,7 +524,7 @@ test "wal recovery: large blocks" {
 
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
 
-    const recovered = try storage_engine2.get_block_by_id(large_block.id);
+    const recovered = try storage_engine2.find_block_by_id(large_block.id);
     try testing.expectEqual(large_content.len, recovered.content.len);
     try testing.expect(std.mem.eql(u8, large_content, recovered.content));
 }
@@ -536,8 +536,8 @@ test "wal recovery: stress test with many entries" {
     defer sim.deinit();
 
     const node1 = try sim.add_node();
-    const node1_ptr = sim.get_node(node1);
-    const node1_vfs = node1_ptr.get_vfs();
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
 
     const num_blocks = 100;
 
@@ -600,7 +600,7 @@ test "wal recovery: stress test with many entries" {
 
     // Verify all blocks were recovered correctly
     for (expected_blocks.items) |expected| {
-        const recovered = try storage_engine2.get_block_by_id(expected.id);
+        const recovered = try storage_engine2.find_block_by_id(expected.id);
         try testing.expect(expected.id.eql(recovered.id));
         try testing.expectEqual(expected.version, recovered.version);
         try testing.expectEqualStrings(expected.source_uri, recovered.source_uri);

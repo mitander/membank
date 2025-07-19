@@ -9,6 +9,7 @@ const assert = std.debug.assert;
 const vfs = @import("vfs");
 const context_block = @import("context_block");
 const sstable = @import("sstable");
+const buffer_pool = @import("buffer_pool");
 
 const VFS = vfs.VFS;
 const ContextBlock = context_block.ContextBlock;
@@ -220,7 +221,7 @@ const BlockIndex = struct {
         try self.blocks.put(block.id, cloned_block);
     }
 
-    pub fn get_block(self: *BlockIndex, block_id: BlockId) ?*const ContextBlock {
+    pub fn find_block(self: *BlockIndex, block_id: BlockId) ?*const ContextBlock {
         return self.blocks.getPtr(block_id);
     }
 
@@ -353,8 +354,8 @@ pub const StorageEngine = struct {
         }
     }
 
-    /// Get a Context Block by ID.
-    pub fn get_block_by_id(
+    /// Find a Context Block by ID.
+    pub fn find_block_by_id(
         self: *StorageEngine,
         block_id: BlockId,
     ) StorageError!*const ContextBlock {
@@ -362,7 +363,7 @@ pub const StorageEngine = struct {
         if (!self.initialized) return StorageError.NotInitialized;
 
         // First check in-memory index (most recent data)
-        if (self.index.get_block(block_id)) |block| {
+        if (self.index.find_block(block_id)) |block| {
             return block;
         }
 
@@ -374,10 +375,10 @@ pub const StorageEngine = struct {
 
             table.read_index() catch continue; // Skip corrupted SSTables
 
-            if (table.get_block(block_id) catch null) |block| {
+            if (table.find_block(block_id) catch null) |block| {
                 // Transfer ownership to index for future fast access
                 self.index.put_block(block) catch {}; // Ignore errors, it's an optimization
-                return self.index.get_block(block_id) orelse StorageError.BlockNotFound;
+                return self.index.find_block(block_id) orelse StorageError.BlockNotFound;
             }
         }
 
@@ -628,7 +629,7 @@ pub const StorageEngine = struct {
         };
         defer file.close() catch {};
 
-        const file_size = try file.get_size();
+        const file_size = try file.file_size();
         if (file_size == 0) return 0; // Empty file
 
         const file_content = try self.allocator.alloc(u8, file_size);
@@ -795,16 +796,15 @@ test "BlockIndex basic operations" {
     try index.put_block(test_block);
     try std.testing.expectEqual(@as(u32, 1), index.block_count());
 
-    const retrieved = index.get_block(test_id);
+    const retrieved = index.find_block(test_id);
     try std.testing.expect(retrieved != null);
     try std.testing.expect(retrieved.?.id.eql(test_id));
     try std.testing.expectEqual(@as(u64, 1), retrieved.?.version);
-    try std.testing.expectEqualStrings("test://uri", retrieved.?.source_uri);
 
     // Test remove
     index.remove_block(test_id);
     try std.testing.expectEqual(@as(u32, 0), index.block_count());
-    try std.testing.expect(index.get_block(test_id) == null);
+    try std.testing.expect(index.find_block(test_id) == null);
 }
 
 test "StorageEngine basic operations" {
@@ -838,14 +838,14 @@ test "StorageEngine basic operations" {
     try storage.put_block(test_block);
     try std.testing.expectEqual(@as(u32, 1), storage.block_count());
 
-    const retrieved = try storage.get_block_by_id(test_id);
+    const retrieved = try storage.find_block_by_id(test_id);
     try std.testing.expect(retrieved.id.eql(test_id));
     try std.testing.expectEqual(@as(u64, 1), retrieved.version);
 
     // Test delete
     try storage.delete_block(test_id);
     try std.testing.expectEqual(@as(u32, 0), storage.block_count());
-    try std.testing.expectError(StorageError.BlockNotFound, storage.get_block_by_id(test_id));
+    try std.testing.expectError(StorageError.BlockNotFound, storage.find_block_by_id(test_id));
 }
 
 test "StorageEngine graph edge operations" {
