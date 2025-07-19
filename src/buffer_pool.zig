@@ -10,7 +10,7 @@ const assert = std.debug.assert;
 pub const MAX_BUFFER_SIZE = 1024 * 1024; // 1MB
 
 /// Number of buffers per pool size class
-const BUFFERS_PER_CLASS = 64;
+const BUFFERS_PER_CLASS = 16;
 
 /// Buffer size classes (powers of 2 for efficient allocation)
 const BufferSizeClass = enum(u8) {
@@ -297,8 +297,6 @@ pub const PooledAllocator = struct {
 
         // Try pool allocation first
         if (self.pool.acquire_buffer(len)) |pooled_buffer| {
-            // Store metadata about pooled allocation (we'll need this for free)
-            // For now, return the raw pointer and track via pool statistics
             return pooled_buffer.data.ptr;
         }
 
@@ -325,8 +323,8 @@ pub const PooledAllocator = struct {
     fn free(ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
         const self: *Self = @ptrCast(@alignCast(ctx));
 
-        // Check if this buffer came from our pool
-        // For now, assume it's from heap allocator (this needs improvement)
+        // For now, assume all frees are heap allocations to avoid corruption
+        // TODO: Implement proper pool/heap distinction
         self.fallback_allocator.vtable.free(self.fallback_allocator.ptr, buf, buf_align, ret_addr);
     }
 };

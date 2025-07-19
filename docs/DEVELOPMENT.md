@@ -189,6 +189,47 @@ zig run src/tidy.zig
 ./zig/zig test src/assert.zig
 ```
 
+#### Integration Tests
+
+```bash
+# Run comprehensive integration tests
+./zig/zig build integration
+
+# Run all tests including integration
+./zig/zig build test
+```
+
+The integration test suite provides comprehensive validation of the complete system:
+
+**Test Coverage:**
+- **Full Data Lifecycle**: Ingestion → Storage → Query → Compaction
+- **Concurrent Operations**: Interleaved reads/writes with realistic timing
+- **Recovery Scenarios**: WAL recovery and data consistency validation
+- **Performance Characteristics**: Large-scale workloads with latency validation
+
+**Key Test Scenarios:**
+1. **integration: full data lifecycle with compaction**
+   - 1200+ blocks to trigger SSTable flushes
+   - Graph relationships and edge traversal
+   - Block updates and deletions
+   - Performance metrics validation
+
+2. **integration: concurrent storage and query operations**
+   - Multi-node simulation with network latency
+   - Interleaved read/write workloads
+   - Batch query validation
+
+3. **integration: storage recovery and query consistency**
+   - WAL-based recovery simulation
+   - Data consistency across restarts
+   - Query result formatting validation
+
+4. **integration: large scale performance characteristics**
+   - 2000+ blocks with realistic content sizes
+   - Write throughput: >1000 blocks/second
+   - Query throughput: >10k queries/second
+   - Latency targets: <1ms writes, <100μs reads
+
 #### Benchmarks
 
 ```bash

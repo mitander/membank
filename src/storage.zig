@@ -671,6 +671,9 @@ pub const StorageEngine = struct {
             table.read_index() catch continue; // Skip corrupted SSTables
 
             if (table.find_block(block_id) catch null) |block| {
+                // Free the original block after cloning into index
+                defer block.deinit(self.allocator);
+
                 // Transfer ownership to index for future fast access
                 self.index.put_block(block) catch {}; // Ignore errors, it's an optimization
 
@@ -1081,21 +1084,29 @@ pub const StorageEngine = struct {
         if (file_size == 0) return 0; // Empty file
 
         // Use buffer pool for file reading when possible (hot path during recovery)
-        const file_content = blk: {
+        const BufferInfo = struct {
+            content: []u8,
+            pooled_buffer: ?buffer_pool.PooledBuffer,
+        };
+
+        const buffer_info = blk: {
             if (self.buffer_pool.acquire_buffer(file_size)) |pooled_buffer| {
-                break :blk pooled_buffer.slice(file_size);
+                break :blk BufferInfo{ .content = pooled_buffer.slice(file_size), .pooled_buffer = pooled_buffer };
             } else {
-                break :blk self.allocator.alloc(u8, file_size) catch |err| {
+                const heap_content = self.allocator.alloc(u8, file_size) catch |err| {
                     return error_context.storage_error(
                         err,
                         error_context.file_context("allocate_wal_recovery_buffer", file_path),
                     );
                 };
+                break :blk BufferInfo{ .content = heap_content, .pooled_buffer = null };
             }
         };
+        const file_content = buffer_info.content;
         defer {
-            // Only free if it came from allocator, not pool
-            if (file_size > buffer_pool.MAX_BUFFER_SIZE) {
+            if (buffer_info.pooled_buffer) |pooled_buffer| {
+                pooled_buffer.release();
+            } else {
                 self.allocator.free(file_content);
             }
         }

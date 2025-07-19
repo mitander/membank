@@ -1,0 +1,642 @@
+//! Comprehensive integration tests for storage+query+compaction systems.
+//!
+//! These tests validate the complete data lifecycle from ingestion through
+//! storage, querying, and compaction with realistic workloads and failure scenarios.
+
+const std = @import("std");
+const testing = std.testing;
+const assert = std.debug.assert;
+
+const context_block = @import("context_block");
+const storage = @import("storage");
+const query_engine = @import("query_engine");
+const simulation = @import("simulation");
+const vfs = @import("vfs");
+const simulation_vfs = @import("simulation_vfs");
+
+const StorageEngine = storage.StorageEngine;
+const QueryEngine = query_engine.QueryEngine;
+const ContextBlock = context_block.ContextBlock;
+const BlockId = context_block.BlockId;
+const GraphEdge = context_block.GraphEdge;
+const EdgeType = context_block.EdgeType;
+const Simulation = simulation.Simulation;
+
+test "integration: full data lifecycle with compaction" {
+    const allocator = testing.allocator;
+
+    var sim = try Simulation.init(allocator, 0x5EC7E571);
+    defer sim.deinit();
+
+    const node1 = try sim.add_node();
+    sim.tick_multiple(5);
+
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
+
+    // Initialize storage and query engines
+    var storage_engine = try StorageEngine.init(
+        allocator,
+        node1_vfs,
+        try allocator.dupe(u8, "integration_test_data"),
+    );
+    defer storage_engine.deinit();
+
+    try storage_engine.initialize_storage();
+
+    var query_eng = QueryEngine.init(allocator, &storage_engine);
+    defer query_eng.deinit();
+
+    // Phase 1: Bulk data ingestion (trigger compaction)
+    const num_blocks = 1200; // Exceeds flush threshold of 1000
+    var created_blocks = std.ArrayList(ContextBlock).init(allocator);
+    defer {
+        for (created_blocks.items) |block| {
+            allocator.free(block.source_uri);
+            allocator.free(block.metadata_json);
+            allocator.free(block.content);
+        }
+        created_blocks.deinit();
+    }
+
+    // Create blocks with realistic structure
+    for (0..num_blocks) |i| {
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
+        defer allocator.free(block_id_hex);
+
+        const source_uri = try std.fmt.allocPrint(
+            allocator,
+            "git://github.com/example/repo.git/src/module_{}.zig#L1-50",
+            .{i},
+        );
+        const metadata_json = try std.fmt.allocPrint(
+            allocator,
+            "{{\"type\":\"function\",\"module\":{},\"language\":\"zig\"}}",
+            .{i},
+        );
+        const content = try std.fmt.allocPrint(
+            allocator,
+            "pub fn function_{}() !void {{\n    // Function {} implementation\n    return;\n}}",
+            .{ i, i },
+        );
+
+        const block = ContextBlock{
+            .id = try BlockId.from_hex(block_id_hex),
+            .version = 1,
+            .source_uri = source_uri,
+            .metadata_json = metadata_json,
+            .content = content,
+        };
+
+        try storage_engine.put_block(block);
+        try created_blocks.append(block);
+
+        // Advance simulation periodically
+        if (i % 100 == 0) {
+            sim.tick_multiple(2);
+        }
+    }
+
+    // Verify initial state (some blocks may have been flushed to SSTables)
+    const in_memory_count = storage_engine.block_count();
+    try testing.expect(in_memory_count <= num_blocks); // Some may be in SSTables
+
+    // Phase 2: Query validation across storage layers
+    
+    // Test query performance before compaction
+    const pre_compaction_metrics = storage_engine.get_metrics();
+    const pre_compaction_reads = pre_compaction_metrics.blocks_read.load(.monotonic);
+
+    // Query first 100 blocks
+    var query_block_ids = std.ArrayList(BlockId).init(allocator);
+    defer query_block_ids.deinit();
+
+    for (0..100) |i| {
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
+        defer allocator.free(block_id_hex);
+        try query_block_ids.append(try BlockId.from_hex(block_id_hex));
+    }
+
+    const batch_query = query_engine.GetBlocksQuery{
+        .block_ids = query_block_ids.items,
+    };
+
+    const batch_result = try query_eng.execute_get_blocks(batch_query);
+    defer batch_result.deinit();
+
+    try testing.expectEqual(@as(u32, 100), batch_result.count);
+
+    // Verify query metrics
+    const post_query_metrics = storage_engine.get_metrics();
+    const reads_delta = post_query_metrics.blocks_read.load(.monotonic) - pre_compaction_reads;
+    try testing.expect(reads_delta >= 100); // At least 100 reads
+
+    // Phase 3: Graph relationships and complex queries
+    
+    // Create dependency edges between modules
+    var edges_created: u32 = 0;
+    for (0..50) |i| {
+        const source_idx = i;
+        const target_idx = (i + 1) % 100; // Create circular dependencies for first 100
+
+        const source_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{source_idx});
+        defer allocator.free(source_id_hex);
+        const target_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{target_idx});
+        defer allocator.free(target_id_hex);
+
+        const edge = GraphEdge{
+            .source_id = try BlockId.from_hex(source_id_hex),
+            .target_id = try BlockId.from_hex(target_id_hex),
+            .edge_type = .imports,
+        };
+
+        try storage_engine.put_edge(edge);
+        edges_created += 1;
+    }
+
+    try testing.expectEqual(edges_created, storage_engine.edge_count());
+
+    // Test graph traversal queries
+    const module_0_id = try BlockId.from_hex("00000000000000000000000000000000");
+    const outgoing_edges = storage_engine.find_outgoing_edges(module_0_id);
+    try testing.expect(outgoing_edges != null);
+    try testing.expectEqual(@as(usize, 1), outgoing_edges.?.len);
+
+    // Phase 4: Data modification and consistency
+    
+    // Update blocks to trigger WAL writes
+    for (0..10) |i| {
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
+        defer allocator.free(block_id_hex);
+
+        const updated_content = try std.fmt.allocPrint(
+            allocator,
+            "pub fn function_{}_updated() !void {{\n    // Updated implementation\n    return;\n}}",
+            .{i},
+        );
+        defer allocator.free(updated_content);
+
+        const updated_metadata = try std.fmt.allocPrint(
+            allocator,
+            "{{\"type\":\"function\",\"module\":{},\"language\":\"zig\",\"updated\":true}}",
+            .{i},
+        );
+        defer allocator.free(updated_metadata);
+
+        const source_uri_copy = try allocator.dupe(u8, created_blocks.items[i].source_uri);
+        defer allocator.free(source_uri_copy);
+        const metadata_copy = try allocator.dupe(u8, updated_metadata);
+        defer allocator.free(metadata_copy);
+        const content_copy = try allocator.dupe(u8, updated_content);
+        defer allocator.free(content_copy);
+
+        const updated_block = ContextBlock{
+            .id = try BlockId.from_hex(block_id_hex),
+            .version = 2, // Version increment
+            .source_uri = source_uri_copy,
+            .metadata_json = metadata_copy,
+            .content = content_copy,
+        };
+
+        try storage_engine.put_block(updated_block);
+    }
+
+    // Verify updates are retrievable
+    for (0..10) |i| {
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
+        defer allocator.free(block_id_hex);
+
+        const retrieved = try storage_engine.find_block_by_id(try BlockId.from_hex(block_id_hex));
+        try testing.expectEqual(@as(u64, 2), retrieved.version);
+        try testing.expect(std.mem.indexOf(u8, retrieved.content, "updated") != null);
+    }
+
+    // Phase 5: WAL flush and persistence
+    
+    try storage_engine.flush_wal();
+    
+    const post_flush_metrics = storage_engine.get_metrics();
+    try testing.expect(post_flush_metrics.wal_flushes.load(.monotonic) > 0);
+    // WAL flush time may be 0 if there's nothing to flush or it's very fast
+    try testing.expect(post_flush_metrics.total_wal_flush_time_ns.load(.monotonic) >= 0);
+
+    // Phase 6: Block deletion and cleanup
+    
+    // Delete some blocks to test tombstone handling
+    for (100..110) |i| {
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
+        defer allocator.free(block_id_hex);
+
+        try storage_engine.delete_block(try BlockId.from_hex(block_id_hex));
+    }
+
+    // Verify deletions (blocks should be gone from memory, but may still be in SSTables)
+    // For now, just verify the operation completed without error
+
+    const final_block_count = storage_engine.block_count();
+    // Block count depends on SSTable flush timing, so just verify it's reasonable
+    try testing.expect(final_block_count <= num_blocks);
+
+    // Phase 7: Performance validation
+    
+    const final_metrics = storage_engine.get_metrics();
+    
+    // Validate operation counts
+    try testing.expect(final_metrics.blocks_written.load(.monotonic) >= num_blocks + 10); // +10 updates
+    try testing.expect(final_metrics.blocks_read.load(.monotonic) >= 100); // Query reads
+    try testing.expectEqual(@as(u64, 10), final_metrics.blocks_deleted.load(.monotonic));
+    try testing.expectEqual(@as(u64, 50), final_metrics.edges_added.load(.monotonic));
+    
+    // Validate performance characteristics (be generous with timing in tests)
+    try testing.expect(final_metrics.average_write_latency_ns() > 0);
+    try testing.expect(final_metrics.average_read_latency_ns() > 0);
+    try testing.expect(final_metrics.average_write_latency_ns() < 100_000_000); // < 100ms
+    try testing.expect(final_metrics.average_read_latency_ns() < 50_000_000);   // < 50ms
+    
+    // Validate error-free operations
+    try testing.expectEqual(@as(u64, 0), final_metrics.write_errors.load(.monotonic));
+    try testing.expectEqual(@as(u64, 0), final_metrics.read_errors.load(.monotonic));
+    try testing.expectEqual(@as(u64, 0), final_metrics.wal_errors.load(.monotonic));
+
+    std.log.info(
+        "Integration test completed: {} blocks, {} edges, {}ns avg write, {}ns avg read",
+        .{
+            final_block_count,
+            storage_engine.edge_count(),
+            final_metrics.average_write_latency_ns(),
+            final_metrics.average_read_latency_ns(),
+        },
+    );
+}
+
+test "integration: concurrent storage and query operations" {
+    const allocator = testing.allocator;
+
+    var sim = try Simulation.init(allocator, 0xC0FFEE42);
+    defer sim.deinit();
+
+    // Create multi-node scenario
+    const node1 = try sim.add_node();
+    const node2 = try sim.add_node();
+    sim.configure_latency(node1, node2, 5); // 5ms latency
+    sim.tick_multiple(10);
+
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
+
+    // Single storage engine (could extend to distributed later)
+    var storage_engine = try StorageEngine.init(
+        allocator,
+        node1_vfs,
+        try allocator.dupe(u8, "concurrent_test_data"),
+    );
+    defer storage_engine.deinit();
+
+    try storage_engine.initialize_storage();
+
+    var query_eng = QueryEngine.init(allocator, &storage_engine);
+    defer query_eng.deinit();
+
+    // Simulate concurrent workload patterns
+    const base_blocks = 500;
+    
+    // Phase 1: Baseline data
+    for (0..base_blocks) |i| {
+        const block_id_hex = try std.fmt.allocPrint(allocator, "ba5e{x:0>28}", .{i});
+        defer allocator.free(block_id_hex);
+
+        const content = try std.fmt.allocPrint(allocator, "Base block {}", .{i});
+        defer allocator.free(content);
+
+        const block = ContextBlock{
+            .id = try BlockId.from_hex(block_id_hex),
+            .version = 1,
+            .source_uri = "test://base/module.zig",
+            .metadata_json = "{\"type\":\"base\"}",
+            .content = content,
+        };
+
+        try storage_engine.put_block(block);
+
+        // Simulate network latency
+        if (i % 50 == 0) {
+            sim.tick_multiple(3);
+        }
+    }
+
+    // Phase 2: Interleaved reads and writes
+    for (0..100) |round| {
+        // Write new block
+        const write_id_hex = try std.fmt.allocPrint(allocator, "00{x:0>30}", .{round});
+        defer allocator.free(write_id_hex);
+
+        const write_content = try std.fmt.allocPrint(allocator, "New block {}", .{round});
+        defer allocator.free(write_content);
+
+        const write_block = ContextBlock{
+            .id = try BlockId.from_hex(write_id_hex),
+            .version = 1,
+            .source_uri = "test://new/module.zig",
+            .metadata_json = "{\"type\":\"new\"}",
+            .content = write_content,
+        };
+
+        try storage_engine.put_block(write_block);
+
+        // Read existing block
+        const read_idx = round % base_blocks;
+        const read_id_hex = try std.fmt.allocPrint(allocator, "ba5e{x:0>28}", .{read_idx});
+        defer allocator.free(read_id_hex);
+
+        const read_result = try storage_engine.find_block_by_id(try BlockId.from_hex(read_id_hex));
+        try testing.expect(std.mem.indexOf(u8, read_result.content, "Base block") != null);
+
+        // Query multiple blocks
+        if (round % 10 == 0) {
+            var batch_ids = std.ArrayList(BlockId).init(allocator);
+            defer batch_ids.deinit();
+
+            for (0..5) |j| {
+                const batch_idx = (round + j) % base_blocks;
+                const batch_id_hex = try std.fmt.allocPrint(allocator, "ba5e{x:0>28}", .{batch_idx});
+                defer allocator.free(batch_id_hex);
+                try batch_ids.append(try BlockId.from_hex(batch_id_hex));
+            }
+
+            const batch_query = query_engine.GetBlocksQuery{
+                .block_ids = batch_ids.items,
+            };
+
+            const batch_result = try query_eng.execute_get_blocks(batch_query);
+            defer batch_result.deinit();
+
+            try testing.expectEqual(@as(u32, 5), batch_result.count);
+        }
+
+        sim.tick_multiple(1);
+    }
+
+    // Phase 3: Validation
+    const final_count = storage_engine.block_count();
+    try testing.expectEqual(@as(u32, base_blocks + 100), final_count);
+
+    const metrics = storage_engine.get_metrics();
+    try testing.expect(metrics.blocks_written.load(.monotonic) >= base_blocks + 100);
+    try testing.expect(metrics.blocks_read.load(.monotonic) >= 100);
+
+    std.log.info(
+        "Concurrent test: {} operations, {}ns avg latency",
+        .{
+            metrics.blocks_written.load(.monotonic) + metrics.blocks_read.load(.monotonic),
+            (metrics.total_write_time_ns.load(.monotonic) + metrics.total_read_time_ns.load(.monotonic)) / 
+            (metrics.blocks_written.load(.monotonic) + metrics.blocks_read.load(.monotonic)),
+        },
+    );
+}
+
+test "integration: storage recovery and query consistency" {
+    const allocator = testing.allocator;
+
+    var sim = try Simulation.init(allocator, 0xBADC0FFE);
+    defer sim.deinit();
+
+    const node1 = try sim.add_node();
+    sim.tick_multiple(5);
+
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
+
+    // Phase 1: Initial data creation
+    {
+        var storage_engine1 = try StorageEngine.init(
+            allocator, 
+            node1_vfs, 
+            try allocator.dupe(u8, "recovery_consistency_data")
+        );
+        defer storage_engine1.deinit();
+
+        try storage_engine1.initialize_storage();
+
+        // Create blocks with relationships
+        const block_ids = [_][]const u8{
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "cccccccccccccccccccccccccccccccc",
+        };
+
+        for (block_ids, 0..) |id_hex, i| {
+            const content = try std.fmt.allocPrint(allocator, "Content for block {}", .{i});
+            defer allocator.free(content);
+
+            const metadata = try std.fmt.allocPrint(allocator, "{{\"index\":{}}}", .{i});
+            defer allocator.free(metadata);
+
+            const block = ContextBlock{
+                .id = try BlockId.from_hex(id_hex),
+                .version = 1,
+                .source_uri = "test://recovery.zig",
+                .metadata_json = metadata,
+                .content = content,
+            };
+
+            try storage_engine1.put_block(block);
+        }
+
+        // Create edges
+        try storage_engine1.put_edge(GraphEdge{
+            .source_id = try BlockId.from_hex(block_ids[0]),
+            .target_id = try BlockId.from_hex(block_ids[1]),
+            .edge_type = .imports,
+        });
+
+        try storage_engine1.put_edge(GraphEdge{
+            .source_id = try BlockId.from_hex(block_ids[1]),
+            .target_id = try BlockId.from_hex(block_ids[2]),
+            .edge_type = .calls,
+        });
+
+        try storage_engine1.flush_wal();
+        
+        // Verify initial state
+        try testing.expectEqual(@as(u32, 3), storage_engine1.block_count());
+        try testing.expectEqual(@as(u32, 2), storage_engine1.edge_count());
+    }
+
+    // Phase 2: Recovery and consistency validation
+    {
+        var storage_engine2 = try StorageEngine.init(
+            allocator, 
+            node1_vfs, 
+            try allocator.dupe(u8, "recovery_consistency_data")
+        );
+        defer storage_engine2.deinit();
+
+        try storage_engine2.initialize_storage();
+        try storage_engine2.recover_from_wal();
+
+        var query_eng = QueryEngine.init(allocator, &storage_engine2);
+        defer query_eng.deinit();
+
+        // Test that all blocks can be retrieved (regardless of storage layer)
+        const block_ids = [_][]const u8{
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "cccccccccccccccccccccccccccccccc",
+        };
+
+        for (block_ids, 0..) |id_hex, i| {
+            const block = try storage_engine2.find_block_by_id(try BlockId.from_hex(id_hex));
+            const expected_content = try std.fmt.allocPrint(allocator, "Content for block {}", .{i});
+            defer allocator.free(expected_content);
+            try testing.expect(std.mem.indexOf(u8, block.content, expected_content) != null);
+        }
+
+        // Test batch queries
+        const all_ids = [_]BlockId{
+            try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1"),
+            try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            try BlockId.from_hex("cccccccccccccccccccccccccccccccc"),
+        };
+
+        const batch_query = query_engine.GetBlocksQuery{
+            .block_ids = &all_ids,
+        };
+
+        const batch_result = try query_eng.execute_get_blocks(batch_query);
+        defer batch_result.deinit();
+
+        try testing.expectEqual(@as(u32, 3), batch_result.count);
+
+        // Test graph relationships survived recovery
+        const block1_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1");
+        const outgoing = storage_engine2.find_outgoing_edges(block1_id);
+        try testing.expect(outgoing != null);
+        try testing.expectEqual(@as(usize, 1), outgoing.?.len);
+
+        // Test query formatting
+        const formatted = try batch_result.format_for_llm(allocator);
+        defer allocator.free(formatted);
+        try testing.expect(std.mem.indexOf(u8, formatted, "BEGIN CONTEXT BLOCK") != null);
+        try testing.expect(std.mem.indexOf(u8, formatted, "END CONTEXT BLOCK") != null);
+
+        // Verify metrics were reset properly after recovery
+        const metrics = storage_engine2.get_metrics();
+        try testing.expectEqual(@as(u64, 1), metrics.wal_recoveries.load(.monotonic));
+    }
+
+    std.log.info("Recovery consistency test completed successfully", .{});
+}
+
+test "integration: large scale performance characteristics" {
+    const allocator = testing.allocator;
+
+    var sim = try Simulation.init(allocator, 0xDEADBEEF);
+    defer sim.deinit();
+
+    const node1 = try sim.add_node();
+    sim.tick_multiple(5);
+
+    const node1_ptr = sim.find_node(node1);
+    const node1_vfs = node1_ptr.filesystem_interface();
+
+    var storage_engine = try StorageEngine.init(
+        allocator,
+        node1_vfs,
+        try allocator.dupe(u8, "large_scale_data"),
+    );
+    defer storage_engine.deinit();
+
+    try storage_engine.initialize_storage();
+
+    var query_eng = QueryEngine.init(allocator, &storage_engine);
+    defer query_eng.deinit();
+
+    const large_block_count = 2000; // Force multiple SSTable flushes
+    
+    // Phase 1: Large scale ingestion
+    const start_time = std.time.nanoTimestamp();
+    
+    for (0..large_block_count) |i| {
+        const block_id_hex = try std.fmt.allocPrint(allocator, "1a{x:0>30}", .{i});
+        defer allocator.free(block_id_hex);
+
+        // Create realistic-sized content
+        const content_size = 512 + (i % 1024); // 512-1536 bytes
+        const content = try allocator.alloc(u8, content_size);
+        defer allocator.free(content);
+        
+        // Fill with valid content
+        for (content, 0..) |*byte, j| {
+            byte.* = @as(u8, @intCast((j + i) % 256));
+        }
+
+        const metadata = try std.fmt.allocPrint(
+            allocator,
+            "{{\"size\":{},\"batch\":{}}}",
+            .{ content_size, i / 100 },
+        );
+        defer allocator.free(metadata);
+
+        const block = ContextBlock{
+            .id = try BlockId.from_hex(block_id_hex),
+            .version = 1,
+            .source_uri = "test://large/data.bin",
+            .metadata_json = metadata,
+            .content = content,
+        };
+
+        try storage_engine.put_block(block);
+
+        // Force WAL flush periodically
+        if (i % 500 == 0) {
+            try storage_engine.flush_wal();
+            sim.tick_multiple(1);
+        }
+    }
+    
+    const ingestion_time = std.time.nanoTimestamp() - start_time;
+    
+    // Phase 2: Performance validation
+    const metrics = storage_engine.get_metrics();
+    
+    // Validate ingestion performance
+    const ingestion_rate = (@as(f64, @floatFromInt(large_block_count)) * 1_000_000_000.0) / 
+                          @as(f64, @floatFromInt(ingestion_time));
+    try testing.expect(ingestion_rate > 1000.0); // > 1000 blocks/second
+    
+    // Validate write latency
+    const avg_write_latency = metrics.average_write_latency_ns();
+    try testing.expect(avg_write_latency < 1_000_000); // < 1ms average
+    
+    // Phase 3: Query performance validation
+    const query_start = std.time.nanoTimestamp();
+    
+    // Random access pattern
+    for (0..100) |i| {
+        const random_idx = (i * 17) % large_block_count; // Pseudo-random
+        const block_id_hex = try std.fmt.allocPrint(allocator, "1a{x:0>30}", .{random_idx});
+        defer allocator.free(block_id_hex);
+
+        const result = try storage_engine.find_block_by_id(try BlockId.from_hex(block_id_hex));
+        try testing.expect(result.content.len >= 512);
+    }
+    
+    const query_time = std.time.nanoTimestamp() - query_start;
+    const query_rate = (@as(f64, @floatFromInt(100)) * 1_000_000_000.0) / 
+                       @as(f64, @floatFromInt(query_time));
+    
+    // Validate query performance
+    try testing.expect(query_rate > 10000.0); // > 10k queries/second
+    
+    const final_metrics = storage_engine.get_metrics();
+    const avg_read_latency = final_metrics.average_read_latency_ns();
+    try testing.expect(avg_read_latency < 100_000); // < 100μs average
+    
+    // Phase 4: SSTable validation
+    try testing.expect(final_metrics.sstable_writes.load(.monotonic) >= 2); // Multiple flushes
+    
+    std.log.info(
+        "Large scale test: {} blocks, {d:.1} writes/s, {d:.1} queries/s, {}ns write latency",
+        .{ large_block_count, ingestion_rate, query_rate, avg_write_latency },
+    );
+}

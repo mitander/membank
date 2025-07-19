@@ -197,12 +197,37 @@ pub fn build(b: *std.Build) void {
 
     const run_wal_recovery_tests = b.addRunArtifact(wal_recovery_tests);
 
+    // Integration tests
+    const integration_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration_test.zig"),
+            .target = target,
+            .optimize = optimize_mode,
+        }),
+    });
+
+    // Add module imports to integration tests (reuse shared modules)
+    integration_tests.root_module.addImport("simulation", simulation_module);
+    integration_tests.root_module.addImport("vfs", vfs_module);
+    integration_tests.root_module.addImport("assert", assert_module);
+    integration_tests.root_module.addImport("context_block", context_block_module);
+    integration_tests.root_module.addImport("storage", storage_module);
+    integration_tests.root_module.addImport("query_engine", query_engine_module);
+    integration_tests.root_module.addImport("simulation_vfs", simulation_vfs_module);
+
+    const run_integration_tests = b.addRunArtifact(integration_tests);
+
+    // Standalone integration test step
+    const integration_step = b.step("integration", "Run integration tests only");
+    integration_step.dependOn(&run_integration_tests.step);
+
     // Test step that runs all tests
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_unit_tests.step);
     test_step.dependOn(&run_simulation_tests.step);
     test_step.dependOn(&run_storage_simulation_tests.step);
     test_step.dependOn(&run_wal_recovery_tests.step);
+    test_step.dependOn(&run_integration_tests.step);
 
     // Separate tidy step for code quality checks
     const tidy_step = b.step("tidy", "Run code quality checks");
@@ -214,6 +239,7 @@ pub fn build(b: *std.Build) void {
     check_step.dependOn(&run_simulation_tests.step);
     check_step.dependOn(&run_storage_simulation_tests.step);
     check_step.dependOn(&run_wal_recovery_tests.step);
+    check_step.dependOn(&run_integration_tests.step);
     check_step.dependOn(&run_tidy_tests.step);
 
     // Format check
@@ -240,6 +266,7 @@ pub fn build(b: *std.Build) void {
     ci_step.dependOn(&run_simulation_tests.step);
     ci_step.dependOn(&run_storage_simulation_tests.step);
     ci_step.dependOn(&run_wal_recovery_tests.step);
+    ci_step.dependOn(&run_integration_tests.step);
     ci_step.dependOn(&run_tidy_tests.step);
     ci_step.dependOn(&fmt_check.step);
 
