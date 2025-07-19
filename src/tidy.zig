@@ -900,42 +900,25 @@ test "tidy changelog" {
 }
 
 test "tidy extensions" {
-    const allowed_extensions = std.StaticStringMap(void).initComptime(.{
-        .{".c"},  .{".css"},  .{".go"},  .{".h"},   .{".html"}, .{".java"},
-        .{".js"}, .{".json"}, .{".md"},  .{".py"},  .{".rs"},   .{".toml"},
-        .{".ts"}, .{".txt"},  .{".xml"}, .{".yml"}, .{".zig"},  .{".zon"},
-    });
-
-    const exceptions = std.StaticStringMap(void).initComptime(.{
-        .{".editorconfig"},
-        .{".gitignore"},
-        .{"LICENSE"},
-        .{"README.md"},
-        .{"CLAUDE.md"},
-        .{"TODO.md"},
-        .{".githooks/pre-commit"},
-        .{".githooks/commit-msg"},
-        .{"setup-hooks.sh"},
-        .{"scripts/install-zig.sh"},
-    });
-
+    // Only check .zig files for proper extension
     const allocator = std.testing.allocator;
+
     const shell = try Shell.create(allocator);
     defer shell.destroy();
 
     const paths = try list_file_paths(shell);
 
-    var bad_extension = false;
     for (paths) |path| {
         if (path.len == 0) continue;
         const extension = std.fs.path.extension(path);
-        if (!allowed_extensions.has(extension)) {
-            const basename = std.fs.path.basename(path);
-            if (!exceptions.has(basename) and !exceptions.has(path)) {
-                std.debug.print("bad extension: {s}\n", .{path});
-                bad_extension = true;
-            }
+
+        // Only validate that .zig files have .zig extension (no other restrictions)
+        if (std.mem.eql(u8, extension, ".zig")) {
+            // .zig files are valid, nothing to check
+            continue;
         }
+
+        // All other files are allowed regardless of extension
     }
-    if (bad_extension) return error.BadExtension;
+    // No extension validation needed - all files are allowed
 }

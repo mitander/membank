@@ -26,7 +26,7 @@ jobs:
         run: |
           chmod +x scripts/install-zig.sh
           ./scripts/install-zig.sh
-          echo "${GITHUB_WORKSPACE}/zig" >> $GITHUB_PATH
+          echo "Using Zig: $(./zig/zig version)"
 
       - name: Cache Zig artifacts
         uses: actions/cache@v3
@@ -41,26 +41,26 @@ jobs:
             ${{ runner.os }}-zig-${{ steps.zig-version.outputs.version }}-
 
       - name: Check formatting
-        run: zig fmt --check .
+        run: ./zig/zig fmt --check .
 
       - name: Build debug
-        run: zig build
+        run: ./zig/zig build
 
       - name: Run tests
-        run: zig build test
+        run: ./zig/zig build test
 
       - name: Run tidy checks
-        run: zig build tidy
+        run: ./zig/zig build tidy
 
       - name: Build all targets
         run: |
           echo "-> Building benchmark target..."
-          zig build benchmark
+          ./zig/zig build benchmark
           echo "-> Building fuzz target..."
-          zig build fuzz
+          ./zig/zig build fuzz
 
       - name: Build release
-        run: zig build --release=safe
+        run: ./zig/zig build --release=safe
 
   build-matrix:
     name: Build
@@ -85,7 +85,7 @@ jobs:
         run: |
           chmod +x scripts/install-zig.sh
           ./scripts/install-zig.sh
-          echo "${GITHUB_WORKSPACE}/zig" >> $GITHUB_PATH
+          echo "Using Zig: $(./zig/zig version)"
 
       - name: Cache Zig artifacts
         uses: actions/cache@v3
@@ -102,10 +102,10 @@ jobs:
       - name: Validate build system
         run: |
           echo "-> Validating build on ${{ matrix.os }}..."
-          zig build --help
+          ./zig/zig build --help
 
       - name: Build release
-        run: zig build --release=safe
+        run: ./zig/zig build --release=safe
 
   coverage:
     name: Coverage
@@ -127,7 +127,7 @@ jobs:
         run: |
           chmod +x scripts/install-zig.sh
           ./scripts/install-zig.sh
-          echo "${GITHUB_WORKSPACE}/zig" >> $GITHUB_PATH
+          echo "Using Zig: $(./zig/zig version)"
 
       - name: Cache Zig artifacts
         uses: actions/cache@v3
@@ -141,7 +141,7 @@ jobs:
             ${{ runner.os }}-zig-${{ steps.zig-version.outputs.version }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-
 
       - name: Generate coverage
-        run: zig build test -- --summary all
+        run: ./zig/zig build test -- --summary all
 
   lint:
     name: Lint
@@ -162,7 +162,7 @@ jobs:
         run: |
           chmod +x scripts/install-zig.sh
           ./scripts/install-zig.sh
-          echo "${GITHUB_WORKSPACE}/zig" >> $GITHUB_PATH
+          echo "Using Zig: $(./zig/zig version)"
 
       - name: Check for banned patterns
         run: |
