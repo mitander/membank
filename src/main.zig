@@ -88,8 +88,7 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     var storage_engine = StorageEngine.init(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
-    try storage_engine.recover_from_wal();
+    try storage_engine.startup();
     std.debug.print("Storage engine initialized and recovered from WAL.\n", .{});
 
     // Initialize query engine
@@ -119,8 +118,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     var storage_engine = StorageEngine.init(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
-    try storage_engine.recover_from_wal();
+    try storage_engine.startup();
     std.debug.print("✓ Storage engine initialized and recovered from WAL\n", .{});
 
     // Initialize query engine

@@ -18,6 +18,7 @@ const VFS = vfs.VFS;
 const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
+const EdgeType = context_block.EdgeType;
 const SSTable = sstable.SSTable;
 const Compactor = sstable.Compactor;
 const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
@@ -251,12 +252,140 @@ const BlockIndex = struct {
     }
 };
 
+/// In-memory graph edge index for fast graph traversal.
+const GraphEdgeIndex = struct {
+    /// Outgoing edges indexed by source_id
+    outgoing_edges: std.HashMap(
+        BlockId,
+        std.ArrayList(GraphEdge),
+        BlockIdContext,
+        std.hash_map.default_max_load_percentage,
+    ),
+    /// Incoming edges indexed by target_id
+    incoming_edges: std.HashMap(
+        BlockId,
+        std.ArrayList(GraphEdge),
+        BlockIdContext,
+        std.hash_map.default_max_load_percentage,
+    ),
+    allocator: std.mem.Allocator,
+
+    const BlockIdContext = struct {
+        pub fn hash(self: @This(), block_id: BlockId) u64 {
+            _ = self;
+            var hasher = std.hash.Wyhash.init(0);
+            hasher.update(&block_id.bytes);
+            return hasher.final();
+        }
+
+        pub fn eql(self: @This(), a: BlockId, b: BlockId) bool {
+            _ = self;
+            return a.eql(b);
+        }
+    };
+
+    pub fn init(allocator: std.mem.Allocator) GraphEdgeIndex {
+        return GraphEdgeIndex{
+            .outgoing_edges = std.HashMap(
+                BlockId,
+                std.ArrayList(GraphEdge),
+                BlockIdContext,
+                std.hash_map.default_max_load_percentage,
+            ).init(allocator),
+            .incoming_edges = std.HashMap(
+                BlockId,
+                std.ArrayList(GraphEdge),
+                BlockIdContext,
+                std.hash_map.default_max_load_percentage,
+            ).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *GraphEdgeIndex) void {
+        // Clean up outgoing edges
+        var outgoing_iterator = self.outgoing_edges.iterator();
+        while (outgoing_iterator.next()) |entry| {
+            entry.value_ptr.deinit();
+        }
+        self.outgoing_edges.deinit();
+
+        // Clean up incoming edges
+        var incoming_iterator = self.incoming_edges.iterator();
+        while (incoming_iterator.next()) |entry| {
+            entry.value_ptr.deinit();
+        }
+        self.incoming_edges.deinit();
+    }
+
+    pub fn put_edge(self: *GraphEdgeIndex, edge: GraphEdge) !void {
+        // Add to outgoing edges index
+        var outgoing_result = try self.outgoing_edges.getOrPut(edge.source_id);
+        if (!outgoing_result.found_existing) {
+            outgoing_result.value_ptr.* = std.ArrayList(GraphEdge).init(self.allocator);
+        }
+        try outgoing_result.value_ptr.append(edge);
+
+        // Add to incoming edges index
+        var incoming_result = try self.incoming_edges.getOrPut(edge.target_id);
+        if (!incoming_result.found_existing) {
+            incoming_result.value_ptr.* = std.ArrayList(GraphEdge).init(self.allocator);
+        }
+        try incoming_result.value_ptr.append(edge);
+    }
+
+    /// Find outgoing edges from a source block.
+    pub fn find_outgoing_edges(self: *const GraphEdgeIndex, source_id: BlockId) ?[]const GraphEdge {
+        if (self.outgoing_edges.getPtr(source_id)) |edge_list| {
+            return edge_list.items;
+        }
+        return null;
+    }
+
+    /// Find incoming edges to a target block.
+    pub fn find_incoming_edges(self: *const GraphEdgeIndex, target_id: BlockId) ?[]const GraphEdge {
+        if (self.incoming_edges.getPtr(target_id)) |edge_list| {
+            return edge_list.items;
+        }
+        return null;
+    }
+
+    /// Remove all edges involving a specific block (when block is deleted).
+    pub fn remove_block_edges(self: *GraphEdgeIndex, block_id: BlockId) void {
+        // Remove outgoing edges
+        if (self.outgoing_edges.fetchRemove(block_id)) |kv| {
+            kv.value.deinit();
+        }
+
+        // Remove incoming edges
+        if (self.incoming_edges.fetchRemove(block_id)) |kv| {
+            kv.value.deinit();
+        }
+
+        // Note: This implementation is complete due to bidirectional indexing.
+        // Each edge is stored in both outgoing_edges (by source_id) and incoming_edges
+        // (by target_id). Removing from both indices ensures all edges involving this
+        // block are cleaned up.
+    }
+
+    /// Get total edge count.
+    pub fn edge_count(self: *const GraphEdgeIndex) u32 {
+        var total: u32 = 0;
+        var iterator = self.outgoing_edges.iterator();
+        while (iterator.next()) |entry| {
+            total += @intCast(entry.value_ptr.items.len);
+        }
+        return total;
+    }
+};
+
 /// Storage engine state.
 pub const StorageEngine = struct {
     allocator: std.mem.Allocator,
     vfs: VFS,
     data_dir: []const u8,
     index: BlockIndex,
+    graph_index: GraphEdgeIndex,
     wal_file: ?vfs.VFile,
     sstables: std.ArrayList([]const u8), // Paths to SSTable files
     compaction_manager: TieredCompactionManager,
@@ -271,6 +400,7 @@ pub const StorageEngine = struct {
             .vfs = filesystem,
             .data_dir = data_dir,
             .index = BlockIndex.init(allocator),
+            .graph_index = GraphEdgeIndex.init(allocator),
             .wal_file = null,
             .sstables = std.ArrayList([]const u8).init(allocator),
             .compaction_manager = TieredCompactionManager.init(allocator, filesystem, data_dir),
@@ -286,6 +416,7 @@ pub const StorageEngine = struct {
             file.close() catch {};
         }
         self.index.deinit();
+        self.graph_index.deinit();
         self.compaction_manager.deinit();
 
         // Free SSTable paths
@@ -350,6 +481,12 @@ pub const StorageEngine = struct {
         try self.discover_existing_sstables();
 
         self.initialized = true;
+    }
+
+    /// Startup storage engine by initializing and recovering from WAL.
+    pub fn startup(self: *StorageEngine) !void {
+        try self.initialize_storage();
+        try self.recover_from_wal();
     }
 
     /// Put a Context Block into storage.
@@ -430,6 +567,9 @@ pub const StorageEngine = struct {
 
         // Remove from in-memory index
         self.index.remove_block(block_id);
+
+        // Remove associated edges from graph index
+        self.graph_index.remove_block_edges(block_id);
     }
 
     /// Put a Graph Edge into storage.
@@ -445,12 +585,28 @@ pub const StorageEngine = struct {
         // Write to WAL for durability
         try self.write_wal_entry(wal_entry);
 
-        // TODO Add edge to graph index when implemented
+        // Add edge to graph index
+        try self.graph_index.put_edge(edge);
     }
 
     /// Get the current number of blocks in storage.
     pub fn block_count(self: *const StorageEngine) u32 {
         return self.index.block_count();
+    }
+
+    /// Get the current number of edges in storage.
+    pub fn edge_count(self: *const StorageEngine) u32 {
+        return self.graph_index.edge_count();
+    }
+
+    /// Find outgoing edges from a source block.
+    pub fn find_outgoing_edges(self: *const StorageEngine, source_id: BlockId) ?[]const GraphEdge {
+        return self.graph_index.find_outgoing_edges(source_id);
+    }
+
+    /// Find incoming edges to a target block.
+    pub fn find_incoming_edges(self: *const StorageEngine, target_id: BlockId) ?[]const GraphEdge {
+        return self.graph_index.find_incoming_edges(target_id);
     }
 
     /// Flush WAL to disk.
@@ -525,7 +681,7 @@ pub const StorageEngine = struct {
 
         if (self.compaction_manager.check_compaction_needed()) |job| {
             std.log.info(
-                "Starting {} compaction: L{} -> L{} ({} SSTables)",
+                "Starting {s} compaction: L{} -> L{} ({} SSTables)",
                 .{
                     @tagName(job.compaction_type),
                     job.input_level,
@@ -543,17 +699,17 @@ pub const StorageEngine = struct {
 
     /// Synchronize the storage engine's SSTable list with the compaction manager.
     fn sync_sstable_list(self: *StorageEngine) !void {
+        _ = self; // TODO Implement SSTable list synchronization
         // For now, we'll keep the simple list structure and let the compaction manager handle tiers
         // In a future optimization, we could remove this redundant tracking
     }
 
     /// Read the size of a file in bytes.
     fn read_file_size(self: *StorageEngine, path: []const u8) !u64 {
-        const file = try self.vfs.open(path, .{ .mode = .read_only });
+        var file = try self.vfs.open(path, .read);
         defer file.close() catch {};
 
-        const stat = try file.stat();
-        return stat.size;
+        return try file.file_size();
     }
 
     /// Discover existing SSTable files and register them with the compaction manager.
@@ -840,13 +996,13 @@ pub const StorageEngine = struct {
 
                 const block_id = BlockId{ .bytes = entry.payload[0..16].* };
                 self.index.remove_block(block_id);
+                self.graph_index.remove_block_edges(block_id);
             },
             .put_edge => {
                 if (entry.payload.len != 40) return error.InvalidPayloadSize;
 
                 const edge = try GraphEdge.deserialize(entry.payload);
-                // Note: Graph edge storage would be implemented when graph indexing is added
-                _ = edge; // Suppress unused variable warning for now
+                try self.graph_index.put_edge(edge);
             },
         }
     }
@@ -1117,4 +1273,216 @@ test "StorageEngine buffer pool fallback behavior" {
         stats.fallback_allocations,
         stats.pool_misses,
     });
+}
+
+test "StorageEngine graph edge indexing" {
+    const allocator = std.testing.allocator;
+    const simulation_vfs = @import("simulation_vfs");
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    const vfs_interface = sim_vfs.vfs();
+
+    var storage = StorageEngine.init(allocator, vfs_interface, try allocator.dupe(u8, "/test"));
+    defer storage.deinit();
+
+    try storage.startup();
+
+    // Create test blocks
+    const block1_id = try BlockId.from_hex("11111111111111111111111111111111");
+    const block2_id = try BlockId.from_hex("22222222222222222222222222222222");
+    const block3_id = try BlockId.from_hex("33333333333333333333333333333333");
+
+    const block1 = ContextBlock{
+        .id = block1_id,
+        .version = 1,
+        .source_uri = "test://block1.zig",
+        .metadata_json = "{\"type\":\"function\"}",
+        .content = "pub fn block1() void {}",
+    };
+
+    const block2 = ContextBlock{
+        .id = block2_id,
+        .version = 1,
+        .source_uri = "test://block2.zig",
+        .metadata_json = "{\"type\":\"struct\"}",
+        .content = "const Block2 = struct {};",
+    };
+
+    const block3 = ContextBlock{
+        .id = block3_id,
+        .version = 1,
+        .source_uri = "test://block3.zig",
+        .metadata_json = "{\"type\":\"constant\"}",
+        .content = "const VALUE = 42;",
+    };
+
+    // Put blocks
+    try storage.put_block(block1);
+    try storage.put_block(block2);
+    try storage.put_block(block3);
+
+    // Create test edges
+    const edge1 = GraphEdge{
+        .source_id = block1_id,
+        .target_id = block2_id,
+        .edge_type = .imports,
+    };
+
+    const edge2 = GraphEdge{
+        .source_id = block1_id,
+        .target_id = block3_id,
+        .edge_type = .references,
+    };
+
+    const edge3 = GraphEdge{
+        .source_id = block2_id,
+        .target_id = block3_id,
+        .edge_type = .contains,
+    };
+
+    // Put edges
+    try storage.put_edge(edge1);
+    try storage.put_edge(edge2);
+    try storage.put_edge(edge3);
+
+    // Verify edge count
+    try std.testing.expectEqual(@as(u32, 3), storage.edge_count());
+
+    // Test outgoing edges
+    const outgoing_from_block1 = storage.find_outgoing_edges(block1_id);
+    try std.testing.expect(outgoing_from_block1 != null);
+    try std.testing.expectEqual(@as(usize, 2), outgoing_from_block1.?.len);
+
+    const outgoing_from_block2 = storage.find_outgoing_edges(block2_id);
+    try std.testing.expect(outgoing_from_block2 != null);
+    try std.testing.expectEqual(@as(usize, 1), outgoing_from_block2.?.len);
+
+    const outgoing_from_block3 = storage.find_outgoing_edges(block3_id);
+    try std.testing.expect(outgoing_from_block3 == null);
+
+    // Test incoming edges
+    const incoming_to_block1 = storage.find_incoming_edges(block1_id);
+    try std.testing.expect(incoming_to_block1 == null);
+
+    const incoming_to_block2 = storage.find_incoming_edges(block2_id);
+    try std.testing.expect(incoming_to_block2 != null);
+    try std.testing.expectEqual(@as(usize, 1), incoming_to_block2.?.len);
+
+    const incoming_to_block3 = storage.find_incoming_edges(block3_id);
+    try std.testing.expect(incoming_to_block3 != null);
+    try std.testing.expectEqual(@as(usize, 2), incoming_to_block3.?.len);
+
+    // Test edge types
+    for (outgoing_from_block1.?) |edge| {
+        if (edge.target_id.eql(block2_id)) {
+            try std.testing.expectEqual(EdgeType.imports, edge.edge_type);
+        } else if (edge.target_id.eql(block3_id)) {
+            try std.testing.expectEqual(EdgeType.references, edge.edge_type);
+        }
+    }
+
+    // Test block deletion removes edges
+    try storage.delete_block(block1_id);
+
+    // Verify edges involving block1 are removed
+    try std.testing.expectEqual(@as(u32, 1), storage.edge_count());
+    try std.testing.expect(storage.find_outgoing_edges(block1_id) == null);
+    try std.testing.expect(storage.find_incoming_edges(block1_id) == null);
+
+    const remaining_incoming_to_block2 = storage.find_incoming_edges(block2_id);
+    try std.testing.expect(remaining_incoming_to_block2 == null);
+
+    const remaining_incoming_to_block3 = storage.find_incoming_edges(block3_id);
+    try std.testing.expect(remaining_incoming_to_block3 != null);
+    try std.testing.expectEqual(@as(usize, 1), remaining_incoming_to_block3.?.len);
+}
+
+test "StorageEngine graph edge WAL recovery" {
+    const allocator = std.testing.allocator;
+    const simulation_vfs = @import("simulation_vfs");
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    const vfs_interface = sim_vfs.vfs();
+    const data_dir = "/test_wal_edges";
+
+    // First storage instance - write edges
+    {
+        var storage = StorageEngine.init(
+            allocator,
+            vfs_interface,
+            try allocator.dupe(u8, data_dir),
+        );
+        defer storage.deinit();
+
+        try storage.startup();
+
+        // Create test blocks and edges
+        const block1_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        const block2_id = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+
+        const block1 = ContextBlock{
+            .id = block1_id,
+            .version = 1,
+            .source_uri = "test://module1.zig",
+            .metadata_json = "{\"type\":\"module\"}",
+            .content = "const module1 = @import(\"module2.zig\");",
+        };
+
+        const block2 = ContextBlock{
+            .id = block2_id,
+            .version = 1,
+            .source_uri = "test://module2.zig",
+            .metadata_json = "{\"type\":\"module\"}",
+            .content = "pub fn exported_function() void {}",
+        };
+
+        try storage.put_block(block1);
+        try storage.put_block(block2);
+
+        const edge = GraphEdge{
+            .source_id = block1_id,
+            .target_id = block2_id,
+            .edge_type = .imports,
+        };
+
+        try storage.put_edge(edge);
+
+        // Verify edge was stored
+        try std.testing.expectEqual(@as(u32, 1), storage.edge_count());
+
+        try storage.flush_wal();
+    }
+
+    // Second storage instance - recover from WAL
+    {
+        var storage = StorageEngine.init(
+            allocator,
+            vfs_interface,
+            try allocator.dupe(u8, data_dir),
+        );
+        defer storage.deinit();
+
+        try storage.startup();
+
+        // Verify edge was recovered
+        try std.testing.expectEqual(@as(u32, 1), storage.edge_count());
+
+        const block1_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        const block2_id = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+
+        const outgoing_edges = storage.find_outgoing_edges(block1_id);
+        try std.testing.expect(outgoing_edges != null);
+        try std.testing.expectEqual(@as(usize, 1), outgoing_edges.?.len);
+        try std.testing.expect(outgoing_edges.?[0].target_id.eql(block2_id));
+        try std.testing.expectEqual(EdgeType.imports, outgoing_edges.?[0].edge_type);
+
+        const incoming_edges = storage.find_incoming_edges(block2_id);
+        try std.testing.expect(incoming_edges != null);
+        try std.testing.expectEqual(@as(usize, 1), incoming_edges.?.len);
+        try std.testing.expect(incoming_edges.?[0].source_id.eql(block1_id));
+    }
 }

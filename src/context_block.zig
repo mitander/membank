@@ -30,7 +30,11 @@ pub const BlockId = struct {
 
     /// Convert BlockId to hex string representation.
     pub fn to_hex(self: BlockId, allocator: std.mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}", .{std.fmt.fmtSliceHexLower(&self.bytes)});
+        var result = try allocator.alloc(u8, self.bytes.len * 2);
+        for (self.bytes, 0..) |byte, i| {
+            _ = std.fmt.bufPrint(result[i * 2 .. i * 2 + 2], "{x:0>2}", .{byte}) catch unreachable;
+        }
+        return result;
     }
 
     /// Compare two BlockIds for equality.

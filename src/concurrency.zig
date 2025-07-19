@@ -34,35 +34,35 @@ pub fn assert_main_thread() void {
 
 /// Concurrency-aware allocator wrapper that enforces single-threaded access.
 pub const SingleThreadedAllocator = struct {
-    allocator: std.mem.Allocator,
+    base_allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator) SingleThreadedAllocator {
-        return SingleThreadedAllocator{ .allocator = allocator };
+    pub fn init(base_allocator: std.mem.Allocator) SingleThreadedAllocator {
+        return SingleThreadedAllocator{ .base_allocator = base_allocator };
     }
 
     pub fn alloc(self: SingleThreadedAllocator, comptime T: type, n: usize) ![]T {
         assert_main_thread();
-        return self.allocator.alloc(T, n);
+        return self.base_allocator.alloc(T, n);
     }
 
     pub fn free(self: SingleThreadedAllocator, memory: anytype) void {
         assert_main_thread();
-        self.allocator.free(memory);
+        self.base_allocator.free(memory);
     }
 
     pub fn dupe(self: SingleThreadedAllocator, comptime T: type, m: []const T) ![]T {
         assert_main_thread();
-        return self.allocator.dupe(T, m);
+        return self.base_allocator.dupe(T, m);
     }
 
     pub fn create(self: SingleThreadedAllocator, comptime T: type) !*T {
         assert_main_thread();
-        return self.allocator.create(T);
+        return self.base_allocator.create(T);
     }
 
     pub fn destroy(self: SingleThreadedAllocator, ptr: anytype) void {
         assert_main_thread();
-        self.allocator.destroy(ptr);
+        self.base_allocator.destroy(ptr);
     }
 
     pub fn allocator(self: SingleThreadedAllocator) std.mem.Allocator {
@@ -79,7 +79,7 @@ pub const SingleThreadedAllocator = struct {
     fn alloc_impl(ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
         const self: *SingleThreadedAllocator = @ptrCast(@alignCast(ctx));
         assert_main_thread();
-        return self.allocator.vtable.alloc(self.allocator.ptr, len, ptr_align, ret_addr);
+        return self.base_allocator.vtable.alloc(self.base_allocator.ptr, len, ptr_align, ret_addr);
     }
 
     fn resize_impl(
@@ -91,8 +91,8 @@ pub const SingleThreadedAllocator = struct {
     ) bool {
         const self: *SingleThreadedAllocator = @ptrCast(@alignCast(ctx));
         assert_main_thread();
-        return self.allocator.vtable.resize(
-            self.allocator.ptr,
+        return self.base_allocator.vtable.resize(
+            self.base_allocator.ptr,
             buf,
             buf_align,
             new_len,
@@ -103,7 +103,7 @@ pub const SingleThreadedAllocator = struct {
     fn free_impl(ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
         const self: *SingleThreadedAllocator = @ptrCast(@alignCast(ctx));
         assert_main_thread();
-        self.allocator.vtable.free(self.allocator.ptr, buf, buf_align, ret_addr);
+        self.base_allocator.vtable.free(self.base_allocator.ptr, buf, buf_align, ret_addr);
     }
 };
 

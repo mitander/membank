@@ -35,8 +35,11 @@ pub const StorageContext = struct {
             try writer.print(", file=\"{s}\"", .{path});
         }
         if (self.block_id) |id| {
-            const hex = std.fmt.fmtSliceHexLower(&id.bytes);
-            try writer.print(", block_id=\"{}\"", .{hex});
+            try writer.print(", block_id=\"", .{});
+            for (id.bytes) |byte| {
+                try writer.print("{x:0>2}", .{byte});
+            }
+            try writer.print("\"", .{});
         }
         if (self.offset) |off| {
             try writer.print(", offset={}", .{off});

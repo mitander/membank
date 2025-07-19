@@ -105,16 +105,16 @@ pub const TieredCompactionManager = struct {
             if (level == 0) return 0; // L0 has no size limit, only count limit
 
             const base_size = config.l1_base_size;
-            var target_size = base_size;
+            var calculated_size = base_size;
 
             var i: u8 = 1;
             while (i < level) : (i += 1) {
-                target_size = @intFromFloat(
-                    @as(f64, @floatFromInt(target_size)) * config.tier_size_ratio,
+                calculated_size = @intFromFloat(
+                    @as(f64, @floatFromInt(calculated_size)) * config.tier_size_ratio,
                 );
             }
 
-            return target_size;
+            return calculated_size;
         }
     };
 
@@ -321,6 +321,7 @@ pub const CompactionJob = struct {
 
 test "TieredCompactionManager initialization" {
     const allocator = std.testing.allocator;
+    _ = allocator; // Test placeholder - VFS required for actual testing
 
     // We need a VFS for testing, but can't easily create one here
     // This would be tested in integration tests with SimulationVFS
