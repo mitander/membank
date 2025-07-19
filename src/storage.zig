@@ -303,11 +303,22 @@ const BlockIndex = struct {
     }
 
     pub fn deinit(self: *BlockIndex) void {
-        var iterator = self.blocks.iterator();
-        while (iterator.next()) |entry| {
-            entry.value_ptr.deinit(self.allocator);
-        }
+        // Temporarily bypass HashMap iteration to isolate corruption issue
+        const num_blocks = self.blocks.count();
+        std.log.debug("BlockIndex.deinit: Starting with {} blocks", .{num_blocks});
+
+        // TEMPORARILY DISABLED: HashMap iteration causing alignment corruption
+        // TODO: Re-enable proper cleanup once corruption source is identified
+        // var iterator = self.blocks.iterator();
+        // var freed_count: u32 = 0;
+        // while (iterator.next()) |entry| {
+        //     entry.value_ptr.deinit(self.allocator);
+        //     freed_count += 1;
+        // }
+
+        std.log.debug("BlockIndex.deinit: Skipping block cleanup due to HashMap corruption, cleaning up HashMap", .{});
         self.blocks.deinit();
+        std.log.debug("BlockIndex.deinit: Complete", .{});
     }
 
     pub fn put_block(self: *BlockIndex, block: ContextBlock) !void {
@@ -484,7 +495,7 @@ pub const StorageEngine = struct {
     next_sstable_id: u32,
     initialized: bool,
     // buffer_pool: buffer_pool.BufferPool, // Temporarily disabled
-    metrics: StorageMetrics,
+    storage_metrics: StorageMetrics,
 
     /// Initialize a new storage engine instance.
     pub fn init(
@@ -504,7 +515,7 @@ pub const StorageEngine = struct {
             .next_sstable_id = 0,
             .initialized = false,
             // .buffer_pool = try buffer_pool.BufferPool.init(allocator), // Temporarily disabled
-            .metrics = StorageMetrics.init(),
+            .storage_metrics = StorageMetrics.init(),
         };
     }
 
@@ -603,39 +614,39 @@ pub const StorageEngine = struct {
         const start_time = std.time.nanoTimestamp();
 
         // Track the operation attempt
-        _ = self.metrics.wal_writes.fetchAdd(1, .monotonic);
+        _ = self.storage_metrics.wal_writes.fetchAdd(1, .monotonic);
 
         // Validate block before storing
         block.validate(self.allocator) catch |err| {
-            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
             return err;
         };
 
         // Create WAL entry using buffer pool when possible for temporary serialization
         const wal_entry = WALEntry.create_put_block(block, self.allocator) catch |err| {
-            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
             return err;
         };
         defer wal_entry.deinit(self.allocator);
 
         // Write to WAL for durability
         self.write_wal_entry(wal_entry) catch |err| {
-            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
-            _ = self.metrics.wal_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.wal_errors.fetchAdd(1, .monotonic);
             return err;
         };
 
         // Update in-memory index
         self.index.put_block(block) catch |err| {
-            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
             return err;
         };
 
         // Track successful operation
-        _ = self.metrics.blocks_written.fetchAdd(1, .monotonic);
+        _ = self.storage_metrics.blocks_written.fetchAdd(1, .monotonic);
         const end_time = std.time.nanoTimestamp();
         const duration = @as(u64, @intCast(end_time - start_time));
-        _ = self.metrics.total_write_time_ns.fetchAdd(duration, .monotonic);
+        _ = self.storage_metrics.total_write_time_ns.fetchAdd(duration, .monotonic);
 
         // Check if we need to flush MemTable to SSTable
         if (self.index.block_count() >= 1000) { // Flush when we have 1000+ blocks
@@ -657,23 +668,23 @@ pub const StorageEngine = struct {
         // First check in-memory index (most recent data)
         if (self.index.find_block(block_id)) |block| {
             // Track successful read from memory
-            _ = self.metrics.blocks_read.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
             const end_time = std.time.nanoTimestamp();
             const duration = @as(u64, @intCast(end_time - start_time));
-            _ = self.metrics.total_read_time_ns.fetchAdd(duration, .monotonic);
+            _ = self.storage_metrics.total_read_time_ns.fetchAdd(duration, .monotonic);
             return block;
         }
 
         // Search SSTables (older data)
         for (self.sstables.items) |sstable_path| {
             const path_copy = self.allocator.dupe(u8, sstable_path) catch |err| {
-                _ = self.metrics.read_errors.fetchAdd(1, .monotonic);
+                _ = self.storage_metrics.read_errors.fetchAdd(1, .monotonic);
                 return err;
             };
             var table = SSTable.init(self.allocator, self.vfs, path_copy);
             defer table.deinit();
 
-            _ = self.metrics.sstable_reads.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.sstable_reads.fetchAdd(1, .monotonic);
             table.read_index() catch continue; // Skip corrupted SSTables
 
             if (table.find_block(block_id) catch null) |block| {
@@ -684,10 +695,10 @@ pub const StorageEngine = struct {
                 self.index.put_block(block) catch {}; // Ignore errors, it's an optimization
 
                 // Track successful read from SSTable
-                _ = self.metrics.blocks_read.fetchAdd(1, .monotonic);
+                _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
                 const end_time = std.time.nanoTimestamp();
                 const duration = @as(u64, @intCast(end_time - start_time));
-                _ = self.metrics.total_read_time_ns.fetchAdd(duration, .monotonic);
+                _ = self.storage_metrics.total_read_time_ns.fetchAdd(duration, .monotonic);
 
                 return self.index.find_block(block_id) orelse return error_context.storage_error(
                     StorageError.BlockNotFound,
@@ -697,7 +708,7 @@ pub const StorageEngine = struct {
         }
 
         // Track failed read
-        _ = self.metrics.read_errors.fetchAdd(1, .monotonic);
+        _ = self.storage_metrics.read_errors.fetchAdd(1, .monotonic);
         return error_context.storage_error(
             StorageError.BlockNotFound,
             error_context.block_context("find_block_exhaustive_search", block_id),
@@ -712,15 +723,15 @@ pub const StorageEngine = struct {
 
         // Create WAL entry
         const wal_entry = WALEntry.create_delete_block(block_id, self.allocator) catch |err| {
-            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
             return err;
         };
         defer wal_entry.deinit(self.allocator);
 
         // Write to WAL for durability
         self.write_wal_entry(wal_entry) catch |err| {
-            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
-            _ = self.metrics.wal_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.wal_errors.fetchAdd(1, .monotonic);
             return err;
         };
 
@@ -731,8 +742,8 @@ pub const StorageEngine = struct {
         self.graph_index.remove_block_edges(block_id);
 
         // Track successful deletion
-        _ = self.metrics.blocks_deleted.fetchAdd(1, .monotonic);
-        _ = self.metrics.wal_writes.fetchAdd(1, .monotonic);
+        _ = self.storage_metrics.blocks_deleted.fetchAdd(1, .monotonic);
+        _ = self.storage_metrics.wal_writes.fetchAdd(1, .monotonic);
     }
 
     /// Put a Graph Edge into storage.
@@ -743,27 +754,27 @@ pub const StorageEngine = struct {
 
         // Create WAL entry
         const wal_entry = WALEntry.create_put_edge(edge, self.allocator) catch |err| {
-            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
             return err;
         };
         defer wal_entry.deinit(self.allocator);
 
         // Write to WAL for durability
         self.write_wal_entry(wal_entry) catch |err| {
-            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
-            _ = self.metrics.wal_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.wal_errors.fetchAdd(1, .monotonic);
             return err;
         };
 
         // Add edge to graph index
         self.graph_index.put_edge(edge) catch |err| {
-            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
             return err;
         };
 
         // Track successful edge addition
-        _ = self.metrics.edges_added.fetchAdd(1, .monotonic);
-        _ = self.metrics.wal_writes.fetchAdd(1, .monotonic);
+        _ = self.storage_metrics.edges_added.fetchAdd(1, .monotonic);
+        _ = self.storage_metrics.wal_writes.fetchAdd(1, .monotonic);
     }
 
     /// Get the current number of blocks in storage.
@@ -778,7 +789,7 @@ pub const StorageEngine = struct {
 
     /// Get performance metrics for observability.
     pub fn metrics(self: *const StorageEngine) *const StorageMetrics {
-        return &self.metrics;
+        return &self.storage_metrics;
     }
 
     /// Find outgoing edges from a source block.
@@ -797,16 +808,16 @@ pub const StorageEngine = struct {
 
         if (self.wal_file) |*file| {
             file.flush() catch |err| {
-                _ = self.metrics.wal_errors.fetchAdd(1, .monotonic);
+                _ = self.storage_metrics.wal_errors.fetchAdd(1, .monotonic);
                 return err;
             };
         }
 
         // Track successful WAL flush
-        _ = self.metrics.wal_flushes.fetchAdd(1, .monotonic);
+        _ = self.storage_metrics.wal_flushes.fetchAdd(1, .monotonic);
         const end_time = std.time.nanoTimestamp();
         const duration = @as(u64, @intCast(end_time - start_time));
-        _ = self.metrics.total_wal_flush_time_ns.fetchAdd(duration, .monotonic);
+        _ = self.storage_metrics.total_wal_flush_time_ns.fetchAdd(duration, .monotonic);
     }
 
     /// Flush in-memory blocks to an SSTable.
@@ -845,12 +856,12 @@ pub const StorageEngine = struct {
         defer new_sstable.deinit();
 
         new_sstable.write_blocks(blocks_to_flush.items) catch |err| {
-            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
             return err;
         };
 
         // Track SSTable write
-        _ = self.metrics.sstable_writes.fetchAdd(1, .monotonic);
+        _ = self.storage_metrics.sstable_writes.fetchAdd(1, .monotonic);
 
         // Add to SSTables list and compaction manager
         try self.sstables.append(try self.allocator.dupe(u8, sstable_path));
@@ -977,7 +988,7 @@ pub const StorageEngine = struct {
         if (!self.initialized) return StorageError.NotInitialized;
 
         // Track WAL recovery attempt
-        _ = self.metrics.wal_recoveries.fetchAdd(1, .monotonic);
+        _ = self.storage_metrics.wal_recoveries.fetchAdd(1, .monotonic);
 
         const wal_dir = try std.fmt.allocPrint(self.allocator, "{s}/wal", .{self.data_dir});
         defer self.allocator.free(wal_dir);
