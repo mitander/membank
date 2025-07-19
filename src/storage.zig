@@ -54,9 +54,10 @@ const WALEntryType = enum(u8) {
 pub const WALEntry = struct {
     checksum: u64,
     entry_type: WALEntryType,
+    payload_size: u32,
     payload: []const u8,
 
-    pub const HEADER_SIZE = 9; // 8 bytes checksum + 1 byte type
+    pub const HEADER_SIZE = 13; // 8 bytes checksum + 1 byte type + 4 bytes payload_size
 
     /// Calculate CRC-64 checksum of type and payload.
     fn calculate_checksum(entry_type: WALEntryType, payload: []const u8) u64 {
@@ -81,6 +82,10 @@ pub const WALEntry = struct {
         buffer[offset] = @intFromEnum(self.entry_type);
         offset += 1;
 
+        // Write payload size (4 bytes, little-endian)
+        std.mem.writeInt(u32, buffer[offset..][0..4], self.payload_size, .little);
+        offset += 4;
+
         // Write payload
         @memcpy(buffer[offset .. offset + self.payload.len], self.payload);
         offset += self.payload.len;
@@ -102,8 +107,15 @@ pub const WALEntry = struct {
         const entry_type = try WALEntryType.from_u8(buffer[offset]);
         offset += 1;
 
+        // Read payload size
+        const payload_size = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+        offset += 4;
+
+        // Validate payload size against remaining buffer
+        if (offset + payload_size > buffer.len) return error.BufferTooSmall;
+
         // Read payload
-        const payload = try allocator.dupe(u8, buffer[offset..]);
+        const payload = try allocator.dupe(u8, buffer[offset .. offset + payload_size]);
 
         // Verify checksum
         const expected_checksum = calculate_checksum(entry_type, payload);
@@ -123,6 +135,7 @@ pub const WALEntry = struct {
         return WALEntry{
             .checksum = checksum,
             .entry_type = entry_type,
+            .payload_size = payload_size,
             .payload = payload,
         };
     }
@@ -138,6 +151,7 @@ pub const WALEntry = struct {
         return WALEntry{
             .checksum = checksum,
             .entry_type = .put_block,
+            .payload_size = @intCast(payload_size),
             .payload = payload,
         };
     }
@@ -150,6 +164,7 @@ pub const WALEntry = struct {
         return WALEntry{
             .checksum = checksum,
             .entry_type = .delete_block,
+            .payload_size = @intCast(payload.len),
             .payload = payload,
         };
     }
@@ -164,6 +179,7 @@ pub const WALEntry = struct {
         return WALEntry{
             .checksum = checksum,
             .entry_type = .put_edge,
+            .payload_size = @intCast(payload.len),
             .payload = payload,
         };
     }
@@ -930,28 +946,8 @@ pub const StorageEngine = struct {
                 break;
             };
 
-            // Determine payload size based on entry type
-            const payload_size = switch (entry_type) {
-                .delete_block => 16, // BlockId size
-                .put_edge => 40, // GraphEdge.SERIALIZED_SIZE
-                .put_block => blk: {
-                    // For put_block, we need to read the block header to get size
-                    const payload_start = offset + WALEntry.HEADER_SIZE;
-                    if (payload_start + ContextBlock.MIN_SERIALIZED_SIZE > file_content.len) {
-                        break :blk 0; // Will cause break below
-                    }
-
-                    const block_content = file_content[payload_start..];
-                    const computed_size = ContextBlock.compute_serialized_size_from_buffer(
-                        block_content,
-                    ) catch {
-                        break :blk 0;
-                    };
-                    break :blk computed_size;
-                },
-            };
-
-            if (payload_size == 0) break; // Error occurred above
+            // Read payload size from WAL entry header (self-describing format)
+            const payload_size = std.mem.readInt(u32, file_content[offset + 9..][0..4], .little);
 
             const total_entry_size = WALEntry.HEADER_SIZE + payload_size;
             if (offset + total_entry_size > file_content.len) {

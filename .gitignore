@@ -3,4 +3,4 @@ zig-out/
 zig/
 *.o
 CLAUDE.md
-TODO.md
+CORTEX_TODO.md
