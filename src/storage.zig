@@ -12,6 +12,7 @@ const sstable = @import("sstable");
 const buffer_pool = @import("buffer_pool");
 const error_context = @import("error_context");
 const concurrency = @import("concurrency");
+const tiered_compaction = @import("tiered_compaction");
 
 const VFS = vfs.VFS;
 const ContextBlock = context_block.ContextBlock;
@@ -19,6 +20,7 @@ const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 const SSTable = sstable.SSTable;
 const Compactor = sstable.Compactor;
+const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
 
 /// Storage engine errors.
 pub const StorageError = error{
@@ -257,7 +259,7 @@ pub const StorageEngine = struct {
     index: BlockIndex,
     wal_file: ?vfs.VFile,
     sstables: std.ArrayList([]const u8), // Paths to SSTable files
-    compactor: Compactor,
+    compaction_manager: TieredCompactionManager,
     next_sstable_id: u32,
     initialized: bool,
     buffer_pool: buffer_pool.BufferPool,
@@ -271,7 +273,7 @@ pub const StorageEngine = struct {
             .index = BlockIndex.init(allocator),
             .wal_file = null,
             .sstables = std.ArrayList([]const u8).init(allocator),
-            .compactor = Compactor.init(allocator, filesystem, data_dir),
+            .compaction_manager = TieredCompactionManager.init(allocator, filesystem, data_dir),
             .next_sstable_id = 0,
             .initialized = false,
             .buffer_pool = buffer_pool.BufferPool.init(),
@@ -284,6 +286,7 @@ pub const StorageEngine = struct {
             file.close() catch {};
         }
         self.index.deinit();
+        self.compaction_manager.deinit();
 
         // Free SSTable paths
         for (self.sstables.items) |path| {
@@ -342,6 +345,9 @@ pub const StorageEngine = struct {
 
         _ = try lock_file.write(lock_content);
         try lock_file.close();
+
+        // Discover and register existing SSTables with compaction manager
+        try self.discover_existing_sstables();
 
         self.initialized = true;
     }
@@ -491,8 +497,13 @@ pub const StorageEngine = struct {
 
         try new_sstable.write_blocks(blocks_to_flush.items);
 
-        // Add to SSTables list
+        // Add to SSTables list and compaction manager
         try self.sstables.append(try self.allocator.dupe(u8, sstable_path));
+
+        // Get file size for compaction manager
+        const file_size = try self.read_file_size(sstable_path);
+        try self.compaction_manager.add_sstable(sstable_path, file_size, 0); // L0 for new flushes
+
         self.next_sstable_id += 1;
 
         // Clear the in-memory index (blocks are now persisted in SSTable)
@@ -500,43 +511,91 @@ pub const StorageEngine = struct {
         self.index = BlockIndex.init(self.allocator);
 
         std.log.info(
-            "Flushed {} blocks to SSTable: {s}",
-            .{ blocks_to_flush.items.len, sstable_path },
+            "Flushed {} blocks to SSTable: {s} (size: {} bytes)",
+            .{ blocks_to_flush.items.len, sstable_path, file_size },
         );
 
-        // Trigger compaction if we have too many SSTables
-        if (self.sstables.items.len >= 4) {
-            try self.compact_sstables();
+        // Check for compaction opportunities
+        try self.check_and_run_compaction();
+    }
+
+    /// Check for compaction opportunities and execute if needed.
+    fn check_and_run_compaction(self: *StorageEngine) !void {
+        concurrency.assert_main_thread();
+
+        if (self.compaction_manager.check_compaction_needed()) |job| {
+            std.log.info(
+                "Starting {} compaction: L{} -> L{} ({} SSTables)",
+                .{
+                    @tagName(job.compaction_type),
+                    job.input_level,
+                    job.output_level,
+                    job.input_paths.items.len,
+                },
+            );
+
+            try self.compaction_manager.execute_compaction(job);
+
+            // Update our SSTable tracking list
+            try self.sync_sstable_list();
         }
     }
 
-    /// Compact multiple SSTables into fewer, larger SSTables.
-    fn compact_sstables(self: *StorageEngine) !void {
-        if (self.sstables.items.len < 2) {
-            return; // Need at least 2 SSTables to compact
+    /// Synchronize the storage engine's SSTable list with the compaction manager.
+    fn sync_sstable_list(self: *StorageEngine) !void {
+        // For now, we'll keep the simple list structure and let the compaction manager handle tiers
+        // In a future optimization, we could remove this redundant tracking
+    }
+
+    /// Read the size of a file in bytes.
+    fn read_file_size(self: *StorageEngine, path: []const u8) !u64 {
+        const file = try self.vfs.open(path, .{ .mode = .read_only });
+        defer file.close() catch {};
+
+        const stat = try file.stat();
+        return stat.size;
+    }
+
+    /// Discover existing SSTable files and register them with the compaction manager.
+    fn discover_existing_sstables(self: *StorageEngine) !void {
+        const sst_dir = try std.fmt.allocPrint(self.allocator, "{s}/sst", .{self.data_dir});
+        defer self.allocator.free(sst_dir);
+
+        if (!self.vfs.exists(sst_dir)) {
+            return; // No SSTable directory exists yet
         }
 
-        std.log.info("Starting SSTable compaction of {} tables", .{self.sstables.items.len});
+        // In a real implementation, we would iterate through files in the directory
+        // For simulation VFS, we'll implement a simple discovery pattern
+        // This is a simplified approach - production would parse file names for level info
 
-        // Simple compaction strategy: compact all SSTables into one
-        const output_path = try std.fmt.allocPrint(
-            self.allocator,
-            "{s}/sst/compacted_{d:0>4}.sst",
-            .{ self.data_dir, self.next_sstable_id },
-        );
+        var sstable_id: u32 = 0;
+        while (sstable_id < 1000) { // Check up to 1000 potential SSTables
+            const sstable_path = try std.fmt.allocPrint(
+                self.allocator,
+                "{s}/sstable_{d:0>4}.sst",
+                .{ sst_dir, sstable_id },
+            );
+            defer self.allocator.free(sstable_path);
 
-        try self.compactor.compact_sstables(self.sstables.items, output_path);
+            if (self.vfs.exists(sstable_path)) {
+                const file_size = self.read_file_size(sstable_path) catch 0;
 
-        // Update SSTables list (remove old, add new)
-        for (self.sstables.items) |path| {
-            self.allocator.free(path);
+                // Add to our list
+                const path_copy = try self.allocator.dupe(u8, sstable_path);
+                try self.sstables.append(path_copy);
+
+                // Register with compaction manager (assume L0 for existing files)
+                try self.compaction_manager.add_sstable(sstable_path, file_size, 0);
+
+                // Update next ID
+                if (sstable_id >= self.next_sstable_id) {
+                    self.next_sstable_id = sstable_id + 1;
+                }
+            }
+
+            sstable_id += 1;
         }
-        self.sstables.clearAndFree();
-
-        try self.sstables.append(try self.allocator.dupe(u8, output_path));
-        self.next_sstable_id += 1;
-
-        std.log.info("Compaction completed: {s}", .{output_path});
     }
 
     /// Write a WAL entry to the current WAL file.

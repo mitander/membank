@@ -22,6 +22,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/error_context.zig"),
     });
     error_context_module.addImport("context_block", context_block_module);
+    const concurrency_module = b.createModule(.{
+        .root_source_file = b.path("src/concurrency.zig"),
+    });
     const simulation_vfs_module = b.createModule(.{
         .root_source_file = b.path("src/simulation_vfs.zig"),
     });
@@ -43,6 +46,13 @@ pub fn build(b: *std.Build) void {
     sstable_module.addImport("simulation_vfs", simulation_vfs_module);
     sstable_module.addImport("error_context", error_context_module);
 
+    const tiered_compaction_module = b.createModule(.{
+        .root_source_file = b.path("src/tiered_compaction.zig"),
+    });
+    tiered_compaction_module.addImport("vfs", vfs_module);
+    tiered_compaction_module.addImport("sstable", sstable_module);
+    tiered_compaction_module.addImport("concurrency", concurrency_module);
+
     const storage_module = b.createModule(.{
         .root_source_file = b.path("src/storage.zig"),
     });
@@ -51,6 +61,8 @@ pub fn build(b: *std.Build) void {
     storage_module.addImport("sstable", sstable_module);
     storage_module.addImport("buffer_pool", buffer_pool_module);
     storage_module.addImport("error_context", error_context_module);
+    storage_module.addImport("concurrency", concurrency_module);
+    storage_module.addImport("tiered_compaction", tiered_compaction_module);
 
     const query_engine_module = b.createModule(.{
         .root_source_file = b.path("src/query_engine.zig"),
@@ -74,6 +86,8 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("context_block", context_block_module);
     exe.root_module.addImport("buffer_pool", buffer_pool_module);
     exe.root_module.addImport("error_context", error_context_module);
+    exe.root_module.addImport("concurrency", concurrency_module);
+    exe.root_module.addImport("tiered_compaction", tiered_compaction_module);
     exe.root_module.addImport("simulation_vfs", simulation_vfs_module);
     exe.root_module.addImport("simulation", simulation_module);
     exe.root_module.addImport("sstable", sstable_module);
@@ -108,6 +122,8 @@ pub fn build(b: *std.Build) void {
     unit_tests.root_module.addImport("context_block", context_block_module);
     unit_tests.root_module.addImport("buffer_pool", buffer_pool_module);
     unit_tests.root_module.addImport("error_context", error_context_module);
+    unit_tests.root_module.addImport("concurrency", concurrency_module);
+    unit_tests.root_module.addImport("tiered_compaction", tiered_compaction_module);
     unit_tests.root_module.addImport("simulation_vfs", simulation_vfs_module);
     unit_tests.root_module.addImport("simulation", simulation_module);
     unit_tests.root_module.addImport("sstable", sstable_module);

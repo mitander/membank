@@ -24,7 +24,7 @@ pub fn assert_main_thread() void {
             const current_id = std.Thread.getCurrentId();
             if (current_id != expected_id) {
                 std.debug.panic(
-                    "Threading violation: operation called from thread {} but CortexDB requires thread {}",
+                    "Threading violation: operation called from thread {} but requires thread {}",
                     .{ current_id, expected_id },
                 );
             }
@@ -82,10 +82,22 @@ pub const SingleThreadedAllocator = struct {
         return self.allocator.vtable.alloc(self.allocator.ptr, len, ptr_align, ret_addr);
     }
 
-    fn resize_impl(ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
+    fn resize_impl(
+        ctx: *anyopaque,
+        buf: []u8,
+        buf_align: u8,
+        new_len: usize,
+        ret_addr: usize,
+    ) bool {
         const self: *SingleThreadedAllocator = @ptrCast(@alignCast(ctx));
         assert_main_thread();
-        return self.allocator.vtable.resize(self.allocator.ptr, buf, buf_align, new_len, ret_addr);
+        return self.allocator.vtable.resize(
+            self.allocator.ptr,
+            buf,
+            buf_align,
+            new_len,
+            ret_addr,
+        );
     }
 
     fn free_impl(ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
@@ -96,46 +108,8 @@ pub const SingleThreadedAllocator = struct {
 };
 
 /// Documentation and enforcement of CortexDB's concurrency model.
-///
-/// CONCURRENCY MODEL: Single-Threaded + Async I/O
-///
-/// CortexDB follows TigerBeetle's approach of single-threaded execution
-/// with async I/O for optimal performance and simplicity:
-///
-/// ALLOWED:
-/// - All data structure operations on the main thread
-/// - Async I/O operations (file reads, writes, network)
-/// - Lock-free atomic operations for statistics/metrics
-/// - Thread-safe data structures for cross-thread communication
-///
-/// FORBIDDEN:
-/// - Multiple threads accessing data structures simultaneously
-/// - Locks/mutexes for protecting data structures
-/// - Blocking I/O operations on the main thread
-/// - Shared mutable state between threads
-///
-/// RATIONALE:
-/// - Eliminates data races and complex synchronization bugs
-/// - Enables deterministic simulation testing
-/// - Maximizes cache locality and CPU efficiency
-/// - Simplifies debugging and performance analysis
-/// - Proven approach used by high-performance databases
-///
-/// ASYNC I/O STRATEGY:
-/// - Use io_uring on Linux, kqueue on macOS, IOCP on Windows
-/// - VFS interface provides async operations
-/// - Main thread processes I/O completions without blocking
-/// - CPU-intensive operations remain single-threaded
-///
-/// THREAD SAFETY EXCEPTIONS:
-/// - Buffer pool uses lock-free atomic operations (read-only after init)
-/// - Statistics counters use atomic operations for metrics
-/// - Log messages may be written from any thread
-///
-/// MIGRATION STRATEGY:
-/// - Existing code gradually adopts assert_main_thread() calls
-/// - VFS interface updated to support async operations
-/// - No breaking changes to public APIs
+/// CONCURRENCY MODEL: Single-threaded + async I/O following TigerBeetle approach.
+/// Thread safety enforced through design rather than locks.
 pub const ConcurrencyModel = struct {
     comptime {
         // This serves as documentation and compile-time enforcement
