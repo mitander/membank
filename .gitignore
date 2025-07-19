@@ -1,6 +1,6 @@
 .zig-cache/
 zig-out/
-zig
+zig/
 *.o
 CLAUDE.md
 TODO.md

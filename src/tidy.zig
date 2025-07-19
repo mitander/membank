@@ -916,6 +916,7 @@ test "tidy extensions" {
         .{".githooks/pre-commit"},
         .{".githooks/commit-msg"},
         .{"setup-hooks.sh"},
+        .{"scripts/install-zig.sh"},
     });
 
     const allocator = std.testing.allocator;
