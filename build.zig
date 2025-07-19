@@ -27,11 +27,19 @@ pub fn build(b: *std.Build) void {
     simulation_module.addImport("vfs", vfs_module);
     simulation_module.addImport("simulation_vfs", simulation_vfs_module);
 
+    const sstable_module = b.createModule(.{
+        .root_source_file = b.path("src/sstable.zig"),
+    });
+    sstable_module.addImport("context_block", context_block_module);
+    sstable_module.addImport("vfs", vfs_module);
+    sstable_module.addImport("simulation_vfs", simulation_vfs_module);
+
     const storage_module = b.createModule(.{
         .root_source_file = b.path("src/storage.zig"),
     });
     storage_module.addImport("vfs", vfs_module);
     storage_module.addImport("context_block", context_block_module);
+    storage_module.addImport("sstable", sstable_module);
 
     const query_engine_module = b.createModule(.{
         .root_source_file = b.path("src/query_engine.zig"),
@@ -55,6 +63,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("context_block", context_block_module);
     exe.root_module.addImport("simulation_vfs", simulation_vfs_module);
     exe.root_module.addImport("simulation", simulation_module);
+    exe.root_module.addImport("sstable", sstable_module);
     exe.root_module.addImport("storage", storage_module);
     exe.root_module.addImport("query_engine", query_engine_module);
 
@@ -86,6 +95,7 @@ pub fn build(b: *std.Build) void {
     unit_tests.root_module.addImport("context_block", context_block_module);
     unit_tests.root_module.addImport("simulation_vfs", simulation_vfs_module);
     unit_tests.root_module.addImport("simulation", simulation_module);
+    unit_tests.root_module.addImport("sstable", sstable_module);
     unit_tests.root_module.addImport("storage", storage_module);
     unit_tests.root_module.addImport("query_engine", query_engine_module);
 

@@ -8,11 +8,14 @@ const std = @import("std");
 const assert = std.debug.assert;
 const vfs = @import("vfs");
 const context_block = @import("context_block");
+const sstable = @import("sstable");
 
 const VFS = vfs.VFS;
 const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
+const SSTable = sstable.SSTable;
+const Compactor = sstable.Compactor;
 
 /// Storage engine errors.
 pub const StorageError = error{
@@ -239,6 +242,9 @@ pub const StorageEngine = struct {
     data_dir: []const u8,
     index: BlockIndex,
     wal_file: ?vfs.VFile,
+    sstables: std.ArrayList([]const u8), // Paths to SSTable files
+    compactor: Compactor,
+    next_sstable_id: u32,
     initialized: bool,
 
     /// Initialize a new storage engine instance.
@@ -249,6 +255,9 @@ pub const StorageEngine = struct {
             .data_dir = data_dir,
             .index = BlockIndex.init(allocator),
             .wal_file = null,
+            .sstables = std.ArrayList([]const u8).init(allocator),
+            .compactor = Compactor.init(allocator, filesystem, data_dir),
+            .next_sstable_id = 0,
             .initialized = false,
         };
     }
@@ -259,6 +268,13 @@ pub const StorageEngine = struct {
             file.close() catch {};
         }
         self.index.deinit();
+
+        // Free SSTable paths
+        for (self.sstables.items) |path| {
+            self.allocator.free(path);
+        }
+        self.sstables.deinit();
+
         self.allocator.free(self.data_dir);
     }
 
@@ -330,6 +346,11 @@ pub const StorageEngine = struct {
 
         // Update in-memory index
         try self.index.put_block(block);
+
+        // Check if we need to flush MemTable to SSTable
+        if (self.index.block_count() >= 1000) { // Flush when we have 1000+ blocks
+            try self.flush_memtable_to_sstable();
+        }
     }
 
     /// Get a Context Block by ID.
@@ -340,7 +361,27 @@ pub const StorageEngine = struct {
         assert(self.initialized);
         if (!self.initialized) return StorageError.NotInitialized;
 
-        return self.index.get_block(block_id) orelse StorageError.BlockNotFound;
+        // First check in-memory index (most recent data)
+        if (self.index.get_block(block_id)) |block| {
+            return block;
+        }
+
+        // Search SSTables (older data)
+        for (self.sstables.items) |sstable_path| {
+            const path_copy = try self.allocator.dupe(u8, sstable_path);
+            var table = SSTable.init(self.allocator, self.vfs, path_copy);
+            defer table.deinit();
+
+            table.read_index() catch continue; // Skip corrupted SSTables
+
+            if (table.get_block(block_id) catch null) |block| {
+                // Transfer ownership to index for future fast access
+                self.index.put_block(block) catch {}; // Ignore errors, it's an optimization
+                return self.index.get_block(block_id) orelse StorageError.BlockNotFound;
+            }
+        }
+
+        return StorageError.BlockNotFound;
     }
 
     /// Delete a Context Block by ID.
@@ -384,6 +425,90 @@ pub const StorageEngine = struct {
         if (self.wal_file) |*file| {
             try file.flush();
         }
+    }
+
+    /// Flush in-memory blocks to an SSTable.
+    pub fn flush_memtable_to_sstable(self: *StorageEngine) !void {
+        assert(self.initialized);
+        if (!self.initialized) return StorageError.NotInitialized;
+
+        if (self.index.block_count() == 0) {
+            return; // Nothing to flush
+        }
+
+        // Create SSTable file path
+        const sstable_path = try std.fmt.allocPrint(
+            self.allocator,
+            "{s}/sst/sstable_{d:0>4}.sst",
+            .{ self.data_dir, self.next_sstable_id },
+        );
+
+        // Collect all blocks from in-memory index
+        var blocks_to_flush = std.ArrayList(ContextBlock).init(self.allocator);
+        defer blocks_to_flush.deinit();
+
+        var iterator = self.index.blocks.iterator();
+        while (iterator.next()) |entry| {
+            try blocks_to_flush.append(entry.value_ptr.*);
+        }
+
+        if (blocks_to_flush.items.len == 0) {
+            self.allocator.free(sstable_path);
+            return;
+        }
+
+        // Create and write SSTable
+        var new_sstable = SSTable.init(self.allocator, self.vfs, sstable_path);
+        defer new_sstable.deinit();
+
+        try new_sstable.write_blocks(blocks_to_flush.items);
+
+        // Add to SSTables list
+        try self.sstables.append(try self.allocator.dupe(u8, sstable_path));
+        self.next_sstable_id += 1;
+
+        // Clear the in-memory index (blocks are now persisted in SSTable)
+        self.index.deinit();
+        self.index = BlockIndex.init(self.allocator);
+
+        std.log.info(
+            "Flushed {} blocks to SSTable: {s}",
+            .{ blocks_to_flush.items.len, sstable_path },
+        );
+
+        // Trigger compaction if we have too many SSTables
+        if (self.sstables.items.len >= 4) {
+            try self.compact_sstables();
+        }
+    }
+
+    /// Compact multiple SSTables into fewer, larger SSTables.
+    fn compact_sstables(self: *StorageEngine) !void {
+        if (self.sstables.items.len < 2) {
+            return; // Need at least 2 SSTables to compact
+        }
+
+        std.log.info("Starting SSTable compaction of {} tables", .{self.sstables.items.len});
+
+        // Simple compaction strategy: compact all SSTables into one
+        const output_path = try std.fmt.allocPrint(
+            self.allocator,
+            "{s}/sst/compacted_{d:0>4}.sst",
+            .{ self.data_dir, self.next_sstable_id },
+        );
+
+        try self.compactor.compact_sstables(self.sstables.items, output_path);
+
+        // Update SSTables list (remove old, add new)
+        for (self.sstables.items) |path| {
+            self.allocator.free(path);
+        }
+        self.sstables.clearAndFree();
+
+        try self.sstables.append(try self.allocator.dupe(u8, output_path));
+        self.next_sstable_id += 1;
+
+        std.log.info("Compaction completed: {s}", .{output_path});
     }
 
     /// Write a WAL entry to the current WAL file.
