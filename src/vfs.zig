@@ -7,6 +7,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+// Magic number for ProductionFile corruption detection
+const PRODUCTION_FILE_MAGIC: u64 = 0xDEADBEEF_CAFEBABE;
+
 /// Virtual File System interface.
 /// All file I/O operations go through this interface.
 pub const VFS = struct {
@@ -191,9 +194,14 @@ pub const ProductionVFS = struct {
         const file = try std.fs.cwd().openFile(path, flags);
         const file_wrapper = try self.allocator.create(ProductionFile);
         file_wrapper.* = ProductionFile{
+            .magic = PRODUCTION_FILE_MAGIC,
             .file = file,
             .allocator = self.allocator,
+            .closed = false,
         };
+
+        // Validate allocation immediately
+        assert(file_wrapper.magic == PRODUCTION_FILE_MAGIC);
 
         return VFile{
             .ptr = file_wrapper,
@@ -206,9 +214,14 @@ pub const ProductionVFS = struct {
         const file = try std.fs.cwd().createFile(path, .{});
         const file_wrapper = try self.allocator.create(ProductionFile);
         file_wrapper.* = ProductionFile{
+            .magic = PRODUCTION_FILE_MAGIC,
             .file = file,
             .allocator = self.allocator,
+            .closed = false,
         };
+
+        // Validate allocation immediately
+        assert(file_wrapper.magic == PRODUCTION_FILE_MAGIC);
 
         return VFile{
             .ptr = file_wrapper,
@@ -287,8 +300,10 @@ pub const ProductionVFS = struct {
 
 /// Production file wrapper.
 const ProductionFile = struct {
+    magic: u64,
     file: std.fs.File,
     allocator: std.mem.Allocator,
+    closed: bool,
 
     const Self = @This();
 
@@ -303,17 +318,26 @@ const ProductionFile = struct {
     };
 
     fn read(ptr: *anyopaque, buffer: []u8) anyerror!usize {
+        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
         const self: *Self = @ptrCast(@alignCast(ptr));
+        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
+        assert(!self.closed); // Double-use check
         return self.file.read(buffer);
     }
 
     fn write(ptr: *anyopaque, data: []const u8) anyerror!usize {
+        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
         const self: *Self = @ptrCast(@alignCast(ptr));
+        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
+        assert(!self.closed); // Double-use check
         return self.file.write(data);
     }
 
     fn seek(ptr: *anyopaque, offset: i64, whence: VFile.SeekFrom) anyerror!u64 {
+        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
         const self: *Self = @ptrCast(@alignCast(ptr));
+        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
+        assert(!self.closed); // Double-use check
         const new_pos = switch (whence) {
             .start => @as(u64, @intCast(offset)),
             .current => try self.file.getPos() + @as(u64, @intCast(offset)),
@@ -324,23 +348,42 @@ const ProductionFile = struct {
     }
 
     fn tell(ptr: *anyopaque) anyerror!u64 {
+        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
         const self: *Self = @ptrCast(@alignCast(ptr));
+        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
+        assert(!self.closed); // Double-use check
         return self.file.getPos();
     }
 
     fn flush(ptr: *anyopaque) anyerror!void {
+        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
         const self: *Self = @ptrCast(@alignCast(ptr));
+        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
+        assert(!self.closed); // Double-use check
         return self.file.sync();
     }
 
     fn close(ptr: *anyopaque) anyerror!void {
+        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
         const self: *Self = @ptrCast(@alignCast(ptr));
+        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
+
+        // Prevent double-close
+        if (self.closed) {
+            return;
+        }
+
+        self.closed = true;
+        self.magic = 0xDEADDEAD; // Poison the magic number
         self.file.close();
         self.allocator.destroy(self);
     }
 
     fn file_size(ptr: *anyopaque) anyerror!u64 {
+        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
         const self: *Self = @ptrCast(@alignCast(ptr));
+        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
+        assert(!self.closed); // Double-use check
         const stat = try self.file.stat();
         return stat.size;
     }
@@ -368,7 +411,7 @@ test "production vfs basic operations" {
     try std.testing.expect(written == test_data.len);
 
     try file.flush();
-    try file.close();
+    // Remove explicit close - defer will handle it
 
     // Verify file exists
     try std.testing.expect(vfs_interface.exists(test_file));
@@ -381,8 +424,6 @@ test "production vfs basic operations" {
     const read_bytes = try read_file.read(&buffer);
     try std.testing.expect(read_bytes == test_data.len);
     try std.testing.expect(std.mem.eql(u8, buffer[0..read_bytes], test_data));
-
-    try read_file.close();
 
     // Clean up
     try vfs_interface.remove(test_file);

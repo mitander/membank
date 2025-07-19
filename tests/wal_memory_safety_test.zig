@@ -95,7 +95,7 @@ test "wal memory safety: sequential recovery cycles" {
                 defer allocator.free(block_id_str);
 
                 const recovered = try engine.find_block_by_id(try BlockId.from_hex(block_id_str));
-                try testing.expectEqual(@as(u32, cycle + 1), recovered.version);
+                try testing.expectEqual(@as(u32, @intCast(cycle + 1)), recovered.version);
 
                 const expected_size = (block_idx + 1) * 256;
                 try testing.expectEqual(expected_size, recovered.content.len);

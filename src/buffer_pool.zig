@@ -101,7 +101,6 @@ pub const PooledAllocator = struct {
 
         // Try pool allocation first
         if (self.pool.acquire_buffer(size)) |pooled_buffer| {
-            defer pooled_buffer.release();
             const raw_buffer = pooled_buffer.data;
 
             // Embed allocation header
@@ -128,30 +127,26 @@ pub const PooledAllocator = struct {
         const bytes = std.mem.sliceAsBytes(memory);
         if (bytes.len == 0) return;
 
-        // Check if this might be a pool allocation by examining the header
-        const header_ptr = @as(
-            *AllocationHeader,
-            @ptrFromInt(@intFromPtr(bytes.ptr) - AllocationHeader.SIZE),
-        );
-
-        // Verify the header is valid and within reasonable memory bounds
-        if (@intFromPtr(header_ptr) >= 0x1000) { // Basic sanity check
-            if (header_ptr.is_valid()) {
-                // This is a pool allocation - return to pool
-                const header_as_bytes = @as([*]u8, @ptrCast(header_ptr));
-                const original_buffer = header_as_bytes[0 .. bytes.len + AllocationHeader.SIZE];
-                self.pool.free_to_class(header_ptr.size_class, original_buffer);
-                return;
-            }
+        // Check if this is a pool allocation by address range
+        if (self.pool.is_pool_allocation(bytes.ptr)) {
+            // This is a pool allocation - extract header and return to pool
+            const header_ptr = @as(
+                *AllocationHeader,
+                @ptrFromInt(@intFromPtr(bytes.ptr) - AllocationHeader.SIZE),
+            );
+            const header_as_bytes = @as([*]u8, @ptrCast(header_ptr));
+            const original_buffer = header_as_bytes[0 .. bytes.len + AllocationHeader.SIZE];
+            self.pool.free_to_class(header_ptr.size_class, original_buffer);
+            return;
         }
 
         // Not a pool allocation, use fallback allocator
         self.fallback_allocator.free(memory);
     }
 
-    pub fn allocator(self: PooledAllocator) std.mem.Allocator {
+    pub fn allocator(self: *PooledAllocator) std.mem.Allocator {
         return std.mem.Allocator{
-            .ptr = @constCast(&self),
+            .ptr = self,
             .vtable = &.{
                 .alloc = alloc_impl,
                 .resize = resize_impl,
@@ -171,7 +166,6 @@ pub const PooledAllocator = struct {
 
         // Try pool allocation first (with header space)
         if (self.pool.acquire_buffer(len + AllocationHeader.SIZE)) |pooled_buffer| {
-            defer pooled_buffer.release();
             const raw_buffer = pooled_buffer.data;
 
             const header_ptr: *AllocationHeader = @ptrCast(@alignCast(raw_buffer.ptr));
@@ -349,6 +343,38 @@ pub const BufferPool = struct {
     pub fn free_to_class(self: *BufferPool, size_class: BufferSizeClass, buffer: []u8) void {
         _ = self.stats.deallocations.fetchAdd(1, .monotonic);
         self.free_to_class_impl(size_class, buffer);
+    }
+
+    /// Check if a pointer is within pool allocation address ranges
+    pub fn is_pool_allocation(self: *BufferPool, ptr: [*]const u8) bool {
+        const ptr_addr = @intFromPtr(ptr);
+
+        // Check each buffer pool array
+        const tiny_start = @intFromPtr(&self.tiny_buffers[0]);
+        const tiny_end = tiny_start + @sizeOf(@TypeOf(self.tiny_buffers));
+        if (ptr_addr >= tiny_start and ptr_addr < tiny_end) return true;
+
+        const small_start = @intFromPtr(&self.small_buffers[0]);
+        const small_end = small_start + @sizeOf(@TypeOf(self.small_buffers));
+        if (ptr_addr >= small_start and ptr_addr < small_end) return true;
+
+        const medium_start = @intFromPtr(&self.medium_buffers[0]);
+        const medium_end = medium_start + @sizeOf(@TypeOf(self.medium_buffers));
+        if (ptr_addr >= medium_start and ptr_addr < medium_end) return true;
+
+        const large_start = @intFromPtr(&self.large_buffers[0]);
+        const large_end = large_start + @sizeOf(@TypeOf(self.large_buffers));
+        if (ptr_addr >= large_start and ptr_addr < large_end) return true;
+
+        const huge_start = @intFromPtr(&self.huge_buffers[0]);
+        const huge_end = huge_start + @sizeOf(@TypeOf(self.huge_buffers));
+        if (ptr_addr >= huge_start and ptr_addr < huge_end) return true;
+
+        const massive_start = @intFromPtr(&self.massive_buffers[0]);
+        const massive_end = massive_start + @sizeOf(@TypeOf(self.massive_buffers));
+        if (ptr_addr >= massive_start and ptr_addr < massive_end) return true;
+
+        return false;
     }
 
     /// Free buffer back to specific size class (internal implementation)

@@ -11,7 +11,7 @@ const assert = std.debug.assert;
 const simulation = @import("simulation");
 const storage = @import("storage");
 const context_block = @import("context_block");
-const buffer_pool = @import("buffer_pool");
+// const buffer_pool = @import("buffer_pool"); // TODO Add buffer_pool to test imports in build.zig
 
 const Simulation = simulation.Simulation;
 const StorageEngine = storage.StorageEngine;
@@ -54,8 +54,8 @@ test "buffer pool integration: allocation path verification" {
     var pool = try buffer_pool.BufferPool.init(allocator);
     defer pool.deinit();
 
-    const pooled_allocator = buffer_pool.PooledAllocator.init(&pool, allocator);
-    const alloc = pooled_allocator.allocator();
+    var pooled_allocator = buffer_pool.PooledAllocator.init(&pool, allocator);
+    const alloc = (&pooled_allocator).allocator();
 
     // Test small allocations (should use pool)
     var small_allocations: [16][]u8 = undefined;
@@ -134,7 +134,7 @@ test "buffer pool integration: HashMap stability stress test" {
         const block_id_str = try std.fmt.allocPrint(allocator, "{:0>31}{}", .{ 0, i });
         defer allocator.free(block_id_str);
 
-        const block_id = try BlockId.parse(block_id_str);
+        const block_id = try BlockId.from_hex(block_id_str);
         block_ids[i] = block_id;
 
         // Vary content size to exercise different allocation paths
@@ -143,7 +143,7 @@ test "buffer pool integration: HashMap stability stress test" {
         else if (i % 3 == 1)
             4096 // Medium - should use buffer pool
         else
-            buffer_pool.MAX_BUFFER_SIZE + 1000; // Large - should use heap
+            1024 * 1024 + 1000; // Large - heap (MAX_BUFFER_SIZE)
 
         const content = try allocator.alloc(u8, content_size);
         defer allocator.free(content);
@@ -242,7 +242,7 @@ test "buffer pool integration: WAL recovery with mixed allocations" {
         const test_cases = [_]struct { size: usize, id_suffix: u8 }{
             .{ .size = 128, .id_suffix = 1 }, // Small - buffer pool
             .{ .size = 8192, .id_suffix = 2 }, // Medium - buffer pool
-            .{ .size = buffer_pool.MAX_BUFFER_SIZE + 2000, .id_suffix = 3 }, // Large - heap
+            .{ .size = 1024 * 1024 + 2000, .id_suffix = 3 }, // Large - heap
         };
 
         for (test_cases) |test_case| {
@@ -284,7 +284,7 @@ test "buffer pool integration: WAL recovery with mixed allocations" {
         const test_cases = [_]struct { size: usize, id_suffix: u8 }{
             .{ .size = 128, .id_suffix = 1 },
             .{ .size = 8192, .id_suffix = 2 },
-            .{ .size = buffer_pool.MAX_BUFFER_SIZE + 2000, .id_suffix = 3 },
+            .{ .size = 1024 * 1024 + 2000, .id_suffix = 3 }, // Large - heap
         };
 
         for (test_cases) |test_case| {
@@ -295,7 +295,7 @@ test "buffer pool integration: WAL recovery with mixed allocations" {
             );
             defer allocator.free(block_id_str);
 
-            const block_id = try BlockId.parse(block_id_str);
+            const block_id = try BlockId.from_hex(block_id_str);
             const recovered = try engine2.get_block(block_id);
 
             try testing.expect(recovered != null);
@@ -321,14 +321,14 @@ fn perform_storage_operations(engine: *StorageEngine, cycle: usize) !void {
         const block_id_str = try std.fmt.allocPrint(allocator, "{:0>30}{}{}", .{ 0, cycle, i });
         defer allocator.free(block_id_str);
 
-        const block_id = try BlockId.parse(block_id_str);
+        const block_id = try BlockId.from_hex(block_id_str);
 
         // Vary sizes to stress different allocation paths
         const size = switch (i % 4) {
             0 => 256, // Small - pool
             1 => 2048, // Medium - pool
             2 => 32768, // Large - pool
-            3 => buffer_pool.MAX_BUFFER_SIZE + 500, // Huge - heap
+            3 => 1024 * 1024 + 500, // Huge - heap (MAX_BUFFER_SIZE)
             else => unreachable,
         };
 
@@ -363,7 +363,7 @@ fn verify_storage_integrity(engine: *StorageEngine, cycle: usize) !void {
         const block_id_str = try std.fmt.allocPrint(allocator, "{:0>30}{}{}", .{ 0, cycle, i });
         defer allocator.free(block_id_str);
 
-        const block_id = try BlockId.parse(block_id_str);
+        const block_id = try BlockId.from_hex(block_id_str);
         const retrieved = try engine.get_block(block_id);
 
         try testing.expect(retrieved != null);

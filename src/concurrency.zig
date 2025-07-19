@@ -65,27 +65,38 @@ pub const SingleThreadedAllocator = struct {
         self.base_allocator.destroy(ptr);
     }
 
-    pub fn allocator(self: SingleThreadedAllocator) std.mem.Allocator {
+    pub fn allocator(self: *SingleThreadedAllocator) std.mem.Allocator {
         return std.mem.Allocator{
-            .ptr = @constCast(&self),
+            .ptr = self,
             .vtable = &.{
                 .alloc = alloc_impl,
                 .resize = resize_impl,
                 .free = free_impl,
+                .remap = remap_impl,
             },
         };
     }
 
-    fn alloc_impl(ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
+    fn alloc_impl(
+        ctx: *anyopaque,
+        len: usize,
+        ptr_align: std.mem.Alignment,
+        ret_addr: usize,
+    ) ?[*]u8 {
         const self: *SingleThreadedAllocator = @ptrCast(@alignCast(ctx));
         assert_main_thread();
-        return self.base_allocator.vtable.alloc(self.base_allocator.ptr, len, ptr_align, ret_addr);
+        return self.base_allocator.vtable.alloc(
+            self.base_allocator.ptr,
+            len,
+            ptr_align,
+            ret_addr,
+        );
     }
 
     fn resize_impl(
         ctx: *anyopaque,
         buf: []u8,
-        buf_align: u8,
+        buf_align: std.mem.Alignment,
         new_len: usize,
         ret_addr: usize,
     ) bool {
@@ -100,10 +111,28 @@ pub const SingleThreadedAllocator = struct {
         );
     }
 
-    fn free_impl(ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
+    fn free_impl(ctx: *anyopaque, buf: []u8, buf_align: std.mem.Alignment, ret_addr: usize) void {
         const self: *SingleThreadedAllocator = @ptrCast(@alignCast(ctx));
         assert_main_thread();
         self.base_allocator.vtable.free(self.base_allocator.ptr, buf, buf_align, ret_addr);
+    }
+
+    fn remap_impl(
+        ctx: *anyopaque,
+        buf: []u8,
+        buf_align: std.mem.Alignment,
+        new_len: usize,
+        ret_addr: usize,
+    ) ?[*]u8 {
+        const self: *SingleThreadedAllocator = @ptrCast(@alignCast(ctx));
+        assert_main_thread();
+        return self.base_allocator.vtable.remap(
+            self.base_allocator.ptr,
+            buf,
+            buf_align,
+            new_len,
+            ret_addr,
+        );
     }
 };
 
@@ -129,7 +158,7 @@ test "main thread detection" {
 
 test "SingleThreadedAllocator basic operations" {
     const base_allocator = std.testing.allocator;
-    const st_allocator = SingleThreadedAllocator.init(base_allocator);
+    var st_allocator = SingleThreadedAllocator.init(base_allocator);
 
     // Initialize concurrency model
     init();
@@ -154,7 +183,7 @@ test "SingleThreadedAllocator basic operations" {
 
 test "SingleThreadedAllocator as allocator interface" {
     const base_allocator = std.testing.allocator;
-    const st_allocator = SingleThreadedAllocator.init(base_allocator);
+    var st_allocator = SingleThreadedAllocator.init(base_allocator);
 
     // Initialize concurrency model
     init();

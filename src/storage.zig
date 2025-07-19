@@ -977,7 +977,7 @@ pub const StorageEngine = struct {
         const serialized_size = WALEntry.HEADER_SIZE + entry.payload.len;
 
         // Use pooled allocator for optimal memory management
-        const pooled_alloc = self.pooled_allocator.allocator();
+        const pooled_alloc = (&self.pooled_allocator).allocator();
         const buffer = try pooled_alloc.alloc(u8, serialized_size);
         defer pooled_alloc.free(buffer);
 
@@ -1097,7 +1097,7 @@ pub const StorageEngine = struct {
         if (file_size == 0) return 0; // Empty file
 
         // Use pooled allocator for recovery operations
-        const pooled_alloc = self.pooled_allocator.allocator();
+        const pooled_alloc = (&self.pooled_allocator).allocator();
         const file_content = pooled_alloc.alloc(u8, file_size) catch |err| {
             return error_context.storage_error(
                 err,
