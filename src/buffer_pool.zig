@@ -1,16 +1,17 @@
 //! Static buffer pools for zero-allocation hot paths (TigerBeetle approach).
 //!
-//! Pre-allocates fixed-size buffers at startup to eliminate malloc/free overhead
-//! in critical operations like block deserialization and WAL processing.
+//! Pre-allocates all buffers at startup with no dynamic allocation during runtime.
+//! Provides fixed-size buffer pools for common allocation patterns in storage
+//! and WAL operations.
 
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// Maximum size for a single buffer allocation
+/// Maximum buffer size supported by the pool
 pub const MAX_BUFFER_SIZE = 1024 * 1024; // 1MB
 
 /// Number of buffers per pool size class
-const BUFFERS_PER_CLASS = 16;
+const BUFFERS_PER_CLASS = 8;
 
 /// Buffer size classes (powers of 2 for efficient allocation)
 const BufferSizeClass = enum(u8) {
@@ -32,18 +33,20 @@ const BufferSizeClass = enum(u8) {
         };
     }
 
-    pub fn from_size(required_size: usize) BufferSizeClass {
-        if (required_size <= 256) return .tiny;
-        if (required_size <= 1024) return .small;
-        if (required_size <= 4096) return .medium;
-        if (required_size <= 16384) return .large;
-        if (required_size <= 65536) return .huge;
-        if (required_size <= 262144) return .massive;
-        @panic("Buffer size too large for pool allocation");
+    pub fn from_size(requested_size: usize) BufferSizeClass {
+        if (requested_size <= 256) return .tiny;
+        if (requested_size <= 1024) return .small;
+        if (requested_size <= 4096) return .medium;
+        if (requested_size <= 16384) return .large;
+        if (requested_size <= 65536) return .huge;
+        if (requested_size <= 262144) return .massive;
+
+        // Anything larger than 256KB is not supported by the pool
+        unreachable;
     }
 };
 
-/// A buffer that can be returned to the pool
+/// A buffer acquired from the pool
 pub const PooledBuffer = struct {
     data: []u8,
     size_class: BufferSizeClass,
@@ -59,25 +62,23 @@ pub const PooledBuffer = struct {
     }
 };
 
-/// Buffer pool with heap-allocated storage to avoid stack overflow
+/// Static buffer pool with pre-allocated buffers
 pub const BufferPool = struct {
-    // Heap-allocated buffer storage for each size class
-    tiny_buffers: []u8,
-    small_buffers: []u8,
-    medium_buffers: []u8,
-    large_buffers: []u8,
-    huge_buffers: []u8,
-    massive_buffers: []u8,
+    // Pre-allocated buffer storage for each size class
+    tiny_buffers: [BUFFERS_PER_CLASS][BufferSizeClass.tiny.size()]u8,
+    small_buffers: [BUFFERS_PER_CLASS][BufferSizeClass.small.size()]u8,
+    medium_buffers: [BUFFERS_PER_CLASS][BufferSizeClass.medium.size()]u8,
+    large_buffers: [BUFFERS_PER_CLASS][BufferSizeClass.large.size()]u8,
+    huge_buffers: [BUFFERS_PER_CLASS][BufferSizeClass.huge.size()]u8,
+    massive_buffers: [BUFFERS_PER_CLASS][BufferSizeClass.massive.size()]u8,
 
-    allocator: std.mem.Allocator,
-
-    // Free buffer tracking (atomic for thread safety)
-    tiny_free: std.atomic.Value(u64),
-    small_free: std.atomic.Value(u64),
-    medium_free: std.atomic.Value(u64),
-    large_free: std.atomic.Value(u64),
-    huge_free: std.atomic.Value(u64),
-    massive_free: std.atomic.Value(u64),
+    // Free masks - bit i set means buffer i is free
+    tiny_free: std.atomic.Value(u8),
+    small_free: std.atomic.Value(u8),
+    medium_free: std.atomic.Value(u8),
+    large_free: std.atomic.Value(u8),
+    huge_free: std.atomic.Value(u8),
+    massive_free: std.atomic.Value(u8),
 
     // Statistics for monitoring
     stats: Statistics,
@@ -87,7 +88,6 @@ pub const BufferPool = struct {
         deallocations: std.atomic.Value(u64),
         pool_hits: std.atomic.Value(u64),
         pool_misses: std.atomic.Value(u64),
-        fallback_allocations: std.atomic.Value(u64),
 
         pub fn init() Statistics {
             return Statistics{
@@ -95,46 +95,36 @@ pub const BufferPool = struct {
                 .deallocations = std.atomic.Value(u64).init(0),
                 .pool_hits = std.atomic.Value(u64).init(0),
                 .pool_misses = std.atomic.Value(u64).init(0),
-                .fallback_allocations = std.atomic.Value(u64).init(0),
             };
         }
     };
 
     pub fn init(allocator: std.mem.Allocator) !BufferPool {
-        // Allocate contiguous memory for each size class
-        const tiny_size = BUFFERS_PER_CLASS * BufferSizeClass.tiny.size();
-        const small_size = BUFFERS_PER_CLASS * BufferSizeClass.small.size();
-        const medium_size = BUFFERS_PER_CLASS * BufferSizeClass.medium.size();
-        const large_size = BUFFERS_PER_CLASS * BufferSizeClass.large.size();
-        const huge_size = BUFFERS_PER_CLASS * BufferSizeClass.huge.size();
-        const massive_size = BUFFERS_PER_CLASS * BufferSizeClass.massive.size();
+        _ = allocator; // Not used - we pre-allocate everything statically
 
         return BufferPool{
-            .tiny_buffers = try allocator.alloc(u8, tiny_size),
-            .small_buffers = try allocator.alloc(u8, small_size),
-            .medium_buffers = try allocator.alloc(u8, medium_size),
-            .large_buffers = try allocator.alloc(u8, large_size),
-            .huge_buffers = try allocator.alloc(u8, huge_size),
-            .massive_buffers = try allocator.alloc(u8, massive_size),
-            .allocator = allocator,
-            // Initialize all buffers as available (all bits set)
-            .tiny_free = std.atomic.Value(u64).init(std.math.maxInt(u64)),
-            .small_free = std.atomic.Value(u64).init(std.math.maxInt(u64)),
-            .medium_free = std.atomic.Value(u64).init(std.math.maxInt(u64)),
-            .large_free = std.atomic.Value(u64).init(std.math.maxInt(u64)),
-            .huge_free = std.atomic.Value(u64).init(std.math.maxInt(u64)),
-            .massive_free = std.atomic.Value(u64).init(std.math.maxInt(u64)),
+            .tiny_buffers = undefined,
+            .small_buffers = undefined,
+            .medium_buffers = undefined,
+            .large_buffers = undefined,
+            .huge_buffers = undefined,
+            .massive_buffers = undefined,
+
+            // All buffers start as free (all bits set)
+            .tiny_free = std.atomic.Value(u8).init(std.math.maxInt(u8)),
+            .small_free = std.atomic.Value(u8).init(std.math.maxInt(u8)),
+            .medium_free = std.atomic.Value(u8).init(std.math.maxInt(u8)),
+            .large_free = std.atomic.Value(u8).init(std.math.maxInt(u8)),
+            .huge_free = std.atomic.Value(u8).init(std.math.maxInt(u8)),
+            .massive_free = std.atomic.Value(u8).init(std.math.maxInt(u8)),
+
             .stats = Statistics.init(),
         };
     }
 
     pub fn deinit(self: *BufferPool) void {
-        self.allocator.free(self.tiny_buffers);
-        self.allocator.free(self.small_buffers);
-        self.allocator.free(self.medium_buffers);
-        self.allocator.free(self.large_buffers);
-        self.allocator.free(self.huge_buffers);
-        self.allocator.free(self.massive_buffers);
+        // Nothing to clean up - all memory is statically allocated
+        _ = self;
     }
 
     /// Get a buffer from the pool (zero-allocation fast path)
@@ -179,46 +169,25 @@ pub const BufferPool = struct {
             const current = free_mask.load(.acquire);
             if (current == 0) return null; // No free buffers
 
-            const index = @ctz(current);
-            const new_mask = current & ~(@as(u64, 1) << @intCast(index));
+            // Find first set bit (free buffer)
+            const buffer_index = @ctz(current);
+            assert(buffer_index < BUFFERS_PER_CLASS);
 
-            if (free_mask.cmpxchgWeak(current, new_mask, .acq_rel, .acquire)) |_| {
-                // Someone else took this buffer, try again
-                continue;
+            const new_mask = current & ~(@as(u8, 1) << @intCast(buffer_index));
+
+            // Try to atomically update the mask
+            if (free_mask.cmpxchgWeak(current, new_mask, .acquire, .acquire)) |_| {
+                continue; // CAS failed, retry
             }
 
-            // Successfully claimed buffer at index - slice from contiguous memory
-            const buffer_size = size_class.size();
-            const start_offset = index * buffer_size;
-            const end_offset = start_offset + buffer_size;
-
-            return switch (size_class) {
-                .tiny => self.tiny_buffers[start_offset..end_offset],
-                .small => self.small_buffers[start_offset..end_offset],
-                .medium => self.medium_buffers[start_offset..end_offset],
-                .large => self.large_buffers[start_offset..end_offset],
-                .huge => self.huge_buffers[start_offset..end_offset],
-                .massive => self.massive_buffers[start_offset..end_offset],
-            };
+            // Success! Return buffer at this index
+            return self.buffer_at_index(size_class, buffer_index);
         }
     }
 
-    /// Return buffer to specific size class pool
+    /// Free buffer back to specific size class
     fn free_to_class(self: *BufferPool, size_class: BufferSizeClass, buffer: []u8) void {
-        const base_ptr = switch (size_class) {
-            .tiny => @intFromPtr(self.tiny_buffers.ptr),
-            .small => @intFromPtr(self.small_buffers.ptr),
-            .medium => @intFromPtr(self.medium_buffers.ptr),
-            .large => @intFromPtr(self.large_buffers.ptr),
-            .huge => @intFromPtr(self.huge_buffers.ptr),
-            .massive => @intFromPtr(self.massive_buffers.ptr),
-        };
-
-        const buffer_ptr = @intFromPtr(buffer.ptr);
-        const buffer_size = size_class.size();
-        const index = (buffer_ptr - base_ptr) / buffer_size;
-
-        assert(index < BUFFERS_PER_CLASS);
+        const buffer_index = self.buffer_index(size_class, buffer);
 
         const free_mask = switch (size_class) {
             .tiny => &self.tiny_free,
@@ -229,24 +198,59 @@ pub const BufferPool = struct {
             .massive => &self.massive_free,
         };
 
-        // Atomic set bit to mark buffer as free
-        _ = free_mask.fetchOr(@as(u64, 1) << @intCast(index), .release);
+        // Atomic set bit for this buffer index
+        const bit_mask = @as(u8, 1) << @intCast(buffer_index);
+        _ = free_mask.fetchOr(bit_mask, .release);
     }
 
-    /// Get allocation statistics
-    pub fn statistics(self: *BufferPool) struct {
+    /// Get buffer at specific index for size class
+    fn buffer_at_index(self: *BufferPool, size_class: BufferSizeClass, index: usize) []u8 {
+        assert(index < BUFFERS_PER_CLASS);
+
+        return switch (size_class) {
+            .tiny => &self.tiny_buffers[index],
+            .small => &self.small_buffers[index],
+            .medium => &self.medium_buffers[index],
+            .large => &self.large_buffers[index],
+            .huge => &self.huge_buffers[index],
+            .massive => &self.massive_buffers[index],
+        };
+    }
+
+    /// Get buffer index from buffer pointer
+    fn buffer_index(self: *BufferPool, size_class: BufferSizeClass, buffer: []u8) usize {
+        const buffers_start = switch (size_class) {
+            .tiny => @intFromPtr(&self.tiny_buffers[0]),
+            .small => @intFromPtr(&self.small_buffers[0]),
+            .medium => @intFromPtr(&self.medium_buffers[0]),
+            .large => @intFromPtr(&self.large_buffers[0]),
+            .huge => @intFromPtr(&self.huge_buffers[0]),
+            .massive => @intFromPtr(&self.massive_buffers[0]),
+        };
+
+        const buffer_ptr = @intFromPtr(buffer.ptr);
+        const buffer_size = size_class.size();
+
+        assert(buffer_ptr >= buffers_start);
+        const offset = buffer_ptr - buffers_start;
+        const index = offset / buffer_size;
+
+        assert(index < BUFFERS_PER_CLASS);
+        return index;
+    }
+
+    /// Get buffer pool statistics
+    pub fn statistics(self: *const BufferPool) struct {
         allocations: u64,
         deallocations: u64,
         pool_hits: u64,
         pool_misses: u64,
-        fallback_allocations: u64,
         hit_rate: f64,
     } {
         const allocations = self.stats.allocations.load(.acquire);
         const deallocations = self.stats.deallocations.load(.acquire);
         const pool_hits = self.stats.pool_hits.load(.acquire);
         const pool_misses = self.stats.pool_misses.load(.acquire);
-        const fallback_allocations = self.stats.fallback_allocations.load(.acquire);
 
         const total_requests = pool_hits + pool_misses;
         const hit_rate = if (total_requests > 0)
@@ -259,81 +263,15 @@ pub const BufferPool = struct {
             .deallocations = deallocations,
             .pool_hits = pool_hits,
             .pool_misses = pool_misses,
-            .fallback_allocations = fallback_allocations,
             .hit_rate = hit_rate,
         };
-    }
-};
-
-/// Fallback allocator that uses buffer pool first, then heap allocation
-pub const PooledAllocator = struct {
-    pool: *BufferPool,
-    fallback_allocator: std.mem.Allocator,
-
-    const Self = @This();
-
-    pub fn init(pool: *BufferPool, fallback_allocator: std.mem.Allocator) PooledAllocator {
-        return PooledAllocator{
-            .pool = pool,
-            .fallback_allocator = fallback_allocator,
-        };
-    }
-
-    pub fn allocator(self: *Self) std.mem.Allocator {
-        return std.mem.Allocator{
-            .ptr = self,
-            .vtable = &.{
-                .alloc = alloc,
-                .resize = resize,
-                .free = free,
-            },
-        };
-    }
-
-    fn alloc(ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
-        const self: *Self = @ptrCast(@alignCast(ctx));
-        _ = ptr_align;
-        _ = ret_addr;
-
-        // Try pool allocation first
-        if (self.pool.acquire_buffer(len)) |pooled_buffer| {
-            return pooled_buffer.data.ptr;
-        }
-
-        // Fall back to heap allocation
-        _ = self.pool.stats.fallback_allocations.fetchAdd(1, .monotonic);
-        const slice = self.fallback_allocator.alloc(u8, len) catch return null;
-        return slice.ptr;
-    }
-
-    fn resize(ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
-        const self: *Self = @ptrCast(@alignCast(ctx));
-
-        // For simplicity, don't support resize on pooled buffers
-        // Fall back to the heap allocator
-        return self.fallback_allocator.vtable.resize(
-            self.fallback_allocator.ptr,
-            buf,
-            buf_align,
-            new_len,
-            ret_addr,
-        );
-    }
-
-    fn free(ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
-        const self: *Self = @ptrCast(@alignCast(ctx));
-
-        // For now, assume all frees are heap allocations to avoid corruption
-        // TODO: Implement proper pool/heap distinction
-        self.fallback_allocator.vtable.free(self.fallback_allocator.ptr, buf, buf_align, ret_addr);
     }
 };
 
 // Tests
 
 test "BufferPool basic allocation" {
-    const allocator = std.testing.allocator;
-    var pool = try BufferPool.init(allocator);
+    var pool = try BufferPool.init(std.testing.allocator);
     defer pool.deinit();
 
     // Test small allocation
@@ -356,8 +294,7 @@ test "BufferPool basic allocation" {
 }
 
 test "BufferPool exhaustion" {
-    const allocator = std.testing.allocator;
-    var pool = try BufferPool.init(allocator);
+    var pool = try BufferPool.init(std.testing.allocator);
     defer pool.deinit();
     var buffers: [BUFFERS_PER_CLASS + 1]?PooledBuffer = undefined;
 
@@ -387,8 +324,7 @@ test "BufferPool exhaustion" {
 }
 
 test "BufferPool statistics" {
-    const allocator = std.testing.allocator;
-    var pool = try BufferPool.init(allocator);
+    var pool = try BufferPool.init(std.testing.allocator);
     defer pool.deinit();
 
     const initial_stats = pool.statistics();

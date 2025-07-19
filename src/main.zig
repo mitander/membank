@@ -194,7 +194,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("=====================================\n\n", .{});
 
     // Display performance metrics
-    const metrics = storage_engine.get_metrics();
+    const metrics = storage_engine.metrics();
     std.debug.print("Performance Metrics:\n", .{});
     std.debug.print("- Blocks written: {}\n", .{metrics.blocks_written.load(.monotonic)});
     std.debug.print("- Blocks read: {}\n", .{metrics.blocks_read.load(.monotonic)});
