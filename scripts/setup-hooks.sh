@@ -47,11 +47,11 @@ check_requirements() {
         exit 1
     fi
 
-    # Check if zig is available
-    if ! command -v zig >/dev/null 2>&1; then
-        print_status "WARN" "Zig compiler not found - hooks will fail until Zig is installed"
+    # Check if project zig is available
+    if [ ! -x "./zig/zig" ]; then
+        print_status "WARN" "Project Zig not found - run './scripts/install-zig.sh' to install"
     else
-        print_status "OK" "Zig compiler found"
+        print_status "OK" "Project Zig found"
     fi
 
     # Check if hooks directory exists
@@ -113,7 +113,7 @@ test_hooks() {
         print_status "OK" "Hook test passed"
     else
         print_status "WARN" "Hook test failed - check your development environment"
-        print_status "INFO" "Run 'zig build tidy' manually to diagnose issues"
+        print_status "INFO" "Run './zig/zig build tidy' manually to diagnose issues"
     fi
 }
 

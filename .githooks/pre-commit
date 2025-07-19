@@ -18,9 +18,9 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
     exit 1
 fi
 
-# Check if zig is available
-if ! command -v zig >/dev/null 2>&1; then
-    echo "Error: Zig compiler not found. Please install Zig."
+# Check if project zig is available
+if [ ! -x "./zig/zig" ]; then
+    echo "Error: Project Zig not found. Run './scripts/install-zig.sh' to install."
     exit 1
 fi
 
@@ -46,37 +46,37 @@ CHECKS_PASSED=true
 
 # 1. Check code formatting
 print_status "INFO" "Checking code formatting..."
-if zig build fmt >/dev/null 2>&1; then
+if ./zig/zig build fmt >/dev/null 2>&1; then
     print_status "OK" "Code formatting check passed"
 else
     print_status "FAIL" "Code formatting check failed"
     echo ""
-    echo "Run 'zig build fmt-fix' to automatically fix formatting issues."
+    echo "Run './zig/zig build fmt-fix' to automatically fix formatting issues."
     CHECKS_PASSED=false
 fi
 
 # 2. Run tidy checks
 print_status "INFO" "Running code quality checks..."
-if zig build tidy >/dev/null 2>&1; then
+if ./zig/zig build tidy >/dev/null 2>&1; then
     print_status "OK" "Code quality checks passed"
 else
     print_status "FAIL" "Code quality checks failed"
     echo ""
     echo "Please fix the issues reported by tidy before committing."
-    echo "Run 'zig build tidy' to see detailed error messages."
+    echo "Run './zig/zig build tidy' to see detailed error messages."
     CHECKS_PASSED=false
 fi
 
 # 3. Run unit tests (optional, can be disabled with SKIP_TESTS=1)
 if [ "${SKIP_TESTS:-0}" != "1" ]; then
     print_status "INFO" "Running unit tests..."
-    if zig build test >/dev/null 2>&1; then
+    if ./zig/zig build test >/dev/null 2>&1; then
         print_status "OK" "Unit tests passed"
     else
         print_status "FAIL" "Unit tests failed"
         echo ""
         echo "Please fix failing tests before committing."
-        echo "Run 'zig build test' to see detailed test results."
+        echo "Run './zig/zig build test' to see detailed test results."
         echo "Or set SKIP_TESTS=1 to skip tests in pre-commit hook."
         CHECKS_PASSED=false
     fi

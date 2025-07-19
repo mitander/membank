@@ -56,20 +56,20 @@ of unstructured text.
 
 ```bash
 # Build the project (includes running all tests)
-zig build
+./zig/zig build
 
 # Run the development server (in simulation mode)
-zig build run -- --mode development
+./zig/zig build run -- --mode development
 
 # Run a production server
-zig build run -- --mode production --data-dir /var/lib/cortexdb
+./zig/zig build run -- --mode production --data-dir /var/lib/cortexdb
 
 # Use the CLI to add a new data source
-zig build run-cli -- add-source --type git --uri \
+./zig/zig build run-cli -- add-source --type git --uri \
     https://github.com/ziglang/zig.git
 
 # Run deterministic simulation tests
-zig build test
+./zig/zig build test
 ```
 
 ## Dependencies
@@ -104,7 +104,7 @@ these gates.
 ./zig/zig build test
 ```
 
-**Style:** Enforced by `zig fmt`. All other conventions are documented in `docs/STYLE.md`. We
+**Style:** Enforced by `./zig/zig fmt`. All other conventions are documented in `docs/STYLE.md`. We
 favor simple interfaces, explicit error handling, and a deep aversion to hidden allocations
 or control flow.
 
@@ -126,11 +126,10 @@ network partitions, packet loss, and byzantine faults.
 
 ## Documentation
 
-- [CLAUDE Principles](CLAUDE.md) - The core philosophy driving CortexDB.
-- [Design Decisions](docs/DESIGN.md) - Architecture and implementation rationale.
-- [Style Guide](docs/STYLE.md) - Coding standards and conventions.
-- [Architecture Deep Dive](docs/architecture/overview.md) - Detailed architecture specifications.
+- [Design](docs/DESIGN.md) - Architecture and implementation rationale.
+- [Style](docs/STYLE.md) - Coding standards and conventions.
+- [Architecture](docs/architecture/overview.md) - Detailed architecture specifications.
 
 ## License
 
-Apache License 2.0
+MIT License

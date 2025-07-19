@@ -9,18 +9,21 @@ Development setup and workflow for CortexDB contributors.
 CortexDB requires Zig 0.15.0 or later.
 
 **Option 1: Official installer**
+
 ```bash
 # Download from https://ziglang.org/download/
 # Extract and add to PATH
 ```
 
 **Option 2: Using the project script**
+
 ```bash
 ./zig/download.sh
 export PATH="$PWD/zig:$PATH"
 ```
 
 **Option 3: Package manager**
+
 ```bash
 # macOS
 brew install zig
@@ -33,6 +36,7 @@ sudo pacman -S zig
 ```
 
 Verify installation:
+
 ```bash
 zig version
 # Should output: 0.15.0 or later
@@ -41,6 +45,7 @@ zig version
 ### Git Configuration
 
 Configure git for conventional commits:
+
 ```bash
 git config --local commit.template .gitmessage
 ```
@@ -54,13 +59,13 @@ git clone <repository-url>
 cd cortexdb
 
 # Build the project
-zig build
+./zig/zig build
 
 # Run tests
-zig build test
+./zig/zig build test
 
 # Run all quality checks
-zig build tidy
+./zig/zig build tidy
 ```
 
 ### Project Structure
@@ -90,34 +95,37 @@ cortexdb/
 ### Daily Workflow
 
 1. **Pull latest changes**
+
    ```bash
    git pull origin main
    ```
 
 2. **Create feature branch**
+
    ```bash
    git checkout -b feat/your-feature-name
    ```
 
 3. **Write code following style guide**
    - Read `docs/STYLE.md` for conventions
-   - Use `zig fmt` for formatting
+   - Use `./zig/zig fmt` for formatting
    - Follow TigerBeetle-inspired naming patterns
 
 4. **Test your changes**
+
    ```bash
    # Format code
-   zig fmt .
+   ./zig/zig fmt .
 
    # Build and test
-   zig build
-   zig build test
+   ./zig/zig build
+   ./zig/zig build test
 
    # Run quality checks
-   zig build tidy
+   ./zig/zig build tidy
 
    # Run specific test
-   zig test src/your_file.zig
+   ./zig/zig test src/your_file.zig
    ```
 
 5. **Commit with conventional format**
@@ -130,21 +138,21 @@ cortexdb/
 
 ```bash
 # Basic build
-zig build
+./zig/zig build
 
 # Run all tests
-zig build test
+./zig/zig build test
 
 # Code quality checks
-zig build tidy
+./zig/zig build tidy
 
 # Performance benchmarks
-zig build benchmark
+./zig/zig build benchmark
 zig run zig-out/bin/benchmark block_validation
 
 # Fuzz testing
-zig build fuzz
-zig run zig-out/bin/fuzz storage 10000
+./zig/zig build fuzz
+./zig/zig run zig-out/bin/fuzz storage 10000
 
 # Individual tools
 zig run src/main.zig -- version
@@ -154,32 +162,35 @@ zig run src/tidy.zig
 ### Testing
 
 #### Unit Tests
+
 ```bash
 # Run all tests
-zig build test
+./zig/zig build test
 
 # Run specific file tests
-zig test src/query_engine.zig
+./zig/zig test src/query_engine.zig
 
 # Verbose test output
-zig build test -- --summary all
+./zig/zig build test -- --summary all
 ```
 
 #### Simulation Tests
+
 ```bash
 # Run deterministic simulations
-zig build test  # Includes simulation tests
+./zig/zig build test  # Includes simulation tests
 
 # Run only simulation tests
-zig test tests/simulation_test.zig
+./zig/zig test tests/simulation_test.zig
 
 # Test individual components
-zig test src/vfs.zig
-zig test src/simulation.zig
-zig test src/assert.zig
+./zig/zig test src/vfs.zig
+./zig/zig test src/simulation.zig
+./zig/zig test src/assert.zig
 ```
 
 #### Benchmarks
+
 ```bash
 # All benchmarks
 zig run zig-out/bin/benchmark all
@@ -190,6 +201,7 @@ zig run zig-out/bin/benchmark query_processing
 ```
 
 #### Fuzz Testing
+
 ```bash
 # All targets
 zig run zig-out/bin/fuzz all 50000
@@ -203,19 +215,21 @@ zig run zig-out/bin/fuzz storage 10000 456
 ### Code Quality
 
 #### Formatting
+
 ```bash
 # Check formatting
-zig fmt --check .
+./zig/zig fmt --check .
 
 # Auto-format
-zig fmt .
+./zig/zig fmt .
 ```
 
 #### Style Checks
+
 ```bash
 # Run tidy checker
-zig build tidy
-zig run src/tidy.zig
+./zig/zig build tidy
+./zig/zig run src/tidy.zig
 
 # Manual pattern checks
 grep -r "std\.BoundedArray" src/  # Should be empty
@@ -223,6 +237,7 @@ grep -r "FIXME\|TODO" src/       # Should be resolved
 ```
 
 #### Documentation
+
 - All public functions must have doc comments
 - Use `///` for function documentation
 - Use `//!` for module documentation
@@ -231,6 +246,7 @@ grep -r "FIXME\|TODO" src/       # Should be resolved
 ### Performance Guidelines
 
 #### Memory Management
+
 - Pass allocators explicitly
 - Use arena allocators for temporary data
 - Avoid allocations in hot paths
@@ -242,10 +258,11 @@ CortexDB uses a comprehensive assertion framework (`src/assert.zig`) for defensi
 
 ```bash
 # Test assertion framework
-zig test src/assert.zig
+./zig/zig test src/assert.zig
 ```
 
 Key assertion patterns:
+
 - `assert()` - General condition with descriptive message (debug only)
 - `assert_always()` - Critical safety assertions (always active)
 - `assert_buffer_bounds()` - Prevent buffer overflows
@@ -254,6 +271,7 @@ Key assertion patterns:
 - `assert_index_valid()` - Check array bounds
 
 Example usage:
+
 ```zig
 const assert = @import("assert.zig");
 
@@ -271,11 +289,13 @@ pub fn process_block(block: []const u8, index: usize) !void {
 CortexDB uses a deterministic simulation framework for testing:
 
 **Key Components:**
+
 - **VFS Interface** (`src/vfs.zig`): Abstracts file system operations
 - **Simulation Harness** (`src/simulation.zig`): Manages nodes, network, and time
 - **Simulation VFS** (`src/simulation_vfs.zig`): In-memory file system for testing
 
 **Writing Simulation Tests:**
+
 ```zig
 test "network partition scenario" {
     const allocator = std.testing.allocator;
@@ -305,6 +325,7 @@ test "network partition scenario" {
 ```
 
 **Simulation Capabilities:**
+
 - Network partitions with `partition_nodes()` / `heal_partition()`
 - Packet loss with `set_packet_loss()`
 - Network latency with `set_latency()`
@@ -316,6 +337,7 @@ test "network partition scenario" {
 ### Code Review Checklist
 
 Before submitting PR:
+
 - [ ] Code follows `docs/STYLE.md`
 - [ ] All tests pass
 - [ ] Tidy checks pass
@@ -341,6 +363,7 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 ### Pull Request Process
 
 1. **Create descriptive PR title**
+
    ```
    feat(query): implement semantic search with vector embeddings
    ```
@@ -366,6 +389,7 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 ### Common Issues
 
 **Build failures:**
+
 ```bash
 # Clean build artifacts
 rm -rf zig-cache zig-out
@@ -375,21 +399,23 @@ rm -rf zig-cache zig-out
 ```
 
 **Test failures:**
+
 ```bash
 # Run with verbose output
-zig build test -- --summary all
+./zig/zig build test -- --summary all
 
 # Run single test
-zig test src/failing_module.zig
+./zig/zig test src/failing_module.zig
 ```
 
 **Tidy violations:**
+
 ```bash
 # See specific violations
-zig run src/tidy.zig
+./zig/zig run src/tidy.zig
 
 # Fix formatting
-zig fmt .
+./zig/zig fmt .
 
 # Check naming conventions in STYLE.md
 ```
@@ -398,10 +424,10 @@ zig fmt .
 
 ```bash
 # Debug build with assertions
-zig build -Doptimize=Debug
+./zig/zig build -Doptimize=Debug
 
 # Release build for performance testing
-zig build -Doptimize=ReleaseFast
+./zig/zig build -Doptimize=ReleaseFast
 ```
 
 ### Profiling
