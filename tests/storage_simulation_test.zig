@@ -157,28 +157,23 @@ test "storage recovery: WAL corruption simulation" {
     // Perform WAL recovery
     try storage_engine2.recover_from_wal();
 
-    // TEMPORARILY DISABLED: WAL recovery has memory management issues that need debugging
-    // TODO Fix WAL recovery implementation and re-enable these tests
     // Verify blocks were recovered from WAL
-    // try std.testing.expectEqual(@as(u32, 10), storage_engine2.block_count());
+    try std.testing.expectEqual(@as(u32, 10), storage_engine2.block_count());
 
-    // For now, just verify the storage engine initializes correctly
-    try std.testing.expectEqual(@as(u32, 0), storage_engine2.block_count());
-
-    // // Verify we can retrieve the recovered blocks
-    // for (0..10) |j| {
-    //     const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{j});
-    //     defer allocator.free(block_id_hex);
-    //     const block_id = try BlockId.from_hex(block_id_hex);
-    //     const recovered_block = try storage_engine2.find_block_by_id(block_id);
-    //     try std.testing.expect(block_id.eql(recovered_block.id));
-    //     try std.testing.expectEqual(@as(u64, 1), recovered_block.version);
-    //     try std.testing.expectEqualStrings("recovery://test", recovered_block.source_uri);
-    //     try std.testing.expectEqualStrings(
-    //         "{\"recovery_test\":true}",
-    //         recovered_block.metadata_json,
-    //     );
-    // }
+    // Verify we can retrieve the recovered blocks
+    for (0..10) |j| {
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{j});
+        defer allocator.free(block_id_hex);
+        const block_id = try BlockId.from_hex(block_id_hex);
+        const recovered_block = try storage_engine2.find_block_by_id(block_id);
+        try std.testing.expect(block_id.eql(recovered_block.id));
+        try std.testing.expectEqual(@as(u64, 1), recovered_block.version);
+        try std.testing.expectEqualStrings("recovery://test", recovered_block.source_uri);
+        try std.testing.expectEqualStrings(
+            "{\"recovery_test\":true}",
+            recovered_block.metadata_json,
+        );
+    }
 }
 
 test "storage limits: large block handling" {

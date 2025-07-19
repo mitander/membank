@@ -1,16 +1,31 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize_mode = b.standardOptimizeOption(.{});
+// Module collection for easy management
+const CoreModules = struct {
+    assert: *std.Build.Module,
+    vfs: *std.Build.Module,
+    buffer_pool: *std.Build.Module,
+    context_block: *std.Build.Module,
+    error_context: *std.Build.Module,
+    concurrency: *std.Build.Module,
+    simulation_vfs: *std.Build.Module,
+    simulation: *std.Build.Module,
+    sstable: *std.Build.Module,
+    tiered_compaction: *std.Build.Module,
+    storage: *std.Build.Module,
+    query_engine: *std.Build.Module,
+};
 
-    // Create shared modules
+fn create_core_modules(b: *std.Build) CoreModules {
+    // Foundation modules (no dependencies)
     const assert_module = b.createModule(.{
         .root_source_file = b.path("src/assert.zig"),
     });
+
     const vfs_module = b.createModule(.{
         .root_source_file = b.path("src/vfs.zig"),
     });
+
     const buffer_pool_module = b.createModule(.{
         .root_source_file = b.path("src/buffer_pool.zig"),
     });
@@ -18,19 +33,24 @@ pub fn build(b: *std.Build) void {
     const context_block_module = b.createModule(.{
         .root_source_file = b.path("src/context_block.zig"),
     });
+
+    const concurrency_module = b.createModule(.{
+        .root_source_file = b.path("src/concurrency.zig"),
+    });
+
+    // Modules with single dependencies
     const error_context_module = b.createModule(.{
         .root_source_file = b.path("src/error_context.zig"),
     });
     error_context_module.addImport("context_block", context_block_module);
-    const concurrency_module = b.createModule(.{
-        .root_source_file = b.path("src/concurrency.zig"),
-    });
+
     const simulation_vfs_module = b.createModule(.{
         .root_source_file = b.path("src/simulation_vfs.zig"),
     });
     simulation_vfs_module.addImport("vfs", vfs_module);
     simulation_vfs_module.addImport("assert", assert_module);
 
+    // Simulation framework
     const simulation_module = b.createModule(.{
         .root_source_file = b.path("src/simulation.zig"),
     });
@@ -38,6 +58,7 @@ pub fn build(b: *std.Build) void {
     simulation_module.addImport("vfs", vfs_module);
     simulation_module.addImport("simulation_vfs", simulation_vfs_module);
 
+    // Storage layer modules
     const sstable_module = b.createModule(.{
         .root_source_file = b.path("src/sstable.zig"),
     });
@@ -64,11 +85,61 @@ pub fn build(b: *std.Build) void {
     storage_module.addImport("concurrency", concurrency_module);
     storage_module.addImport("tiered_compaction", tiered_compaction_module);
 
+    // Query engine (top level)
     const query_engine_module = b.createModule(.{
         .root_source_file = b.path("src/query_engine.zig"),
     });
     query_engine_module.addImport("storage", storage_module);
     query_engine_module.addImport("context_block", context_block_module);
+
+    return CoreModules{
+        .assert = assert_module,
+        .vfs = vfs_module,
+        .buffer_pool = buffer_pool_module,
+        .context_block = context_block_module,
+        .error_context = error_context_module,
+        .concurrency = concurrency_module,
+        .simulation_vfs = simulation_vfs_module,
+        .simulation = simulation_module,
+        .sstable = sstable_module,
+        .tiered_compaction = tiered_compaction_module,
+        .storage = storage_module,
+        .query_engine = query_engine_module,
+    };
+}
+
+fn add_all_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    module.addImport("assert", core_modules.assert);
+    module.addImport("vfs", core_modules.vfs);
+    module.addImport("buffer_pool", core_modules.buffer_pool);
+    module.addImport("context_block", core_modules.context_block);
+    module.addImport("error_context", core_modules.error_context);
+    module.addImport("concurrency", core_modules.concurrency);
+    module.addImport("simulation_vfs", core_modules.simulation_vfs);
+    module.addImport("simulation", core_modules.simulation);
+    module.addImport("sstable", core_modules.sstable);
+    module.addImport("tiered_compaction", core_modules.tiered_compaction);
+    module.addImport("storage", core_modules.storage);
+    module.addImport("query_engine", core_modules.query_engine);
+}
+
+fn add_test_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    // Common imports for test files
+    module.addImport("assert", core_modules.assert);
+    module.addImport("vfs", core_modules.vfs);
+    module.addImport("context_block", core_modules.context_block);
+    module.addImport("simulation", core_modules.simulation);
+    module.addImport("simulation_vfs", core_modules.simulation_vfs);
+    module.addImport("storage", core_modules.storage);
+    module.addImport("query_engine", core_modules.query_engine);
+}
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize_mode = b.standardOptimizeOption(.{});
+
+    // Create all core modules once
+    const core_modules = create_core_modules(b);
 
     // Main executable
     const exe = b.addExecutable(.{
@@ -79,25 +150,10 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize_mode,
         }),
     });
-
-    // Add module imports to main executable
-    exe.root_module.addImport("assert", assert_module);
-    exe.root_module.addImport("vfs", vfs_module);
-    exe.root_module.addImport("context_block", context_block_module);
-    exe.root_module.addImport("buffer_pool", buffer_pool_module);
-    exe.root_module.addImport("error_context", error_context_module);
-    exe.root_module.addImport("concurrency", concurrency_module);
-    exe.root_module.addImport("tiered_compaction", tiered_compaction_module);
-    exe.root_module.addImport("simulation_vfs", simulation_vfs_module);
-    exe.root_module.addImport("simulation", simulation_module);
-    exe.root_module.addImport("sstable", sstable_module);
-    exe.root_module.addImport("storage", storage_module);
-    exe.root_module.addImport("query_engine", query_engine_module);
-
-    // Install the executable
+    add_all_imports(exe.root_module, core_modules);
     b.installArtifact(exe);
 
-    // Run command for the main executable
+    // Run command for main executable
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
@@ -107,32 +163,70 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run CortexDB");
     run_step.dependOn(&run_cmd.step);
 
-    // Unit tests
-    const unit_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize_mode,
-        }),
-    });
+    // Test configuration
+    const TestConfig = struct {
+        name: []const u8,
+        source_file: []const u8,
+        description: []const u8,
+    };
 
-    // Add module imports to unit tests
-    unit_tests.root_module.addImport("assert", assert_module);
-    unit_tests.root_module.addImport("vfs", vfs_module);
-    unit_tests.root_module.addImport("context_block", context_block_module);
-    unit_tests.root_module.addImport("buffer_pool", buffer_pool_module);
-    unit_tests.root_module.addImport("error_context", error_context_module);
-    unit_tests.root_module.addImport("concurrency", concurrency_module);
-    unit_tests.root_module.addImport("tiered_compaction", tiered_compaction_module);
-    unit_tests.root_module.addImport("simulation_vfs", simulation_vfs_module);
-    unit_tests.root_module.addImport("simulation", simulation_module);
-    unit_tests.root_module.addImport("sstable", sstable_module);
-    unit_tests.root_module.addImport("storage", storage_module);
-    unit_tests.root_module.addImport("query_engine", query_engine_module);
+    const test_configs = [_]TestConfig{
+        .{ .name = "unit", .source_file = "src/main.zig", .description = "unit tests" },
+        .{
+            .name = "simulation",
+            .source_file = "tests/simulation_test.zig",
+            .description = "simulation tests",
+        },
+        .{
+            .name = "storage_simulation",
+            .source_file = "tests/storage_simulation_test.zig",
+            .description = "storage simulation tests",
+        },
+        .{
+            .name = "wal_recovery",
+            .source_file = "tests/wal_recovery_test.zig",
+            .description = "WAL recovery tests",
+        },
+        .{
+            .name = "wal_memory_safety",
+            .source_file = "tests/wal_memory_safety_test.zig",
+            .description = "WAL memory safety tests",
+        },
+        .{
+            .name = "buffer_pool_integration",
+            .source_file = "tests/buffer_pool_integration_test.zig",
+            .description = "buffer pool integration tests",
+        },
+        .{
+            .name = "integration",
+            .source_file = "tests/integration_test.zig",
+            .description = "integration tests",
+        },
+    };
 
-    const run_unit_tests = b.addRunArtifact(unit_tests);
+    var test_steps: [test_configs.len]*std.Build.Step.Run = undefined;
 
-    // Tidy tests for code quality checking
+    // Create all test executables
+    for (test_configs, 0..) |config, i| {
+        const test_exe = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(config.source_file),
+                .target = target,
+                .optimize = optimize_mode,
+            }),
+        });
+        add_test_imports(test_exe.root_module, core_modules);
+        test_steps[i] = b.addRunArtifact(test_exe);
+    }
+
+    // Create individual test steps
+    for (test_configs, test_steps) |config, run_test| {
+        const step_name = if (std.mem.eql(u8, config.name, "unit")) "unit-test" else config.name;
+        const individual_step = b.step(step_name, b.fmt("Run {s}", .{config.description}));
+        individual_step.dependOn(&run_test.step);
+    }
+
+    // Tidy tests for code quality
     const tidy_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/tidy.zig"),
@@ -140,137 +234,45 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize_mode,
         }),
     });
-
     const run_tidy_tests = b.addRunArtifact(tidy_tests);
-
-    // Simulation tests
-    const simulation_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/simulation_test.zig"),
-            .target = target,
-            .optimize = optimize_mode,
-        }),
-    });
-
-    // Add module imports to simulation tests (reuse shared modules)
-    simulation_tests.root_module.addImport("simulation", simulation_module);
-    simulation_tests.root_module.addImport("vfs", vfs_module);
-    simulation_tests.root_module.addImport("assert", assert_module);
-
-    const run_simulation_tests = b.addRunArtifact(simulation_tests);
-
-    // Storage simulation tests
-    const storage_simulation_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/storage_simulation_test.zig"),
-            .target = target,
-            .optimize = optimize_mode,
-        }),
-    });
-
-    // Add module imports to storage simulation tests (reuse shared modules)
-    storage_simulation_tests.root_module.addImport("simulation", simulation_module);
-    storage_simulation_tests.root_module.addImport("vfs", vfs_module);
-    storage_simulation_tests.root_module.addImport("assert", assert_module);
-    storage_simulation_tests.root_module.addImport("context_block", context_block_module);
-    storage_simulation_tests.root_module.addImport("storage", storage_module);
-    storage_simulation_tests.root_module.addImport("simulation_vfs", simulation_vfs_module);
-
-    const run_storage_simulation_tests = b.addRunArtifact(storage_simulation_tests);
-
-    // WAL recovery tests
-    const wal_recovery_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/wal_recovery_test.zig"),
-            .target = target,
-            .optimize = optimize_mode,
-        }),
-    });
-
-    // Add module imports to WAL recovery tests (reuse shared modules)
-    wal_recovery_tests.root_module.addImport("simulation", simulation_module);
-    wal_recovery_tests.root_module.addImport("vfs", vfs_module);
-    wal_recovery_tests.root_module.addImport("assert", assert_module);
-    wal_recovery_tests.root_module.addImport("context_block", context_block_module);
-    wal_recovery_tests.root_module.addImport("storage", storage_module);
-    wal_recovery_tests.root_module.addImport("simulation_vfs", simulation_vfs_module);
-
-    const run_wal_recovery_tests = b.addRunArtifact(wal_recovery_tests);
-
-    // Integration tests
-    const integration_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/integration_test.zig"),
-            .target = target,
-            .optimize = optimize_mode,
-        }),
-    });
-
-    // Add module imports to integration tests (reuse shared modules)
-    integration_tests.root_module.addImport("simulation", simulation_module);
-    integration_tests.root_module.addImport("vfs", vfs_module);
-    integration_tests.root_module.addImport("assert", assert_module);
-    integration_tests.root_module.addImport("context_block", context_block_module);
-    integration_tests.root_module.addImport("storage", storage_module);
-    integration_tests.root_module.addImport("query_engine", query_engine_module);
-    integration_tests.root_module.addImport("simulation_vfs", simulation_vfs_module);
-
-    const run_integration_tests = b.addRunArtifact(integration_tests);
-
-    // Standalone integration test step
-    const integration_step = b.step("integration", "Run integration tests only");
-    integration_step.dependOn(&run_integration_tests.step);
 
     // Test step that runs all tests
     const test_step = b.step("test", "Run all tests");
-    test_step.dependOn(&run_unit_tests.step);
-    test_step.dependOn(&run_simulation_tests.step);
-    test_step.dependOn(&run_storage_simulation_tests.step);
-    test_step.dependOn(&run_wal_recovery_tests.step);
-    test_step.dependOn(&run_integration_tests.step);
+    for (test_steps) |run_test| {
+        test_step.dependOn(&run_test.step);
+    }
 
-    // Separate tidy step for code quality checks
+    // Code quality steps
     const tidy_step = b.step("tidy", "Run code quality checks");
     tidy_step.dependOn(&run_tidy_tests.step);
 
-    // Full check step that runs tests + tidy
-    const check_step = b.step("check", "Run tests and code quality checks");
-    check_step.dependOn(&run_unit_tests.step);
-    check_step.dependOn(&run_simulation_tests.step);
-    check_step.dependOn(&run_storage_simulation_tests.step);
-    check_step.dependOn(&run_wal_recovery_tests.step);
-    check_step.dependOn(&run_integration_tests.step);
-    check_step.dependOn(&run_tidy_tests.step);
-
-    // Format check
     const fmt_check = b.addFmt(.{
-        .paths = &.{ "src", "build.zig" },
+        .paths = &.{ "src", "tests", "build.zig" },
         .check = true,
     });
 
     const fmt_step = b.step("fmt", "Check code formatting");
     fmt_step.dependOn(&fmt_check.step);
 
-    // Format fix
     const fmt_fix = b.addFmt(.{
-        .paths = &.{ "src", "build.zig" },
+        .paths = &.{ "src", "tests", "build.zig" },
         .check = false,
     });
 
     const fmt_fix_step = b.step("fmt-fix", "Fix code formatting");
     fmt_fix_step.dependOn(&fmt_fix.step);
 
-    // CI step that runs everything
+    // Combined steps
+    const check_step = b.step("check", "Run tests and code quality checks");
+    check_step.dependOn(test_step);
+    check_step.dependOn(&run_tidy_tests.step);
+
     const ci_step = b.step("ci", "Run all CI checks (tests, tidy, format)");
-    ci_step.dependOn(&run_unit_tests.step);
-    ci_step.dependOn(&run_simulation_tests.step);
-    ci_step.dependOn(&run_storage_simulation_tests.step);
-    ci_step.dependOn(&run_wal_recovery_tests.step);
-    ci_step.dependOn(&run_integration_tests.step);
+    ci_step.dependOn(test_step);
     ci_step.dependOn(&run_tidy_tests.step);
     ci_step.dependOn(&fmt_check.step);
 
-    // Benchmark executable (for future use)
+    // Development tools
     const benchmark = b.addExecutable(.{
         .name = "benchmark",
         .root_module = b.createModule(.{
@@ -279,12 +281,12 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
+    add_all_imports(benchmark.root_module, core_modules);
 
     const install_benchmark = b.addInstallArtifact(benchmark, .{});
     const benchmark_step = b.step("benchmark", "Build and install benchmark");
     benchmark_step.dependOn(&install_benchmark.step);
 
-    // Fuzz testing executable (for future use)
     const fuzz = b.addExecutable(.{
         .name = "fuzz",
         .root_module = b.createModule(.{
@@ -293,6 +295,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
+    add_all_imports(fuzz.root_module, core_modules);
 
     const install_fuzz = b.addInstallArtifact(fuzz, .{});
     const fuzz_step = b.step("fuzz", "Build and install fuzz tester");

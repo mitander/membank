@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 const vfs = @import("vfs");
 const context_block = @import("context_block");
 const sstable = @import("sstable");
-// const buffer_pool = @import("buffer_pool"); // Temporarily disabled
+const buffer_pool = @import("buffer_pool");
 const error_context = @import("error_context");
 const concurrency = @import("concurrency");
 const tiered_compaction = @import("tiered_compaction");
@@ -267,7 +267,7 @@ pub const WALEntry = struct {
 };
 
 /// In-memory block index for fast lookups.
-const BlockIndex = struct {
+pub const BlockIndex = struct {
     blocks: std.HashMap(
         BlockId,
         ContextBlock,
@@ -276,7 +276,7 @@ const BlockIndex = struct {
     ),
     allocator: std.mem.Allocator,
 
-    const BlockIdContext = struct {
+    pub const BlockIdContext = struct {
         pub fn hash(self: @This(), block_id: BlockId) u64 {
             _ = self;
             var hasher = std.hash.Wyhash.init(0);
@@ -303,20 +303,18 @@ const BlockIndex = struct {
     }
 
     pub fn deinit(self: *BlockIndex) void {
-        // Temporarily bypass HashMap iteration to isolate corruption issue
         const num_blocks = self.blocks.count();
         std.log.debug("BlockIndex.deinit: Starting with {} blocks", .{num_blocks});
 
-        // TEMPORARILY DISABLED: HashMap iteration causing alignment corruption
-        // TODO: Re-enable proper cleanup once corruption source is identified
-        // var iterator = self.blocks.iterator();
-        // var freed_count: u32 = 0;
-        // while (iterator.next()) |entry| {
-        //     entry.value_ptr.deinit(self.allocator);
-        //     freed_count += 1;
-        // }
+        // Clean up all stored blocks to prevent memory leaks
+        var iterator = self.blocks.iterator();
+        var freed_count: u32 = 0;
+        while (iterator.next()) |entry| {
+            entry.value_ptr.deinit(self.allocator);
+            freed_count += 1;
+        }
 
-        std.log.debug("BlockIndex.deinit: Skipping block cleanup due to HashMap corruption, cleaning up HashMap", .{});
+        std.log.debug("BlockIndex.deinit: Freed {} blocks, cleaning up HashMap", .{freed_count});
         self.blocks.deinit();
         std.log.debug("BlockIndex.deinit: Complete", .{});
     }
@@ -494,7 +492,8 @@ pub const StorageEngine = struct {
     compaction_manager: TieredCompactionManager,
     next_sstable_id: u32,
     initialized: bool,
-    // buffer_pool: buffer_pool.BufferPool, // Temporarily disabled
+    buffer_pool: buffer_pool.BufferPool,
+    pooled_allocator: buffer_pool.PooledAllocator,
     storage_metrics: StorageMetrics,
 
     /// Initialize a new storage engine instance.
@@ -503,7 +502,7 @@ pub const StorageEngine = struct {
         filesystem: VFS,
         data_dir: []const u8,
     ) !StorageEngine {
-        return StorageEngine{
+        var engine = StorageEngine{
             .allocator = allocator,
             .vfs = filesystem,
             .data_dir = data_dir,
@@ -514,9 +513,15 @@ pub const StorageEngine = struct {
             .compaction_manager = TieredCompactionManager.init(allocator, filesystem, data_dir),
             .next_sstable_id = 0,
             .initialized = false,
-            // .buffer_pool = try buffer_pool.BufferPool.init(allocator), // Temporarily disabled
+            .buffer_pool = try buffer_pool.BufferPool.init(allocator),
+            .pooled_allocator = undefined, // Will be set after buffer_pool init
             .storage_metrics = StorageMetrics.init(),
         };
+
+        // Initialize pooled allocator after buffer pool is ready
+        engine.pooled_allocator = buffer_pool.PooledAllocator.init(&engine.buffer_pool, allocator);
+
+        return engine;
     }
 
     /// Clean up storage engine resources.
@@ -533,7 +538,7 @@ pub const StorageEngine = struct {
             self.allocator.free(path);
         }
         self.sstables.deinit();
-        // self.buffer_pool.deinit(); // Temporarily disabled
+        self.buffer_pool.deinit();
 
         self.allocator.free(self.data_dir);
     }
@@ -971,9 +976,10 @@ pub const StorageEngine = struct {
 
         const serialized_size = WALEntry.HEADER_SIZE + entry.payload.len;
 
-        // Use direct heap allocation (buffer pool temporarily disabled)
-        const buffer = try self.allocator.alloc(u8, serialized_size);
-        defer self.allocator.free(buffer);
+        // Use pooled allocator for optimal memory management
+        const pooled_alloc = self.pooled_allocator.allocator();
+        const buffer = try pooled_alloc.alloc(u8, serialized_size);
+        defer pooled_alloc.free(buffer);
 
         const written = try entry.serialize(buffer);
         assert(written == serialized_size);
@@ -1090,14 +1096,15 @@ pub const StorageEngine = struct {
         const file_size = try file.file_size();
         if (file_size == 0) return 0; // Empty file
 
-        // Use direct allocation (buffer pool temporarily disabled)
-        const file_content = self.allocator.alloc(u8, file_size) catch |err| {
+        // Use pooled allocator for recovery operations
+        const pooled_alloc = self.pooled_allocator.allocator();
+        const file_content = pooled_alloc.alloc(u8, file_size) catch |err| {
             return error_context.storage_error(
                 err,
                 error_context.file_context("allocate_wal_recovery_buffer", file_path),
             );
         };
-        defer self.allocator.free(file_content);
+        defer pooled_alloc.free(file_content);
 
         _ = try file.read(file_content);
 
@@ -1146,16 +1153,14 @@ pub const StorageEngine = struct {
     fn apply_wal_entry(self: *StorageEngine, entry: WALEntry) !void {
         switch (entry.entry_type) {
             .put_block => {
-                // Create temporary arena for this operation
-                var arena = std.heap.ArenaAllocator.init(self.allocator);
-                defer arena.deinit();
-                const temp_allocator = arena.allocator();
-
-                const block = try ContextBlock.deserialize(entry.payload, temp_allocator);
+                // Use main allocator for deserializing to avoid memory corruption
+                const block = try ContextBlock.deserialize(entry.payload, self.allocator);
 
                 // Add block to in-memory index (put_block will clone the strings)
                 try self.index.put_block(block);
-                // Arena will automatically free the temporary block
+
+                // Free the temporary block after put_block completes
+                block.deinit(self.allocator);
             },
             .delete_block => {
                 if (entry.payload.len != 16) return error.InvalidPayloadSize;
@@ -1313,135 +1318,6 @@ test "StorageEngine graph edge operations" {
     // Test put edge (should not error)
     try storage.put_edge(test_edge);
 }
-
-// Temporarily disabled buffer pool test to isolate memory issues
-// test "StorageEngine buffer pool integration" {
-//     const allocator = std.testing.allocator;
-//     const simulation_vfs = @import("simulation_vfs");
-
-//     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
-//     defer sim_vfs.deinit();
-
-//     const vfs_interface = sim_vfs.vfs();
-//     const data_dir = try allocator.dupe(u8, "buffer_pool_test");
-
-//     var storage = try StorageEngine.init(allocator, vfs_interface, data_dir);
-//     defer storage.deinit();
-
-//     try storage.initialize_storage();
-
-//     // Get initial buffer pool statistics
-//     const initial_stats = storage.buffer_pool.statistics();
-//     try std.testing.expectEqual(@as(u64, 0), initial_stats.allocations);
-
-//     // Create test blocks to trigger buffer pool usage
-//     const test_blocks = [_]ContextBlock{
-//         ContextBlock{
-//             .id = try BlockId.from_hex("1111111111111111111111111111111"),
-//             .version = 1,
-//             .source_uri = "test://small_block",
-//             .metadata_json = "{\"type\":\"small\"}",
-//             .content = "small content", // Small enough for buffer pool
-//         },
-//         ContextBlock{
-//             .id = try BlockId.from_hex("2222222222222222222222222222222"),
-//             .version = 1,
-//             .source_uri = "test://medium_block",
-//             .metadata_json = "{\"type\":\"medium\",\"size\":\"larger\"}",
-//             .content = "medium content that is somewhat larger",
-//         },
-//     };
-
-//     // Put blocks - this should use buffer pool for WAL serialization
-//     for (test_blocks) |block| {
-//         try storage.put_block(block);
-//     }
-
-//     // Verify buffer pool was used
-//     const after_put_stats = storage.buffer_pool.statistics();
-//     try std.testing.expect(after_put_stats.allocations > initial_stats.allocations);
-//     try std.testing.expect(after_put_stats.pool_hits > 0);
-
-//     // Create edges to test edge operations with buffer pool
-//     const test_edge = GraphEdge{
-//         .source_id = test_blocks[0].id,
-//         .target_id = test_blocks[1].id,
-//         .edge_type = .references,
-//     };
-
-//     try storage.put_edge(test_edge);
-
-//     // Verify more buffer pool usage
-//     const after_edge_stats = storage.buffer_pool.statistics();
-//     try std.testing.expect(after_edge_stats.allocations > after_put_stats.allocations);
-
-//     // Test block retrieval
-//     const retrieved = try storage.find_block_by_id(test_blocks[0].id);
-//     try std.testing.expect(retrieved.id.eql(test_blocks[0].id));
-//     try std.testing.expectEqualStrings("small content", retrieved.content);
-
-//     // Test deletion with buffer pool
-//     try storage.delete_block(test_blocks[1].id);
-
-//     // Verify buffer pool statistics show usage but no excessive misses
-//     const final_stats = storage.buffer_pool.statistics();
-//     try std.testing.expect(final_stats.hit_rate > 0.5); // At least 50% hit rate
-//     try std.testing.expect(final_stats.deallocations > 0);
-
-//     std.log.info("Buffer pool stats: allocations={}, hits={}, misses={}, hit_rate={d:.2}", .{
-//         final_stats.allocations,
-//         final_stats.pool_hits,
-//         final_stats.pool_misses,
-//         final_stats.hit_rate,
-//     });
-// }
-
-// Temporarily disabled buffer pool fallback test to isolate memory issues
-// test "StorageEngine buffer pool fallback behavior" {
-//     const allocator = std.testing.allocator;
-//     const simulation_vfs = @import("simulation_vfs");
-
-//     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
-//     defer sim_vfs.deinit();
-
-//     const vfs_interface = sim_vfs.vfs();
-//     const data_dir = try allocator.dupe(u8, "fallback_test");
-
-//     var storage = try StorageEngine.init(allocator, vfs_interface, data_dir);
-//     defer storage.deinit();
-
-//     try storage.initialize_storage();
-
-//     // Create a block larger than buffer pool can handle
-//     const large_content = try allocator.alloc(u8, buffer_pool.MAX_BUFFER_SIZE + 1000);
-//     defer allocator.free(large_content);
-//     @memset(large_content, 'X'); // Fill with test data
-
-//     const large_block = ContextBlock{
-//         .id = try BlockId.from_hex("9999999999999999999999999999999"),
-//         .version = 1,
-//         .source_uri = "test://large_block",
-//         .metadata_json = "{\"type\":\"oversized\"}",
-//         .content = large_content,
-//     };
-
-//     // This should still work, falling back to heap allocation
-//     try storage.put_block(large_block);
-
-//     // Verify the block was stored correctly
-//     const retrieved = try storage.find_block_by_id(large_block.id);
-//     try std.testing.expect(retrieved.id.eql(large_block.id));
-//     try std.testing.expectEqual(large_content.len, retrieved.content.len);
-
-//     // Check that fallback allocations were used
-//     const stats = storage.buffer_pool.statistics();
-//     try std.testing.expect(stats.fallback_allocations > 0 or stats.pool_misses > 0);
-
-//     std.log.info("Fallback test stats: fallback_allocations={}, pool_misses={}", .{
-//         stats.fallback_allocations,
-//         stats.pool_misses,
-//     });
-// }
 
 test "StorageEngine graph edge indexing" {
     const allocator = std.testing.allocator;

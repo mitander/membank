@@ -642,18 +642,17 @@ test "integration: large scale performance characteristics" {
         .{ query_rate, query_time },
     );
 
-    // Validate query performance (temporarily disabled while buffer pool removed for debugging)
-    // try testing.expect(query_rate > 100.0); // > 100 queries/second (temporarily reduced)
+    // Validate query performance
+    try testing.expect(query_rate > 100.0); // > 100 queries/second
     std.log.info(
-        "Query performance: {d:.1} queries/second (assertion disabled during debugging)",
+        "Query performance: {d:.1} queries/second",
         .{query_rate},
     );
 
     const final_metrics = storage_engine.metrics();
     const avg_read_latency = final_metrics.average_read_latency_ns();
-    // try testing.expect(avg_read_latency < 100_000);
-    // < 100μs average (temporarily disabled during debugging)
-    std.log.info("Read latency: {}ns (assertion disabled during debugging)", .{avg_read_latency});
+    try testing.expect(avg_read_latency < 100_000); // < 100μs average
+    std.log.info("Read latency: {}ns", .{avg_read_latency});
 
     // Phase 4: SSTable validation
     try testing.expect(final_metrics.sstable_writes.load(.monotonic) >= 2); // Multiple flushes
