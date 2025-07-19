@@ -7,6 +7,7 @@ const query_engine = @import("query_engine");
 const context_block = @import("context_block");
 const simulation = @import("simulation");
 const simulation_vfs = @import("simulation_vfs");
+const concurrency = @import("concurrency");
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
@@ -14,6 +15,9 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 
 pub fn main() !void {
+    // Initialize concurrency model first
+    concurrency.init();
+    
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();

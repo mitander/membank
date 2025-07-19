@@ -11,6 +11,7 @@ const context_block = @import("context_block");
 const sstable = @import("sstable");
 const buffer_pool = @import("buffer_pool");
 const error_context = @import("error_context");
+const concurrency = @import("concurrency");
 
 const VFS = vfs.VFS;
 const ContextBlock = context_block.ContextBlock;
@@ -295,6 +296,7 @@ pub const StorageEngine = struct {
 
     /// Initialize storage engine by creating necessary directories and files.
     pub fn initialize_storage(self: *StorageEngine) !void {
+        concurrency.assert_main_thread();
         assert(!self.initialized);
         if (self.initialized) return StorageError.AlreadyInitialized;
 
@@ -346,6 +348,7 @@ pub const StorageEngine = struct {
 
     /// Put a Context Block into storage.
     pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
+        concurrency.assert_main_thread();
         assert(self.initialized);
         if (!self.initialized) return StorageError.NotInitialized;
 
@@ -373,6 +376,7 @@ pub const StorageEngine = struct {
         self: *StorageEngine,
         block_id: BlockId,
     ) StorageError!*const ContextBlock {
+        concurrency.assert_main_thread();
         assert(self.initialized);
         if (!self.initialized) return StorageError.NotInitialized;
 
@@ -407,6 +411,7 @@ pub const StorageEngine = struct {
 
     /// Delete a Context Block by ID.
     pub fn delete_block(self: *StorageEngine, block_id: BlockId) !void {
+        concurrency.assert_main_thread();
         assert(self.initialized);
         if (!self.initialized) return StorageError.NotInitialized;
 
@@ -423,6 +428,7 @@ pub const StorageEngine = struct {
 
     /// Put a Graph Edge into storage.
     pub fn put_edge(self: *StorageEngine, edge: GraphEdge) !void {
+        concurrency.assert_main_thread();
         assert(self.initialized);
         if (!self.initialized) return StorageError.NotInitialized;
 
@@ -450,6 +456,7 @@ pub const StorageEngine = struct {
 
     /// Flush in-memory blocks to an SSTable.
     pub fn flush_memtable_to_sstable(self: *StorageEngine) !void {
+        concurrency.assert_main_thread();
         assert(self.initialized);
         if (!self.initialized) return StorageError.NotInitialized;
 
@@ -561,6 +568,7 @@ pub const StorageEngine = struct {
 
     /// Recover storage state from WAL files.
     pub fn recover_from_wal(self: *StorageEngine) !void {
+        concurrency.assert_main_thread();
         assert(self.initialized);
         if (!self.initialized) return StorageError.NotInitialized;
 
