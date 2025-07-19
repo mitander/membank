@@ -23,6 +23,82 @@ const SSTable = sstable.SSTable;
 const Compactor = sstable.Compactor;
 const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
 
+/// Performance metrics for storage engine observability.
+/// All counters are atomic for thread-safe access in concurrent environments.
+pub const StorageMetrics = struct {
+    // Block operations
+    blocks_written: std.atomic.Value(u64),
+    blocks_read: std.atomic.Value(u64),
+    blocks_deleted: std.atomic.Value(u64),
+
+    // WAL operations
+    wal_writes: std.atomic.Value(u64),
+    wal_flushes: std.atomic.Value(u64),
+    wal_recoveries: std.atomic.Value(u64),
+
+    // SSTable operations
+    sstable_reads: std.atomic.Value(u64),
+    sstable_writes: std.atomic.Value(u64),
+    compactions: std.atomic.Value(u64),
+
+    // Edge operations
+    edges_added: std.atomic.Value(u64),
+    edges_removed: std.atomic.Value(u64),
+
+    // Performance timings (in nanoseconds)
+    total_write_time_ns: std.atomic.Value(u64),
+    total_read_time_ns: std.atomic.Value(u64),
+    total_wal_flush_time_ns: std.atomic.Value(u64),
+
+    // Error counts
+    write_errors: std.atomic.Value(u64),
+    read_errors: std.atomic.Value(u64),
+    wal_errors: std.atomic.Value(u64),
+
+    pub fn init() StorageMetrics {
+        return StorageMetrics{
+            .blocks_written = std.atomic.Value(u64).init(0),
+            .blocks_read = std.atomic.Value(u64).init(0),
+            .blocks_deleted = std.atomic.Value(u64).init(0),
+            .wal_writes = std.atomic.Value(u64).init(0),
+            .wal_flushes = std.atomic.Value(u64).init(0),
+            .wal_recoveries = std.atomic.Value(u64).init(0),
+            .sstable_reads = std.atomic.Value(u64).init(0),
+            .sstable_writes = std.atomic.Value(u64).init(0),
+            .compactions = std.atomic.Value(u64).init(0),
+            .edges_added = std.atomic.Value(u64).init(0),
+            .edges_removed = std.atomic.Value(u64).init(0),
+            .total_write_time_ns = std.atomic.Value(u64).init(0),
+            .total_read_time_ns = std.atomic.Value(u64).init(0),
+            .total_wal_flush_time_ns = std.atomic.Value(u64).init(0),
+            .write_errors = std.atomic.Value(u64).init(0),
+            .read_errors = std.atomic.Value(u64).init(0),
+            .wal_errors = std.atomic.Value(u64).init(0),
+        };
+    }
+
+    /// Get average write latency in nanoseconds.
+    pub fn average_write_latency_ns(self: *const StorageMetrics) u64 {
+        const writes = self.blocks_written.load(.monotonic);
+        if (writes == 0) return 0;
+        return self.total_write_time_ns.load(.monotonic) / writes;
+    }
+
+    /// Get average read latency in nanoseconds.
+    pub fn average_read_latency_ns(self: *const StorageMetrics) u64 {
+        const reads = self.blocks_read.load(.monotonic);
+        if (reads == 0) return 0;
+        return self.total_read_time_ns.load(.monotonic) / reads;
+    }
+
+    /// Get average WAL flush latency in nanoseconds.
+    pub fn average_wal_flush_latency_ns(self: *const StorageMetrics) u64 {
+        const flushes = self.wal_flushes.load(.monotonic);
+        if (flushes == 0) return 0;
+        return self.total_wal_flush_time_ns.load(.monotonic) / flushes;
+    }
+};
+
 /// Storage engine errors.
 pub const StorageError = error{
     /// Block not found in storage
@@ -408,9 +484,14 @@ pub const StorageEngine = struct {
     next_sstable_id: u32,
     initialized: bool,
     buffer_pool: buffer_pool.BufferPool,
+    metrics: StorageMetrics,
 
     /// Initialize a new storage engine instance.
-    pub fn init(allocator: std.mem.Allocator, filesystem: VFS, data_dir: []const u8) StorageEngine {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        filesystem: VFS,
+        data_dir: []const u8,
+    ) !StorageEngine {
         return StorageEngine{
             .allocator = allocator,
             .vfs = filesystem,
@@ -422,7 +503,8 @@ pub const StorageEngine = struct {
             .compaction_manager = TieredCompactionManager.init(allocator, filesystem, data_dir),
             .next_sstable_id = 0,
             .initialized = false,
-            .buffer_pool = buffer_pool.BufferPool.init(),
+            .buffer_pool = try buffer_pool.BufferPool.init(allocator),
+            .metrics = StorageMetrics.init(),
         };
     }
 
@@ -440,6 +522,7 @@ pub const StorageEngine = struct {
             self.allocator.free(path);
         }
         self.sstables.deinit();
+        self.buffer_pool.deinit();
 
         self.allocator.free(self.data_dir);
     }
@@ -511,18 +594,42 @@ pub const StorageEngine = struct {
         assert(self.initialized);
         if (!self.initialized) return StorageError.NotInitialized;
 
+        const start_time = std.time.nanoTimestamp();
+
+        // Track the operation attempt
+        _ = self.metrics.wal_writes.fetchAdd(1, .monotonic);
+
         // Validate block before storing
-        try block.validate(self.allocator);
+        block.validate(self.allocator) catch |err| {
+            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            return err;
+        };
 
         // Create WAL entry using buffer pool when possible for temporary serialization
-        const wal_entry = try WALEntry.create_put_block(block, self.allocator);
+        const wal_entry = WALEntry.create_put_block(block, self.allocator) catch |err| {
+            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            return err;
+        };
         defer wal_entry.deinit(self.allocator);
 
         // Write to WAL for durability
-        try self.write_wal_entry(wal_entry);
+        self.write_wal_entry(wal_entry) catch |err| {
+            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.metrics.wal_errors.fetchAdd(1, .monotonic);
+            return err;
+        };
 
         // Update in-memory index
-        try self.index.put_block(block);
+        self.index.put_block(block) catch |err| {
+            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            return err;
+        };
+
+        // Track successful operation
+        _ = self.metrics.blocks_written.fetchAdd(1, .monotonic);
+        const end_time = std.time.nanoTimestamp();
+        const duration = @as(u64, @intCast(end_time - start_time));
+        _ = self.metrics.total_write_time_ns.fetchAdd(duration, .monotonic);
 
         // Check if we need to flush MemTable to SSTable
         if (self.index.block_count() >= 1000) { // Flush when we have 1000+ blocks
@@ -539,22 +646,40 @@ pub const StorageEngine = struct {
         assert(self.initialized);
         if (!self.initialized) return StorageError.NotInitialized;
 
+        const start_time = std.time.nanoTimestamp();
+
         // First check in-memory index (most recent data)
         if (self.index.find_block(block_id)) |block| {
+            // Track successful read from memory
+            _ = self.metrics.blocks_read.fetchAdd(1, .monotonic);
+            const end_time = std.time.nanoTimestamp();
+            const duration = @as(u64, @intCast(end_time - start_time));
+            _ = self.metrics.total_read_time_ns.fetchAdd(duration, .monotonic);
             return block;
         }
 
         // Search SSTables (older data)
         for (self.sstables.items) |sstable_path| {
-            const path_copy = try self.allocator.dupe(u8, sstable_path);
+            const path_copy = self.allocator.dupe(u8, sstable_path) catch |err| {
+                _ = self.metrics.read_errors.fetchAdd(1, .monotonic);
+                return err;
+            };
             var table = SSTable.init(self.allocator, self.vfs, path_copy);
             defer table.deinit();
 
+            _ = self.metrics.sstable_reads.fetchAdd(1, .monotonic);
             table.read_index() catch continue; // Skip corrupted SSTables
 
             if (table.find_block(block_id) catch null) |block| {
                 // Transfer ownership to index for future fast access
                 self.index.put_block(block) catch {}; // Ignore errors, it's an optimization
+
+                // Track successful read from SSTable
+                _ = self.metrics.blocks_read.fetchAdd(1, .monotonic);
+                const end_time = std.time.nanoTimestamp();
+                const duration = @as(u64, @intCast(end_time - start_time));
+                _ = self.metrics.total_read_time_ns.fetchAdd(duration, .monotonic);
+
                 return self.index.find_block(block_id) orelse return error_context.storage_error(
                     StorageError.BlockNotFound,
                     error_context.block_context("find_block_after_sstable_transfer", block_id),
@@ -562,6 +687,8 @@ pub const StorageEngine = struct {
             }
         }
 
+        // Track failed read
+        _ = self.metrics.read_errors.fetchAdd(1, .monotonic);
         return error_context.storage_error(
             StorageError.BlockNotFound,
             error_context.block_context("find_block_exhaustive_search", block_id),
@@ -575,17 +702,28 @@ pub const StorageEngine = struct {
         if (!self.initialized) return StorageError.NotInitialized;
 
         // Create WAL entry
-        const wal_entry = try WALEntry.create_delete_block(block_id, self.allocator);
+        const wal_entry = WALEntry.create_delete_block(block_id, self.allocator) catch |err| {
+            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            return err;
+        };
         defer wal_entry.deinit(self.allocator);
 
         // Write to WAL for durability
-        try self.write_wal_entry(wal_entry);
+        self.write_wal_entry(wal_entry) catch |err| {
+            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.metrics.wal_errors.fetchAdd(1, .monotonic);
+            return err;
+        };
 
         // Remove from in-memory index
         self.index.remove_block(block_id);
 
         // Remove associated edges from graph index
         self.graph_index.remove_block_edges(block_id);
+
+        // Track successful deletion
+        _ = self.metrics.blocks_deleted.fetchAdd(1, .monotonic);
+        _ = self.metrics.wal_writes.fetchAdd(1, .monotonic);
     }
 
     /// Put a Graph Edge into storage.
@@ -595,14 +733,28 @@ pub const StorageEngine = struct {
         if (!self.initialized) return StorageError.NotInitialized;
 
         // Create WAL entry
-        const wal_entry = try WALEntry.create_put_edge(edge, self.allocator);
+        const wal_entry = WALEntry.create_put_edge(edge, self.allocator) catch |err| {
+            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            return err;
+        };
         defer wal_entry.deinit(self.allocator);
 
         // Write to WAL for durability
-        try self.write_wal_entry(wal_entry);
+        self.write_wal_entry(wal_entry) catch |err| {
+            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            _ = self.metrics.wal_errors.fetchAdd(1, .monotonic);
+            return err;
+        };
 
         // Add edge to graph index
-        try self.graph_index.put_edge(edge);
+        self.graph_index.put_edge(edge) catch |err| {
+            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            return err;
+        };
+
+        // Track successful edge addition
+        _ = self.metrics.edges_added.fetchAdd(1, .monotonic);
+        _ = self.metrics.wal_writes.fetchAdd(1, .monotonic);
     }
 
     /// Get the current number of blocks in storage.
@@ -613,6 +765,11 @@ pub const StorageEngine = struct {
     /// Get the current number of edges in storage.
     pub fn edge_count(self: *const StorageEngine) u32 {
         return self.graph_index.edge_count();
+    }
+
+    /// Get performance metrics for observability.
+    pub fn get_metrics(self: *const StorageEngine) *const StorageMetrics {
+        return &self.metrics;
     }
 
     /// Find outgoing edges from a source block.
@@ -627,9 +784,20 @@ pub const StorageEngine = struct {
 
     /// Flush WAL to disk.
     pub fn flush_wal(self: *StorageEngine) !void {
+        const start_time = std.time.nanoTimestamp();
+
         if (self.wal_file) |*file| {
-            try file.flush();
+            file.flush() catch |err| {
+                _ = self.metrics.wal_errors.fetchAdd(1, .monotonic);
+                return err;
+            };
         }
+
+        // Track successful WAL flush
+        _ = self.metrics.wal_flushes.fetchAdd(1, .monotonic);
+        const end_time = std.time.nanoTimestamp();
+        const duration = @as(u64, @intCast(end_time - start_time));
+        _ = self.metrics.total_wal_flush_time_ns.fetchAdd(duration, .monotonic);
     }
 
     /// Flush in-memory blocks to an SSTable.
@@ -667,7 +835,13 @@ pub const StorageEngine = struct {
         var new_sstable = SSTable.init(self.allocator, self.vfs, sstable_path);
         defer new_sstable.deinit();
 
-        try new_sstable.write_blocks(blocks_to_flush.items);
+        new_sstable.write_blocks(blocks_to_flush.items) catch |err| {
+            _ = self.metrics.write_errors.fetchAdd(1, .monotonic);
+            return err;
+        };
+
+        // Track SSTable write
+        _ = self.metrics.sstable_writes.fetchAdd(1, .monotonic);
 
         // Add to SSTables list and compaction manager
         try self.sstables.append(try self.allocator.dupe(u8, sstable_path));
@@ -802,6 +976,9 @@ pub const StorageEngine = struct {
         concurrency.assert_main_thread();
         assert(self.initialized);
         if (!self.initialized) return StorageError.NotInitialized;
+
+        // Track WAL recovery attempt
+        _ = self.metrics.wal_recoveries.fetchAdd(1, .monotonic);
 
         const wal_dir = try std.fmt.allocPrint(self.allocator, "{s}/wal", .{self.data_dir});
         defer self.allocator.free(wal_dir);
@@ -940,14 +1117,8 @@ pub const StorageEngine = struct {
                 break;
             }
 
-            // Parse entry header to determine payload size
-            const entry_type_byte = file_content[offset + 8];
-            const entry_type = WALEntryType.from_u8(entry_type_byte) catch {
-                break;
-            };
-
             // Read payload size from WAL entry header (self-describing format)
-            const payload_size = std.mem.readInt(u32, file_content[offset + 9..][0..4], .little);
+            const payload_size = std.mem.readInt(u32, file_content[offset + 9 ..][0..4], .little);
 
             const total_entry_size = WALEntry.HEADER_SIZE + payload_size;
             if (offset + total_entry_size > file_content.len) {
@@ -1086,7 +1257,7 @@ test "StorageEngine basic operations" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_data");
 
-    var storage = StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage = try StorageEngine.init(allocator, vfs_interface, data_dir);
     defer storage.deinit();
 
     // Initialize storage
@@ -1126,7 +1297,7 @@ test "StorageEngine graph edge operations" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_data");
 
-    var storage = StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage = try StorageEngine.init(allocator, vfs_interface, data_dir);
     defer storage.deinit();
 
     try storage.initialize_storage();
@@ -1154,7 +1325,7 @@ test "StorageEngine buffer pool integration" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "buffer_pool_test");
 
-    var storage = StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage = try StorageEngine.init(allocator, vfs_interface, data_dir);
     defer storage.deinit();
 
     try storage.initialize_storage();
@@ -1235,7 +1406,7 @@ test "StorageEngine buffer pool fallback behavior" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "fallback_test");
 
-    var storage = StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage = try StorageEngine.init(allocator, vfs_interface, data_dir);
     defer storage.deinit();
 
     try storage.initialize_storage();
@@ -1280,7 +1451,7 @@ test "StorageEngine graph edge indexing" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var storage = StorageEngine.init(allocator, vfs_interface, try allocator.dupe(u8, "/test"));
+    var storage = try StorageEngine.init(allocator, vfs_interface, try allocator.dupe(u8, "/test"));
     defer storage.deinit();
 
     try storage.startup();
@@ -1407,7 +1578,7 @@ test "StorageEngine graph edge WAL recovery" {
 
     // First storage instance - write edges
     {
-        var storage = StorageEngine.init(
+        var storage = try StorageEngine.init(
             allocator,
             vfs_interface,
             try allocator.dupe(u8, data_dir),
@@ -1455,7 +1626,7 @@ test "StorageEngine graph edge WAL recovery" {
 
     // Second storage instance - recover from WAL
     {
-        var storage = StorageEngine.init(
+        var storage = try StorageEngine.init(
             allocator,
             vfs_interface,
             try allocator.dupe(u8, data_dir),
@@ -1481,4 +1652,89 @@ test "StorageEngine graph edge WAL recovery" {
         try std.testing.expectEqual(@as(usize, 1), incoming_edges.?.len);
         try std.testing.expect(incoming_edges.?[0].source_id.eql(block1_id));
     }
+}
+
+test "StorageEngine metrics and observability" {
+    const allocator = std.testing.allocator;
+    const simulation_vfs = @import("simulation_vfs");
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    const vfs_interface = sim_vfs.vfs();
+    const data_dir = try allocator.dupe(u8, "metrics_test_data");
+
+    var storage = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    defer storage.deinit();
+
+    try storage.initialize_storage();
+
+    // Get initial metrics
+    const initial_metrics = storage.get_metrics();
+    try std.testing.expectEqual(@as(u64, 0), initial_metrics.blocks_written.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 0), initial_metrics.blocks_read.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 0), initial_metrics.wal_writes.load(.monotonic));
+
+    // Create test block
+    const test_id = try BlockId.from_hex("deadbeefdeadbeefdeadbeefdeadbeef");
+    const test_block = ContextBlock{
+        .id = test_id,
+        .version = 1,
+        .source_uri = "test://metrics.zig",
+        .metadata_json = "{\"type\":\"metrics_test\"}",
+        .content = "pub fn metrics_test() void {}",
+    };
+
+    // Test block write metrics
+    try storage.put_block(test_block);
+
+    const after_write_metrics = storage.get_metrics();
+    try std.testing.expectEqual(@as(u64, 1), after_write_metrics.blocks_written.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 1), after_write_metrics.wal_writes.load(.monotonic));
+    try std.testing.expect(after_write_metrics.total_write_time_ns.load(.monotonic) > 0);
+
+    // Test block read metrics
+    const found_block = try storage.find_block_by_id(test_id);
+    try std.testing.expect(found_block.id.eql(test_id));
+
+    const after_read_metrics = storage.get_metrics();
+    try std.testing.expectEqual(@as(u64, 1), after_read_metrics.blocks_read.load(.monotonic));
+    try std.testing.expect(after_read_metrics.total_read_time_ns.load(.monotonic) > 0);
+
+    // Test WAL flush metrics
+    try storage.flush_wal();
+
+    const after_flush_metrics = storage.get_metrics();
+    try std.testing.expectEqual(@as(u64, 1), after_flush_metrics.wal_flushes.load(.monotonic));
+    try std.testing.expect(after_flush_metrics.total_wal_flush_time_ns.load(.monotonic) > 0);
+
+    // Test edge metrics
+    const edge = GraphEdge{
+        .source_id = test_id,
+        .target_id = try BlockId.from_hex("cafebabecafebabecafebabecafebabe"),
+        .edge_type = .calls,
+    };
+
+    try storage.put_edge(edge);
+
+    const after_edge_metrics = storage.get_metrics();
+    try std.testing.expectEqual(@as(u64, 1), after_edge_metrics.edges_added.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 2), after_edge_metrics.wal_writes.load(.monotonic)); // +1 for edge
+
+    // Test block deletion metrics
+    try storage.delete_block(test_id);
+
+    const after_delete_metrics = storage.get_metrics();
+    try std.testing.expectEqual(@as(u64, 1), after_delete_metrics.blocks_deleted.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 3), after_delete_metrics.wal_writes.load(.monotonic)); // +1 for delete
+
+    // Test average latency calculations
+    try std.testing.expect(after_read_metrics.average_read_latency_ns() > 0);
+    try std.testing.expect(after_write_metrics.average_write_latency_ns() > 0);
+    try std.testing.expect(after_flush_metrics.average_wal_flush_latency_ns() > 0);
+
+    // Test error-free operations
+    try std.testing.expectEqual(@as(u64, 0), after_delete_metrics.write_errors.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 0), after_delete_metrics.read_errors.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 0), after_delete_metrics.wal_errors.load(.monotonic));
 }

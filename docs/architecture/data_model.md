@@ -14,7 +14,10 @@ The atomic unit of the WAL. Represents a single operation in a transaction.
 |--------|--------------|----------------|---------------------------------------------------------|
 | 0      | 8            | `checksum`     | CRC-64 checksum of the `type` and `payload`.            |
 | 8      | 1            | `type`         | `0x01` = PutBlock, `0x02` = DeleteBlock, `0x03` = PutEdge |
-| 9      | `len - 9`    | `payload`      | The data for the operation (e.g., a serialized `ContextBlock`). |
+| 9      | 4            | `payload_size` | Length of the payload in bytes (little-endian).         |
+| 13     | `payload_size` | `payload`    | The data for the operation (e.g., a serialized `ContextBlock`). |
+
+**Total header size:** 13 bytes (8 + 1 + 4)
 
 ### `ContextBlock`
 

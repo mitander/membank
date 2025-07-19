@@ -274,7 +274,7 @@ test "QueryEngine basic operations" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_data");
 
-    var storage_engine = StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -322,7 +322,7 @@ test "QueryEngine multiple blocks" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_data");
 
-    var storage_engine = StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -395,7 +395,7 @@ test "QueryEngine statistics" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_data");
 
-    var storage_engine = StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -405,7 +405,7 @@ test "QueryEngine statistics" {
     defer query_engine.deinit();
 
     // Test initial statistics
-    var stats = query_engine.get_statistics();
+    var stats = query_engine.statistics();
     try std.testing.expectEqual(@as(u32, 0), stats.total_blocks_stored);
 
     // Add a block and verify statistics
@@ -420,6 +420,6 @@ test "QueryEngine statistics" {
 
     try storage_engine.put_block(test_block);
 
-    stats = query_engine.get_statistics();
+    stats = query_engine.statistics();
     try std.testing.expectEqual(@as(u32, 1), stats.total_blocks_stored);
 }

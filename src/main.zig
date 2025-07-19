@@ -85,7 +85,7 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     const data_dir = try allocator.dupe(u8, "cortexdb_data");
 
     // Initialize storage engine
-    var storage_engine = StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.startup();
@@ -115,7 +115,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     const data_dir = try allocator.dupe(u8, "demo_data");
 
     // Initialize storage engine
-    var storage_engine = StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.startup();
@@ -161,7 +161,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     try storage_engine.put_block(block1);
     try storage_engine.put_block(block2);
 
-    const stats = query_eng.get_statistics();
+    const stats = query_eng.statistics();
     std.debug.print("✓ Stored {} blocks\n\n", .{stats.total_blocks_stored});
 
     // Query single block
@@ -193,7 +193,19 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("{s}", .{formatted});
     std.debug.print("=====================================\n\n", .{});
 
-    std.debug.print("Demo completed successfully!\n", .{});
+    // Display performance metrics
+    const metrics = storage_engine.get_metrics();
+    std.debug.print("Performance Metrics:\n", .{});
+    std.debug.print("- Blocks written: {}\n", .{metrics.blocks_written.load(.monotonic)});
+    std.debug.print("- Blocks read: {}\n", .{metrics.blocks_read.load(.monotonic)});
+    std.debug.print("- WAL writes: {}\n", .{metrics.wal_writes.load(.monotonic)});
+    std.debug.print("- WAL flushes: {}\n", .{metrics.wal_flushes.load(.monotonic)});
+    std.debug.print("- Average write latency: {}ns\n", .{metrics.average_write_latency_ns()});
+    std.debug.print("- Average read latency: {}ns\n", .{metrics.average_read_latency_ns()});
+    std.debug.print("- Write errors: {}\n", .{metrics.write_errors.load(.monotonic)});
+    std.debug.print("- Read errors: {}\n", .{metrics.read_errors.load(.monotonic)});
+
+    std.debug.print("\nDemo completed successfully!\n", .{});
 }
 
 test "main module tests" {

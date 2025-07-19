@@ -31,7 +31,7 @@ test "wal recovery: empty directory" {
     const node1_ptr = sim.find_node(node1);
     const node1_vfs = node1_ptr.filesystem_interface();
 
-    var storage_engine = StorageEngine.init(
+    var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_empty_data"),
@@ -57,7 +57,7 @@ test "wal recovery: missing wal directory" {
     const node1_ptr = sim.find_node(node1);
     const node1_vfs = node1_ptr.filesystem_interface();
 
-    var storage_engine = StorageEngine.init(
+    var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_missing_data"),
@@ -84,7 +84,7 @@ test "wal recovery: single block recovery" {
     const node1_vfs = node1_ptr.filesystem_interface();
 
     // First storage engine: write data
-    var storage_engine1 = StorageEngine.init(
+    var storage_engine1 = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_single_data"),
@@ -108,7 +108,7 @@ test "wal recovery: single block recovery" {
     storage_engine1.deinit();
 
     // Second storage engine: recover from WAL
-    var storage_engine2 = StorageEngine.init(
+    var storage_engine2 = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_single_data"),
@@ -140,7 +140,7 @@ test "wal recovery: multiple blocks and types" {
     const node1_vfs = node1_ptr.filesystem_interface();
 
     // First storage engine: write data
-    var storage_engine1 = StorageEngine.init(
+    var storage_engine1 = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_multiple_data"),
@@ -184,7 +184,7 @@ test "wal recovery: multiple blocks and types" {
     storage_engine1.deinit();
 
     // Second storage engine: recover from WAL
-    var storage_engine2 = StorageEngine.init(
+    var storage_engine2 = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_multiple_data"),
@@ -281,7 +281,7 @@ test "wal recovery: multiple wal files" {
     }
 
     // Now test recovery
-    var storage_engine = StorageEngine.init(
+    var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, data_dir),
@@ -312,7 +312,7 @@ test "wal recovery: corruption handling - invalid checksum" {
     var node1_vfs = node1_ptr.filesystem_interface();
 
     // Create storage and write valid block first
-    var storage_engine1 = StorageEngine.init(
+    var storage_engine1 = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_corrupt_data"),
@@ -354,7 +354,7 @@ test "wal recovery: corruption handling - invalid checksum" {
     storage_engine1.deinit();
 
     // Try to recover - should stop at corruption
-    var storage_engine2 = StorageEngine.init(
+    var storage_engine2 = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_corrupt_data"),
@@ -399,7 +399,7 @@ test "wal recovery: corruption handling - incomplete entry" {
     try wal_file.close();
 
     // Try recovery
-    var storage_engine = StorageEngine.init(
+    var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, data_dir),
@@ -435,7 +435,7 @@ test "wal recovery: deterministic behavior" {
         defer allocator.free(data_dir);
 
         // Write some data
-        var storage_engine1 = StorageEngine.init(
+        var storage_engine1 = try StorageEngine.init(
             allocator,
             node1_vfs,
             try allocator.dupe(u8, data_dir),
@@ -457,7 +457,7 @@ test "wal recovery: deterministic behavior" {
         storage_engine1.deinit();
 
         // Recover
-        var storage_engine2 = StorageEngine.init(
+        var storage_engine2 = try StorageEngine.init(
             allocator,
             node1_vfs,
             try allocator.dupe(u8, data_dir),
@@ -500,7 +500,7 @@ test "wal recovery: large blocks" {
     };
 
     // Write large block
-    var storage_engine1 = StorageEngine.init(
+    var storage_engine1 = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_large_data"),
@@ -513,7 +513,7 @@ test "wal recovery: large blocks" {
     storage_engine1.deinit();
 
     // Recover large block
-    var storage_engine2 = StorageEngine.init(
+    var storage_engine2 = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_large_data"),
@@ -543,7 +543,7 @@ test "wal recovery: stress test with many entries" {
     const num_blocks = 100;
 
     // Write many blocks
-    var storage_engine1 = StorageEngine.init(
+    var storage_engine1 = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_stress_data"),
@@ -587,7 +587,7 @@ test "wal recovery: stress test with many entries" {
     storage_engine1.deinit();
 
     // Recover all blocks
-    var storage_engine2 = StorageEngine.init(
+    var storage_engine2 = try StorageEngine.init(
         allocator,
         node1_vfs,
         try allocator.dupe(u8, "wal_stress_data"),

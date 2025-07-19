@@ -295,41 +295,41 @@ pub const SSTable = struct {
     /// Calculate CRC32 checksum over file content (excluding header checksum field)
     fn calculate_file_checksum(self: *SSTable, file: *vfs.VFile, index_offset: u64) !u32 {
         _ = self;
-        
+
         // Calculate checksum over blocks and index sections
         var crc = std.hash.Crc32.init();
-        
+
         // Read block data section (from end of header to start of index)
         _ = try file.seek(HEADER_SIZE, .start);
         const block_data_size = index_offset - HEADER_SIZE;
-        
+
         var buffer: [4096]u8 = undefined;
         var remaining = block_data_size;
-        
+
         while (remaining > 0) {
             const chunk_size = @min(remaining, buffer.len);
             const bytes_read = try file.read(buffer[0..chunk_size]);
             if (bytes_read == 0) break;
-            
+
             crc.update(buffer[0..bytes_read]);
             remaining -= bytes_read;
         }
-        
+
         // Read index section
         _ = try file.seek(@intCast(index_offset), .start);
         const file_size = try file.file_size();
         const index_size = file_size - index_offset - FOOTER_SIZE;
-        
+
         remaining = index_size;
         while (remaining > 0) {
             const chunk_size = @min(remaining, buffer.len);
             const bytes_read = try file.read(buffer[0..chunk_size]);
             if (bytes_read == 0) break;
-            
+
             crc.update(buffer[0..bytes_read]);
             remaining -= bytes_read;
         }
-        
+
         return crc.final();
     }
 
@@ -347,7 +347,10 @@ pub const SSTable = struct {
 
         // Verify file checksum if present
         if (header.file_checksum != 0) {
-            const calculated_checksum = try self.calculate_file_checksum(&file, header.index_offset);
+            const calculated_checksum = try self.calculate_file_checksum(
+                &file,
+                header.index_offset,
+            );
             if (calculated_checksum != header.file_checksum) {
                 return error.ChecksumMismatch;
             }
@@ -775,7 +778,8 @@ test "SSTable checksum validation" {
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "checksum_test.sst"));
+    const path = try allocator.dupe(u8, "checksum_test.sst");
+    var sstable = SSTable.init(allocator, sim_vfs.vfs(), path);
     defer sstable.deinit();
 
     // Create test block
