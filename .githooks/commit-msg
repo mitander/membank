@@ -1,0 +1,61 @@
+#!/bin/sh
+COMMIT_MSG_FILE=$1
+COMMIT_MSG_HEADER=$(head -n1 "$COMMIT_MSG_FILE")
+AWK_SCRIPT='
+BEGIN {
+    # Regex for Conventional Commits, for awk, allowing uppercase/lowercase subject start
+    # Type: (feat|fix|...)
+    # Optional Scope: (\([^)]+\))? -- literal parens, one or more non-) chars, optional
+    # Optional Bang: !?
+    # Colon and Space: :
+    # Subject: must start with a letter or a digit, then any non-newline/CR characters.
+    # [a-zA-Z0-9] checks for any letter or digit at the start of the subject.
+    # [^\\n\\r]* allows any characters (except newline/CR) after the first one.
+    # Length {0,99} for the rest of the subject means total subject length is 1 to 100.
+    pattern = "^(feat|fix|build|chore|ci|docs|perf|refactor|revert|style|test|wip)(\\([^)]+\\))?(!?): [a-zA-Z0-9][^\\n\\r]{0,99}$"
+    exit_code = 1 # Default to fail
+}
+# If the input line ($0) matches the pattern
+$0 ~ pattern {
+    exit_code = 0 # Success (exit code 0 for awk)
+}
+END {
+    exit exit_code
+}
+'
+if ! echo "$COMMIT_MSG_HEADER" | awk "$AWK_SCRIPT"; then
+    echo "-------------------------------------------------------------------"
+    echo "ERROR: Invalid commit message format."
+    echo "-------------------------------------------------------------------"
+    echo "Your commit message header:"
+    echo "    \"$COMMIT_MSG_HEADER\""
+    echo ""
+    echo "Aborting commit."
+    echo "Please follow the Conventional Commits format: https://www.conventionalcommits.org/"
+    echo "Format: <type>(optional scope)!: <description>"
+    echo "Example: feat(parser): add ability to parse arrays"
+    echo "Example: fix!: correct handling of unicode characters (BREAKING CHANGE)"
+    echo "Allowed types: feat, fix, build, chore, ci, docs, perf, refactor, revert, style, test"
+    echo "The description must start with a letter or a digit after the ': '."
+    echo "The description must be non-empty and 1-100 characters long."
+    echo "-------------------------------------------------------------------"
+    exit 1
+fi
+SUBJECT_CONTENT_FOR_LENGTH_CHECK=$(echo "$COMMIT_MSG_HEADER" | sed -E 's/^(feat|fix|build|chore|ci|docs|perf|refactor|revert|style|test)(\([^)]*\))?(!?): //')
+SUBJECT_LENGTH=$(echo -n "$SUBJECT_CONTENT_FOR_LENGTH_CHECK" | wc -c | awk '{print $1}')
+if [ "$SUBJECT_LENGTH" -lt 1 ]; then
+    echo "-------------------------------------------------------------------"
+    echo "ERROR: Commit message subject must not be empty."
+    echo "-------------------------------------------------------------------"
+    exit 1
+fi
+if [ "$SUBJECT_LENGTH" -gt 100 ]; then
+    echo "-------------------------------------------------------------------"
+    echo "ERROR: Commit message subject is too long (Max 100 characters enforced by regex)."
+    echo "-------------------------------------------------------------------"
+    echo "Your subject: \"$SUBJECT_CONTENT_FOR_LENGTH_CHECK\" (Length: $SUBJECT_LENGTH)"
+    echo "-------------------------------------------------------------------"
+    exit 1
+fi
+echo "Commit message format OK."
+exit 0

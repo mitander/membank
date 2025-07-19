@@ -1,7 +1,7 @@
 # CortexDB
 
 [![LICENSE](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![CI Status](https://github.com/your-username/cortexdb/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/cortexdb/actions)
+[![CI Status](https://github.com/mitander/cortexdb/actions/workflows/ci.yml/badge.svg)](https://github.com/mitander/cortexdb/actions)
 
 A structured and deterministic context database for Large Language Models. Built in Zig for
 mission-critical performance and reliability, inspired by the design of TigerBeetle.

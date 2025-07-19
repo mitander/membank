@@ -914,7 +914,8 @@ test "tidy extensions" {
         .{"CLAUDE.md"},
         .{"TODO.md"},
         .{".githooks/pre-commit"},
-        .{"scripts/setup-hooks.sh"},
+        .{".githooks/commit-msg"},
+        .{"setup-hooks.sh"},
     });
 
     const allocator = std.testing.allocator;

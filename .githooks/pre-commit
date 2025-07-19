@@ -84,32 +84,6 @@ else
     print_status "INFO" "Unit tests skipped (SKIP_TESTS=1)"
 fi
 
-# 4. Check for common issues in commit message (if available)
-if [ -f ".git/COMMIT_EDITMSG" ]; then
-    print_status "INFO" "Checking commit message format..."
-
-    # Read the commit message
-    COMMIT_MSG=$(head -1 ".git/COMMIT_EDITMSG" 2>/dev/null || echo "")
-
-    # Check if commit message follows conventional format
-    if echo "$COMMIT_MSG" | grep -qE '^(feat|fix|docs|style|refactor|test|chore)(\(.+\))?: .+'; then
-        print_status "OK" "Commit message format is valid"
-    else
-        print_status "FAIL" "Commit message format is invalid"
-        echo ""
-        echo "Commit messages should follow the format: type(scope): subject"
-        echo "Types: feat, fix, docs, style, refactor, test, chore"
-        echo "Example: feat(query): implement semantic search"
-        CHECKS_PASSED=false
-    fi
-
-    # Check commit message length
-    if [ ${#COMMIT_MSG} -gt 72 ]; then
-        print_status "FAIL" "Commit message subject line too long (${#COMMIT_MSG} > 72 chars)"
-        CHECKS_PASSED=false
-    fi
-fi
-
 # Final result
 echo ""
 if [ "$CHECKS_PASSED" = true ]; then
