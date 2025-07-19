@@ -256,20 +256,23 @@ pub const SSTable = struct {
             _ = try file.write(&entry_buffer);
         }
 
+        // Calculate file checksum over all content (excluding header checksum field)
+        const file_checksum = try self.calculate_file_checksum(&file, index_offset);
+
         // Calculate footer checksum
         const file_size = try file.file_size();
         const content_size = file_size - FOOTER_SIZE;
 
         var hasher = std.hash.Wyhash.init(0);
         hasher.update(std.mem.asBytes(&content_size));
-        const checksum = hasher.final();
+        const footer_checksum = hasher.final();
 
         // Write footer
         var footer_buffer: [FOOTER_SIZE]u8 = undefined;
-        std.mem.writeInt(u64, &footer_buffer, checksum, .little);
+        std.mem.writeInt(u64, &footer_buffer, footer_checksum, .little);
         _ = try file.write(&footer_buffer);
 
-        // Go back and write header
+        // Go back and write header with calculated checksum
         _ = try file.seek(0, .start);
         const header = Header{
             .magic = MAGIC,
@@ -277,7 +280,7 @@ pub const SSTable = struct {
             .flags = 0,
             .index_offset = index_offset,
             .block_count = @intCast(sorted_blocks.len),
-            .file_checksum = 0, // TODO Calculate actual file checksum
+            .file_checksum = file_checksum,
             .created_timestamp = @intCast(std.time.timestamp()),
             .reserved = [_]u8{0} ** 32,
         };
@@ -287,6 +290,47 @@ pub const SSTable = struct {
 
         try file.flush();
         self.block_count = @intCast(sorted_blocks.len);
+    }
+
+    /// Calculate CRC32 checksum over file content (excluding header checksum field)
+    fn calculate_file_checksum(self: *SSTable, file: *vfs.VFile, index_offset: u64) !u32 {
+        _ = self;
+        
+        // Calculate checksum over blocks and index sections
+        var crc = std.hash.Crc32.init();
+        
+        // Read block data section (from end of header to start of index)
+        _ = try file.seek(HEADER_SIZE, .start);
+        const block_data_size = index_offset - HEADER_SIZE;
+        
+        var buffer: [4096]u8 = undefined;
+        var remaining = block_data_size;
+        
+        while (remaining > 0) {
+            const chunk_size = @min(remaining, buffer.len);
+            const bytes_read = try file.read(buffer[0..chunk_size]);
+            if (bytes_read == 0) break;
+            
+            crc.update(buffer[0..bytes_read]);
+            remaining -= bytes_read;
+        }
+        
+        // Read index section
+        _ = try file.seek(@intCast(index_offset), .start);
+        const file_size = try file.file_size();
+        const index_size = file_size - index_offset - FOOTER_SIZE;
+        
+        remaining = index_size;
+        while (remaining > 0) {
+            const chunk_size = @min(remaining, buffer.len);
+            const bytes_read = try file.read(buffer[0..chunk_size]);
+            if (bytes_read == 0) break;
+            
+            crc.update(buffer[0..bytes_read]);
+            remaining -= bytes_read;
+        }
+        
+        return crc.final();
     }
 
     /// Read SSTable and load index
@@ -300,6 +344,14 @@ pub const SSTable = struct {
 
         const header = try Header.deserialize(&header_buffer);
         self.block_count = header.block_count;
+
+        // Verify file checksum if present
+        if (header.file_checksum != 0) {
+            const calculated_checksum = try self.calculate_file_checksum(&file, header.index_offset);
+            if (calculated_checksum != header.file_checksum) {
+                return error.ChecksumMismatch;
+            }
+        }
 
         // Read index entries
         _ = try file.seek(@intCast(header.index_offset), .start);
@@ -562,8 +614,8 @@ test "SSTable write and read" {
     try sstable.read_index();
     try std.testing.expectEqual(@as(u32, 2), sstable.block_count);
 
-    // Test get_block
-    const retrieved1 = try sstable.get_block(block1.id);
+    // Test find_block
+    const retrieved1 = try sstable.find_block(block1.id);
     try std.testing.expect(retrieved1 != null);
     try std.testing.expect(retrieved1.?.id.eql(block1.id));
     try std.testing.expectEqualStrings("test://block1", retrieved1.?.source_uri);
@@ -574,7 +626,7 @@ test "SSTable write and read" {
 
     // Test non-existent block
     const non_existent_id = try BlockId.from_hex("1111111111111111111111111111111");
-    const not_found = try sstable.get_block(non_existent_id);
+    const not_found = try sstable.find_block(non_existent_id);
     try std.testing.expect(not_found == null);
 }
 
@@ -706,7 +758,7 @@ test "SSTable compaction" {
 
     // Should have version 2 of the duplicate block
     const test_id = try BlockId.from_hex("1111111111111111111111111111111");
-    const retrieved = try compacted.get_block(test_id);
+    const retrieved = try compacted.find_block(test_id);
     try std.testing.expect(retrieved != null);
     try std.testing.expectEqual(@as(u64, 2), retrieved.?.version);
     try std.testing.expectEqualStrings("version 2", retrieved.?.content);
@@ -714,4 +766,50 @@ test "SSTable compaction" {
     if (retrieved) |block| {
         block.deinit(allocator);
     }
+}
+
+test "SSTable checksum validation" {
+    const allocator = std.testing.allocator;
+    const simulation_vfs = @import("simulation_vfs");
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "checksum_test.sst"));
+    defer sstable.deinit();
+
+    // Create test block
+    const block = ContextBlock{
+        .id = try BlockId.from_hex("1234567890abcdef1234567890abcdef"),
+        .version = 1,
+        .source_uri = "test://checksum",
+        .metadata_json = "{\"type\":\"checksum_test\"}",
+        .content = "checksum test content",
+    };
+
+    const blocks = [_]ContextBlock{block};
+
+    // Write blocks (this calculates and stores checksum)
+    try sstable.write_blocks(&blocks);
+
+    // Reading should succeed with valid checksum
+    try sstable.read_index();
+    try std.testing.expectEqual(@as(u32, 1), sstable.block_count);
+
+    // Corrupt the file by modifying a byte in the block data
+    var file = try sim_vfs.vfs().open("checksum_test.sst", .write);
+    defer file.close() catch {};
+
+    // Modify a byte in the block data section (after header)
+    _ = try file.seek(SSTable.HEADER_SIZE + 10, .start);
+    const corrupt_byte = [1]u8{0xFF};
+    _ = try file.write(&corrupt_byte);
+    try file.close();
+
+    // Reset SSTable for fresh read
+    sstable.index.clearAndFree();
+    sstable.block_count = 0;
+
+    // Reading should now fail with checksum mismatch
+    try std.testing.expectError(error.ChecksumMismatch, sstable.read_index());
 }
