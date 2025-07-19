@@ -27,7 +27,7 @@ pub const SSTable = struct {
 
     const MAGIC = [4]u8{ 'S', 'S', 'T', 'B' }; // "SSTB" for SSTable Blocks
     const VERSION = 1;
-    const HEADER_SIZE = 32; // Magic + Version + Index Offset + Block Count + Reserved
+    const HEADER_SIZE = 64; // Cache-aligned header size for performance
     const FOOTER_SIZE = 8; // Checksum
 
     /// Index entry pointing to a block within the SSTable
@@ -82,13 +82,16 @@ pub const SSTable = struct {
         }
     };
 
-    /// File header structure
+    /// File header structure (64-byte aligned)
     const Header = struct {
-        magic: [4]u8,
-        version: u32,
-        index_offset: u64,
-        block_count: u32,
-        reserved: [12]u8,
+        magic: [4]u8, // 4 bytes: "SSTB"
+        format_version: u16, // 2 bytes: Major.minor versioning
+        flags: u16, // 2 bytes: Feature flags
+        index_offset: u64, // 8 bytes: Offset to index section
+        block_count: u32, // 4 bytes: Number of blocks
+        file_checksum: u32, // 4 bytes: CRC32 of entire file
+        created_timestamp: u64, // 8 bytes: Unix timestamp
+        reserved: [32]u8, // 32 bytes: Reserved for future use
 
         pub fn serialize(self: Header, buffer: []u8) !void {
             assert(buffer.len >= HEADER_SIZE);
@@ -99,9 +102,13 @@ pub const SSTable = struct {
             @memcpy(buffer[offset .. offset + 4], &self.magic);
             offset += 4;
 
-            // Write version
-            std.mem.writeInt(u32, buffer[offset..][0..4], self.version, .little);
-            offset += 4;
+            // Write format version
+            std.mem.writeInt(u16, buffer[offset..][0..2], self.format_version, .little);
+            offset += 2;
+
+            // Write flags
+            std.mem.writeInt(u16, buffer[offset..][0..2], self.flags, .little);
+            offset += 2;
 
             // Write index offset
             std.mem.writeInt(u64, buffer[offset..][0..8], self.index_offset, .little);
@@ -111,8 +118,16 @@ pub const SSTable = struct {
             std.mem.writeInt(u32, buffer[offset..][0..4], self.block_count, .little);
             offset += 4;
 
+            // Write file checksum
+            std.mem.writeInt(u32, buffer[offset..][0..4], self.file_checksum, .little);
+            offset += 4;
+
+            // Write created timestamp
+            std.mem.writeInt(u64, buffer[offset..][0..8], self.created_timestamp, .little);
+            offset += 8;
+
             // Write reserved bytes (must be zero)
-            @memset(buffer[offset .. offset + 12], 0);
+            @memset(buffer[offset .. offset + 32], 0);
         }
 
         pub fn deserialize(buffer: []const u8) !Header {
@@ -126,10 +141,14 @@ pub const SSTable = struct {
             if (!std.mem.eql(u8, magic, &MAGIC)) return error.InvalidMagic;
             offset += 4;
 
-            // Read version
-            const version = std.mem.readInt(u32, buffer[offset..][0..4], .little);
-            if (version != VERSION) return error.UnsupportedVersion;
-            offset += 4;
+            // Read format version
+            const format_version = std.mem.readInt(u16, buffer[offset..][0..2], .little);
+            if (format_version > VERSION) return error.UnsupportedVersion;
+            offset += 2;
+
+            // Read flags
+            const flags = std.mem.readInt(u16, buffer[offset..][0..2], .little);
+            offset += 2;
 
             // Read index offset
             const index_offset = std.mem.readInt(u64, buffer[offset..][0..8], .little);
@@ -139,18 +158,29 @@ pub const SSTable = struct {
             const block_count = std.mem.readInt(u32, buffer[offset..][0..4], .little);
             offset += 4;
 
+            // Read file checksum
+            const file_checksum = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+            offset += 4;
+
+            // Read created timestamp
+            const created_timestamp = std.mem.readInt(u64, buffer[offset..][0..8], .little);
+            offset += 8;
+
             // Validate reserved bytes are zero
-            const reserved = buffer[offset .. offset + 12];
+            const reserved = buffer[offset .. offset + 32];
             for (reserved) |byte| {
                 if (byte != 0) return error.InvalidReservedBytes;
             }
 
             return Header{
                 .magic = MAGIC,
-                .version = version,
+                .format_version = format_version,
+                .flags = flags,
                 .index_offset = index_offset,
                 .block_count = block_count,
-                .reserved = [_]u8{0} ** 12,
+                .file_checksum = file_checksum,
+                .created_timestamp = created_timestamp,
+                .reserved = [_]u8{0} ** 32,
             };
         }
     };
@@ -243,10 +273,13 @@ pub const SSTable = struct {
         _ = try file.seek(0, .start);
         const header = Header{
             .magic = MAGIC,
-            .version = VERSION,
+            .format_version = VERSION,
+            .flags = 0,
             .index_offset = index_offset,
             .block_count = @intCast(sorted_blocks.len),
-            .reserved = [_]u8{0} ** 12,
+            .file_checksum = 0, // TODO Calculate actual file checksum
+            .created_timestamp = @intCast(std.time.timestamp()),
+            .reserved = [_]u8{0} ** 32,
         };
 
         try header.serialize(&header_buffer);

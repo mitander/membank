@@ -81,16 +81,135 @@ pub const ContextBlock = struct {
     /// Raw content of the block
     content: []const u8,
 
-    /// Minimum serialized size (header only, no variable-length data)
-    pub const MIN_SERIALIZED_SIZE = 36; // 16 + 8 + 4 + 4 + 4
+    /// File format header for versioning and future-proofing
+    pub const BlockHeader = struct {
+        magic: u32 = ContextBlock.MAGIC, // "CXDB" magic number
+        format_version: u16 = ContextBlock.FORMAT_VERSION, // Major.minor versioning
+        flags: u16 = 0, // Feature flags for extensions
+        id: [16]u8, // Block identifier
+        block_version: u64, // Monotonic version for this block
+        source_uri_len: u32, // Length of source URI
+        metadata_json_len: u32, // Length of metadata JSON
+        content_len: u32, // Length of content
+        checksum: u32 = 0, // CRC32 of variable data (computed on write)
+        reserved: [12]u8 = [_]u8{0} ** 12, // Reserved for future use
+
+        pub const SIZE = 64; // Cache-aligned header size
+
+        pub fn serialize(self: BlockHeader, buffer: []u8) !void {
+            assert(buffer.len >= SIZE);
+            if (buffer.len < SIZE) return error.BufferTooSmall;
+
+            var offset: usize = 0;
+
+            // Write magic
+            std.mem.writeInt(u32, buffer[offset..][0..4], self.magic, .little);
+            offset += 4;
+
+            // Write format version
+            std.mem.writeInt(u16, buffer[offset..][0..2], self.format_version, .little);
+            offset += 2;
+
+            // Write flags
+            std.mem.writeInt(u16, buffer[offset..][0..2], self.flags, .little);
+            offset += 2;
+
+            // Write ID
+            @memcpy(buffer[offset .. offset + 16], &self.id);
+            offset += 16;
+
+            // Write block version
+            std.mem.writeInt(u64, buffer[offset..][0..8], self.block_version, .little);
+            offset += 8;
+
+            // Write lengths
+            std.mem.writeInt(u32, buffer[offset..][0..4], self.source_uri_len, .little);
+            offset += 4;
+            std.mem.writeInt(u32, buffer[offset..][0..4], self.metadata_json_len, .little);
+            offset += 4;
+            std.mem.writeInt(u32, buffer[offset..][0..4], self.content_len, .little);
+            offset += 4;
+
+            // Write checksum
+            std.mem.writeInt(u32, buffer[offset..][0..4], self.checksum, .little);
+            offset += 4;
+
+            // Write reserved bytes (must be zero)
+            @memset(buffer[offset .. offset + 12], 0);
+        }
+
+        pub fn deserialize(buffer: []const u8) !BlockHeader {
+            assert(buffer.len >= SIZE);
+            if (buffer.len < SIZE) return error.BufferTooSmall;
+
+            var offset: usize = 0;
+
+            // Read and validate magic
+            const magic = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+            if (magic != ContextBlock.MAGIC) return error.InvalidMagic;
+            offset += 4;
+
+            // Read format version
+            const format_version = std.mem.readInt(u16, buffer[offset..][0..2], .little);
+            if (format_version > ContextBlock.FORMAT_VERSION) return error.UnsupportedVersion;
+            offset += 2;
+
+            // Read flags
+            const flags = std.mem.readInt(u16, buffer[offset..][0..2], .little);
+            offset += 2;
+
+            // Read ID
+            var id: [16]u8 = undefined;
+            @memcpy(&id, buffer[offset .. offset + 16]);
+            offset += 16;
+
+            // Read block version
+            const block_version = std.mem.readInt(u64, buffer[offset..][0..8], .little);
+            offset += 8;
+
+            // Read lengths
+            const source_uri_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+            offset += 4;
+            const metadata_json_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+            offset += 4;
+            const content_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+            offset += 4;
+
+            // Read checksum
+            const checksum = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+            offset += 4;
+
+            // Validate reserved bytes are zero (forward compatibility check)
+            const reserved_bytes = buffer[offset .. offset + 12];
+            for (reserved_bytes) |byte| {
+                if (byte != 0) return error.InvalidReservedBytes;
+            }
+
+            return BlockHeader{
+                .magic = magic,
+                .format_version = format_version,
+                .flags = flags,
+                .id = id,
+                .block_version = block_version,
+                .source_uri_len = source_uri_len,
+                .metadata_json_len = metadata_json_len,
+                .content_len = content_len,
+                .checksum = checksum,
+                .reserved = [_]u8{0} ** 12,
+            };
+        }
+    };
+
+    /// File format constants
+    pub const MAGIC = 0x42444358; // "CXDB" in little-endian
+    pub const FORMAT_VERSION = 1;
+
+    /// Minimum serialized size (header + no variable-length data)
+    pub const MIN_SERIALIZED_SIZE = BlockHeader.SIZE;
 
     /// Calculate the serialized size in bytes.
     pub fn serialized_size(self: ContextBlock) usize {
-        return 16 + // id
-            8 + // version
-            4 + // source_uri_len
-            4 + // metadata_json_len
-            4 + // content_len
+        return BlockHeader.SIZE + // 64-byte header
             self.source_uri.len +
             self.metadata_json.len +
             self.content.len;
@@ -101,45 +220,45 @@ pub const ContextBlock = struct {
     pub fn compute_serialized_size_from_buffer(buffer: []const u8) !usize {
         if (buffer.len < MIN_SERIALIZED_SIZE) return error.BufferTooSmall;
 
-        // Skip id (16 bytes) and version (8 bytes)
-        var offset: usize = 24;
-
-        // Read length fields
-        const source_uri_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
-        offset += 4;
-        const metadata_json_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
-        offset += 4;
-        const content_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+        // Deserialize header to get length fields
+        const header = try BlockHeader.deserialize(buffer);
 
         // Calculate total size
-        return MIN_SERIALIZED_SIZE + source_uri_len + metadata_json_len + content_len;
+        return MIN_SERIALIZED_SIZE + header.source_uri_len +
+            header.metadata_json_len + header.content_len;
     }
 
-    /// Serialize the Context Block to bytes according to the specification.
-    /// Layout: | id (16) | ver (8) | uri_len (4) | meta_len (4) | content_len (4) |
-    ///         | uri (...) | metadata (...) | content (...) |
+    /// Serialize the Context Block to bytes using versioned header format.
+    /// Layout: | BlockHeader (64) | source_uri (...) | metadata_json (...) | content (...) |
     pub fn serialize(self: ContextBlock, buffer: []u8) !usize {
         const required_size = self.serialized_size();
         assert(buffer.len >= required_size);
         if (buffer.len < required_size) return error.BufferTooSmall;
 
-        var offset: usize = 0;
+        // Calculate checksum of variable data
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(self.source_uri);
+        hasher.update(self.metadata_json);
+        hasher.update(self.content);
+        const data_checksum: u32 = @truncate(hasher.final());
 
-        // Write ID (16 bytes)
-        @memcpy(buffer[offset .. offset + 16], &self.id.bytes);
-        offset += 16;
+        // Create header
+        const header = BlockHeader{
+            .magic = ContextBlock.MAGIC,
+            .format_version = ContextBlock.FORMAT_VERSION,
+            .flags = 0,
+            .id = self.id.bytes,
+            .block_version = self.version,
+            .source_uri_len = @intCast(self.source_uri.len),
+            .metadata_json_len = @intCast(self.metadata_json.len),
+            .content_len = @intCast(self.content.len),
+            .checksum = data_checksum,
+            .reserved = [_]u8{0} ** 12,
+        };
 
-        // Write version (8 bytes, little-endian)
-        std.mem.writeInt(u64, buffer[offset..][0..8], self.version, .little);
-        offset += 8;
-
-        // Write lengths (4 bytes each, little-endian)
-        std.mem.writeInt(u32, buffer[offset..][0..4], @intCast(self.source_uri.len), .little);
-        offset += 4;
-        std.mem.writeInt(u32, buffer[offset..][0..4], @intCast(self.metadata_json.len), .little);
-        offset += 4;
-        std.mem.writeInt(u32, buffer[offset..][0..4], @intCast(self.content.len), .little);
-        offset += 4;
+        // Write header
+        try header.serialize(buffer[0..BlockHeader.SIZE]);
+        var offset: usize = BlockHeader.SIZE;
 
         // Write variable-length data
         @memcpy(buffer[offset .. offset + self.source_uri.len], self.source_uri);
@@ -152,49 +271,48 @@ pub const ContextBlock = struct {
         return offset;
     }
 
-    /// Deserialize a Context Block from bytes.
-    /// The returned block references slices into the input buffer,
-    /// so the buffer must remain valid for the lifetime of the block.
+    /// Deserialize a Context Block from bytes with versioned header support.
+    /// The returned block owns its data through the provided allocator.
     pub fn deserialize(buffer: []const u8, allocator: std.mem.Allocator) !ContextBlock {
         assert(buffer.len > 0);
-        assert(buffer.len >= 36);
         if (buffer.len == 0) return error.EmptyBuffer;
-        if (buffer.len < 36) return error.BufferTooSmall;
+        if (buffer.len < MIN_SERIALIZED_SIZE) return error.BufferTooSmall;
 
-        var offset: usize = 0;
-
-        // Read ID (16 bytes)
-        var id_bytes: [16]u8 = undefined;
-        @memcpy(&id_bytes, buffer[offset .. offset + 16]);
-        const id = BlockId.from_bytes(id_bytes);
-        offset += 16;
-
-        // Read version (8 bytes, little-endian)
-        const version = std.mem.readInt(u64, buffer[offset..][0..8], .little);
-        offset += 8;
-
-        // Read lengths (4 bytes each, little-endian)
-        const source_uri_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
-        offset += 4;
-        const metadata_json_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
-        offset += 4;
-        const content_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
-        offset += 4;
+        // Deserialize and validate header
+        const header = try BlockHeader.deserialize(buffer[0..BlockHeader.SIZE]);
 
         // Validate total size
-        const total_size = offset + source_uri_len + metadata_json_len + content_len;
+        const total_size = BlockHeader.SIZE + header.source_uri_len +
+            header.metadata_json_len + header.content_len;
         if (buffer.len < total_size) return error.BufferTooSmall;
 
+        var offset: usize = BlockHeader.SIZE;
+
+        // Extract variable-length data
+        const source_uri_data = buffer[offset .. offset + header.source_uri_len];
+        offset += header.source_uri_len;
+        const metadata_json_data = buffer[offset .. offset + header.metadata_json_len];
+        offset += header.metadata_json_len;
+        const content_data = buffer[offset .. offset + header.content_len];
+
+        // Verify checksum
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(source_uri_data);
+        hasher.update(metadata_json_data);
+        hasher.update(content_data);
+        const computed_checksum: u32 = @truncate(hasher.final());
+        if (computed_checksum != header.checksum) {
+            return error.InvalidChecksum;
+        }
+
         // Copy variable-length data to ensure ownership
-        const source_uri = try allocator.dupe(u8, buffer[offset .. offset + source_uri_len]);
-        offset += source_uri_len;
-        const metadata_json = try allocator.dupe(u8, buffer[offset .. offset + metadata_json_len]);
-        offset += metadata_json_len;
-        const content = try allocator.dupe(u8, buffer[offset .. offset + content_len]);
+        const source_uri = try allocator.dupe(u8, source_uri_data);
+        const metadata_json = try allocator.dupe(u8, metadata_json_data);
+        const content = try allocator.dupe(u8, content_data);
 
         return ContextBlock{
-            .id = id,
-            .version = version,
+            .id = BlockId.from_bytes(header.id),
+            .version = header.block_version,
             .source_uri = source_uri,
             .metadata_json = metadata_json,
             .content = content,
@@ -415,4 +533,168 @@ test "ContextBlock validation" {
     };
 
     try std.testing.expectError(error.InvalidMetadataJson, invalid_json_block.validate(allocator));
+}
+
+test "BlockHeader versioned format" {
+    const allocator = std.testing.allocator;
+
+    // Test header serialization and deserialization
+    const original_header = ContextBlock.BlockHeader{
+        .magic = ContextBlock.MAGIC,
+        .format_version = ContextBlock.FORMAT_VERSION,
+        .flags = 0x1234,
+        .id = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 },
+        .block_version = 42,
+        .source_uri_len = 100,
+        .metadata_json_len = 200,
+        .content_len = 300,
+        .checksum = 0xDEADBEEF,
+        .reserved = [_]u8{0} ** 12,
+    };
+
+    var buffer: [ContextBlock.BlockHeader.SIZE]u8 = undefined;
+    try original_header.serialize(&buffer);
+
+    const deserialized_header = try ContextBlock.BlockHeader.deserialize(&buffer);
+
+    // Verify all fields match
+    try std.testing.expectEqual(original_header.magic, deserialized_header.magic);
+    try std.testing.expectEqual(original_header.format_version, deserialized_header.format_version);
+    try std.testing.expectEqual(original_header.flags, deserialized_header.flags);
+    try std.testing.expectEqualSlices(u8, &original_header.id, &deserialized_header.id);
+    try std.testing.expectEqual(original_header.block_version, deserialized_header.block_version);
+    try std.testing.expectEqual(original_header.source_uri_len, deserialized_header.source_uri_len);
+    try std.testing.expectEqual(
+        original_header.metadata_json_len,
+        deserialized_header.metadata_json_len,
+    );
+    try std.testing.expectEqual(original_header.content_len, deserialized_header.content_len);
+    try std.testing.expectEqual(original_header.checksum, deserialized_header.checksum);
+
+    _ = allocator; // Suppress unused variable warning
+}
+
+test "BlockHeader invalid magic" {
+    var buffer: [ContextBlock.BlockHeader.SIZE]u8 = undefined;
+    @memset(&buffer, 0);
+
+    // Write invalid magic
+    std.mem.writeInt(u32, buffer[0..4], 0x12345678, .little);
+
+    try std.testing.expectError(error.InvalidMagic, ContextBlock.BlockHeader.deserialize(&buffer));
+}
+
+test "BlockHeader unsupported version" {
+    var buffer: [ContextBlock.BlockHeader.SIZE]u8 = undefined;
+    @memset(&buffer, 0);
+
+    // Write valid magic
+    std.mem.writeInt(u32, buffer[0..4], ContextBlock.MAGIC, .little);
+    // Write unsupported version (higher than current)
+    std.mem.writeInt(u16, buffer[4..6], ContextBlock.FORMAT_VERSION + 1, .little);
+
+    try std.testing.expectError(
+        error.UnsupportedVersion,
+        ContextBlock.BlockHeader.deserialize(&buffer),
+    );
+}
+
+test "BlockHeader reserved bytes validation" {
+    var buffer: [ContextBlock.BlockHeader.SIZE]u8 = undefined;
+    @memset(&buffer, 0);
+
+    // Set up valid header
+    std.mem.writeInt(u32, buffer[0..4], ContextBlock.MAGIC, .little);
+    std.mem.writeInt(u16, buffer[4..6], ContextBlock.FORMAT_VERSION, .little);
+
+    // Corrupt reserved bytes
+    buffer[ContextBlock.BlockHeader.SIZE - 1] = 0xFF;
+
+    try std.testing.expectError(
+        error.InvalidReservedBytes,
+        ContextBlock.BlockHeader.deserialize(&buffer),
+    );
+}
+
+test "ContextBlock versioned serialization" {
+    const allocator = std.testing.allocator;
+
+    const original = ContextBlock{
+        .id = try BlockId.from_hex("0123456789abcdeffedcba9876543210"),
+        .version = 123,
+        .source_uri = "test://example.com/file.zig",
+        .metadata_json = "{\"test\":true,\"line\":456}",
+        .content = "pub fn test_function() void { return; }",
+    };
+
+    // Serialize with versioned format
+    const buffer_size = original.serialized_size();
+    const buffer = try allocator.alloc(u8, buffer_size);
+    defer allocator.free(buffer);
+
+    const written = try original.serialize(buffer);
+    try std.testing.expectEqual(buffer_size, written);
+
+    // Verify header is present
+    try std.testing.expectEqual(ContextBlock.MAGIC, std.mem.readInt(u32, buffer[0..4], .little));
+    try std.testing.expectEqual(
+        ContextBlock.FORMAT_VERSION,
+        std.mem.readInt(u16, buffer[4..6], .little),
+    );
+
+    // Deserialize and verify
+    const deserialized = try ContextBlock.deserialize(buffer, allocator);
+    defer deserialized.deinit(allocator);
+
+    try std.testing.expect(original.id.eql(deserialized.id));
+    try std.testing.expectEqual(original.version, deserialized.version);
+    try std.testing.expectEqualStrings(original.source_uri, deserialized.source_uri);
+    try std.testing.expectEqualStrings(original.metadata_json, deserialized.metadata_json);
+    try std.testing.expectEqualStrings(original.content, deserialized.content);
+}
+
+test "ContextBlock checksum validation" {
+    const allocator = std.testing.allocator;
+
+    const original = ContextBlock{
+        .id = try BlockId.from_hex("fedcba9876543210123456789abcdef0"),
+        .version = 1,
+        .source_uri = "test://checksum.zig",
+        .metadata_json = "{}",
+        .content = "test content for checksum",
+    };
+
+    const buffer_size = original.serialized_size();
+    const buffer = try allocator.alloc(u8, buffer_size);
+    defer allocator.free(buffer);
+
+    _ = try original.serialize(buffer);
+
+    // Corrupt the content
+    buffer[buffer.len - 1] ^= 0xFF;
+
+    // Should fail checksum validation
+    try std.testing.expectError(error.InvalidChecksum, ContextBlock.deserialize(buffer, allocator));
+}
+
+test "ContextBlock size computation from buffer" {
+    const allocator = std.testing.allocator;
+
+    const test_block = ContextBlock{
+        .id = try BlockId.from_hex("1111111111111111111111111111111"),
+        .version = 1,
+        .source_uri = "test://size.zig",
+        .metadata_json = "{\"size_test\":true}",
+        .content = "content for size testing",
+    };
+
+    const buffer_size = test_block.serialized_size();
+    const buffer = try allocator.alloc(u8, buffer_size);
+    defer allocator.free(buffer);
+
+    _ = try test_block.serialize(buffer);
+
+    // Test size computation from buffer
+    const computed_size = try ContextBlock.compute_serialized_size_from_buffer(buffer);
+    try std.testing.expectEqual(buffer_size, computed_size);
 }
