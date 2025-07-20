@@ -35,10 +35,12 @@ test "integration: full data lifecycle with compaction" {
     const node1_vfs = node1_ptr.filesystem_interface();
 
     // Initialize storage and query engines
+    const data_dir = try allocator.dupe(u8, "integration_test_data");
+    defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        try allocator.dupe(u8, "integration_test_data"),
+        data_dir,
     );
     defer storage_engine.deinit();
 
@@ -50,14 +52,7 @@ test "integration: full data lifecycle with compaction" {
     // Phase 1: Bulk data ingestion (trigger compaction)
     const num_blocks = 1200; // Exceeds flush threshold of 1000
     var created_blocks = std.ArrayList(ContextBlock).init(allocator);
-    defer {
-        for (created_blocks.items) |block| {
-            allocator.free(block.source_uri);
-            allocator.free(block.metadata_json);
-            allocator.free(block.content);
-        }
-        created_blocks.deinit();
-    }
+    defer created_blocks.deinit();
 
     // Create blocks with realistic structure
     for (0..num_blocks) |i| {
@@ -69,16 +64,21 @@ test "integration: full data lifecycle with compaction" {
             "git://github.com/example/repo.git/src/module_{}.zig#L1-50",
             .{i},
         );
+        defer allocator.free(source_uri);
+
         const metadata_json = try std.fmt.allocPrint(
             allocator,
             "{{\"type\":\"function\",\"module\":{},\"language\":\"zig\"}}",
             .{i},
         );
+        defer allocator.free(metadata_json);
+
         const content = try std.fmt.allocPrint(
             allocator,
             "pub fn function_{}() !void {{\n    // Function {} implementation\n    return;\n}}",
             .{ i, i },
         );
+        defer allocator.free(content);
 
         const block = ContextBlock{
             .id = try BlockId.from_hex(block_id_hex),
@@ -89,7 +89,13 @@ test "integration: full data lifecycle with compaction" {
         };
 
         try storage_engine.put_block(block);
-        try created_blocks.append(block);
+        try created_blocks.append(ContextBlock{
+            .id = block.id,
+            .version = block.version,
+            .source_uri = "",
+            .metadata_json = "",
+            .content = "",
+        });
 
         // Advance simulation periodically
         if (i % 100 == 0) {

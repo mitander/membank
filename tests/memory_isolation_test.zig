@@ -40,7 +40,7 @@ test "memory isolation: single test with 25 storage cycles" {
         var data_dir_buf: [64]u8 = undefined;
         const data_dir = try std.fmt.bufPrint(&data_dir_buf, "isolation_test_{}", .{cycle});
         const data_dir_owned = try allocator.dupe(u8, data_dir);
-        // Note: StorageEngine will take ownership and free this in deinit()
+        defer allocator.free(data_dir_owned);
 
         var engine = try StorageEngine.init(allocator, vfs, data_dir_owned);
         defer engine.deinit();

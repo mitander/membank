@@ -36,10 +36,12 @@ test "storage stress: high volume writes during network partition" {
     const node1_ptr = sim.find_node(node1);
     const node1_vfs = node1_ptr.filesystem_interface();
 
+    const data_dir = try allocator.dupe(u8, "storage_data");
+    defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        try allocator.dupe(u8, "storage_data"),
+        data_dir,
     );
     defer storage_engine.deinit();
 
@@ -107,10 +109,12 @@ test "storage recovery: WAL corruption simulation" {
     const node1_ptr = sim.find_node(node1);
     const node1_vfs = node1_ptr.filesystem_interface();
 
+    const data_dir = try allocator.dupe(u8, "recovery_data");
+    defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        try allocator.dupe(u8, "recovery_data"),
+        data_dir,
     );
 
     try storage_engine.initialize_storage();
@@ -145,10 +149,12 @@ test "storage recovery: WAL corruption simulation" {
     storage_engine.deinit();
 
     // Simulate system restart by creating new storage engine instance with same directory
+    const data_dir2 = try allocator.dupe(u8, "recovery_data");
+    defer allocator.free(data_dir2);
     var storage_engine2 = try StorageEngine.init(
         allocator,
         node1_vfs,
-        try allocator.dupe(u8, "recovery_data"),
+        data_dir2,
     );
     defer storage_engine2.deinit();
 
