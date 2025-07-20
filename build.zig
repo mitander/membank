@@ -127,11 +127,13 @@ fn add_test_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     // Common imports for test files
     module.addImport("assert", core_modules.assert);
     module.addImport("vfs", core_modules.vfs);
+    module.addImport("buffer_pool", core_modules.buffer_pool);
     module.addImport("context_block", core_modules.context_block);
     module.addImport("simulation", core_modules.simulation);
     module.addImport("simulation_vfs", core_modules.simulation_vfs);
     module.addImport("storage", core_modules.storage);
     module.addImport("query_engine", core_modules.query_engine);
+    module.addImport("tiered_compaction", core_modules.tiered_compaction);
 }
 
 pub fn build(b: *std.Build) void {
@@ -191,6 +193,11 @@ pub fn build(b: *std.Build) void {
             .name = "wal_memory_safety",
             .source_file = "tests/wal_memory_safety_test.zig",
             .description = "WAL memory safety tests",
+        },
+        .{
+            .name = "memory_isolation",
+            .source_file = "tests/memory_isolation_test.zig",
+            .description = "Memory isolation tests - single test with multiple cycles",
         },
         .{
             .name = "buffer_pool_integration",

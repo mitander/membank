@@ -125,6 +125,15 @@ pub const PooledAllocator = struct {
 
     pub fn free(self: PooledAllocator, memory: anytype) void {
         const bytes = std.mem.sliceAsBytes(memory);
+        // For backwards compatibility, assume standard alignment
+        self.free_with_alignment(bytes, @alignOf(u8));
+    }
+
+    pub fn free_with_alignment(
+        self: PooledAllocator,
+        bytes: []u8,
+        alignment: std.mem.Alignment,
+    ) void {
         if (bytes.len == 0) return;
 
         // Check if this is a pool allocation by address range
@@ -140,8 +149,13 @@ pub const PooledAllocator = struct {
             return;
         }
 
-        // Not a pool allocation, use fallback allocator
-        self.fallback_allocator.free(memory);
+        // Not a pool allocation, use fallback allocator with proper alignment
+        self.fallback_allocator.vtable.free(
+            self.fallback_allocator.ptr,
+            bytes,
+            alignment,
+            @returnAddress(),
+        );
     }
 
     pub fn allocator(self: *PooledAllocator) std.mem.Allocator {
@@ -225,10 +239,9 @@ pub const PooledAllocator = struct {
     }
 
     fn free_impl(ctx: *anyopaque, buf: []u8, buf_align: std.mem.Alignment, ret_addr: usize) void {
-        _ = buf_align;
         _ = ret_addr;
         const self: *PooledAllocator = @ptrCast(@alignCast(ctx));
-        self.free(buf);
+        self.free_with_alignment(buf, buf_align);
     }
 
     fn remap_impl(
@@ -289,12 +302,24 @@ pub const BufferPool = struct {
         _ = allocator; // Not used - we pre-allocate everything statically
 
         return BufferPool{
-            .tiny_buffers = undefined,
-            .small_buffers = undefined,
-            .medium_buffers = undefined,
-            .large_buffers = undefined,
-            .huge_buffers = undefined,
-            .massive_buffers = undefined,
+            .tiny_buffers = std.mem.zeroes(
+                [BUFFERS_PER_CLASS][BufferSizeClass.tiny.size()]u8,
+            ),
+            .small_buffers = std.mem.zeroes(
+                [BUFFERS_PER_CLASS][BufferSizeClass.small.size()]u8,
+            ),
+            .medium_buffers = std.mem.zeroes(
+                [BUFFERS_PER_CLASS][BufferSizeClass.medium.size()]u8,
+            ),
+            .large_buffers = std.mem.zeroes(
+                [BUFFERS_PER_CLASS][BufferSizeClass.large.size()]u8,
+            ),
+            .huge_buffers = std.mem.zeroes(
+                [BUFFERS_PER_CLASS][BufferSizeClass.huge.size()]u8,
+            ),
+            .massive_buffers = std.mem.zeroes(
+                [BUFFERS_PER_CLASS][BufferSizeClass.massive.size()]u8,
+            ),
 
             // All buffers start as free (all bits set)
             .tiny_free = std.atomic.Value(u8).init(std.math.maxInt(u8)),

@@ -11,7 +11,7 @@ const assert = std.debug.assert;
 const simulation = @import("simulation");
 const storage = @import("storage");
 const context_block = @import("context_block");
-// const buffer_pool = @import("buffer_pool"); // TODO Add buffer_pool to test imports in build.zig
+const buffer_pool = @import("buffer_pool");
 
 const Simulation = simulation.Simulation;
 const StorageEngine = storage.StorageEngine;
@@ -33,7 +33,6 @@ test "buffer pool integration: memory safety under repeated operations" {
         const vfs_interface = node_ptr.filesystem_interface();
 
         const data_dir = try allocator.dupe(u8, "buffer_pool_test");
-        defer allocator.free(data_dir);
 
         var engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
         defer engine.deinit();
@@ -118,7 +117,6 @@ test "buffer pool integration: HashMap stability stress test" {
     const vfs_interface = node_ptr.filesystem_interface();
 
     const data_dir = try allocator.dupe(u8, "hashmap_stress_test");
-    defer allocator.free(data_dir);
 
     var engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
     defer engine.deinit();
@@ -131,19 +129,19 @@ test "buffer pool integration: HashMap stability stress test" {
 
     // Create many blocks with varying sizes
     for (0..operations) |i| {
-        const block_id_str = try std.fmt.allocPrint(allocator, "{:0>31}{}", .{ 0, i });
+        const block_id_str = try std.fmt.allocPrint(allocator, "{:0>32}", .{i});
         defer allocator.free(block_id_str);
 
         const block_id = try BlockId.from_hex(block_id_str);
         block_ids[i] = block_id;
 
         // Vary content size to exercise different allocation paths
-        const content_size = if (i % 3 == 0)
-            256 // Small - should use buffer pool
-        else if (i % 3 == 1)
-            4096 // Medium - should use buffer pool
-        else
-            1024 * 1024 + 1000; // Large - heap (MAX_BUFFER_SIZE)
+        const content_size: usize = switch (i % 3) {
+            0 => 256, // Small - should use buffer pool
+            1 => 4096, // Medium - should use buffer pool
+            2 => 1024 * 1024 + 1000, // Large - heap (MAX_BUFFER_SIZE)
+            else => unreachable,
+        };
 
         const content = try allocator.alloc(u8, content_size);
         defer allocator.free(content);
@@ -153,14 +151,12 @@ test "buffer pool integration: HashMap stability stress test" {
             byte.* = @intCast((i + j) % 256);
         }
 
-        const metadata = std.StringHashMap([]const u8).init(allocator);
         const block = ContextBlock{
             .id = block_id,
             .version = 1,
             .source_uri = "test://buffer_pool_stress",
+            .metadata_json = "{}",
             .content = content,
-            .metadata = metadata,
-            .edges = std.ArrayList(context_block.GraphEdge).init(allocator),
         };
 
         try engine.put_block(block);
@@ -168,18 +164,15 @@ test "buffer pool integration: HashMap stability stress test" {
 
     // Verify all blocks can be retrieved correctly (HashMap operations work)
     for (block_ids, 0..) |block_id, i| {
-        const retrieved = try engine.get_block(block_id);
-        try testing.expect(retrieved != null);
-
-        const block = retrieved.?;
+        const block = try engine.find_block_by_id(block_id);
 
         // Verify content integrity
-        const expected_size = if (i % 3 == 0)
-            256
-        else if (i % 3 == 1)
-            4096
-        else
-            buffer_pool.MAX_BUFFER_SIZE + 1000;
+        const expected_size: usize = switch (i % 3) {
+            0 => 256,
+            1 => 4096,
+            2 => buffer_pool.MAX_BUFFER_SIZE + 1000,
+            else => unreachable,
+        };
 
         try testing.expectEqual(expected_size, block.content.len);
 
@@ -191,23 +184,31 @@ test "buffer pool integration: HashMap stability stress test" {
 
     // Perform updates to stress WAL + buffer pool interaction
     for (block_ids) |block_id| {
-        var existing = (try engine.get_block(block_id)).?;
+        const existing = try engine.find_block_by_id(block_id);
 
-        // Modify content
-        for (existing.content) |*byte| {
-            byte.* = byte.* ^ 0xFF; // Flip all bits
+        // Create new content with flipped bits
+        const new_content = try allocator.alloc(u8, existing.content.len);
+        defer allocator.free(new_content);
+
+        for (existing.content, new_content) |existing_byte, *new_byte| {
+            new_byte.* = existing_byte ^ 0xFF; // Flip all bits
         }
 
-        existing.version += 1;
-        try engine.put_block(existing);
+        // Create updated block
+        const updated_block = ContextBlock{
+            .id = existing.id,
+            .version = existing.version + 1,
+            .source_uri = existing.source_uri,
+            .metadata_json = existing.metadata_json,
+            .content = new_content,
+        };
+
+        try engine.put_block(updated_block);
     }
 
     // Verify updates worked correctly
     for (block_ids, 0..) |block_id, i| {
-        const updated = try engine.get_block(block_id);
-        try testing.expect(updated != null);
-
-        const block = updated.?;
+        const block = try engine.find_block_by_id(block_id);
         try testing.expectEqual(@as(u32, 2), block.version);
 
         // Verify flipped pattern
@@ -228,11 +229,9 @@ test "buffer pool integration: WAL recovery with mixed allocations" {
     const node_ptr = sim.find_node(node);
     const vfs_interface = node_ptr.filesystem_interface();
 
-    const data_dir = try allocator.dupe(u8, "wal_buffer_pool_test");
-    defer allocator.free(data_dir);
-
     // Create storage engine and add blocks
     {
+        const data_dir = try allocator.dupe(u8, "wal_buffer_pool_test");
         var engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
         defer engine.deinit();
 
@@ -248,8 +247,8 @@ test "buffer pool integration: WAL recovery with mixed allocations" {
         for (test_cases) |test_case| {
             const block_id_str = try std.fmt.allocPrint(
                 allocator,
-                "{:0>31}{}",
-                .{ 0, test_case.id_suffix },
+                "{:0>32}",
+                .{test_case.id_suffix},
             );
             defer allocator.free(block_id_str);
 
@@ -257,16 +256,14 @@ test "buffer pool integration: WAL recovery with mixed allocations" {
             defer allocator.free(content);
 
             // Fill with pattern based on size
-            std.mem.set(u8, content, test_case.id_suffix);
+            @memset(content, test_case.id_suffix);
 
-            const metadata = std.StringHashMap([]const u8).init(allocator);
             const block = ContextBlock{
-                .id = try BlockId.parse(block_id_str),
+                .id = try BlockId.from_hex(block_id_str),
                 .version = 1,
                 .source_uri = "test://wal_recovery",
+                .metadata_json = "{}",
                 .content = content,
-                .metadata = metadata,
-                .edges = std.ArrayList(context_block.GraphEdge).init(allocator),
             };
 
             try engine.put_block(block);
@@ -275,31 +272,30 @@ test "buffer pool integration: WAL recovery with mixed allocations" {
 
     // Create new storage engine and recover from WAL
     {
-        var engine2 = try StorageEngine.init(allocator, vfs_interface, data_dir);
+        const data_dir2 = try allocator.dupe(u8, "wal_buffer_pool_test");
+        var engine2 = try StorageEngine.init(allocator, vfs_interface, data_dir2);
         defer engine2.deinit();
 
+        try engine2.initialize_storage();
         try engine2.recover_from_wal();
 
         // Verify all blocks were recovered correctly
         const test_cases = [_]struct { size: usize, id_suffix: u8 }{
             .{ .size = 128, .id_suffix = 1 },
             .{ .size = 8192, .id_suffix = 2 },
-            .{ .size = 1024 * 1024 + 2000, .id_suffix = 3 }, // Large - heap
+            .{ .size = 1024 * 1024 + 2000, .id_suffix = 3 },
         };
 
         for (test_cases) |test_case| {
             const block_id_str = try std.fmt.allocPrint(
                 allocator,
-                "{:0>31}{}",
-                .{ 0, test_case.id_suffix },
+                "{:0>32}",
+                .{test_case.id_suffix},
             );
             defer allocator.free(block_id_str);
 
             const block_id = try BlockId.from_hex(block_id_str);
-            const recovered = try engine2.get_block(block_id);
-
-            try testing.expect(recovered != null);
-            const block = recovered.?;
+            const block = try engine2.find_block_by_id(block_id);
 
             try testing.expectEqual(test_case.size, block.content.len);
             try testing.expectEqual(@as(u32, 1), block.version);
@@ -318,13 +314,13 @@ fn perform_storage_operations(engine: *StorageEngine, cycle: usize) !void {
     // Create blocks with mixed allocation patterns
     const block_count = 10;
     for (0..block_count) |i| {
-        const block_id_str = try std.fmt.allocPrint(allocator, "{:0>30}{}{}", .{ 0, cycle, i });
+        const block_id_str = try std.fmt.allocPrint(allocator, "{:0>32}", .{cycle * 1000 + i});
         defer allocator.free(block_id_str);
 
         const block_id = try BlockId.from_hex(block_id_str);
 
         // Vary sizes to stress different allocation paths
-        const size = switch (i % 4) {
+        const size: usize = switch (i % 4) {
             0 => 256, // Small - pool
             1 => 2048, // Medium - pool
             2 => 32768, // Large - pool
@@ -340,14 +336,12 @@ fn perform_storage_operations(engine: *StorageEngine, cycle: usize) !void {
             byte.* = @intCast((cycle + i + j) % 256);
         }
 
-        const metadata = std.StringHashMap([]const u8).init(allocator);
         const block = ContextBlock{
             .id = block_id,
             .version = 1,
             .source_uri = "test://memory_safety",
+            .metadata_json = "{}",
             .content = content,
-            .metadata = metadata,
-            .edges = std.ArrayList(context_block.GraphEdge).init(allocator),
         };
 
         try engine.put_block(block);
@@ -360,14 +354,11 @@ fn verify_storage_integrity(engine: *StorageEngine, cycle: usize) !void {
     // Verify all blocks from this cycle can be retrieved correctly
     const block_count = 10;
     for (0..block_count) |i| {
-        const block_id_str = try std.fmt.allocPrint(allocator, "{:0>30}{}{}", .{ 0, cycle, i });
+        const block_id_str = try std.fmt.allocPrint(allocator, "{:0>32}", .{cycle * 1000 + i});
         defer allocator.free(block_id_str);
 
         const block_id = try BlockId.from_hex(block_id_str);
-        const retrieved = try engine.get_block(block_id);
-
-        try testing.expect(retrieved != null);
-        const block = retrieved.?;
+        const block = try engine.find_block_by_id(block_id);
 
         // Verify content pattern is intact
         for (block.content, 0..) |byte, j| {

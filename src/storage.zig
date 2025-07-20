@@ -492,7 +492,7 @@ pub const StorageEngine = struct {
     compaction_manager: TieredCompactionManager,
     next_sstable_id: u32,
     initialized: bool,
-    buffer_pool: buffer_pool.BufferPool,
+    buffer_pool: *buffer_pool.BufferPool,
     pooled_allocator: buffer_pool.PooledAllocator,
     storage_metrics: StorageMetrics,
 
@@ -506,20 +506,27 @@ pub const StorageEngine = struct {
             .allocator = allocator,
             .vfs = filesystem,
             .data_dir = data_dir,
-            .index = BlockIndex.init(allocator),
-            .graph_index = GraphEdgeIndex.init(allocator),
+            .index = undefined, // Will be initialized after pooled_allocator
+            .graph_index = undefined, // Will be initialized after pooled_allocator
             .wal_file = null,
             .sstables = std.ArrayList([]const u8).init(allocator),
             .compaction_manager = TieredCompactionManager.init(allocator, filesystem, data_dir),
             .next_sstable_id = 0,
             .initialized = false,
-            .buffer_pool = try buffer_pool.BufferPool.init(allocator),
+            .buffer_pool = try allocator.create(buffer_pool.BufferPool),
             .pooled_allocator = undefined, // Will be set after buffer_pool init
             .storage_metrics = StorageMetrics.init(),
         };
 
+        // Initialize buffer pool after allocation
+        engine.buffer_pool.* = try buffer_pool.BufferPool.init(allocator);
+
         // Initialize pooled allocator after buffer pool is ready
-        engine.pooled_allocator = buffer_pool.PooledAllocator.init(&engine.buffer_pool, allocator);
+        engine.pooled_allocator = buffer_pool.PooledAllocator.init(engine.buffer_pool, allocator);
+
+        // Initialize indexes with pooled allocator for proper memory management
+        engine.index = BlockIndex.init(engine.pooled_allocator.allocator());
+        engine.graph_index = GraphEdgeIndex.init(engine.pooled_allocator.allocator());
 
         return engine;
     }
@@ -538,9 +545,12 @@ pub const StorageEngine = struct {
             self.allocator.free(path);
         }
         self.sstables.deinit();
-        self.buffer_pool.deinit();
 
         self.allocator.free(self.data_dir);
+
+        // Clean up buffer pool last to avoid memory corruption
+        self.buffer_pool.deinit();
+        self.allocator.destroy(self.buffer_pool);
     }
 
     /// Initialize storage engine by creating necessary directories and files.
@@ -879,7 +889,7 @@ pub const StorageEngine = struct {
 
         // Clear the in-memory index (blocks are now persisted in SSTable)
         self.index.deinit();
-        self.index = BlockIndex.init(self.allocator);
+        self.index = BlockIndex.init(self.pooled_allocator.allocator());
 
         std.log.info(
             "Flushed {} blocks to SSTable: {s} (size: {} bytes)",
@@ -1217,7 +1227,9 @@ test "WALEntry serialization roundtrip" {
 }
 
 test "BlockIndex basic operations" {
-    const allocator = std.testing.allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
     var index = BlockIndex.init(allocator);
     defer index.deinit();

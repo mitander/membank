@@ -365,9 +365,18 @@ pub const QueryEngine = struct {
     }
 
     /// Perform breadth-first traversal of the knowledge graph.
-    fn traverse_breadth_first(self: *QueryEngine, query: TraversalQuery, start_block: ContextBlock) !TraversalResult {
+    fn traverse_breadth_first(
+        self: *QueryEngine,
+        query: TraversalQuery,
+        start_block: ContextBlock,
+    ) !TraversalResult {
         _ = start_block;
-        var visited = std.HashMap(BlockId, void, BlockId.HashMapContext, std.hash_map.default_max_load_percentage).init(self.allocator);
+        var visited = std.HashMap(
+            BlockId,
+            void,
+            BlockId.HashMapContext,
+            std.hash_map.default_max_load_percentage,
+        ).init(self.allocator);
         defer visited.deinit();
 
         var result_blocks = std.ArrayList(ContextBlock).init(self.allocator);
@@ -417,7 +426,9 @@ pub const QueryEngine = struct {
             max_depth_reached = @max(max_depth_reached, current.depth);
 
             // Get the current block
-            const current_block = self.storage_engine.find_block_by_id(current.block_id) catch continue;
+            const current_block = self.storage_engine.find_block_by_id(
+                current.block_id,
+            ) catch continue;
 
             // Clone the block for results
             const cloned_block = try self.clone_block(current_block);
@@ -435,7 +446,14 @@ pub const QueryEngine = struct {
             }
 
             // Add neighbors to queue based on traversal direction
-            try self.add_neighbors_to_queue(&queue, &visited, current.block_id, current.depth + 1, current.path, query);
+            try self.add_neighbors_to_queue(
+                &queue,
+                &visited,
+                current.block_id,
+                current.depth + 1,
+                current.path,
+                query,
+            );
         }
 
         // Convert to owned slices
@@ -454,9 +472,18 @@ pub const QueryEngine = struct {
     }
 
     /// Perform depth-first traversal of the knowledge graph.
-    fn traverse_depth_first(self: *QueryEngine, query: TraversalQuery, start_block: ContextBlock) !TraversalResult {
+    fn traverse_depth_first(
+        self: *QueryEngine,
+        query: TraversalQuery,
+        start_block: ContextBlock,
+    ) !TraversalResult {
         _ = start_block;
-        var visited = std.HashMap(BlockId, void, BlockId.HashMapContext, std.hash_map.default_max_load_percentage).init(self.allocator);
+        var visited = std.HashMap(
+            BlockId,
+            void,
+            BlockId.HashMapContext,
+            std.hash_map.default_max_load_percentage,
+        ).init(self.allocator);
         defer visited.deinit();
 
         var result_blocks = std.ArrayList(ContextBlock).init(self.allocator);
@@ -510,7 +537,9 @@ pub const QueryEngine = struct {
             max_depth_reached = @max(max_depth_reached, current.depth);
 
             // Get the current block
-            const current_block = self.storage_engine.find_block_by_id(current.block_id) catch continue;
+            const current_block = self.storage_engine.find_block_by_id(
+                current.block_id,
+            ) catch continue;
 
             // Clone the block for results
             const cloned_block = try self.clone_block(current_block);
@@ -528,7 +557,14 @@ pub const QueryEngine = struct {
             }
 
             // Add neighbors to stack based on traversal direction
-            try self.add_neighbors_to_stack(&stack, &visited, current.block_id, current.depth + 1, current.path, query);
+            try self.add_neighbors_to_stack(
+                &stack,
+                &visited,
+                current.block_id,
+                current.depth + 1,
+                current.path,
+                query,
+            );
         }
 
         // Convert to owned slices
@@ -561,7 +597,12 @@ pub const QueryEngine = struct {
     fn add_neighbors_to_queue(
         self: *QueryEngine,
         queue: anytype,
-        visited: *std.HashMap(BlockId, void, BlockId.HashMapContext, std.hash_map.default_max_load_percentage),
+        visited: *std.HashMap(
+            BlockId,
+            void,
+            BlockId.HashMapContext,
+            std.hash_map.default_max_load_percentage,
+        ),
         current_id: BlockId,
         next_depth: u32,
         current_path: []const BlockId,
@@ -618,7 +659,12 @@ pub const QueryEngine = struct {
     fn add_neighbors_to_stack(
         self: *QueryEngine,
         stack: anytype,
-        visited: *std.HashMap(BlockId, void, BlockId.HashMapContext, std.hash_map.default_max_load_percentage),
+        visited: *std.HashMap(
+            BlockId,
+            void,
+            BlockId.HashMapContext,
+            std.hash_map.default_max_load_percentage,
+        ),
         current_id: BlockId,
         next_depth: u32,
         current_path: []const BlockId,
@@ -672,7 +718,11 @@ pub const QueryEngine = struct {
     }
 
     /// Convenience method for outgoing traversal.
-    pub fn traverse_outgoing(self: *QueryEngine, start_id: BlockId, max_depth: u32) !TraversalResult {
+    pub fn traverse_outgoing(
+        self: *QueryEngine,
+        start_id: BlockId,
+        max_depth: u32,
+    ) !TraversalResult {
         const query = TraversalQuery{
             .start_block_id = start_id,
             .direction = .outgoing,
@@ -685,7 +735,11 @@ pub const QueryEngine = struct {
     }
 
     /// Convenience method for incoming traversal.
-    pub fn traverse_incoming(self: *QueryEngine, start_id: BlockId, max_depth: u32) !TraversalResult {
+    pub fn traverse_incoming(
+        self: *QueryEngine,
+        start_id: BlockId,
+        max_depth: u32,
+    ) !TraversalResult {
         const query = TraversalQuery{
             .start_block_id = start_id,
             .direction = .incoming,
@@ -698,7 +752,11 @@ pub const QueryEngine = struct {
     }
 
     /// Convenience method for bidirectional traversal.
-    pub fn traverse_bidirectional(self: *QueryEngine, start_id: BlockId, max_depth: u32) !TraversalResult {
+    pub fn traverse_bidirectional(
+        self: *QueryEngine,
+        start_id: BlockId,
+        max_depth: u32,
+    ) !TraversalResult {
         const query = TraversalQuery{
             .start_block_id = start_id,
             .direction = .bidirectional,
@@ -1518,7 +1576,11 @@ test "TraversalResult formatting" {
     const formatted = try result.format_for_llm(allocator);
     defer allocator.free(formatted);
 
-    try std.testing.expect(std.mem.indexOf(u8, formatted, "=== GRAPH TRAVERSAL RESULT ===") != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        formatted,
+        "=== GRAPH TRAVERSAL RESULT ===",
+    ) != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "Blocks found: 2") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "--- BEGIN TRAVERSAL BLOCK ---") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "--- END TRAVERSAL BLOCK ---") != null);
