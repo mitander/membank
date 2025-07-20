@@ -478,6 +478,335 @@ const GraphEdgeIndex = struct {
         }
         return total;
     }
+
+    /// Traversal options for graph operations.
+    pub const TraversalOptions = struct {
+        max_depth: ?u32 = null,
+        max_results: ?u32 = null,
+        edge_types: ?[]const EdgeType = null, // Filter by edge types
+    };
+
+    /// Traversal result containing visited nodes and path information.
+    pub const TraversalResult = struct {
+        visited_blocks: std.ArrayList(BlockId),
+        paths: std.ArrayList(std.ArrayList(BlockId)), // Paths from start to each visited block
+        allocator: std.mem.Allocator,
+
+        pub fn init(allocator: std.mem.Allocator) TraversalResult {
+            return TraversalResult{
+                .visited_blocks = std.ArrayList(BlockId).init(allocator),
+                .paths = std.ArrayList(std.ArrayList(BlockId)).init(allocator),
+                .allocator = allocator,
+            };
+        }
+
+        pub fn deinit(self: *TraversalResult) void {
+            for (self.paths.items) |path| {
+                path.deinit();
+            }
+            self.paths.deinit();
+            self.visited_blocks.deinit();
+        }
+    };
+
+    /// Breadth-First Search traversal following outgoing edges.
+    pub fn traverse_outgoing(
+        self: *const GraphEdgeIndex,
+        start_id: BlockId,
+        options: TraversalOptions,
+        allocator: std.mem.Allocator,
+    ) !TraversalResult {
+        var result = TraversalResult.init(allocator);
+        var visited = std.HashMap(
+            BlockId,
+            void,
+            BlockIdContext,
+            std.hash_map.default_max_load_percentage,
+        ).init(allocator);
+        defer visited.deinit();
+
+        // BFS queue: (block_id, depth, path_to_block)
+        const QueueItem = struct {
+            block_id: BlockId,
+            depth: u32,
+            path: std.ArrayList(BlockId),
+        };
+        var queue = std.ArrayList(QueueItem).init(allocator);
+        defer {
+            for (queue.items) |item| {
+                item.path.deinit();
+            }
+            queue.deinit();
+        }
+
+        // Initialize with start block
+        var start_path = std.ArrayList(BlockId).init(allocator);
+        try start_path.append(start_id);
+        try queue.append(QueueItem{
+            .block_id = start_id,
+            .depth = 0,
+            .path = start_path,
+        });
+        try visited.put(start_id, {});
+
+        var queue_index: usize = 0;
+        while (queue_index < queue.items.len) {
+            const current = queue.items[queue_index];
+            queue_index += 1;
+
+            // Add to results
+            try result.visited_blocks.append(current.block_id);
+            try result.paths.append(try current.path.clone());
+
+            // Check limits
+            if (options.max_results) |max_results| {
+                if (result.visited_blocks.items.len >= max_results) break;
+            }
+
+            // Check depth limit
+            if (options.max_depth) |max_depth| {
+                if (current.depth >= max_depth) continue;
+            }
+
+            // Follow outgoing edges
+            if (self.find_outgoing_edges(current.block_id)) |edges| {
+                for (edges) |edge| {
+                    // Filter by edge types if specified
+                    if (options.edge_types) |edge_types| {
+                        var type_matches = false;
+                        for (edge_types) |edge_type| {
+                            if (edge.edge_type == edge_type) {
+                                type_matches = true;
+                                break;
+                            }
+                        }
+                        if (!type_matches) continue;
+                    }
+
+                    // Skip if already visited
+                    if (visited.contains(edge.target_id)) continue;
+
+                    // Add to queue
+                    var new_path = try current.path.clone();
+                    try new_path.append(edge.target_id);
+                    try queue.append(QueueItem{
+                        .block_id = edge.target_id,
+                        .depth = current.depth + 1,
+                        .path = new_path,
+                    });
+                    try visited.put(edge.target_id, {});
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// Breadth-First Search traversal following incoming edges.
+    pub fn traverse_incoming(
+        self: *const GraphEdgeIndex,
+        start_id: BlockId,
+        options: TraversalOptions,
+        allocator: std.mem.Allocator,
+    ) !TraversalResult {
+        var result = TraversalResult.init(allocator);
+        var visited = std.HashMap(
+            BlockId,
+            void,
+            BlockIdContext,
+            std.hash_map.default_max_load_percentage,
+        ).init(allocator);
+        defer visited.deinit();
+
+        const QueueItem = struct {
+            block_id: BlockId,
+            depth: u32,
+            path: std.ArrayList(BlockId),
+        };
+        var queue = std.ArrayList(QueueItem).init(allocator);
+        defer {
+            for (queue.items) |item| {
+                item.path.deinit();
+            }
+            queue.deinit();
+        }
+
+        // Initialize with start block
+        var start_path = std.ArrayList(BlockId).init(allocator);
+        try start_path.append(start_id);
+        try queue.append(QueueItem{
+            .block_id = start_id,
+            .depth = 0,
+            .path = start_path,
+        });
+        try visited.put(start_id, {});
+
+        var queue_index: usize = 0;
+        while (queue_index < queue.items.len) {
+            const current = queue.items[queue_index];
+            queue_index += 1;
+
+            // Add to results
+            try result.visited_blocks.append(current.block_id);
+            try result.paths.append(try current.path.clone());
+
+            // Check limits
+            if (options.max_results) |max_results| {
+                if (result.visited_blocks.items.len >= max_results) break;
+            }
+
+            // Check depth limit
+            if (options.max_depth) |max_depth| {
+                if (current.depth >= max_depth) continue;
+            }
+
+            // Follow incoming edges
+            if (self.find_incoming_edges(current.block_id)) |edges| {
+                for (edges) |edge| {
+                    // Filter by edge types if specified
+                    if (options.edge_types) |edge_types| {
+                        var type_matches = false;
+                        for (edge_types) |edge_type| {
+                            if (edge.edge_type == edge_type) {
+                                type_matches = true;
+                                break;
+                            }
+                        }
+                        if (!type_matches) continue;
+                    }
+
+                    // Skip if already visited
+                    if (visited.contains(edge.source_id)) continue;
+
+                    // Add to queue
+                    var new_path = try current.path.clone();
+                    try new_path.append(edge.source_id);
+                    try queue.append(QueueItem{
+                        .block_id = edge.source_id,
+                        .depth = current.depth + 1,
+                        .path = new_path,
+                    });
+                    try visited.put(edge.source_id, {});
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// Bidirectional traversal following both incoming and outgoing edges.
+    pub fn traverse_bidirectional(
+        self: *const GraphEdgeIndex,
+        start_id: BlockId,
+        options: TraversalOptions,
+        allocator: std.mem.Allocator,
+    ) !TraversalResult {
+        var result = TraversalResult.init(allocator);
+        var visited = std.HashMap(
+            BlockId,
+            void,
+            BlockIdContext,
+            std.hash_map.default_max_load_percentage,
+        ).init(allocator);
+        defer visited.deinit();
+
+        const QueueItem = struct {
+            block_id: BlockId,
+            depth: u32,
+            path: std.ArrayList(BlockId),
+        };
+        var queue = std.ArrayList(QueueItem).init(allocator);
+        defer {
+            for (queue.items) |item| {
+                item.path.deinit();
+            }
+            queue.deinit();
+        }
+
+        // Initialize with start block
+        var start_path = std.ArrayList(BlockId).init(allocator);
+        try start_path.append(start_id);
+        try queue.append(QueueItem{
+            .block_id = start_id,
+            .depth = 0,
+            .path = start_path,
+        });
+        try visited.put(start_id, {});
+
+        var queue_index: usize = 0;
+        while (queue_index < queue.items.len) {
+            const current = queue.items[queue_index];
+            queue_index += 1;
+
+            // Add to results
+            try result.visited_blocks.append(current.block_id);
+            try result.paths.append(try current.path.clone());
+
+            // Check limits
+            if (options.max_results) |max_results| {
+                if (result.visited_blocks.items.len >= max_results) break;
+            }
+
+            // Check depth limit
+            if (options.max_depth) |max_depth| {
+                if (current.depth >= max_depth) continue;
+            }
+
+            // Follow outgoing edges
+            if (self.find_outgoing_edges(current.block_id)) |edges| {
+                for (edges) |edge| {
+                    if (self.should_follow_edge(edge, options) and
+                        !visited.contains(edge.target_id))
+                    {
+                        var new_path = try current.path.clone();
+                        try new_path.append(edge.target_id);
+                        try queue.append(QueueItem{
+                            .block_id = edge.target_id,
+                            .depth = current.depth + 1,
+                            .path = new_path,
+                        });
+                        try visited.put(edge.target_id, {});
+                    }
+                }
+            }
+
+            // Follow incoming edges
+            if (self.find_incoming_edges(current.block_id)) |edges| {
+                for (edges) |edge| {
+                    if (self.should_follow_edge(edge, options) and
+                        !visited.contains(edge.source_id))
+                    {
+                        var new_path = try current.path.clone();
+                        try new_path.append(edge.source_id);
+                        try queue.append(QueueItem{
+                            .block_id = edge.source_id,
+                            .depth = current.depth + 1,
+                            .path = new_path,
+                        });
+                        try visited.put(edge.source_id, {});
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// Helper function to check if an edge should be followed based on options.
+    fn should_follow_edge(
+        self: *const GraphEdgeIndex,
+        edge: GraphEdge,
+        options: TraversalOptions,
+    ) bool {
+        _ = self;
+        if (options.edge_types) |edge_types| {
+            for (edge_types) |edge_type| {
+                if (edge.edge_type == edge_type) return true;
+            }
+            return false;
+        }
+        return true;
+    }
 };
 
 /// Storage engine state.
@@ -815,6 +1144,36 @@ pub const StorageEngine = struct {
     /// Find incoming edges to a target block.
     pub fn find_incoming_edges(self: *const StorageEngine, target_id: BlockId) ?[]const GraphEdge {
         return self.graph_index.find_incoming_edges(target_id);
+    }
+
+    /// Traverse outgoing edges using breadth-first search.
+    pub fn traverse_outgoing(
+        self: *const StorageEngine,
+        start_id: BlockId,
+        options: GraphEdgeIndex.TraversalOptions,
+        allocator: std.mem.Allocator,
+    ) !GraphEdgeIndex.TraversalResult {
+        return self.graph_index.traverse_outgoing(start_id, options, allocator);
+    }
+
+    /// Traverse incoming edges using breadth-first search.
+    pub fn traverse_incoming(
+        self: *const StorageEngine,
+        start_id: BlockId,
+        options: GraphEdgeIndex.TraversalOptions,
+        allocator: std.mem.Allocator,
+    ) !GraphEdgeIndex.TraversalResult {
+        return self.graph_index.traverse_incoming(start_id, options, allocator);
+    }
+
+    /// Traverse both incoming and outgoing edges using breadth-first search.
+    pub fn traverse_bidirectional(
+        self: *const StorageEngine,
+        start_id: BlockId,
+        options: GraphEdgeIndex.TraversalOptions,
+        allocator: std.mem.Allocator,
+    ) !GraphEdgeIndex.TraversalResult {
+        return self.graph_index.traverse_bidirectional(start_id, options, allocator);
     }
 
     /// Flush WAL to disk.
