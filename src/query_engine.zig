@@ -283,6 +283,11 @@ pub const QueryEngine = struct {
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
     initialized: bool,
+    // Query metrics (atomic for thread safety)
+    queries_executed: std.atomic.Value(u64),
+    get_blocks_queries: std.atomic.Value(u64),
+    traversal_queries: std.atomic.Value(u64),
+    total_query_time_ns: std.atomic.Value(u64),
 
     /// Initialize query engine with storage backend.
     pub fn init(allocator: std.mem.Allocator, storage_engine: *StorageEngine) QueryEngine {
@@ -290,6 +295,10 @@ pub const QueryEngine = struct {
             .allocator = allocator,
             .storage_engine = storage_engine,
             .initialized = true,
+            .queries_executed = std.atomic.Value(u64).init(0),
+            .get_blocks_queries = std.atomic.Value(u64).init(0),
+            .traversal_queries = std.atomic.Value(u64).init(0),
+            .total_query_time_ns = std.atomic.Value(u64).init(0),
         };
     }
 
@@ -302,6 +311,14 @@ pub const QueryEngine = struct {
     /// Time complexity: O(n) where n is the number of requested blocks.
     /// Space complexity: O(m) where m is the total size of retrieved blocks.
     pub fn execute_get_blocks(self: *QueryEngine, query: GetBlocksQuery) !QueryResult {
+        const start_time = std.time.nanoTimestamp();
+        defer {
+            const duration = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
+            _ = self.queries_executed.fetchAdd(1, .monotonic);
+            _ = self.get_blocks_queries.fetchAdd(1, .monotonic);
+            _ = self.total_query_time_ns.fetchAdd(duration, .monotonic);
+        }
+
         assert(self.initialized);
         if (!self.initialized) return QueryError.NotInitialized;
 
@@ -346,6 +363,14 @@ pub const QueryEngine = struct {
     /// Time complexity: O(V + E) where V is vertices and E is edges traversed.
     /// Space complexity: O(V) for visited tracking and result storage.
     pub fn execute_traversal(self: *QueryEngine, query: TraversalQuery) !TraversalResult {
+        const start_time = std.time.nanoTimestamp();
+        defer {
+            const duration = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
+            _ = self.queries_executed.fetchAdd(1, .monotonic);
+            _ = self.traversal_queries.fetchAdd(1, .monotonic);
+            _ = self.total_query_time_ns.fetchAdd(duration, .monotonic);
+        }
+
         assert(self.initialized);
         if (!self.initialized) return QueryError.NotInitialized;
 
@@ -772,7 +797,10 @@ pub const QueryEngine = struct {
     pub fn statistics(self: *QueryEngine) QueryStatistics {
         return QueryStatistics{
             .total_blocks_stored = self.storage_engine.block_count(),
-            .queries_executed = 0, // TODO Add query counting
+            .queries_executed = self.queries_executed.load(.monotonic),
+            .get_blocks_queries = self.get_blocks_queries.load(.monotonic),
+            .traversal_queries = self.traversal_queries.load(.monotonic),
+            .total_query_time_ns = self.total_query_time_ns.load(.monotonic),
         };
     }
 };
@@ -783,6 +811,54 @@ pub const QueryStatistics = struct {
     total_blocks_stored: u32,
     /// Total number of queries executed
     queries_executed: u64,
+    /// Number of get_blocks queries executed
+    get_blocks_queries: u64,
+    /// Number of traversal queries executed
+    traversal_queries: u64,
+    /// Total query execution time in nanoseconds
+    total_query_time_ns: u64,
+    /// Average query latency in nanoseconds
+    pub fn average_query_latency_ns(self: *const QueryStatistics) u64 {
+        if (self.queries_executed == 0) return 0;
+        return self.total_query_time_ns / self.queries_executed;
+    }
+    /// Query throughput in queries per second (based on total execution time)
+    pub fn queries_per_second(self: *const QueryStatistics) f64 {
+        if (self.total_query_time_ns == 0) return 0.0;
+        const seconds = @as(f64, @floatFromInt(self.total_query_time_ns)) / 1_000_000_000.0;
+        return @as(f64, @floatFromInt(self.queries_executed)) / seconds;
+    }
+
+    /// Format query statistics as human-readable text.
+    pub fn format_human_readable(self: *const QueryStatistics, writer: anytype) !void {
+        try writer.writeAll("=== Query Engine Metrics ===\n");
+        try writer.print("Storage: {} blocks available\n", .{self.total_blocks_stored});
+        try writer.print("Queries: {} total ({} get_blocks, {} traversal)\n", .{
+            self.queries_executed,
+            self.get_blocks_queries,
+            self.traversal_queries,
+        });
+        try writer.print("Performance: {} ns avg latency, {d:.2} queries/sec\n", .{
+            self.average_query_latency_ns(),
+            self.queries_per_second(),
+        });
+    }
+
+    /// Format query statistics as JSON.
+    pub fn format_json(self: *const QueryStatistics, writer: anytype) !void {
+        try writer.writeAll("{\n");
+        try writer.print("  \"total_blocks_stored\": {},\n", .{self.total_blocks_stored});
+        try writer.print("  \"queries_executed\": {},\n", .{self.queries_executed});
+        try writer.print("  \"get_blocks_queries\": {},\n", .{self.get_blocks_queries});
+        try writer.print("  \"traversal_queries\": {},\n", .{self.traversal_queries});
+        try writer.print("  \"total_query_time_ns\": {},\n", .{self.total_query_time_ns});
+        try writer.print(
+            "  \"average_query_latency_ns\": {},\n",
+            .{self.average_query_latency_ns()},
+        );
+        try writer.print("  \"queries_per_second\": {d:.2}\n", .{self.queries_per_second()});
+        try writer.writeAll("}\n");
+    }
 };
 
 // Tests
@@ -975,6 +1051,34 @@ test "QueryEngine multiple blocks" {
 
     try std.testing.expect(found_block1);
     try std.testing.expect(found_block2);
+}
+
+test "QueryStatistics formatting methods" {
+    const stats = QueryStatistics{
+        .total_blocks_stored = 42,
+        .queries_executed = 10,
+        .get_blocks_queries = 6,
+        .traversal_queries = 4,
+        .total_query_time_ns = 1000000, // 1ms total
+    };
+
+    // Test human-readable formatting
+    var buffer: [1024]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buffer);
+    try stats.format_human_readable(stream.writer());
+
+    const output = stream.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "Query Engine Metrics") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "42 blocks") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "10 total") != null);
+
+    // Test JSON formatting
+    stream.reset();
+    try stats.format_json(stream.writer());
+
+    const json_output = stream.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, json_output, "\"queries_executed\": 10") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json_output, "\"total_blocks_stored\": 42") != null);
 }
 
 test "QueryEngine statistics" {

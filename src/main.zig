@@ -193,17 +193,33 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("{s}", .{formatted});
     std.debug.print("=====================================\n\n", .{});
 
-    // Display performance metrics
+    // Display comprehensive performance metrics
     const metrics = storage_engine.metrics();
-    std.debug.print("Performance Metrics:\n", .{});
-    std.debug.print("- Blocks written: {}\n", .{metrics.blocks_written.load(.monotonic)});
-    std.debug.print("- Blocks read: {}\n", .{metrics.blocks_read.load(.monotonic)});
-    std.debug.print("- WAL writes: {}\n", .{metrics.wal_writes.load(.monotonic)});
-    std.debug.print("- WAL flushes: {}\n", .{metrics.wal_flushes.load(.monotonic)});
-    std.debug.print("- Average write latency: {}ns\n", .{metrics.average_write_latency_ns()});
-    std.debug.print("- Average read latency: {}ns\n", .{metrics.average_read_latency_ns()});
-    std.debug.print("- Write errors: {}\n", .{metrics.write_errors.load(.monotonic)});
-    std.debug.print("- Read errors: {}\n", .{metrics.read_errors.load(.monotonic)});
+    std.debug.print("\n=== Storage Metrics ===\n", .{});
+    std.debug.print("Blocks: {} written, {} read, {} deleted\n", .{
+        metrics.blocks_written.load(.monotonic),
+        metrics.blocks_read.load(.monotonic),
+        metrics.blocks_deleted.load(.monotonic),
+    });
+    std.debug.print("WAL: {} writes, {} flushes, {} recoveries\n", .{
+        metrics.wal_writes.load(.monotonic),
+        metrics.wal_flushes.load(.monotonic),
+        metrics.wal_recoveries.load(.monotonic),
+    });
+    std.debug.print("Latency: {} ns write, {} ns read\n", .{
+        metrics.average_write_latency_ns(),
+        metrics.average_read_latency_ns(),
+    });
+
+    // Also show query engine metrics
+    const query_stats = query_engine.statistics();
+    std.debug.print("\n=== Query Engine Metrics ===\n", .{});
+    std.debug.print("Storage: {} blocks available\n", .{query_stats.total_blocks_stored});
+    std.debug.print("Queries: {} total ({} get_blocks, {} traversal)\n", .{
+        query_stats.queries_executed,
+        query_stats.get_blocks_queries,
+        query_stats.traversal_queries,
+    });
 
     std.debug.print("\nDemo completed successfully!\n", .{});
 }

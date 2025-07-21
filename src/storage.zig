@@ -54,6 +54,12 @@ pub const StorageMetrics = struct {
     read_errors: std.atomic.Value(u64),
     wal_errors: std.atomic.Value(u64),
 
+    // Storage utilization metrics
+    total_bytes_written: std.atomic.Value(u64),
+    total_bytes_read: std.atomic.Value(u64),
+    wal_bytes_written: std.atomic.Value(u64),
+    sstable_bytes_written: std.atomic.Value(u64),
+
     pub fn init() StorageMetrics {
         return StorageMetrics{
             .blocks_written = std.atomic.Value(u64).init(0),
@@ -73,6 +79,10 @@ pub const StorageMetrics = struct {
             .write_errors = std.atomic.Value(u64).init(0),
             .read_errors = std.atomic.Value(u64).init(0),
             .wal_errors = std.atomic.Value(u64).init(0),
+            .total_bytes_written = std.atomic.Value(u64).init(0),
+            .total_bytes_read = std.atomic.Value(u64).init(0),
+            .wal_bytes_written = std.atomic.Value(u64).init(0),
+            .sstable_bytes_written = std.atomic.Value(u64).init(0),
         };
     }
 
@@ -95,6 +105,128 @@ pub const StorageMetrics = struct {
         const flushes = self.wal_flushes.load(.monotonic);
         if (flushes == 0) return 0;
         return self.total_wal_flush_time_ns.load(.monotonic) / flushes;
+    }
+
+    /// Get average bytes per block written.
+    pub fn average_block_size_bytes(self: *const StorageMetrics) u64 {
+        const blocks = self.blocks_written.load(.monotonic);
+        if (blocks == 0) return 0;
+        return self.total_bytes_written.load(.monotonic) / blocks;
+    }
+
+    /// Get storage write throughput in bytes per second.
+    pub fn write_throughput_bps(self: *const StorageMetrics) f64 {
+        const total_time_ns = self.total_write_time_ns.load(.monotonic);
+        const total_time_seconds = @as(f64, @floatFromInt(total_time_ns)) / 1_000_000_000.0;
+        if (total_time_seconds == 0.0) return 0.0;
+        const total_bytes = self.total_bytes_written.load(.monotonic);
+        return @as(f64, @floatFromInt(total_bytes)) / total_time_seconds;
+    }
+
+    /// Get storage read throughput in bytes per second.
+    pub fn read_throughput_bps(self: *const StorageMetrics) f64 {
+        const total_time_ns = self.total_read_time_ns.load(.monotonic);
+        const total_time_seconds = @as(f64, @floatFromInt(total_time_ns)) / 1_000_000_000.0;
+        if (total_time_seconds == 0.0) return 0.0;
+        const total_bytes = self.total_bytes_read.load(.monotonic);
+        return @as(f64, @floatFromInt(total_bytes)) / total_time_seconds;
+    }
+
+    /// Format metrics as human-readable text.
+    pub fn format_human_readable(self: *const StorageMetrics, writer: anytype) !void {
+        try writer.writeAll("=== Storage Metrics ===\n");
+        try writer.print("Blocks: {} written, {} read, {} deleted\n", .{
+            self.blocks_written.load(.monotonic),
+            self.blocks_read.load(.monotonic),
+            self.blocks_deleted.load(.monotonic),
+        });
+        try writer.print("WAL: {} writes, {} flushes, {} recoveries\n", .{
+            self.wal_writes.load(.monotonic),
+            self.wal_flushes.load(.monotonic),
+            self.wal_recoveries.load(.monotonic),
+        });
+        try writer.print("SSTable: {} reads, {} writes, {} compactions\n", .{
+            self.sstable_reads.load(.monotonic),
+            self.sstable_writes.load(.monotonic),
+            self.compactions.load(.monotonic),
+        });
+        try writer.print("Edges: {} added, {} removed\n", .{
+            self.edges_added.load(.monotonic),
+            self.edges_removed.load(.monotonic),
+        });
+        try writer.print("Latency: {} ns write, {} ns read, {} ns WAL flush\n", .{
+            self.average_write_latency_ns(),
+            self.average_read_latency_ns(),
+            self.average_wal_flush_latency_ns(),
+        });
+        try writer.print("Throughput: {d:.2} MB/s write, {d:.2} MB/s read\n", .{
+            self.write_throughput_bps() / (1024.0 * 1024.0),
+            self.read_throughput_bps() / (1024.0 * 1024.0),
+        });
+        try writer.print("Data: {d:.2} MB written, {d:.2} MB read, avg block {d:.2} KB\n", .{
+            @as(f64, @floatFromInt(self.total_bytes_written.load(.monotonic))) / (1024.0 * 1024.0),
+            @as(f64, @floatFromInt(self.total_bytes_read.load(.monotonic))) / (1024.0 * 1024.0),
+            @as(f64, @floatFromInt(self.average_block_size_bytes())) / 1024.0,
+        });
+        try writer.print("Errors: {} write, {} read, {} WAL\n", .{
+            self.write_errors.load(.monotonic),
+            self.read_errors.load(.monotonic),
+            self.wal_errors.load(.monotonic),
+        });
+    }
+
+    /// Format metrics as JSON for programmatic consumption.
+    pub fn format_json(self: *const StorageMetrics, writer: anytype) !void {
+        try writer.writeAll("{\n");
+        try writer.print("  \"blocks_written\": {},\n", .{self.blocks_written.load(.monotonic)});
+        try writer.print("  \"blocks_read\": {},\n", .{self.blocks_read.load(.monotonic)});
+        try writer.print("  \"blocks_deleted\": {},\n", .{self.blocks_deleted.load(.monotonic)});
+        try writer.print("  \"wal_writes\": {},\n", .{self.wal_writes.load(.monotonic)});
+        try writer.print("  \"wal_flushes\": {},\n", .{self.wal_flushes.load(.monotonic)});
+        try writer.print("  \"wal_recoveries\": {},\n", .{self.wal_recoveries.load(.monotonic)});
+        try writer.print("  \"sstable_reads\": {},\n", .{self.sstable_reads.load(.monotonic)});
+        try writer.print("  \"sstable_writes\": {},\n", .{self.sstable_writes.load(.monotonic)});
+        try writer.print("  \"compactions\": {},\n", .{self.compactions.load(.monotonic)});
+        try writer.print("  \"edges_added\": {},\n", .{self.edges_added.load(.monotonic)});
+        try writer.print("  \"edges_removed\": {},\n", .{self.edges_removed.load(.monotonic)});
+        try writer.print(
+            "  \"total_bytes_written\": {},\n",
+            .{self.total_bytes_written.load(.monotonic)},
+        );
+        try writer.print(
+            "  \"total_bytes_read\": {},\n",
+            .{self.total_bytes_read.load(.monotonic)},
+        );
+        try writer.print(
+            "  \"wal_bytes_written\": {},\n",
+            .{self.wal_bytes_written.load(.monotonic)},
+        );
+        try writer.print(
+            "  \"sstable_bytes_written\": {},\n",
+            .{self.sstable_bytes_written.load(.monotonic)},
+        );
+        try writer.print(
+            "  \"average_write_latency_ns\": {},\n",
+            .{self.average_write_latency_ns()},
+        );
+        try writer.print(
+            "  \"average_read_latency_ns\": {},\n",
+            .{self.average_read_latency_ns()},
+        );
+        try writer.print(
+            "  \"average_wal_flush_latency_ns\": {},\n",
+            .{self.average_wal_flush_latency_ns()},
+        );
+        try writer.print(
+            "  \"average_block_size_bytes\": {},\n",
+            .{self.average_block_size_bytes()},
+        );
+        try writer.print("  \"write_throughput_bps\": {d:.2},\n", .{self.write_throughput_bps()});
+        try writer.print("  \"read_throughput_bps\": {d:.2},\n", .{self.read_throughput_bps()});
+        try writer.print("  \"write_errors\": {},\n", .{self.write_errors.load(.monotonic)});
+        try writer.print("  \"read_errors\": {},\n", .{self.read_errors.load(.monotonic)});
+        try writer.print("  \"wal_errors\": {}\n", .{self.wal_errors.load(.monotonic)});
+        try writer.writeAll("}\n");
     }
 };
 
@@ -972,6 +1104,13 @@ pub const StorageEngine = struct {
 
         // Track successful operation
         _ = self.storage_metrics.blocks_written.fetchAdd(1, .monotonic);
+
+        // Track bytes written (approximate block size)
+        // Calculate approximate block size: strings + ID + version overhead
+        const block_size = block.source_uri.len + block.metadata_json.len +
+            block.content.len + 32;
+        _ = self.storage_metrics.total_bytes_written.fetchAdd(block_size, .monotonic);
+
         const end_time = std.time.nanoTimestamp();
         const duration = @as(u64, @intCast(end_time - start_time));
         _ = self.storage_metrics.total_write_time_ns.fetchAdd(duration, .monotonic);
@@ -997,6 +1136,12 @@ pub const StorageEngine = struct {
         if (self.index.find_block(block_id)) |block| {
             // Track successful read from memory
             _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
+
+            // Track bytes read (approximate block size)
+            const block_size = block.source_uri.len + block.metadata_json.len +
+                block.content.len + 32;
+            _ = self.storage_metrics.total_bytes_read.fetchAdd(block_size, .monotonic);
+
             const end_time = std.time.nanoTimestamp();
             const duration = @as(u64, @intCast(end_time - start_time));
             _ = self.storage_metrics.total_read_time_ns.fetchAdd(duration, .monotonic);
@@ -1024,6 +1169,12 @@ pub const StorageEngine = struct {
 
                 // Track successful read from SSTable
                 _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
+
+                // Track bytes read from SSTable
+                const block_size = block.source_uri.len + block.metadata_json.len +
+                    block.content.len + 32;
+                _ = self.storage_metrics.total_bytes_read.fetchAdd(block_size, .monotonic);
+
                 const end_time = std.time.nanoTimestamp();
                 const duration = @as(u64, @intCast(end_time - start_time));
                 _ = self.storage_metrics.total_read_time_ns.fetchAdd(duration, .monotonic);
@@ -1334,6 +1485,7 @@ pub const StorageEngine = struct {
         assert(written == serialized_size);
 
         _ = try self.wal_file.?.write(buffer);
+        _ = self.storage_metrics.wal_bytes_written.fetchAdd(buffer.len, .monotonic);
     }
 
     /// Recover storage state from WAL files.
@@ -1892,6 +2044,34 @@ test "StorageEngine graph edge WAL recovery" {
         try std.testing.expectEqual(@as(usize, 1), incoming_edges.?.len);
         try std.testing.expect(incoming_edges.?[0].source_id.eql(block1_id));
     }
+}
+
+test "StorageMetrics formatting methods" {
+    var metrics = StorageMetrics.init();
+
+    // Simulate some activity
+    _ = metrics.blocks_written.fetchAdd(5, .monotonic);
+    _ = metrics.blocks_read.fetchAdd(3, .monotonic);
+    _ = metrics.total_bytes_written.fetchAdd(1024, .monotonic);
+    _ = metrics.total_bytes_read.fetchAdd(512, .monotonic);
+
+    // Test human-readable formatting
+    var buffer: [2048]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buffer);
+    try metrics.format_human_readable(stream.writer());
+
+    const output = stream.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "Storage Metrics") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "5 written") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "3 read") != null);
+
+    // Test JSON formatting
+    stream.reset();
+    try metrics.format_json(stream.writer());
+
+    const json_output = stream.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, json_output, "\"blocks_written\": 5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json_output, "\"blocks_read\": 3") != null);
 }
 
 test "StorageEngine metrics and observability" {
