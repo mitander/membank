@@ -11,10 +11,10 @@
 //! only appear under specific stress conditions or allocation patterns.
 
 const std = @import("std");
-const assert = @import("assert.zig");
+const assert = @import("assert");
 
 /// Configuration for torture test parameters
-const TortureTestConfig = struct {
+pub const TortureTestConfig = struct {
     /// Total number of allocation cycles to perform
     allocation_cycles: u32 = 2000,
     /// Maximum allocation size (bytes)
@@ -36,7 +36,7 @@ const TortureTestConfig = struct {
 };
 
 /// Statistics collected during torture testing
-const TortureTestStats = struct {
+pub const TortureTestStats = struct {
     total_allocations: u64 = 0,
     successful_allocations: u64 = 0,
     failed_allocations: u64 = 0,
@@ -454,7 +454,7 @@ test "AllocatorTortureTester: basic functionality" {
 
     try tester.run_torture_test();
 
-    const stats = tester.get_stats();
+    const stats = tester.stats();
     try std.testing.expect(stats.total_allocations > 0);
 }
 
@@ -472,7 +472,7 @@ test "AllocatorTortureTester: pattern validation stress test" {
 
     try tester.run_torture_test();
 
-    const stats = tester.get_stats();
+    const stats = tester.stats();
 
     // Should have no pattern violations in a correct allocator
     try std.testing.expectEqual(@as(u64, 0), stats.pattern_violations);
@@ -493,7 +493,7 @@ test "AllocatorTortureTester: alignment stress test" {
 
     try tester.run_torture_test();
 
-    const stats = tester.get_stats();
+    const stats = tester.stats();
 
     // Should have no alignment violations
     try std.testing.expectEqual(@as(u64, 0), stats.alignment_violations);
@@ -506,7 +506,7 @@ pub fn run_allocator_torture_test(allocator: std.mem.Allocator, config: TortureT
     defer tester.deinit();
 
     try tester.run_torture_test();
-    return tester.get_stats();
+    return tester.stats();
 }
 
 /// Run comprehensive torture test suite with different configurations

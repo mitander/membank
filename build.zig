@@ -13,6 +13,8 @@ const CoreModules = struct {
     tiered_compaction: *std.Build.Module,
     storage: *std.Build.Module,
     query_engine: *std.Build.Module,
+    debug_allocator: *std.Build.Module,
+    allocator_torture_test: *std.Build.Module,
 };
 
 fn create_core_modules(b: *std.Build) CoreModules {
@@ -86,6 +88,17 @@ fn create_core_modules(b: *std.Build) CoreModules {
     query_engine_module.addImport("storage", storage_module);
     query_engine_module.addImport("context_block", context_block_module);
 
+    // Debug and testing modules
+    const debug_allocator_module = b.createModule(.{
+        .root_source_file = b.path("src/debug_allocator.zig"),
+    });
+    debug_allocator_module.addImport("assert", assert_module);
+
+    const allocator_torture_test_module = b.createModule(.{
+        .root_source_file = b.path("src/allocator_torture_test.zig"),
+    });
+    allocator_torture_test_module.addImport("assert", assert_module);
+
     return CoreModules{
         .assert = assert_module,
         .vfs = vfs_module,
@@ -98,6 +111,8 @@ fn create_core_modules(b: *std.Build) CoreModules {
         .tiered_compaction = tiered_compaction_module,
         .storage = storage_module,
         .query_engine = query_engine_module,
+        .debug_allocator = debug_allocator_module,
+        .allocator_torture_test = allocator_torture_test_module,
     };
 }
 
@@ -125,6 +140,8 @@ fn add_test_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     module.addImport("storage", core_modules.storage);
     module.addImport("query_engine", core_modules.query_engine);
     module.addImport("tiered_compaction", core_modules.tiered_compaction);
+    module.addImport("debug_allocator", core_modules.debug_allocator);
+    module.addImport("allocator_torture_test", core_modules.allocator_torture_test);
 }
 
 pub fn build(b: *std.Build) void {
@@ -195,6 +212,11 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/integration_test.zig",
             .description = "integration tests",
         },
+        .{
+            .name = "debug_allocator",
+            .source_file = "tests/debug_allocator_test.zig",
+            .description = "debug allocator tests",
+        },
     };
 
     var test_steps: [test_configs.len]*std.Build.Step.Run = undefined;
@@ -231,7 +253,11 @@ pub fn build(b: *std.Build) void {
 
     // Test step that runs all tests
     const test_step = b.step("test", "Run all tests");
-    for (test_steps) |run_test| {
+    for (test_configs, test_steps) |config, run_test| {
+        // Skip debug_allocator in Debug mode due to slow linking performance
+        if (std.mem.eql(u8, config.name, "debug_allocator") and optimize_mode == .Debug) {
+            continue;
+        }
         test_step.dependOn(&run_test.step);
     }
 

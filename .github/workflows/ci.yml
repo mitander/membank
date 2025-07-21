@@ -43,14 +43,14 @@ jobs:
       - name: Check formatting
         run: ./zig/zig fmt --check .
 
-      - name: Build debug
-        run: ./zig/zig build
+      - name: Build ReleaseSafe
+        run: ./zig/zig build -Doptimize=ReleaseSafe
 
       - name: Run tests
-        run: ./zig/zig build test
+        run: ./zig/zig build test -Doptimize=ReleaseSafe
 
       - name: Run tidy checks
-        run: ./zig/zig build tidy
+        run: ./zig/zig build tidy -Doptimize=ReleaseSafe
 
       - name: Build all targets
         run: |
@@ -145,7 +145,7 @@ jobs:
             ${{ runner.os }}-zig-${{ steps.zig-version.outputs.version }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-
 
       - name: Generate coverage
-        run: ./zig/zig build test -- --summary all
+        run: ./zig/zig build test -Doptimize=ReleaseSafe -- --summary all
 
   lint:
     name: Lint
@@ -238,7 +238,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Need full history for baseline comparison
+          fetch-depth: 0 # Need full history for baseline comparison
 
       - name: Extract Zig version
         id: zig-version
@@ -351,15 +351,15 @@ jobs:
 
       - name: Build with debug symbols and memory safety
         run: |
-          echo "-> Building with debug symbols for memory analysis..."
-          ./zig/zig build -Doptimize=Debug -Dtarget=native-linux-gnu
+          echo "-> Building with ReleaseSafe for memory analysis..."
+          ./zig/zig build -Doptimize=ReleaseSafe -Dtarget=native-linux-gnu
 
       - name: Run allocator torture test suite (100 iterations)
         run: |
           echo "-> Running comprehensive allocator torture tests..."
           for i in {1..100}; do
             echo "Iteration $i/100"
-            timeout 60s ./zig/zig test src/allocator_torture_test.zig -Doptimize=Debug || {
+            timeout 60s ./zig/zig test src/allocator_torture_test.zig -Doptimize=ReleaseSafe || {
               echo "ERROR: Torture test iteration $i failed"
               exit 1
             }
@@ -369,20 +369,20 @@ jobs:
       - name: Run memory safety integration tests
         run: |
           echo "-> Running memory safety focused integration tests..."
-          ./zig/zig test tests/memory_isolation_test.zig -Doptimize=Debug
+          ./zig/zig test tests/memory_isolation_test.zig -Doptimize=ReleaseSafe
           echo "Memory safety integration tests: PASSED"
 
       - name: Run stress test with memory monitoring
         run: |
           echo "-> Running storage engine stress test with memory monitoring..."
           # Run stress test and monitor for memory issues
-          timeout 300s ./zig/zig test tests/integration_test.zig -Doptimize=Debug
+          timeout 300s ./zig/zig test tests/integration_test.zig -Doptimize=ReleaseSafe
           echo "Storage engine stress test: PASSED"
 
       - name: Valgrind memory error detection
         run: |
           echo "-> Building test executable for Valgrind analysis..."
-          ./zig/zig build test -Doptimize=Debug
+          ./zig/zig build test -Doptimize=ReleaseSafe
 
           echo "-> Running Valgrind memory error detection..."
           # Run core memory tests through Valgrind

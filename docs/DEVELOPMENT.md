@@ -132,7 +132,47 @@ For more subtle bugs, we use the AddressSanitizer built into the LLVM toolchain.
 
 ASan will halt the program on any memory error and provide a detailed report, including the stack trace of the invalid access, the allocation site, and the deallocation site.
 
-## 6. Contributing
+## 6. Build Modes and Optimization Levels
+
+CortexDB supports all Zig optimization levels, but we recommend specific modes for different use cases:
+
+### Recommended Build Modes
+
+- **Development/Testing:** `./zig/zig build test -Doptimize=ReleaseSafe`
+- **CI/Automation:** `-Doptimize=ReleaseSafe` (default in our CI pipeline)
+- **Production Releases:** `-Doptimize=ReleaseFast`
+- **Size-Constrained Deployments:** `-Doptimize=ReleaseSmall`
+
+### Debug Mode Limitations
+
+**Important:** Debug mode (`-Doptimize=Debug`) has known linking performance issues:
+
+- **Symptom:** Linking phase hangs for 60+ seconds during compilation
+- **Root Cause:** Zig compiler performance issue with large debug symbol generation
+- **Workaround:** Use `ReleaseSafe` for most development work
+
+**Why ReleaseSafe is Better for Development:**
+
+- Includes all safety checks (bounds checking, integer overflow detection)
+- Fast compilation and linking (< 10 seconds)
+- Catches the same classes of bugs as Debug mode
+- Used in our CI pipeline for consistent validation
+
+**When to Use Debug Mode:**
+
+- Only when you specifically need full debug symbols for external debuggers
+- Be prepared for slow linking times
+- Consider using `ReleaseSafe` with Tier 1/Tier 2 debugging tools instead
+
+### CI Configuration
+
+Our CI pipeline uses `ReleaseSafe` by default to ensure:
+
+- Fast, reliable builds (< 5 minute test cycles)
+- Comprehensive safety checking without Debug mode overhead
+- Consistent behavior between local development and CI validation
+
+## 7. Contributing
 
 ### Commit Messages
 

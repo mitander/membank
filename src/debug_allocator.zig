@@ -12,7 +12,7 @@
 //! in release builds for zero overhead.
 
 const std = @import("std");
-const assert = @import("assert.zig");
+const assert = @import("assert");
 const builtin = @import("builtin");
 
 /// Magic values for allocation validation
@@ -26,8 +26,11 @@ const GUARD_SIZE: usize = 32;
 /// Maximum number of allocation entries to track
 const MAX_TRACKED_ALLOCATIONS: usize = if (builtin.mode == .Debug) 16384 else 1024;
 
+/// Enable stack trace capture (can be disabled to avoid slow Debug linking)
+const ENABLE_STACK_TRACES: bool = false; // TODO: Enable when Zig linking performance improves
+
 /// Maximum depth for stack trace collection
-const MAX_STACK_TRACE_DEPTH: usize = if (builtin.mode == .Debug) 16 else 0;
+const MAX_STACK_TRACE_DEPTH: usize = if (ENABLE_STACK_TRACES and builtin.mode == .Debug) 16 else 0;
 
 /// Allocation metadata tracked for each allocation
 const AllocationInfo = struct {
@@ -60,11 +63,11 @@ const AllocationInfo = struct {
             .thread_id = current_thread_id(),
         };
 
-        // Capture stack trace in debug builds
-        if (builtin.mode == .Debug) {
+        // Capture stack trace when enabled and in debug builds
+        if (ENABLE_STACK_TRACES and builtin.mode == .Debug) {
             var stack_trace = std.builtin.StackTrace{
                 .index = 0,
-                .instruction_addresses = &info.stack_trace,
+                .instruction_addresses = @as([]usize, &info.stack_trace),
             };
             std.debug.captureStackTrace(@returnAddress(), &stack_trace);
             info.stack_depth = @min(stack_trace.index, MAX_STACK_TRACE_DEPTH);
@@ -305,7 +308,7 @@ pub const DebugAllocator = struct {
         while (iterator.next()) |index| {
             const info = &self.allocations[index];
             if (info.is_valid()) {
-                try self.validate_allocation_internal(info.address);
+                try self.validate_allocation_internal(info.address, info);
             }
         }
     }
@@ -324,6 +327,7 @@ pub const DebugAllocator = struct {
                 try writer.print("  [{}] {} bytes at 0x{X} (align={})\n", .{ index, info.size, info.address, @intFromEnum(info.alignment) });
 
                 if (self.config.enable_stack_traces and
+                    ENABLE_STACK_TRACES and
                     builtin.mode == .Debug and
                     info.stack_depth > 0)
                 {
@@ -365,8 +369,9 @@ pub const DebugAllocator = struct {
 
     fn free_impl(ctx: *anyopaque, buf: []u8, buf_align: std.mem.Alignment, ret_addr: usize) void {
         _ = ret_addr;
+        _ = buf_align;
         const self: *DebugAllocator = @ptrCast(@alignCast(ctx));
-        self.free_internal(buf, buf_align) catch |err| {
+        self.free_internal(buf) catch |err| {
             std.debug.panic("DebugAllocator free error: {}\n", .{err});
         };
     }
@@ -395,7 +400,17 @@ pub const DebugAllocator = struct {
 
         const header_size = @sizeOf(AllocationHeader);
         const footer_size = @sizeOf(AllocationFooter);
-        const total_size = header_size + len + footer_size;
+        const guard_suffix_size = if (self.config.enable_guard_validation) GUARD_SIZE else 0;
+
+        // Calculate alignment requirements
+        const alignment_bytes = @as(usize, 1) << @intFromEnum(ptr_align);
+        const header_align = @alignOf(AllocationHeader);
+        const required_align = @max(alignment_bytes, header_align);
+        const required_align_enum = std.mem.Alignment.fromByteUnits(required_align);
+
+        // Calculate user data offset with proper alignment
+        const user_data_offset = std.mem.alignForward(usize, header_size, alignment_bytes);
+        const total_size = user_data_offset + len + guard_suffix_size + footer_size;
 
         const tracker_index = self.free_slots.findFirstSet() orelse {
             self.stats.alignment_violations += 1;
@@ -405,18 +420,18 @@ pub const DebugAllocator = struct {
         const raw_memory = self.backing_allocator.vtable.alloc(
             self.backing_allocator.ptr,
             total_size,
-            ptr_align,
+            required_align_enum,
             @returnAddress(),
         ) orelse return null;
 
         const header: *AllocationHeader = @ptrCast(@alignCast(raw_memory));
         header.* = AllocationHeader.init(len, ptr_align, @intCast(tracker_index));
 
-        const user_ptr = raw_memory + header_size;
+        const user_ptr = raw_memory + user_data_offset;
 
         if (self.config.enable_alignment_checks) {
-            const alignment_bytes = @as(usize, 1) << @intFromEnum(ptr_align);
-            if (@intFromPtr(user_ptr) % alignment_bytes != 0) {
+            const user_alignment_bytes = @as(usize, 1) << @intFromEnum(ptr_align);
+            if (@intFromPtr(user_ptr) % user_alignment_bytes != 0) {
                 self.backing_allocator.vtable.free(
                     self.backing_allocator.ptr,
                     raw_memory[0..total_size],
@@ -428,11 +443,18 @@ pub const DebugAllocator = struct {
             }
         }
 
-        const footer: *AllocationFooter = @ptrCast(@alignCast(user_ptr + len));
+        // Write guard suffix after user data if guard validation is enabled
+        if (self.config.enable_guard_validation) {
+            const guard_suffix = user_ptr[len .. len + GUARD_SIZE];
+            const guard_pattern: u8 = @truncate(GUARD_MAGIC >> 8);
+            @memset(guard_suffix, guard_pattern);
+        }
+
+        const footer: *AllocationFooter = @ptrCast(@alignCast(user_ptr + len + guard_suffix_size));
         footer.* = AllocationFooter.init();
 
         self.free_slots.unset(tracker_index);
-        self.allocations[tracker_index] = AllocationInfo.init(len, ptr_align, @intFromPtr(user_ptr));
+        self.allocations[tracker_index] = AllocationInfo.init(len, required_align_enum, @intFromPtr(user_ptr));
 
         self.stats.total_allocations += 1;
         self.stats.active_allocations += 1;
@@ -449,7 +471,7 @@ pub const DebugAllocator = struct {
         return user_ptr;
     }
 
-    fn free_internal(self: *DebugAllocator, buf: []u8, buf_align: std.mem.Alignment) !void {
+    fn free_internal(self: *DebugAllocator, buf: []u8) !void {
         if (buf.len == 0) return;
 
         self.mutex.lock();
@@ -484,7 +506,7 @@ pub const DebugAllocator = struct {
 
         // Validate guards if enabled
         if (self.config.enable_guard_validation) {
-            try self.validate_allocation_internal(user_addr);
+            try self.validate_allocation_internal(user_addr, info);
         }
 
         // Poison freed memory if enabled
@@ -492,17 +514,20 @@ pub const DebugAllocator = struct {
             @memset(buf, 0xDE); // "DEAD" pattern
         }
 
-        // Calculate original allocation size
+        // Calculate original allocation size and offset
         const header_size = @sizeOf(AllocationHeader);
         const footer_size = @sizeOf(AllocationFooter);
-        const total_size = header_size + info.size + footer_size;
-        const raw_ptr = user_ptr - header_size;
+        const guard_suffix_size = if (self.config.enable_guard_validation) GUARD_SIZE else 0;
+        const alignment_bytes = @as(usize, 1) << @intFromEnum(info.alignment);
+        const user_data_offset = std.mem.alignForward(usize, header_size, alignment_bytes);
+        const total_size = user_data_offset + info.size + guard_suffix_size + footer_size;
+        const raw_ptr = user_ptr - user_data_offset;
 
         // Free the underlying memory
         self.backing_allocator.vtable.free(
             self.backing_allocator.ptr,
             raw_ptr[0..total_size],
-            buf_align,
+            info.alignment,
             @returnAddress(),
         );
 
@@ -516,26 +541,30 @@ pub const DebugAllocator = struct {
         self.stats.current_bytes_allocated -= info.size;
     }
 
-    fn validate_allocation_internal(self: *DebugAllocator, user_addr: usize) !void {
+    fn validate_allocation_internal(self: *DebugAllocator, user_addr: usize, allocation_info: *const AllocationInfo) !void {
         const user_ptr: [*]u8 = @ptrFromInt(user_addr);
         const header_size = @sizeOf(AllocationHeader);
-        const header: *AllocationHeader = @ptrCast(@alignCast(user_ptr - header_size));
+
+        // Calculate the offset using the allocation's alignment
+        const alignment_bytes = @as(usize, 1) << @intFromEnum(allocation_info.alignment);
+        const user_data_offset = std.mem.alignForward(usize, header_size, alignment_bytes);
+        const header: *AllocationHeader = @ptrCast(@alignCast(user_ptr - user_data_offset));
 
         // Validate header and guards
         try header.validate_guards(user_ptr);
 
-        // Find allocation info
+        // Validate allocation info consistency
         if (header.tracker_index >= MAX_TRACKED_ALLOCATIONS) {
             return DebugAllocatorError.CorruptedHeader;
         }
 
-        const info = &self.allocations[header.tracker_index];
-        if (!info.is_valid() or info.address != user_addr) {
+        if (!allocation_info.is_valid() or allocation_info.address != user_addr) {
             return DebugAllocatorError.UseAfterFree;
         }
 
         // Validate footer
-        const footer: *AllocationFooter = @ptrCast(@alignCast(user_ptr + info.size));
+        const guard_suffix_size = if (self.config.enable_guard_validation) GUARD_SIZE else 0;
+        const footer: *AllocationFooter = @ptrCast(@alignCast(user_ptr + allocation_info.size + guard_suffix_size));
         if (!footer.is_valid()) {
             self.stats.buffer_overflows += 1;
             return DebugAllocatorError.BufferOverflow;
