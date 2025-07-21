@@ -490,7 +490,7 @@ fn check_function_naming(line: []const u8) ?[]const u8 {
         if (std.mem.startsWith(u8, function_name, "test")) return null;
         if (std.mem.startsWith(u8, function_name, "JNI_")) return null;
 
-        // Check for banned get_/set_ patterns (TigerBeetle style)
+        // Check for banned get_/set_ patterns
         if (std.mem.startsWith(u8, function_name, "get_")) {
             return "avoid get_ prefix: use nouns for simple getters (id() not get_id()) " ++
                 "or contextual verbs for operations (find_block() not get_block(), " ++
@@ -532,7 +532,6 @@ fn check_constant_naming(line: []const u8) ?[]const u8 {
 }
 
 fn is_valid_snake_case_function(name: []const u8) bool {
-    // TigerBeetle-style verb prefixes (no get_/set_)
     const valid_prefixes = [_][]const u8{
         // Query prefixes
         "is_",          "has_",     "can_",     "should_",    "contains_",
@@ -553,7 +552,7 @@ fn is_valid_snake_case_function(name: []const u8) bool {
          "parse_",   "encode_",  "decode_",    "serialize_",
         "deserialize_", "format_",  "convert_", "transform_", "map_",
         "filter_",      "reduce_",  "sort_",
-        // Update prefixes (TigerBeetle style: update_id not set_id)
+        // Update prefixes
            "update_",    "modify_",
         "change_",      "insert_",  "remove_",  "delete_",    "append_",
         "prepend_",     "push_",    "pop_",     "swap_",      "move_",
@@ -580,7 +579,7 @@ fn is_valid_snake_case_function(name: []const u8) bool {
         if (std.mem.startsWith(u8, name, prefix)) return true;
     }
 
-    // Allow noun getters (TigerBeetle style: id() not get_id())
+    // Allow noun getters
     return !std.mem.containsAtLeast(u8, name, 1, "_") or
         std.mem.endsWith(u8, name, "_count") or
         std.mem.endsWith(u8, name, "_size") or
@@ -1034,7 +1033,7 @@ test "tidy extensions" {
     // No extension validation needed - all files are allowed
 }
 
-test "tidy naming conventions: TigerBeetle style enforcement" {
+test "tidy naming conventions enforcement" {
     const test_cases = [_]struct {
         code: []const u8,
         should_pass: bool,
@@ -1055,7 +1054,7 @@ test "tidy naming conventions: TigerBeetle style enforcement" {
                 "(e.g., update_id(), modify_state(), configure_option())",
         },
 
-        // GOOD: TigerBeetle-style noun getters
+        // GOOD: noun style getters
         .{
             .code = "fn id(self: *const Block) u64 { return self.id; }",
             .should_pass = true,
@@ -1072,7 +1071,7 @@ test "tidy naming conventions: TigerBeetle style enforcement" {
             .expected_error = null,
         },
 
-        // GOOD: TigerBeetle-style update prefixes
+        // GOOD: update prefixes
         .{
             .code = "fn update_id(self: *Block, id: u64) void { self.id = id; }",
             .should_pass = true,

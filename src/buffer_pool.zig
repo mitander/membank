@@ -1,4 +1,4 @@
-//! Static buffer pools for zero-allocation hot paths (TigerBeetle approach).
+//! Static buffer pools for zero-allocation hot paths
 //!
 //! Pre-allocates all buffers at startup with no dynamic allocation during runtime.
 //! Provides fixed-size buffer pools for common allocation patterns in storage

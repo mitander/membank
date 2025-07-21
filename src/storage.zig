@@ -463,6 +463,7 @@ pub const BlockIndex = struct {
 
     pub fn clear(self: *BlockIndex) void {
         self.blocks.clearRetainingCapacity();
+        _ = self.arena.reset(.retain_capacity);
     }
 };
 

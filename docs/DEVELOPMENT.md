@@ -109,7 +109,7 @@ cortexdb/
 3. **Write code following style guide**
    - Read `docs/STYLE.md` for conventions
    - Use `./zig/zig fmt` for formatting
-   - Follow TigerBeetle-inspired naming patterns
+   - Follow project naming conventions
 
 4. **Test your changes**
 
@@ -511,7 +511,7 @@ instruments -t "Time Profiler" ./zig-out/bin/benchmark all
 ## Resources
 
 - [Zig Language Reference](https://ziglang.org/documentation/master/)
-- [TigerBeetle Style Guide](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md)
+- [Style Guide](docs/STYLE.md)
 - [A Philosophy of Software Design](https://web.stanford.edu/~ouster/cgi-bin/book.php)
 - [CortexDB Design Document](docs/DESIGN.md)
 

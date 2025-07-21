@@ -4,7 +4,7 @@
 [![CI Status](https://github.com/mitander/cortexdb/actions/workflows/ci.yml/badge.svg)](https://github.com/mitander/cortexdb/actions)
 
 A structured and deterministic context database for Large Language Models. Built in Zig for
-mission-critical performance and reliability, inspired by the design of TigerBeetle.
+mission-critical performance and reliability.
 
 CortexDB provides LLMs with an extensive and auto-updated knowledge base, ensuring they operate
 on fresh, relevant, and well-structured context.

@@ -31,7 +31,7 @@ pub fn receive_message(connection: *Connection) !Message
 pub fn update_metadata(self: *Block, metadata: Metadata) void
 ```
 
-**BANNED:** `get_` and `set_` prefixes. Use TigerBeetle conventions with contextual naming:
+**BANNED:** `get_` and `set_` prefixes. Use naming conventions with contextual naming:
 
 ```
 // BAD: get_/set_ pattern
@@ -42,7 +42,7 @@ get_file_size(file) -> u64
 set_id(block, id)
 set_config(engine, config)
 
-// GOOD: TigerBeetle style with contextual naming
+// GOOD: contextual naming
 id(block) -> u64                     // simple property getter
 find_block(table, id) -> ?Block      // search operation
 load_config(engine) -> Config        // data loading operation
@@ -358,8 +358,6 @@ const result = try format_header(&buffer, header);
 ## Banned Patterns
 
 ### Style Violations
-
-### TigerBeetle Style Violations
 
 - `get_*` functions → use noun getters: `id()` not `get_id()`, `find_block()` not `get_block()`
 - `set_*` functions → use contextual verbs: `update_id()` not `set_id()`, `configure_engine()` not `set_config()`

@@ -1,4 +1,4 @@
-//! Concurrency model for CortexDB following TigerBeetle approach.
+//! Concurrency model for CortexDB.
 //!
 //! CortexDB uses a single-threaded execution model with async I/O for maximum
 //! simplicity, determinism, and performance. This eliminates data races,
@@ -137,7 +137,7 @@ pub const SingleThreadedAllocator = struct {
 };
 
 /// Documentation and enforcement of CortexDB's concurrency model.
-/// CONCURRENCY MODEL: Single-threaded + async I/O following TigerBeetle approach.
+/// CONCURRENCY MODEL: Single-threaded + async I/O.
 /// Thread safety enforced through design rather than locks.
 pub const ConcurrencyModel = struct {
     comptime {

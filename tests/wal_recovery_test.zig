@@ -22,7 +22,9 @@ const EdgeType = context_block.EdgeType;
 const Simulation = simulation.Simulation;
 
 test "wal recovery: empty directory" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 12345);
     defer sim.deinit();
@@ -50,7 +52,9 @@ test "wal recovery: empty directory" {
 }
 
 test "wal recovery: missing wal directory" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 54321);
     defer sim.deinit();
@@ -78,7 +82,9 @@ test "wal recovery: missing wal directory" {
 }
 
 test "wal recovery: single block recovery" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 98765);
     defer sim.deinit();
@@ -136,7 +142,9 @@ test "wal recovery: single block recovery" {
 }
 
 test "wal recovery: multiple blocks and types" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 13579);
     defer sim.deinit();
@@ -219,7 +227,9 @@ test "wal recovery: multiple blocks and types" {
 }
 
 test "wal recovery: multiple wal files" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 24680);
     defer sim.deinit();
@@ -313,7 +323,9 @@ test "wal recovery: multiple wal files" {
 }
 
 test "wal recovery: corruption handling - invalid checksum" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 11111);
     defer sim.deinit();
@@ -382,7 +394,9 @@ test "wal recovery: corruption handling - invalid checksum" {
 }
 
 test "wal recovery: corruption handling - incomplete entry" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 22222);
     defer sim.deinit();
@@ -428,7 +442,9 @@ test "wal recovery: corruption handling - incomplete entry" {
 }
 
 test "wal recovery: deterministic behavior" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     const seed = 55555;
     var results: [3]u32 = undefined;

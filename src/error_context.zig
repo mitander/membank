@@ -1,7 +1,7 @@
 //! Structured error handling with debugging context for CortexDB.
 //!
 //! Provides rich debugging information in debug builds while maintaining
-//! zero runtime overhead in release builds, following TigerBeetle's approach.
+//! zero runtime overhead in release builds.
 
 const std = @import("std");
 const builtin = @import("builtin");
