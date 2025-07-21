@@ -76,7 +76,7 @@ fn fuzz_all_targets(allocator: std.mem.Allocator, iterations: u32, seed: u64) !v
 fn fuzz_block_parser(allocator: std.mem.Allocator, iterations: u32, seed: u64) !void {
     std.debug.print("Fuzzing block parser: {} iterations, seed {}\n", .{ iterations, seed });
 
-    var prng = std.rand.DefaultPrng.init(seed);
+    var prng = std.Random.DefaultPrng.init(seed);
     const random = prng.random();
 
     var failures: u32 = 0;
@@ -103,7 +103,7 @@ fn fuzz_block_parser(allocator: std.mem.Allocator, iterations: u32, seed: u64) !
 fn fuzz_query_engine(allocator: std.mem.Allocator, iterations: u32, seed: u64) !void {
     std.debug.print("Fuzzing query engine: {} iterations, seed {}\n", .{ iterations, seed });
 
-    var prng = std.rand.DefaultPrng.init(seed);
+    var prng = std.Random.DefaultPrng.init(seed);
     const random = prng.random();
 
     var failures: u32 = 0;
@@ -131,7 +131,7 @@ fn fuzz_storage(allocator: std.mem.Allocator, iterations: u32, seed: u64) !void 
     _ = allocator;
     std.debug.print("Fuzzing storage: {} iterations, seed {}\n", .{ iterations, seed });
 
-    var prng = std.rand.DefaultPrng.init(seed);
+    var prng = std.Random.DefaultPrng.init(seed);
     const random = prng.random();
 
     var failures: u32 = 0;
@@ -154,7 +154,7 @@ fn fuzz_storage(allocator: std.mem.Allocator, iterations: u32, seed: u64) !void 
     std.debug.print("  Completed: {} failures out of {} iterations\n", .{ failures, iterations });
 }
 
-fn generate_block_data(allocator: std.mem.Allocator, random: std.rand.Random) ![]u8 {
+fn generate_block_data(allocator: std.mem.Allocator, random: std.Random) ![]u8 {
     const size = random.intRangeAtMost(usize, 0, 1024);
     const data = try allocator.alloc(u8, size);
 
@@ -162,14 +162,14 @@ fn generate_block_data(allocator: std.mem.Allocator, random: std.rand.Random) ![
 
     // Occasionally inject valid-looking headers
     if (size >= 8 and random.boolean()) {
-        std.mem.writeIntLittle(u32, data[0..4], 0xDEADBEEF); // Magic number
-        std.mem.writeIntLittle(u32, data[4..8], @intCast(size - 8)); // Size
+        std.mem.writeInt(u32, data[0..4], 0xDEADBEEF, .little); // Magic number
+        std.mem.writeInt(u32, data[4..8], @intCast(size - 8), .little); // Size
     }
 
     return data;
 }
 
-fn generate_query_data(allocator: std.mem.Allocator, random: std.rand.Random) ![]u8 {
+fn generate_query_data(allocator: std.mem.Allocator, random: std.Random) ![]u8 {
     const size = random.intRangeAtMost(usize, 0, 256);
     const data = try allocator.alloc(u8, size);
 
@@ -192,7 +192,7 @@ const StorageOperation = enum {
     corrupt,
 };
 
-fn generate_storage_operation(random: std.rand.Random) StorageOperation {
+fn generate_storage_operation(random: std.Random) StorageOperation {
     const operations = [_]StorageOperation{ .read, .write, .delete, .corrupt };
     return operations[random.intRangeAtMost(usize, 0, operations.len - 1)];
 }
@@ -210,9 +210,9 @@ fn fuzz_parse_block(data: []const u8) FuzzResult {
 
     // Simulate parsing that might crash on malformed input
     if (data.len >= 4) {
-        const magic = std.mem.readIntLittle(u32, data[0..4]);
+        const magic = std.mem.readInt(u32, data[0..4], .little);
         if (magic == 0xDEADBEEF and data.len >= 8) {
-            const size = std.mem.readIntLittle(u32, data[4..8]);
+            const size = std.mem.readInt(u32, data[4..8], .little);
             if (size > data.len - 8) {
                 // This would cause a crash in real parsing
                 return .crash;
@@ -269,7 +269,7 @@ test "fuzz: basic functionality" {
     const allocator = std.testing.allocator;
 
     // Test data generation
-    var prng = std.rand.DefaultPrng.init(12345);
+    var prng = std.Random.DefaultPrng.init(12345);
     const random = prng.random();
 
     const block_data = try generate_block_data(allocator, random);
@@ -288,8 +288,8 @@ test "fuzz: deterministic behavior" {
     const allocator = std.testing.allocator;
 
     // Same seed should produce same data
-    var prng1 = std.rand.DefaultPrng.init(54321);
-    var prng2 = std.rand.DefaultPrng.init(54321);
+    var prng1 = std.Random.DefaultPrng.init(54321);
+    var prng2 = std.Random.DefaultPrng.init(54321);
 
     const data1 = try generate_block_data(allocator, prng1.random());
     defer allocator.free(data1);
