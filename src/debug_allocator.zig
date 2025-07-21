@@ -95,7 +95,8 @@ const AllocationHeader = struct {
     /// Guard bytes to detect underflow
     guard_prefix: [GUARD_SIZE]u8,
 
-    const EXPECTED_SIZE = @sizeOf(u32) + @sizeOf(usize) + @sizeOf(std.mem.Alignment) + @sizeOf(u32) + GUARD_SIZE;
+    const EXPECTED_SIZE = @sizeOf(u32) + @sizeOf(usize) + @sizeOf(std.mem.Alignment) +
+        @sizeOf(u32) + GUARD_SIZE;
 
     pub fn init(size: usize, alignment: std.mem.Alignment, tracker_index: u32) AllocationHeader {
         var header = AllocationHeader{
@@ -214,7 +215,8 @@ pub const DebugAllocatorStats = struct {
 
     pub fn calculate_averages(self: *DebugAllocatorStats) void {
         if (self.total_allocations > 0) {
-            self.average_allocation_size = @as(f64, @floatFromInt(self.total_bytes_allocated)) / @as(f64, @floatFromInt(self.total_allocations));
+            self.average_allocation_size = @as(f64, @floatFromInt(self.total_bytes_allocated)) /
+                @as(f64, @floatFromInt(self.total_allocations));
         }
     }
 
@@ -321,7 +323,10 @@ pub const DebugAllocator = struct {
             if (info.is_valid()) {
                 try writer.print("  [{}] {} bytes at 0x{X} (align={})\n", .{ index, info.size, info.address, @intFromEnum(info.alignment) });
 
-                if (self.config.enable_stack_traces and builtin.mode == .Debug and info.stack_depth > 0) {
+                if (self.config.enable_stack_traces and
+                    builtin.mode == .Debug and
+                    info.stack_depth > 0)
+                {
                     try writer.print("    Stack trace:\n");
                     for (info.stack_trace[0..info.stack_depth]) |addr| {
                         try writer.print("      0x{X}\n", .{addr});

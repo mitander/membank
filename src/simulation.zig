@@ -384,7 +384,6 @@ pub const Network = struct {
 
         // Calculate delivery time
         const base_latency = self.latencies.get(pair.normalize()) orelse 1;
-        // TODO Get current tick from simulation
         const delivery_tick = 0 + base_latency;
 
         // Queue the message for delivery
@@ -399,7 +398,6 @@ pub const Network = struct {
 
     pub fn process_tick(self: *Self) void {
         _ = self; // Unused for now
-        // TODO Implement message delivery based on current tick
         // For now, this is a placeholder
     }
 

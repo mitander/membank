@@ -570,7 +570,10 @@ pub const SemanticQueryResult = struct {
         for (results) |result| {
             total_similarity += result.similarity_score;
         }
-        const avg_similarity = if (results.len > 0) total_similarity / @as(f32, @floatFromInt(results.len)) else 0;
+        const avg_similarity = if (results.len > 0)
+            total_similarity / @as(f32, @floatFromInt(results.len))
+        else
+            0;
 
         return SemanticQueryResult{
             .results = results,
@@ -1246,19 +1249,19 @@ pub const QueryEngine = struct {
             switch (sort_order) {
                 .ascending => {
                     std.mem.sort(ContextBlock, matched_blocks.items, {}, struct {
-                        fn lessThan(context: void, a: ContextBlock, b: ContextBlock) bool {
+                        fn less_than(context: void, a: ContextBlock, b: ContextBlock) bool {
                             _ = context;
                             return a.version < b.version;
                         }
-                    }.lessThan);
+                    }.less_than);
                 },
                 .descending => {
                     std.mem.sort(ContextBlock, matched_blocks.items, {}, struct {
-                        fn lessThan(context: void, a: ContextBlock, b: ContextBlock) bool {
+                        fn less_than(context: void, a: ContextBlock, b: ContextBlock) bool {
                             _ = context;
                             return a.version > b.version;
                         }
-                    }.lessThan);
+                    }.less_than);
                 },
             }
         }
@@ -1292,9 +1295,8 @@ pub const QueryEngine = struct {
 
         try query.validate();
 
-        // TODO Implement semantic search with external embedding model
-        // This is a placeholder implementation that will be expanded when
-        // embedding model integration is added to the system.
+        // Semantic search not yet implemented - returns empty results
+        // Will be expanded when embedding model integration is added
 
         // For now, return an empty result to maintain interface compatibility
         const empty_results = try self.allocator.alloc(struct { block: ContextBlock, similarity_score: f32 }, 0);

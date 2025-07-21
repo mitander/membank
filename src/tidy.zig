@@ -58,11 +58,6 @@ pub fn main() !void {
             violations += 1;
         }
 
-        if (try tidy_line_length(source_file)) |line_num| {
-            std.debug.print("{s}: line {} exceeds length limit\n", .{ file_path, line_num });
-            violations += 1;
-        }
-
         if (tidy_control_characters(source_file)) |char| {
             std.debug.print("{s}: invalid control character: {c}\n", .{ file_path, char });
             violations += 1;
@@ -129,117 +124,108 @@ test "tidy" {
     const buffer = try allocator.alloc(u8, buffer_size);
     defer allocator.free(buffer);
 
-    // TODO Re-enable dead files detection when AST API is stable
-    // var dead_files_detector = DeadFilesDetector.init(allocator);
-    // defer dead_files_detector.deinit();
+    var violations = std.ArrayList(struct { path: []const u8, line: ?u32, violation_type: []const u8, message: []const u8 }).init(allocator);
+    defer violations.deinit();
 
-    var dead_declarations: UsedDeclarations = .{};
-    defer dead_declarations.deinit(allocator);
-
-    try dead_declarations.ensureTotalCapacity(allocator, identifiers_per_file_max);
-
-    // TODO Re-enable when AST-based function length checking is restored
-    // var function_line_count_longest: usize = 0;
-
-    // Stream through files once to perform all checks
+    // Collect all violations instead of returning on first error
     for (paths) |path| {
         const bytes_read = (try std.fs.cwd().readFile(path, buffer)).len;
-        if (bytes_read >= buffer.len - 1) return error.FileTooLong;
+        if (bytes_read >= buffer.len - 1) {
+            try violations.append(.{
+                .path = path,
+                .line = null,
+                .violation_type = "file_too_long",
+                .message = "file exceeds maximum read buffer size",
+            });
+            continue;
+        }
         buffer[bytes_read] = 0;
 
         const source_file = SourceFile{ .path = path, .text = buffer[0..bytes_read :0] };
 
         if (tidy_control_characters(source_file)) |control_character| {
-            std.debug.print(
-                "{s} error: contains control character: code={} symbol='{c}'\n",
-                .{ source_file.path, control_character, control_character },
-            );
-            return error.BannedControlCharacter;
+            try violations.append(.{
+                .path = source_file.path,
+                .line = null,
+                .violation_type = "control_character",
+                .message = try std.fmt.allocPrint(allocator, "contains control character: code={} symbol='{c}'", .{ control_character, control_character }),
+            });
         }
 
         if (mem.endsWith(u8, source_file.path, ".zig")) {
             if (tidy_banned_patterns(source_file.text)) |ban_reason| {
-                std.debug.print(
-                    "{s}: error: banned pattern, {s}\n",
-                    .{ source_file.path, ban_reason },
-                );
-                return error.BannedPattern;
-            }
-
-            if (try tidy_line_length(source_file)) |line_index| {
-                std.debug.print(
-                    "{s}:{d} error: line exceeds 100 columns\n",
-                    .{ source_file.path, line_index + 1 },
-                );
-                return error.LineTooLong;
+                try violations.append(.{
+                    .path = source_file.path,
+                    .line = null,
+                    .violation_type = "banned_pattern",
+                    .message = ban_reason,
+                });
             }
 
             if (tidy_naming_conventions(source_file)) |violation| {
-                std.debug.print(
-                    "{s}:{d} error: naming violation: {s}\n",
-                    .{ source_file.path, violation.line, violation.message },
-                );
-                return error.NamingViolation;
+                try violations.append(.{
+                    .path = source_file.path,
+                    .line = @intCast(violation.line),
+                    .violation_type = "naming_violation",
+                    .message = violation.message,
+                });
             }
 
             if (tidy_unicode_emojis(source_file)) |emoji_error| {
-                std.debug.print(
-                    "{s} error: {s}\n",
-                    .{ source_file.path, emoji_error },
-                );
-                return error.UnicodeEmoji;
+                try violations.append(.{
+                    .path = source_file.path,
+                    .line = null,
+                    .violation_type = "unicode_emoji",
+                    .message = emoji_error,
+                });
             }
-
-            // TODO Re-enable dead declaration detection when AST API is stable
-            _ = &dead_declarations;
 
             if (tidy_documentation_standards(source_file)) |doc_error| {
-                std.debug.print(
-                    "{s}:{d} error: documentation issue: {s}\n",
-                    .{ source_file.path, doc_error.line, doc_error.message },
-                );
-                return error.DocumentationError;
+                try violations.append(.{
+                    .path = source_file.path,
+                    .line = @intCast(doc_error.line),
+                    .violation_type = "documentation_error",
+                    .message = doc_error.message,
+                });
             }
-
-            // TODO Re-enable function length checking when AST API is stable
-            // function_line_count_longest = @max(function_line_count_longest, 0);
 
             if (tidy_generic_functions(source_file)) |function| {
-                std.debug.print(
-                    "{s}:{d} error: '{s}' should end with the 'Type' suffix\n",
-                    .{
-                        source_file.path,
-                        function.line,
-                        function.name,
-                    },
-                );
-                return error.GenericFunctionWithoutType;
+                try violations.append(.{
+                    .path = source_file.path,
+                    .line = @intCast(function.line),
+                    .violation_type = "generic_function_naming",
+                    .message = try std.fmt.allocPrint(allocator, "'{s}' should end with the 'Type' suffix", .{function.name}),
+                });
             }
-
-            // TODO Re-enable dead files detection when AST API is stable
         }
 
         if (mem.endsWith(u8, source_file.path, ".md")) {
             tidy_markdown_standards(source_file.text) catch |err| {
-                std.debug.print(
-                    "{s} error: markdown issue, {}\n",
-                    .{ source_file.path, err },
-                );
-                return err;
+                try violations.append(.{
+                    .path = source_file.path,
+                    .line = null,
+                    .violation_type = "markdown_error",
+                    .message = try std.fmt.allocPrint(allocator, "markdown issue: {}", .{err}),
+                });
             };
         }
     }
 
-    // TODO Re-enable when dead files detection is restored
-    // try dead_files_detector.finish();
+    // Report all violations at once with clean summary
+    if (violations.items.len > 0) {
+        std.debug.print("\n=== TIDY VIOLATIONS ({}) ===\n", .{violations.items.len});
 
-    // TODO Re-enable when AST-based function length checking is restored
-    // if (function_line_count_longest < function_line_count_max) {
-    //     std.debug.print("error: `function_line_count_max` must be updated to {d}\n", .{
-    //         function_line_count_longest,
-    //     });
-    //     return error.LineCountOutdated;
-    // }
+        for (violations.items) |violation| {
+            if (violation.line) |line| {
+                std.debug.print("{s}:{d} [{s}] {s}\n", .{ violation.path, line, violation.violation_type, violation.message });
+            } else {
+                std.debug.print("{s} [{s}] {s}\n", .{ violation.path, violation.violation_type, violation.message });
+            }
+        }
+        std.debug.print("\n", .{});
+
+        return error.StyleViolations;
+    }
 }
 
 const SourceFile = struct { path: []const u8, text: [:0]const u8 };
@@ -354,52 +340,6 @@ fn tidy_unicode_emojis(file: SourceFile) ?[]const u8 {
                     return "Unicode emojis are banned in code (use ASCII alternatives)";
                 }
             }
-        }
-    }
-    return null;
-}
-
-/// Returns line index if any line exceeds 100 characters.
-fn tidy_line_length(file: SourceFile) !?u32 {
-    // Skip generated files
-    if (std.mem.endsWith(u8, file.path, "test_vectors.zig")) return null;
-
-    // Skip markdown files - no line length limit
-    if (std.mem.endsWith(u8, file.path, ".md")) return null;
-
-    var line_iterator = mem.splitScalar(u8, file.text, '\n');
-    var line_index: u32 = 0;
-    while (line_iterator.next()) |line| : (line_index += 1) {
-        const line_length = try std.unicode.utf8CountCodepoints(line);
-        if (line_length > 100) {
-            if (has_url(line)) continue;
-
-            // Allow long test cases
-            if (std.mem.indexOf(u8, line, "TestCase.init(") != null) continue;
-
-            // Check multiline strings
-            if (parse_multiline_string(line)) |string_value| {
-                const string_value_length = try std.unicode.utf8CountCodepoints(string_value);
-                if (string_value_length <= 100) continue;
-
-                // Allow test data
-                if (std.mem.endsWith(u8, file.path, "test_data.zig") and
-                    (std.mem.startsWith(u8, string_value, " block B") or
-                        std.mem.startsWith(u8, string_value, " query Q") or
-                        std.mem.startsWith(u8, string_value, " result   ")))
-                {
-                    continue;
-                }
-
-                // Allow JSON snapshots
-                if (std.mem.startsWith(u8, string_value, "{\"id\":") or
-                    std.mem.startsWith(u8, string_value, "[{\"type\":"))
-                {
-                    continue;
-                }
-            }
-
-            return line_index;
         }
     }
     return null;

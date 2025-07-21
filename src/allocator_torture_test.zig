@@ -89,14 +89,27 @@ const TortureTestStats = struct {
 
     pub fn print_summary(self: *const TortureTestStats, writer: anytype) !void {
         try writer.print("=== Allocator Torture Test Results ===\n");
-        try writer.print("Allocations: {}/{} ({d:.1}% success)\n", .{ self.successful_allocations, self.total_allocations, if (self.total_allocations > 0)
-            @as(f64, @floatFromInt(self.successful_allocations)) * 100.0 / @as(f64, @floatFromInt(self.total_allocations))
+        const alloc_success_rate = if (self.total_allocations > 0)
+            @as(f64, @floatFromInt(self.successful_allocations)) * 100.0 /
+                @as(f64, @floatFromInt(self.total_allocations))
         else
-            0.0 });
-        try writer.print("Frees: {}/{} ({d:.1}% success)\n", .{ self.successful_frees, self.total_frees, if (self.total_frees > 0)
-            @as(f64, @floatFromInt(self.successful_frees)) * 100.0 / @as(f64, @floatFromInt(self.total_frees))
+            0.0;
+        try writer.print("Allocations: {}/{} ({d:.1}% success)\n", .{
+            self.successful_allocations,
+            self.total_allocations,
+            alloc_success_rate,
+        });
+
+        const free_success_rate = if (self.total_frees > 0)
+            @as(f64, @floatFromInt(self.successful_frees)) * 100.0 /
+                @as(f64, @floatFromInt(self.total_frees))
         else
-            0.0 });
+            0.0;
+        try writer.print("Frees: {}/{} ({d:.1}% success)\n", .{
+            self.successful_frees,
+            self.total_frees,
+            free_success_rate,
+        });
         try writer.print("Peak Concurrent: {} allocations\n", .{self.max_concurrent_allocations});
         try writer.print("Peak Memory: {} bytes\n", .{self.peak_bytes_allocated});
         try writer.print("Size Distribution: {} small, {} medium, {} large\n", .{ self.small_allocations, self.medium_allocations, self.large_allocations });
@@ -426,7 +439,7 @@ pub const AllocatorTortureTester = struct {
     }
 
     /// Get current statistics
-    pub fn get_stats(self: *const AllocatorTortureTester) TortureTestStats {
+    pub fn stats(self: *const AllocatorTortureTester) TortureTestStats {
         return self.stats;
     }
 };

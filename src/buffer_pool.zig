@@ -927,8 +927,8 @@ test "PooledAllocator stress test and memory corruption detection" {
 
         // Free in random order to test robustness
         const free_order = [20]usize{
-            19, 0,  15, 7,  3,  11, 18, 2,  9,  14,
-            6,  1,  13, 17, 4,  8,  12, 10, 5,  16,
+            19, 0, 15, 7,  3, 11, 18, 2,  9, 14,
+            6,  1, 13, 17, 4, 8,  12, 10, 5, 16,
         };
         for (free_order) |index| {
             allocator.free(temp_allocations[index]);

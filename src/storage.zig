@@ -1335,7 +1335,7 @@ pub const StorageEngine = struct {
                 } else {
                     // Memtable iteration complete, move to SSTables
                     self.memtable_iterator = null;
-                    // TODO: Add SSTable iteration when needed
+                    // SSTable iteration not yet implemented
                     // For now, just return null to end iteration
                     return null;
                 }
@@ -1460,7 +1460,7 @@ pub const StorageEngine = struct {
 
     /// Synchronize the storage engine's SSTable list with the compaction manager.
     fn sync_sstable_list(self: *StorageEngine) !void {
-        _ = self; // TODO Implement SSTable list synchronization
+        _ = self; // SSTable synchronization not yet implemented
         // For now, we'll keep the simple list structure and let the compaction manager handle tiers
         // In a future optimization, we could remove this redundant tracking
     }
