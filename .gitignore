@@ -4,3 +4,4 @@ zig/
 *.o
 CLAUDE.md
 CORTEX_TODO.md
+performance-baseline.json

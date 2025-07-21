@@ -377,11 +377,13 @@ pub const QueryEngine = struct {
         try query.validate();
 
         // Check if start block exists
-        const start_block = self.storage_engine.find_block_by_id(query.start_block_id) catch |err|
-            switch (err) {
-                storage.StorageError.BlockNotFound => return QueryError.BlockNotFound,
-                else => return err,
-            };
+        const start_block_ptr = self.storage_engine.find_block_by_id(
+            query.start_block_id,
+        ) catch |err| switch (err) {
+            storage.StorageError.BlockNotFound => return QueryError.BlockNotFound,
+            else => return err,
+        };
+        const start_block = start_block_ptr.*;
 
         switch (query.algorithm) {
             .breadth_first => return self.traverse_breadth_first(query, start_block),
@@ -399,7 +401,16 @@ pub const QueryEngine = struct {
         var visited = std.HashMap(
             BlockId,
             void,
-            BlockId.HashMapContext,
+            struct {
+                pub fn hash(ctx: @This(), key: BlockId) u64 {
+                    _ = ctx;
+                    return std.hash_map.hashString(&key.bytes);
+                }
+                pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
+                    _ = ctx;
+                    return a.eql(b);
+                }
+            },
             std.hash_map.default_max_load_percentage,
         ).init(self.allocator);
         defer visited.deinit();
@@ -506,7 +517,16 @@ pub const QueryEngine = struct {
         var visited = std.HashMap(
             BlockId,
             void,
-            BlockId.HashMapContext,
+            struct {
+                pub fn hash(ctx: @This(), key: BlockId) u64 {
+                    _ = ctx;
+                    return std.hash_map.hashString(&key.bytes);
+                }
+                pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
+                    _ = ctx;
+                    return a.eql(b);
+                }
+            },
             std.hash_map.default_max_load_percentage,
         ).init(self.allocator);
         defer visited.deinit();
@@ -625,7 +645,16 @@ pub const QueryEngine = struct {
         visited: *std.HashMap(
             BlockId,
             void,
-            BlockId.HashMapContext,
+            struct {
+                pub fn hash(ctx: @This(), key: BlockId) u64 {
+                    _ = ctx;
+                    return std.hash_map.hashString(&key.bytes);
+                }
+                pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
+                    _ = ctx;
+                    return a.eql(b);
+                }
+            },
             std.hash_map.default_max_load_percentage,
         ),
         current_id: BlockId,
@@ -687,7 +716,16 @@ pub const QueryEngine = struct {
         visited: *std.HashMap(
             BlockId,
             void,
-            BlockId.HashMapContext,
+            struct {
+                pub fn hash(ctx: @This(), key: BlockId) u64 {
+                    _ = ctx;
+                    return std.hash_map.hashString(&key.bytes);
+                }
+                pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
+                    _ = ctx;
+                    return a.eql(b);
+                }
+            },
             std.hash_map.default_max_load_percentage,
         ),
         current_id: BlockId,

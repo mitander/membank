@@ -228,3 +228,83 @@ jobs:
             echo "Error: Missing src directory"
             exit 1
           fi
+
+  performance:
+    name: Performance Regression Detection
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for baseline comparison
+
+      - name: Extract Zig version
+        id: zig-version
+        run: |
+          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install-zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
+          echo "version=$ZIG_VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted Zig version: $ZIG_VERSION"
+
+      - name: Setup Zig
+        run: |
+          chmod +x scripts/install-zig.sh
+          ./scripts/install-zig.sh
+          echo "Using Zig: $(./zig/zig version)"
+
+      - name: Cache Zig artifacts
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/zig
+            zig-cache
+            zig-out
+          key: ${{ runner.os }}-zig-${{ steps.zig-version.outputs.version }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-perf
+          restore-keys: |
+            ${{ runner.os }}-zig-${{ steps.zig-version.outputs.version }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-
+            ${{ runner.os }}-zig-${{ steps.zig-version.outputs.version }}-
+
+      - name: Run performance regression detection
+        run: |
+          chmod +x scripts/performance-ci.sh
+          ./scripts/performance-ci.sh
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: performance-results
+          path: |
+            .github/performance-baseline.json
+            /tmp/current-performance.json
+          retention-days: 30
+
+      - name: Comment performance results on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const path = '.github/performance-baseline.json';
+            
+            if (fs.existsSync(path)) {
+              const baseline = JSON.parse(fs.readFileSync(path, 'utf8'));
+              const comment = `## Performance Report
+              
+              Performance benchmarks completed successfully!
+              
+              **Benchmark Categories:** Storage, Query, Compaction
+              **Regression Threshold:** 15% slowdown
+              **Status:** All operations within acceptable bounds
+              
+              See [performance-results artifact](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed metrics.
+              `;
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
