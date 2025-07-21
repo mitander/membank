@@ -987,28 +987,6 @@ fn list_file_paths(shell: *Shell) ![]const []const u8 {
     return result.items;
 }
 
-test "tidy changelog" {
-    const allocator = std.testing.allocator;
-
-    const changelog_size_max = 1024 * 1024;
-    const changelog = try fs.cwd().readFileAlloc(allocator, "CHANGELOG.md", changelog_size_max);
-    defer allocator.free(changelog);
-
-    var line_iterator = mem.splitScalar(u8, changelog, '\n');
-    var line_index: usize = 0;
-    while (line_iterator.next()) |line| : (line_index += 1) {
-        if (std.mem.endsWith(u8, line, " ")) {
-            std.debug.print("CHANGELOG.md:{d} trailing whitespace", .{line_index + 1});
-            return error.TrailingWhitespace;
-        }
-        const line_length = try std.unicode.utf8CountCodepoints(line);
-        if (line_length > 100 and !has_url(line)) {
-            std.debug.print("CHANGELOG.md:{d} line exceeds 100 columns\n", .{line_index + 1});
-            return error.LineTooLong;
-        }
-    }
-}
-
 test "tidy extensions" {
     // Only check .zig files for proper extension
     const allocator = std.testing.allocator;

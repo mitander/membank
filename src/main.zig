@@ -84,6 +84,7 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "cortexdb_data");
+    defer allocator.free(data_dir);
 
     // Initialize storage engine
     var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
@@ -115,6 +116,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "demo_data");
+    defer allocator.free(data_dir);
 
     // Initialize storage engine
     var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);

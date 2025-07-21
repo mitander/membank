@@ -56,20 +56,22 @@ of unstructured text.
 
 ```bash
 # Build the project (includes running all tests)
-./zig/zig build
+zig build
 
-# Run the development server (in simulation mode)
-./zig/zig build run -- --mode development
+# Run the demo showing storage and query functionality
+zig build && ./zig-out/bin/cortexdb demo
 
-# Run a production server
-./zig/zig build run -- --mode production --data-dir /var/lib/cortexdb
+# Start the CortexDB server
+zig build && ./zig-out/bin/cortexdb server
 
-# Use the CLI to add a new data source
-./zig/zig build run-cli -- add-source --type git --uri \
-    https://github.com/ziglang/zig.git
+# Show version information
+./zig-out/bin/cortexdb version
 
-# Run deterministic simulation tests
-./zig/zig build test
+# Show help
+./zig-out/bin/cortexdb help
+
+# Run comprehensive test suite
+zig build test
 ```
 
 ## Dependencies
@@ -80,16 +82,18 @@ of unstructured text.
 
 ### Setup
 
-CortexDB requires a specific Zig version. Use ./zig/zig to ensure consistency:
+CortexDB requires a specific Zig version. Install the project Zig to ensure consistency:
 
 ```bash
-# Install project Zig (if needed)
+# Install project-specific Zig version (if needed)
 ./scripts/install-zig.sh
 
-# Use project Zig directly
+# Use project Zig directly for consistency
 ./zig/zig build
+./zig/zig build test
 
-# With direnv: `direnv allow` shows reminder to use ./zig/zig
+# Or use system Zig if you have the correct version
+zig build
 ```
 
 ### Workflow
@@ -98,10 +102,14 @@ Quality is enforced through a series of automated checks. Every commit is expect
 these gates.
 
 ```bash
-# Standard workflow
-./zig/zig build
-./zig/zig fmt .
-./zig/zig build test
+# Standard development workflow
+zig build                # Build the project
+zig fmt .               # Format all source files
+zig build test          # Run all tests
+zig build tidy          # Run code quality checks
+
+# Run the demo to test functionality
+zig build && ./zig-out/bin/cortexdb demo
 ```
 
 **Style:** Enforced by `./zig/zig fmt`. All other conventions are documented in `docs/STYLE.md`. We
