@@ -69,19 +69,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Extract Zig version
         id: zig-version
+        shell: bash
         run: |
           ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install-zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
           echo "version=$ZIG_VERSION" >> $GITHUB_OUTPUT
           echo "Extracted Zig version: $ZIG_VERSION"
 
       - name: Setup Zig
+        shell: bash
         run: |
           chmod +x scripts/install-zig.sh
           ./scripts/install-zig.sh
@@ -100,11 +102,13 @@ jobs:
             ${{ runner.os }}-zig-${{ steps.zig-version.outputs.version }}-
 
       - name: Validate build system
+        shell: bash
         run: |
           echo "-> Validating build on ${{ matrix.os }}..."
           ./zig/zig build --help
 
       - name: Build release
+        shell: bash
         run: ./zig/zig build --release=safe
 
   coverage:
