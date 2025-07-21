@@ -1,143 +1,83 @@
 # CortexDB
 
-[![LICENSE](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI Status](https://github.com/mitander/cortexdb/actions/workflows/ci.yml/badge.svg)](https://github.com/mitander/cortexdb/actions)
 
-A structured and deterministic context database for Large Language Models. Built in Zig for
-mission-critical performance and reliability.
+**A fast, deterministic context database for Large Language Models.**
 
-CortexDB provides LLMs with an extensive and auto-updated knowledge base, ensuring they operate
-on fresh, relevant, and well-structured context.
+CortexDB is born from a love for building foundational, high-performance software. It's a new take on a critical piece of the AI puzzle: giving LLMs a brain with a long-term, reliable memory. This is a specialized database, built in Zig with an obsessive focus on performance, simplicity, and rock-solid reliability.
 
-## Architecture
+---
 
-CortexDB is designed as a modular Zig project with strict boundaries between components to
-enable deterministic simulation and testing.
+## What is CortexDB?
 
-```
-cortex-core (Database engine, storage, replication)
-    ├── cortex-vfs (Virtual File System for deterministic I/O)
-    ├── cortex-sim (Deterministic simulation framework)
-    ├── cortex-client (Client library for applications)
-    └── cortex-cli (Command-line interface)
-```
+Modern LLM applications suffer from "context drift." They operate on a tiny, transient window of information, quickly losing track of the bigger picture. CortexDB solves this. It acts as an external knowledge base, feeding the LLM with fresh, relevant, and deeply interconnected context in milliseconds.
 
-**Core Features:**
+Instead of just storing text, CortexDB stores structured knowledge:
 
-- **Structured Context:** Organizes knowledge into versioned "Context Blocks" with typed
-  relationships, forming a queryable knowledge graph.
-- **Auto-Update Engine:** Ingestion pipelines monitor data sources (e.g., Git repositories,
-  documentation sites) and automatically update the context.
-- **Deterministic by Design:** Built on a Virtual File System (VFS) with comprehensive
-  simulation framework, allowing for byte-for-byte reproducible testing of complex
-  distributed scenarios.
-- **Defensive Programming:** Comprehensive assertion framework catches bugs early with
-  strategic runtime checks in debug builds.
-- **Optimized for LLM Retrieval:** Low-latency query engine designed to feed context into
-  LLM prompts efficiently.
-- **Built in Zig:** Guarantees performance, safety, and simplicity through explicit memory
-  management and `comptime` metaphysics.
+*   **Context Blocks:** The atomic unit of knowledge. A block isn't just a string; it's a logical chunk of information—a function, a document paragraph, a configuration setting—with a unique ID, rich metadata, and a version history.
+*   **The Knowledge Graph:** Blocks are linked by typed edges (`IMPORTS`, `DEFINED_IN`, `REFERENCES`). This allows the query engine to traverse relationships, retrieving not just one piece of information, but a rich, interconnected graph of relevant context for the LLM to reason about.
 
-## The CortexDB Model
+## The Philosophy: Why Zig? Why This Way?
 
-CortexDB doesn't just store text; it stores structured knowledge.
+The choice of Zig is deliberate. It reflects a core belief: **simplicity is the prerequisite for reliability.**
 
-- **Context Blocks:** The atomic unit of knowledge. A block can be a function, a class, a
-  document paragraph, or any logical chunk of information. Each block has a unique ID,
-  content, and metadata.
-- **Knowledge Graph:** Blocks are connected via labeled edges (e.g., `IMPORTS`, `DEFINED_IN`,
-  `REFERENCES`), allowing the query engine to traverse relationships and retrieve rich,
-  interconnected context.
+CortexDB is heavily inspired by the design of high-performance financial databases like TigerBeetle. This project is built on a few strong opinions about how to engineer mission-critical software:
 
-This structured approach solves the "context drift" problem where an LLM loses focus in a sea
-of unstructured text.
+1.  **Explicit is Better Than Implicit:** Zig has no hidden control flow and no hidden memory allocations. This forces a level of clarity and discipline that eliminates entire categories of bugs. That's a feature.
+2.  **Performance is Designed, Not Tweaked:** Speed is achieved through architecture, not late-stage optimization hacks. The core engine is single-threaded, uses an event loop for async I/O, and relies on an arena-based memory model to all but eliminate dynamic allocations on the hot path.
+3.  **The Testing Philosophy: Don't Mock, Simulate.** The only way to trust a complex system is to test it holistically. The entire database is built on a Virtual File System (VFS), enabling byte-for-byte reproducible tests of network partitions, disk corruption, and other disasters.
 
-## Usage
+## Quickstart: 3 Steps to Get Going
 
+Get from `git clone` to a running demo in under a minute.
+
+**1. Clone the repo:**
 ```bash
-# Build the project (includes running all tests)
-zig build
-
-# Run the demo showing storage and query functionality
-zig build && ./zig-out/bin/cortexdb demo
-
-# Start the CortexDB server
-zig build && ./zig-out/bin/cortexdb server
-
-# Show version information
-./zig-out/bin/cortexdb version
-
-# Show help
-./zig-out/bin/cortexdb help
-
-# Run comprehensive test suite
-zig build test
+git clone https://github.com/cortexdb/cortexdb.git
+cd cortexdb
 ```
 
-## Dependencies
+**2. Install the toolchain:**
+The included scripts ensure you have the exact Zig version needed for the project.
+```bash
+./scripts/install-zig.sh
+./scripts/setup-hooks.sh
+```
 
-**Required:** None. CortexDB is a self-contained, dependency-free Zig project.
+**3. Build and Run the Demo:**
+This command builds the project, runs all tests, and then executes a demo that showcases the storage engine and query capabilities.
+```bash
+./zig/zig build test && ./zig-out/bin/cortexdb demo
+```
+
+## Core Features
+
+*   **Absurdly Fast:** Designed for low-latency queries to feed context into LLM prompts with minimal overhead.
+*   **Deterministic by Design:** A simulation-first testing framework allows for byte-for-byte reproducible testing of complex distributed scenarios.
+*   **Robust Memory Safety:** A simple, `ArenaAllocator`-based memory model eliminates entire classes of memory corruption bugs by design.
+*   **Log-Structured Merge-Tree:** The storage engine is a custom LSMT optimized for high-volume ingestion and fast writes.
+*   **Self-Contained:** Zero external dependencies. The entire project is pure Zig.
+*   **Defensive Programming:** A comprehensive assertion framework (`src/assert.zig`) catches invariants and logic bugs early in development.
+
+## Project Status
+
+CortexDB is in the **early, active development** phase. The core storage engine, WAL, in-memory index (memtable), and query-by-ID functionality are complete and stable, with a 100% pass rate across the comprehensive test suite.
+
+Current focus is on building out the **Ingestion Pipeline** and a pragmatic **Replication Layer**. See the [Design Document](docs/DESIGN.md) for the full architectural vision.
 
 ## Development
 
-### Setup
+Contributions are welcome. The goal is a frictionless development experience. The single most important command is `zig build test`, which formats, builds, and runs the entire test suite.
 
-CortexDB requires a specific Zig version. Install the project Zig to ensure consistency:
-
-```bash
-# Install project-specific Zig version (if needed)
-./scripts/install-zig.sh
-
-# Use project Zig directly for consistency
-./zig/zig build
-./zig/zig build test
-
-# Or use system Zig if you have the correct version
-zig build
-```
-
-### Workflow
-
-Quality is enforced through a series of automated checks. Every commit is expected to pass
-these gates.
-
-```bash
-# Standard development workflow
-zig build                # Build the project
-zig fmt .               # Format all source files
-zig build test          # Run all tests
-zig build tidy          # Run code quality checks
-
-# Run the demo to test functionality
-zig build && ./zig-out/bin/cortexdb demo
-```
-
-**Style:** Enforced by `./zig/zig fmt`. All other conventions are documented in `docs/STYLE.md`. We
-favor simple interfaces, explicit error handling, and a deep aversion to hidden allocations
-or control flow.
-
-**Testing:** Unit tests, comprehensive assertion framework, and most importantly, deterministic
-simulation scenarios that test the system as a whole under failure conditions including
-network partitions, packet loss, and byzantine faults.
-
-## Implementation Details
-
-- **Engine:** Single-threaded, asynchronous design leveraging Zig's `async/await`. Modeled
-  after high-performance financial databases.
-- **Storage:** A custom log-structured merge-tree (LSMT) tailored for our specific data model.
-  All I/O is batched and routed through the VFS.
-- **VFS (Virtual File System):** A vtable-based interface that abstracts the file system. The
-  production implementation maps to the OS, while the simulation implementation uses an
-  in-memory data structure, enabling deterministic tests with controllable time progression
-  and network conditions.
-- **API:** A simple, high-performance binary protocol for client-server communication.
+For a deeper dive into the workflow, debugging tools, and commit standards, please read the **[Development Guide](docs/DEVELOPMENT.md)**.
 
 ## Documentation
 
-- [Design](docs/DESIGN.md) - Architecture and implementation rationale.
-- [Style](docs/STYLE.md) - Coding standards and conventions.
-- [Architecture](docs/architecture/overview.md) - Detailed architecture specifications.
+*   **[DESIGN.md](docs/DESIGN.md):** The "why." The architecture and philosophy of the project.
+*   **[DEVELOPMENT.md](docs/DEVELOPMENT.md):** The "how." The development workflow, toolchain, and debugging guide.
+*   **[STYLE.md](docs/STYLE.md):** The coding standards and conventions.
 
 ## License
 
-MIT License
+This project is licensed under the **[MIT License](LICENSE)**.

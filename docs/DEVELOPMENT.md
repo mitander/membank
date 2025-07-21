@@ -1,525 +1,149 @@
 # CortexDB Development Guide
 
-Development setup and workflow for CortexDB contributors.
+## 1. Development Philosophy
 
-## Prerequisites
+Welcome to CortexDB. We are building a high-performance, mission-critical database, and our development practices reflect that. Our philosophy is simple:
 
-### Zig Installation
+*   **Simplicity is Non-Negotiable:** We build reliable systems by relentlessly pursuing simplicity. We choose simple, explicit patterns over complex, "magical" abstractions.
+*   **We Don't Mock; We Simulate:** The only way to trust a complex system is to test it holistically. Our primary method of validation is through a deterministic simulation framework that can reproduce the most hostile production environments byte-for-byte.
+*   **The Toolchain Serves the Developer:** Our build system, tests, and scripts are designed to be simple, consistent, and cross-platform. There should be zero friction in writing, testing, and debugging high-quality code.
 
-CortexDB requires Zig 0.15.0 or later.
+## 2. One-Step Setup
 
-**Option 1: Official installer**
+Our goal is a "clone-and-build" developer experience on macOS, Linux, and Windows.
+
+### Step 1: Install Project-Specific Zig
+
+CortexDB depends on a specific version of the Zig toolchain. We provide a script to download it into a local `./zig/` directory. This ensures every developer and the CI environment uses the exact same compiler version, eliminating "works on my machine" issues.
 
 ```bash
-# Download from https://ziglang.org/download/
-# Extract and add to PATH
+# This will download the correct Zig version for your OS/architecture.
+./scripts/install-zig.sh
 ```
 
-**Option 2: Using the project script**
+### Step 2: Install Git Hooks
+
+We enforce code quality and commit message standards automatically. This script installs the necessary pre-commit and commit-msg hooks into your local `.git` directory.
 
 ```bash
-./zig/download.sh
-export PATH="$PWD/zig:$PATH"
+# This script is idempotent and safe to run multiple times.
+./scripts/setup-hooks.sh
 ```
 
-**Option 3: Package manager**
+That's it. You are now ready to build CortexDB.
+
+*(Optional)*: If you use `direnv`, running `direnv allow` will show a reminder to use the project's `./zig/zig` executable.
+
+## 3. The Core Workflow: The Inner Loop
+
+We have one command that represents the "inner loop" for 95% of development. It builds the project, runs all tests (unit, simulation, and integration), and verifies all code quality and formatting standards.
+
+**This is the only command you need to run before committing:**
 
 ```bash
-# macOS
-brew install zig
-
-# Ubuntu/Debian (may be outdated)
-sudo apt install zig
-
-# Arch Linux
-sudo pacman -S zig
-```
-
-Verify installation:
-
-```bash
-zig version
-# Should output: 0.15.0 or later
-```
-
-### Git Configuration
-
-Configure git for conventional commits:
-
-```bash
-git config --local commit.template .gitmessage
-```
-
-## Getting Started
-
-### Clone and Build
-
-```bash
-git clone <repository-url>
-cd cortexdb
-
-# Build the project
-./zig/zig build
-
-# Run tests
 ./zig/zig build test
-
-# Run all quality checks
-./zig/zig build tidy
 ```
 
-### Project Structure
+A successful run of this command means your code is correct, well-formatted, and meets our style guidelines. If it passes, you can commit with confidence.
 
-```
-cortexdb/
-├── src/                    # Source code
-│   ├── main.zig           # Main entry point
-│   ├── query_engine.zig   # Query processing
-│   ├── block_storage.zig  # Block storage
-│   ├── benchmark.zig      # Performance testing
-│   ├── fuzz.zig          # Fuzz testing
-│   ├── tidy.zig          # Code quality checker
-│   └── shell.zig         # Shell utilities
-├── tests/                 # Test files
-├── docs/                  # Documentation
-│   ├── DESIGN.md         # Architecture design
-│   ├── STYLE.md          # Code style guide
-│   └── DEVELOPMENT.md    # This file
-├── build.zig             # Build configuration
-├── build.zig.zon         # Dependencies
-└── .github/workflows/    # CI configuration
-```
+## 4. The Toolchain: A Deeper Dive
 
-## Development Workflow
+While `zig build test` is your primary tool, the build system provides several granular targets for specific tasks.
 
-### Daily Workflow
+### Building
 
-1. **Pull latest changes**
-
-   ```bash
-   git pull origin main
-   ```
-
-2. **Create feature branch**
-
-   ```bash
-   git checkout -b feat/your-feature-name
-   ```
-
-3. **Write code following style guide**
-   - Read `docs/STYLE.md` for conventions
-   - Use `./zig/zig fmt` for formatting
-   - Follow project naming conventions
-
-4. **Test your changes**
-
-   ```bash
-   # Format code
-   ./zig/zig fmt .
-
-   # Build and test
-   ./zig/zig build
-   ./zig/zig build test
-
-   # Run quality checks
-   ./zig/zig build tidy
-
-   # Run specific test
-   ./zig/zig test src/your_file.zig
-   ```
-
-5. **Commit with conventional format**
-   ```bash
-   git add .
-   git commit -m "feat(component): add new functionality"
-   ```
-
-### Build Targets
-
-```bash
-# Basic build
-./zig/zig build
-
-# Run all tests
-./zig/zig build test
-
-# Code quality checks
-./zig/zig build tidy
-
-# Performance benchmarks
-./zig/zig build benchmark
-zig run zig-out/bin/benchmark block_validation
-
-# Fuzz testing
-./zig/zig build fuzz
-./zig/zig run zig-out/bin/fuzz storage 10000
-
-# Individual tools
-zig run src/main.zig -- version
-zig run src/tidy.zig
-```
+*   **Standard Debug Build:** `zig build` (or `./zig/zig build`)
+    This is the default. It builds with full safety checks and debug symbols, ideal for development.
+*   **Optimized Release Build:** `zig build -Doptimize=ReleaseFast`
+    This builds a highly optimized binary for performance testing and production use. Assertions are disabled.
 
 ### Testing
 
-#### Unit Tests
+*   **Run All Tests:** `zig build test`
+    As mentioned, this is the canonical way to validate your changes.
+*   **Run a Specific Test File:** `zig test tests/wal_recovery_test.zig`
+    Useful for focusing on a single component during development.
 
-```bash
-# Run all tests
-./zig/zig build test
+### Code Quality (`tidy`)
 
-# Run specific file tests
-./zig/zig test src/query_engine.zig
+Our `tidy` check is an aggressive linter that enforces CortexDB-specific style and correctness patterns beyond what `zig fmt` provides. It is automatically run as part of `zig build test`.
 
-# Verbose test output
-./zig/zig build test -- --summary all
-```
+*   **Run Manually:** `zig build tidy`
 
-#### Simulation Tests
+### Benchmarking & Fuzzing
 
-```bash
-# Run deterministic simulations
-./zig/zig build test  # Includes simulation tests
+*   **Run Benchmarks:**
+    ```bash
+    zig build benchmark
+    ./zig-out/bin/benchmark all
+    ```
+*   **Run Fuzz Tests:**
+    ```bash
+    zig build fuzz
+    ./zig-out/bin/fuzz all 10000
+    ```
 
-# Run only simulation tests
-./zig/zig test tests/simulation_test.zig
+## 5. Debugging Memory Issues: A Pragmatic Guide
 
-# Test individual components
-./zig/zig test src/vfs.zig
-./zig/zig test src/simulation.zig
-./zig/zig test src/assert.zig
-```
+We follow a tiered approach to debugging, escalating from simple checks to powerful tools.
 
-#### Integration Tests
+### Tier 1: `GeneralPurposeAllocator` with Safety Checks
 
-```bash
-# Run comprehensive integration tests
-./zig/zig build integration
-
-# Run all tests including integration
-./zig/zig build test
-```
-
-The integration test suite provides comprehensive validation of the complete system:
-
-**Test Coverage:**
-- **Full Data Lifecycle**: Ingestion → Storage → Query → Compaction
-- **Concurrent Operations**: Interleaved reads/writes with realistic timing
-- **Recovery Scenarios**: WAL recovery and data consistency validation
-- **Performance Characteristics**: Large-scale workloads with latency validation
-
-**Key Test Scenarios:**
-1. **integration: full data lifecycle with compaction**
-   - 1200+ blocks to trigger SSTable flushes
-   - Graph relationships and edge traversal
-   - Block updates and deletions
-   - Performance metrics validation
-
-2. **integration: concurrent storage and query operations**
-   - Multi-node simulation with network latency
-   - Interleaved read/write workloads
-   - Batch query validation
-
-3. **integration: storage recovery and query consistency**
-   - WAL-based recovery simulation
-   - Data consistency across restarts
-   - Query result formatting validation
-
-4. **integration: large scale performance characteristics**
-   - 2000+ blocks with realistic content sizes
-   - Write throughput: >1000 blocks/second
-   - Query throughput: >10k queries/second
-   - Latency targets: <1ms writes, <100μs reads
-
-#### Benchmarks
-
-```bash
-# All benchmarks
-zig run zig-out/bin/benchmark all
-
-# Specific benchmarks
-zig run zig-out/bin/benchmark block_validation
-zig run zig-out/bin/benchmark query_processing
-```
-
-#### Fuzz Testing
-
-```bash
-# All targets
-zig run zig-out/bin/fuzz all 50000
-
-# Specific targets
-zig run zig-out/bin/fuzz block_parser 10000 42
-zig run zig-out/bin/fuzz query_engine 10000 123
-zig run zig-out/bin/fuzz storage 10000 456
-```
-
-### Code Quality
-
-#### Formatting
-
-```bash
-# Check formatting
-./zig/zig fmt --check .
-
-# Auto-format
-./zig/zig fmt .
-```
-
-#### Style Checks
-
-```bash
-# Run tidy checker
-./zig/zig build tidy
-./zig/zig run src/tidy.zig
-
-# Manual pattern checks
-grep -r "std\.BoundedArray" src/  # Should be empty
-grep -r "FIXME\|TODO" src/       # Should be resolved
-```
-
-#### Documentation
-
-- All public functions must have doc comments
-- Use `///` for function documentation
-- Use `//!` for module documentation
-- Focus on "why" not "what" in comments
-
-### Performance Guidelines
-
-#### Memory Management
-
-- Pass allocators explicitly
-- Use arena allocators for temporary data
-- Avoid allocations in hot paths
-- Document allocation patterns
-
-#### Assertions
-
-CortexDB uses a comprehensive assertion framework (`src/assert.zig`) for defensive programming:
-
-```bash
-# Test assertion framework
-./zig/zig test src/assert.zig
-```
-
-Key assertion patterns:
-
-- `assert()` - General condition with descriptive message (debug only)
-- `assert_always()` - Critical safety assertions (always active)
-- `assert_buffer_bounds()` - Prevent buffer overflows
-- `assert_range()` - Validate value ranges
-- `assert_state_valid()` - Verify state transitions
-- `assert_index_valid()` - Check array bounds
-
-Example usage:
+This is your first and most effective tool for finding memory corruption. If a test is crashing unpredictably, modify it to use a `GeneralPurposeAllocator` with `.safety = true`.
 
 ```zig
-const assert = @import("assert.zig");
+test "my component is crashing" {
+    // Before: const allocator = std.testing.allocator;
 
-pub fn process_block(block: []const u8, index: usize) !void {
-    assert.assert_not_empty(block, "Block cannot be empty", .{});
-    assert.assert_index_valid(index, MAX_BLOCKS, "Index {} >= {}", .{ index, MAX_BLOCKS });
-    assert.assert_buffer_bounds(0, block.len, BUFFER_SIZE, "Buffer overflow: {} > {}", .{ block.len, BUFFER_SIZE });
+    // The fix: Create a safety-enabled GPA for this test.
+    var gpa = std.heap.GeneralPurposeAllocator(.{.safety = true}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
-    // Process block...
+    // ... rest of the test code ...
 }
 ```
 
-#### Deterministic Behavior
+This will instantly detect most use-after-free, double-free, and buffer overflow bugs, causing a panic at the *exact line* of the corruption. This turns most debugging sessions into a 5-minute fix.
 
-CortexDB uses a deterministic simulation framework for testing:
+### Tier 2: LLVM AddressSanitizer (ASan)
 
-**Key Components:**
-
-- **VFS Interface** (`src/vfs.zig`): Abstracts file system operations
-- **Simulation Harness** (`src/simulation.zig`): Manages nodes, network, and time
-- **Simulation VFS** (`src/simulation_vfs.zig`): In-memory file system for testing
-
-**Writing Simulation Tests:**
-
-```zig
-test "network partition scenario" {
-    const allocator = std.testing.allocator;
-
-    // Initialize with fixed seed for reproducibility
-    var sim = try Simulation.init(allocator, 0xDEADBEEF);
-    defer sim.deinit();
-
-    // Add nodes
-    const node1 = try sim.add_node();
-    const node2 = try sim.add_node();
-
-    // Script scenario
-    sim.tick_multiple(10);
-    sim.partition_nodes(node1, node2);
-    sim.tick_multiple(50);
-    sim.heal_partition(node1, node2);
-    sim.tick_multiple(30);
-
-    // Assert final state
-    const state = try sim.get_node_filesystem_state(node1);
-    defer /* cleanup state */;
-
-    // Verify deterministic results
-    try std.testing.expect(state.len > 0);
-}
-```
-
-**Simulation Capabilities:**
-
-- Network partitions with `partition_nodes()` / `heal_partition()`
-- Packet loss with `set_packet_loss()`
-- Network latency with `set_latency()`
-- Time-controlled filesystem operations
-- Deterministic PRNG for reproducible results
-
-## Contributing
-
-### Code Review Checklist
-
-Before submitting PR:
-
-- [ ] Code follows `docs/STYLE.md`
-- [ ] All tests pass
-- [ ] Tidy checks pass
-- [ ] No debug prints in library code
-- [ ] Documentation updated
-- [ ] Benchmarks considered
-- [ ] Simulation tests added if applicable
-
-### Commit Message Format
-
-```
-type(scope): subject
-
-Longer description if needed.
-
-- List specific changes
-- Include breaking change notes
-- Reference issues if applicable
-```
-
-Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
-
-### Pull Request Process
-
-1. **Create descriptive PR title**
-
-   ```
-   feat(query): implement semantic search with vector embeddings
-   ```
-
-2. **Fill out PR template**
-   - Description of changes
-   - Testing performed
-   - Performance impact
-   - Breaking changes
-
-3. **Ensure CI passes**
-   - All tests pass
-   - Code quality checks pass
-   - No security warnings
-
-4. **Request review**
-   - Tag relevant maintainers
-   - Respond to feedback promptly
-   - Update documentation as needed
-
-## Debugging
-
-### Common Issues
-
-**Build failures:**
+For more subtle bugs, we use the AddressSanitizer built into the LLVM toolchain.
 
 ```bash
-# Clean build artifacts
-rm -rf zig-cache zig-out
-
-# Update Zig if needed
-./zig/download.sh
+# Run the entire test suite with ASan enabled.
+./zig/zig build test -fsanitize-address
 ```
 
-**Test failures:**
+ASan will halt the program on any memory error and provide a detailed report, including the stack trace of the invalid access, the allocation site, and the deallocation site.
 
-```bash
-# Run with verbose output
-./zig/zig build test -- --summary all
+## 6. Contributing
 
-# Run single test
-./zig/zig test src/failing_module.zig
+### Commit Messages
+
+We enforce the **Conventional Commits** standard via a `commit-msg` hook. This allows for automated changelog generation and clear project history. Your commit messages must follow this pattern.
+
+**The Anatomy of a Great CortexDB Commit:**
+
+A great commit has a good message, and a description includign a short description and bullet points of relevant changes.
+
+```
+    feat(ci): add automated performance regression detection
+
+    Add CI pipeline to detect performance regressions automatically.
+
+    - Add JSON output format to benchmark framework (--json flag)
+    - Create performance-ci.sh script with 15% slowdown threshold
+    - Integrate performance job into GitHub Actions workflow
+    - Store baseline in .github/performance-baseline.json
+    - Shell-based detection using jq/awk (no Python dependency)
+    - Upload performance artifacts and comment on PRs
+    - Fail CI when operations are >15% slower than baseline
 ```
 
-**Tidy violations:**
+### Pull Requests
 
-```bash
-# See specific violations
-./zig/zig run src/tidy.zig
-
-# Fix formatting
-./zig/zig fmt .
-
-# Check naming conventions in STYLE.md
-```
-
-### Debug Builds
-
-```bash
-# Debug build with assertions
-./zig/zig build -Doptimize=Debug
-
-# Release build for performance testing
-./zig/zig build -Doptimize=ReleaseFast
-```
-
-### Profiling
-
-```bash
-# Build with profiling
-zig build -Doptimize=ReleaseFast
-
-# Profile with perf (Linux)
-perf record ./zig-out/bin/benchmark all
-perf report
-
-# Profile with Instruments (macOS)
-instruments -t "Time Profiler" ./zig-out/bin/benchmark all
-```
-
-## Architecture Overview
-
-### Core Components
-
-- **Query Engine**: Semantic and structural query processing
-- **Block Storage**: Immutable block storage with content addressing
-- **Simulation**: Deterministic testing framework
-- **Shell**: Git integration and command execution
-
-### Design Principles
-
-- **Explicit over clever**: Code should be immediately readable
-- **Performance aware**: Consider allocations and hot paths
-- **Defensive programming**: Assert invariants liberally
-- **Deterministic testing**: All code must work in simulation
-
-### Performance Targets
-
-- Block validation: < 1ms per block
-- Query processing: < 10ms for typical queries
-- Memory usage: < 100MB for 1M blocks
-- Zero allocations in hot paths
-
-## Resources
-
-- [Zig Language Reference](https://ziglang.org/documentation/master/)
-- [Style Guide](docs/STYLE.md)
-- [A Philosophy of Software Design](https://web.stanford.edu/~ouster/cgi-bin/book.php)
-- [CortexDB Design Document](docs/DESIGN.md)
-
-## Getting Help
-
-- Check existing issues and discussions
-- Review documentation in `docs/`
-- Ask questions in development chat
-- Create detailed bug reports with reproduction steps
-
-Remember: CortexDB aims for production-grade quality. Every decision should be justified by RFC compliance, performance measurement, maintainability improvement, or user-facing benefit.
+1.  **Title:** Use a conventional commit title (e.g., `feat(query): add metadata filtering`).
+2.  **Description:** Clearly explain the "why" behind your change. Link to any relevant issues.
+3.  **Checklist:** Ensure `zig build test` passes locally before submitting.
+4.  **CI:** Ensure all automated checks pass on your PR.
