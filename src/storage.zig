@@ -9,7 +9,6 @@ const assert = std.debug.assert;
 const vfs = @import("vfs");
 const context_block = @import("context_block");
 const sstable = @import("sstable");
-const buffer_pool = @import("buffer_pool");
 const error_context = @import("error_context");
 const concurrency = @import("concurrency");
 const tiered_compaction = @import("tiered_compaction");
@@ -197,15 +196,7 @@ pub const WALEntry = struct {
         const expected_checksum = calculate_checksum(entry_type, payload);
         if (checksum != expected_checksum) {
             allocator.free(payload);
-            return error_context.wal_error(
-                StorageError.InvalidChecksum,
-                error_context.WALContext{
-                    .operation = "deserialize_wal_entry",
-                    .checksum_expected = expected_checksum,
-                    .checksum_actual = checksum,
-                    .entry_type = @intFromEnum(entry_type),
-                },
-            );
+            return StorageError.InvalidChecksum;
         }
 
         return WALEntry{
@@ -274,8 +265,8 @@ pub const BlockIndex = struct {
         BlockIdContext,
         std.hash_map.default_max_load_percentage,
     ),
-
-    allocator: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
+    backing_allocator: std.mem.Allocator,
 
     pub const BlockIdContext = struct {
         pub fn hash(self: @This(), block_id: BlockId) u64 {
@@ -292,34 +283,34 @@ pub const BlockIndex = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) BlockIndex {
+        const arena = std.heap.ArenaAllocator.init(allocator);
+
         return BlockIndex{
             .blocks = std.HashMap(
                 BlockId,
                 ContextBlock,
                 BlockIdContext,
                 std.hash_map.default_max_load_percentage,
-            ).init(allocator),
-            .allocator = allocator,
+            ).init(allocator), // HashMap uses stable backing allocator
+            .arena = arena,
+            .backing_allocator = allocator,
         };
     }
 
     pub fn deinit(self: *BlockIndex) void {
-        // Simple HashMap cleanup - accept some string leaks for stability
-        const num_blocks = self.blocks.count();
-        std.log.debug("BlockIndex.deinit: Cleaning up {} blocks", .{num_blocks});
-
+        // Clean up HashMap (uses backing allocator) then arena content
         self.blocks.deinit();
-        std.log.debug("BlockIndex.deinit: Complete", .{});
+        self.arena.deinit();
     }
 
     pub fn put_block(self: *BlockIndex, block: ContextBlock) !void {
-        // Simple implementation - accept string leaks for stability
+        const arena_allocator = self.arena.allocator();
         const cloned_block = ContextBlock{
             .id = block.id,
             .version = block.version,
-            .source_uri = try self.allocator.dupe(u8, block.source_uri),
-            .metadata_json = try self.allocator.dupe(u8, block.metadata_json),
-            .content = try self.allocator.dupe(u8, block.content),
+            .source_uri = try arena_allocator.dupe(u8, block.source_uri),
+            .metadata_json = try arena_allocator.dupe(u8, block.metadata_json),
+            .content = try arena_allocator.dupe(u8, block.content),
         };
 
         try self.blocks.put(block.id, cloned_block);
@@ -330,12 +321,15 @@ pub const BlockIndex = struct {
     }
 
     pub fn remove_block(self: *BlockIndex, block_id: BlockId) void {
-        // Simple removal - accept string leaks for stability
         _ = self.blocks.remove(block_id);
     }
 
     pub fn block_count(self: *const BlockIndex) u32 {
         return @intCast(self.blocks.count());
+    }
+
+    pub fn clear(self: *BlockIndex) void {
+        self.blocks.clearRetainingCapacity();
     }
 };
 
@@ -355,7 +349,8 @@ const GraphEdgeIndex = struct {
         BlockIdContext,
         std.hash_map.default_max_load_percentage,
     ),
-    allocator: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
+    backing_allocator: std.mem.Allocator,
 
     const BlockIdContext = struct {
         pub fn hash(self: @This(), block_id: BlockId) u64 {
@@ -372,28 +367,28 @@ const GraphEdgeIndex = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) GraphEdgeIndex {
+        const arena = std.heap.ArenaAllocator.init(allocator);
+
         return GraphEdgeIndex{
             .outgoing_edges = std.HashMap(
                 BlockId,
                 std.ArrayList(GraphEdge),
                 BlockIdContext,
                 std.hash_map.default_max_load_percentage,
-            ).init(allocator),
+            ).init(allocator), // HashMap uses stable backing allocator
             .incoming_edges = std.HashMap(
                 BlockId,
                 std.ArrayList(GraphEdge),
                 BlockIdContext,
                 std.hash_map.default_max_load_percentage,
-            ).init(allocator),
-            .allocator = allocator,
+            ).init(allocator), // HashMap uses stable backing allocator
+            .arena = arena,
+            .backing_allocator = allocator,
         };
     }
 
     pub fn deinit(self: *GraphEdgeIndex) void {
-        // Clean up all edge data and HashMap structures
-        std.log.debug("GraphEdgeIndex.deinit: Cleaning up edge indexes", .{});
-
-        // Clean up ArrayLists in the HashMaps
+        // Clean up ArrayLists then HashMap then arena
         var outgoing_iter = self.outgoing_edges.iterator();
         while (outgoing_iter.next()) |entry| {
             entry.value_ptr.deinit();
@@ -405,21 +400,23 @@ const GraphEdgeIndex = struct {
 
         self.outgoing_edges.deinit();
         self.incoming_edges.deinit();
-        std.log.debug("GraphEdgeIndex.deinit: Complete", .{});
+        self.arena.deinit();
     }
 
     pub fn put_edge(self: *GraphEdgeIndex, edge: GraphEdge) !void {
+        const arena_allocator = self.arena.allocator();
+
         // Add to outgoing edges index
         var outgoing_result = try self.outgoing_edges.getOrPut(edge.source_id);
         if (!outgoing_result.found_existing) {
-            outgoing_result.value_ptr.* = std.ArrayList(GraphEdge).init(self.allocator);
+            outgoing_result.value_ptr.* = std.ArrayList(GraphEdge).init(arena_allocator);
         }
         try outgoing_result.value_ptr.append(edge);
 
         // Add to incoming edges index
         var incoming_result = try self.incoming_edges.getOrPut(edge.target_id);
         if (!incoming_result.found_existing) {
-            incoming_result.value_ptr.* = std.ArrayList(GraphEdge).init(self.allocator);
+            incoming_result.value_ptr.* = std.ArrayList(GraphEdge).init(arena_allocator);
         }
         try incoming_result.value_ptr.append(edge);
     }
@@ -451,11 +448,6 @@ const GraphEdgeIndex = struct {
         if (self.incoming_edges.fetchRemove(block_id)) |kv| {
             kv.value.deinit();
         }
-
-        // Note: This implementation is complete due to bidirectional indexing.
-        // Each edge is stored in both outgoing_edges (by source_id) and incoming_edges
-        // (by target_id). Removing from both indices ensures all edges involving this
-        // block are cleaned up.
     }
 
     /// Get total edge count.
@@ -800,9 +792,7 @@ const GraphEdgeIndex = struct {
 
 /// Storage engine state.
 pub const StorageEngine = struct {
-    backing_allocator: std.mem.Allocator, // Original allocator
-    arena: std.heap.ArenaAllocator, // Owns all persistent allocations
-    arena_allocator: std.mem.Allocator, // Arena allocator interface
+    backing_allocator: std.mem.Allocator,
     vfs: VFS,
     data_dir: []const u8,
     index: BlockIndex,
@@ -812,8 +802,6 @@ pub const StorageEngine = struct {
     compaction_manager: TieredCompactionManager,
     next_sstable_id: u32,
     initialized: bool,
-    buffer_pool: *buffer_pool.BufferPool,
-    pooled_allocator: buffer_pool.PooledAllocator,
     storage_metrics: StorageMetrics,
 
     /// Initialize a new storage engine instance.
@@ -822,63 +810,52 @@ pub const StorageEngine = struct {
         filesystem: VFS,
         data_dir: []const u8,
     ) !StorageEngine {
-        // Create arena for all persistent allocations
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        const arena_allocator = arena.allocator();
+        // Clone data_dir with backing allocator for simplicity
+        const owned_data_dir = try allocator.dupe(u8, data_dir);
 
-        // Clone data_dir into arena (owned by engine)
-        const owned_data_dir = try arena_allocator.dupe(u8, data_dir);
-
-        var engine = StorageEngine{
+        const engine = StorageEngine{
             .backing_allocator = allocator,
-            .arena = arena,
-            .arena_allocator = arena_allocator,
             .vfs = filesystem,
             .data_dir = owned_data_dir,
-            .index = undefined, // Will be initialized after buffer pool
-            .graph_index = undefined, // Will be initialized after buffer pool
+            .index = BlockIndex.init(allocator),
+            .graph_index = GraphEdgeIndex.init(allocator),
             .wal_file = null,
-            .sstables = std.ArrayList([]const u8).init(arena_allocator),
+            .sstables = std.ArrayList([]const u8).init(allocator),
             .compaction_manager = TieredCompactionManager.init(
-                arena_allocator,
+                allocator,
                 filesystem,
                 owned_data_dir,
             ),
             .next_sstable_id = 0,
             .initialized = false,
-            .buffer_pool = try allocator.create(buffer_pool.BufferPool),
-            .pooled_allocator = undefined, // Will be set after buffer_pool init
             .storage_metrics = StorageMetrics.init(),
         };
-
-        // Initialize buffer pool with backing allocator (for hot path performance)
-        engine.buffer_pool.* = try buffer_pool.BufferPool.init(allocator);
-
-        // Initialize pooled allocator after buffer pool is ready
-        engine.pooled_allocator = buffer_pool.PooledAllocator.init(engine.buffer_pool, allocator);
-
-        // Initialize indexes with backing allocator for proper memory management
-        engine.index = BlockIndex.init(allocator);
-        engine.graph_index = GraphEdgeIndex.init(allocator);
 
         return engine;
     }
 
     /// Clean up storage engine resources.
     pub fn deinit(self: *StorageEngine) void {
+        concurrency.assert_main_thread();
         if (self.wal_file) |*file| {
             file.close() catch {};
         }
 
-        // Clean up indexes first (uses backing allocator)
+        // Clean up SSTable paths
+        for (self.sstables.items) |sstable_path| {
+            self.backing_allocator.free(sstable_path);
+        }
+        self.sstables.deinit();
+
+        // Clean up indexes
         self.index.deinit();
         self.graph_index.deinit();
 
-        // Clean up buffer pool (allocated with backing allocator)
-        self.backing_allocator.destroy(self.buffer_pool);
+        // Clean up compaction manager
+        self.compaction_manager.deinit();
 
-        // Arena cleanup - frees data_dir and other misc allocations
-        self.arena.deinit();
+        // Clean up data_dir
+        self.backing_allocator.free(self.data_dir);
     }
 
     /// Initialize storage engine by creating necessary directories and files.
@@ -1058,12 +1035,8 @@ pub const StorageEngine = struct {
             }
         }
 
-        // Track failed read
         _ = self.storage_metrics.read_errors.fetchAdd(1, .monotonic);
-        return error_context.storage_error(
-            StorageError.BlockNotFound,
-            error_context.block_context("find_block_exhaustive_search", block_id),
-        );
+        return StorageError.BlockNotFound;
     }
 
     /// Delete a Context Block by ID.
@@ -1257,8 +1230,7 @@ pub const StorageEngine = struct {
         self.next_sstable_id += 1;
 
         // Clear the in-memory index (blocks are now persisted in SSTable)
-        self.index.deinit();
-        self.index = BlockIndex.init(self.backing_allocator);
+        self.index.clear();
 
         std.log.info(
             "Flushed {} blocks to SSTable: {s} (size: {} bytes)",
@@ -1355,10 +1327,8 @@ pub const StorageEngine = struct {
 
         const serialized_size = WALEntry.HEADER_SIZE + entry.payload.len;
 
-        // Use pooled allocator for optimal memory management
-        const pooled_alloc = (&self.pooled_allocator).allocator();
-        const buffer = try pooled_alloc.alloc(u8, serialized_size);
-        defer pooled_alloc.free(buffer);
+        const buffer = try self.backing_allocator.alloc(u8, serialized_size);
+        defer self.backing_allocator.free(buffer);
 
         const written = try entry.serialize(buffer);
         assert(written == serialized_size);
@@ -1476,15 +1446,13 @@ pub const StorageEngine = struct {
         const file_size = try file.file_size();
         if (file_size == 0) return 0; // Empty file
 
-        // Use pooled allocator for recovery operations
-        const pooled_alloc = (&self.pooled_allocator).allocator();
-        const file_content = pooled_alloc.alloc(u8, file_size) catch |err| {
+        const file_content = self.backing_allocator.alloc(u8, file_size) catch |err| {
             return error_context.storage_error(
                 err,
                 error_context.file_context("allocate_wal_recovery_buffer", file_path),
             );
         };
-        defer pooled_alloc.free(file_content);
+        defer self.backing_allocator.free(file_content);
 
         _ = try file.read(file_content);
 
@@ -1606,7 +1574,7 @@ test "BlockIndex basic operations" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var index = BlockIndex.init(allocator);
+    var index = try BlockIndex.init(allocator);
     defer index.deinit();
 
     // Test empty index

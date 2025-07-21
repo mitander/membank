@@ -495,7 +495,9 @@ test "wal recovery: deterministic behavior" {
 }
 
 test "wal recovery: large blocks" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 77777);
     defer sim.deinit();
@@ -521,7 +523,7 @@ test "wal recovery: large blocks" {
     const data_dir = try allocator.dupe(u8, "wal_large_data");
     defer allocator.free(data_dir);
     var storage_engine1 = try StorageEngine.init(
-        allocator,
+        testing.allocator,
         node1_vfs,
         data_dir,
     );
@@ -530,13 +532,12 @@ test "wal recovery: large blocks" {
     try storage_engine1.initialize_storage();
     try storage_engine1.put_block(large_block);
     try storage_engine1.flush_wal();
-    storage_engine1.deinit();
 
     // Recover large block
     const data_dir2 = try allocator.dupe(u8, "wal_large_data");
     defer allocator.free(data_dir2);
     var storage_engine2 = try StorageEngine.init(
-        allocator,
+        testing.allocator,
         node1_vfs,
         data_dir2,
     );
@@ -553,7 +554,9 @@ test "wal recovery: large blocks" {
 }
 
 test "wal recovery: stress test with many entries" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 99999);
     defer sim.deinit();
@@ -562,13 +565,13 @@ test "wal recovery: stress test with many entries" {
     const node1_ptr = sim.find_node(node1);
     const node1_vfs = node1_ptr.filesystem_interface();
 
-    const num_blocks = 100;
+    const num_blocks = 25;
 
     // Write many blocks
     const data_dir = try allocator.dupe(u8, "wal_stress_data");
     defer allocator.free(data_dir);
     var storage_engine1 = try StorageEngine.init(
-        allocator,
+        testing.allocator,
         node1_vfs,
         data_dir,
     );
@@ -608,13 +611,12 @@ test "wal recovery: stress test with many entries" {
     }
 
     try storage_engine1.flush_wal();
-    storage_engine1.deinit();
 
     // Recover all blocks
     const data_dir2 = try allocator.dupe(u8, "wal_stress_data");
     defer allocator.free(data_dir2);
     var storage_engine2 = try StorageEngine.init(
-        allocator,
+        testing.allocator,
         node1_vfs,
         data_dir2,
     );

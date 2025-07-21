@@ -32,9 +32,7 @@ test "buffer pool integration: memory safety under repeated operations" {
         const node_ptr = sim.find_node(node);
         const vfs_interface = node_ptr.filesystem_interface();
 
-        const data_dir = try allocator.dupe(u8, "buffer_pool_test");
-
-        var engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+        var engine = try StorageEngine.init(allocator, vfs_interface, "buffer_pool_test");
         defer engine.deinit();
 
         try engine.initialize_storage();
@@ -116,9 +114,7 @@ test "buffer pool integration: HashMap stability stress test" {
     const node_ptr = sim.find_node(node);
     const vfs_interface = node_ptr.filesystem_interface();
 
-    const data_dir = try allocator.dupe(u8, "hashmap_stress_test");
-
-    var engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var engine = try StorageEngine.init(allocator, vfs_interface, "hashmap_stress_test");
     defer engine.deinit();
 
     try engine.initialize_storage();
@@ -220,7 +216,9 @@ test "buffer pool integration: HashMap stability stress test" {
 }
 
 test "buffer pool integration: WAL recovery with mixed allocations" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 0xCAFEBABE);
     defer sim.deinit();
@@ -231,8 +229,11 @@ test "buffer pool integration: WAL recovery with mixed allocations" {
 
     // Create storage engine and add blocks
     {
-        const data_dir = try allocator.dupe(u8, "wal_buffer_pool_test");
-        var engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+        var engine = try StorageEngine.init(
+            testing.allocator,
+            vfs_interface,
+            "wal_buffer_pool_test",
+        );
         defer engine.deinit();
 
         try engine.initialize_storage();
@@ -272,8 +273,11 @@ test "buffer pool integration: WAL recovery with mixed allocations" {
 
     // Create new storage engine and recover from WAL
     {
-        const data_dir2 = try allocator.dupe(u8, "wal_buffer_pool_test");
-        var engine2 = try StorageEngine.init(allocator, vfs_interface, data_dir2);
+        var engine2 = try StorageEngine.init(
+            testing.allocator,
+            vfs_interface,
+            "wal_buffer_pool_test",
+        );
         defer engine2.deinit();
 
         try engine2.initialize_storage();

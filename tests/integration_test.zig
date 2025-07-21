@@ -35,12 +35,10 @@ test "integration: full data lifecycle with compaction" {
     const node1_vfs = node1_ptr.filesystem_interface();
 
     // Initialize storage and query engines
-    const data_dir = try allocator.dupe(u8, "integration_test_data");
-    defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        data_dir,
+        "integration_test_data",
     );
     defer storage_engine.deinit();
 
@@ -295,7 +293,7 @@ test "integration: concurrent storage and query operations" {
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        try allocator.dupe(u8, "concurrent_test_data"),
+        "concurrent_test_data",
     );
     defer storage_engine.deinit();
 
@@ -424,7 +422,7 @@ test "integration: storage recovery and query consistency" {
         var storage_engine1 = try StorageEngine.init(
             allocator,
             node1_vfs,
-            try allocator.dupe(u8, "recovery_consistency_data"),
+            "recovery_consistency_data",
         );
         defer storage_engine1.deinit();
 
@@ -481,7 +479,7 @@ test "integration: storage recovery and query consistency" {
         var storage_engine2 = try StorageEngine.init(
             allocator,
             node1_vfs,
-            try allocator.dupe(u8, "recovery_consistency_data"),
+            "recovery_consistency_data",
         );
         defer storage_engine2.deinit();
 
@@ -545,7 +543,9 @@ test "integration: storage recovery and query consistency" {
 }
 
 test "integration: large scale performance characteristics" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 0xDEADBEEF);
     defer sim.deinit();
@@ -557,9 +557,9 @@ test "integration: large scale performance characteristics" {
     const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = try StorageEngine.init(
-        allocator,
+        testing.allocator,
         node1_vfs,
-        try allocator.dupe(u8, "large_scale_data"),
+        "large_scale_data",
     );
     defer storage_engine.deinit();
 

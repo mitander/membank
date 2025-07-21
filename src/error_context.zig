@@ -57,7 +57,7 @@ pub const StorageContext = struct {
             try writer.print(", entry_type={}", .{etype});
         }
 
-        try writer.print(" }}");
+        try writer.print(" }}", .{});
     }
 };
 
@@ -101,7 +101,7 @@ pub const WALContext = struct {
             try writer.print(", checksum_actual=0x{X}", .{act});
         }
 
-        try writer.print(" }}");
+        try writer.print(" }}", .{});
     }
 };
 
@@ -133,7 +133,7 @@ pub const BufferContext = struct {
             try writer.print(", buffer_type=\"{s}\"", .{btype});
         }
 
-        try writer.print(" }}");
+        try writer.print(" }}", .{});
     }
 };
 

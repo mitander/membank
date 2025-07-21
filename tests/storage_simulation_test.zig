@@ -36,12 +36,10 @@ test "storage stress: high volume writes during network partition" {
     const node1_ptr = sim.find_node(node1);
     const node1_vfs = node1_ptr.filesystem_interface();
 
-    const data_dir = try allocator.dupe(u8, "storage_data");
-    defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        data_dir,
+        "storage_data",
     );
     defer storage_engine.deinit();
 
@@ -109,12 +107,10 @@ test "storage recovery: WAL corruption simulation" {
     const node1_ptr = sim.find_node(node1);
     const node1_vfs = node1_ptr.filesystem_interface();
 
-    const data_dir = try allocator.dupe(u8, "recovery_data");
-    defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        data_dir,
+        "recovery_data",
     );
 
     try storage_engine.initialize_storage();
@@ -149,12 +145,10 @@ test "storage recovery: WAL corruption simulation" {
     storage_engine.deinit();
 
     // Simulate system restart by creating new storage engine instance with same directory
-    const data_dir2 = try allocator.dupe(u8, "recovery_data");
-    defer allocator.free(data_dir2);
     var storage_engine2 = try StorageEngine.init(
         allocator,
         node1_vfs,
-        data_dir2,
+        "recovery_data",
     );
     defer storage_engine2.deinit();
 
@@ -197,7 +191,7 @@ test "storage limits: large block handling" {
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        try allocator.dupe(u8, "large_data"),
+        "large_data",
     );
     defer storage_engine.deinit();
 
@@ -246,7 +240,7 @@ test "storage concurrency: rapid block updates" {
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        try allocator.dupe(u8, "rapid_data"),
+        "rapid_data",
     );
     defer storage_engine.deinit();
 
@@ -298,7 +292,7 @@ test "storage integrity: duplicate block handling" {
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        try allocator.dupe(u8, "dup_data"),
+        "dup_data",
     );
     defer storage_engine.deinit();
 
@@ -351,7 +345,7 @@ test "storage edges: graph relationship persistence" {
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        try allocator.dupe(u8, "graph_data"),
+        "graph_data",
     );
     defer storage_engine.deinit();
 
@@ -443,7 +437,7 @@ test "storage performance: batch operations under load" {
     var storage_engine = try StorageEngine.init(
         allocator,
         node1_vfs,
-        try allocator.dupe(u8, "batch_data"),
+        "batch_data",
     );
     defer storage_engine.deinit();
 
@@ -501,7 +495,9 @@ test "storage performance: batch operations under load" {
 }
 
 test "storage robustness: invalid data handling" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 0x1FADA7);
     defer sim.deinit();
@@ -513,9 +509,9 @@ test "storage robustness: invalid data handling" {
     const node1_vfs = node1_ptr.filesystem_interface();
 
     var storage_engine = try StorageEngine.init(
-        allocator,
+        std.testing.allocator,
         node1_vfs,
-        try allocator.dupe(u8, "invalid_data"),
+        "invalid_data",
     );
     defer storage_engine.deinit();
 

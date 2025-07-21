@@ -18,15 +18,11 @@ const BlockId = context_block.BlockId;
 const Simulation = simulation.Simulation;
 
 test "memory isolation: single test with 25 storage cycles" {
-    // Use GeneralPurposeAllocator to avoid test framework corruption
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    // Run 25 complete storage cycles within a single test
-    // This exceeds the ~15 test threshold where corruption occurs
     var cycle: u32 = 0;
     while (cycle < 25) : (cycle += 1) {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const allocator = arena.allocator();
         std.log.debug("Starting storage cycle {}", .{cycle});
 
         var sim = try Simulation.init(allocator, 0xDEADBEEF + cycle);
@@ -42,7 +38,7 @@ test "memory isolation: single test with 25 storage cycles" {
         const data_dir_owned = try allocator.dupe(u8, data_dir);
         defer allocator.free(data_dir_owned);
 
-        var engine = try StorageEngine.init(allocator, vfs, data_dir_owned);
+        var engine = try StorageEngine.init(testing.allocator, vfs, data_dir_owned);
         defer engine.deinit();
 
         try engine.initialize_storage();
@@ -55,16 +51,19 @@ test "memory isolation: single test with 25 storage cycles" {
             std.mem.writeInt(u64, id_bytes[0..8], cycle, .little);
             std.mem.writeInt(u64, id_bytes[8..16], block_num, .little);
 
+            const content = try std.fmt.allocPrint(
+                allocator,
+                "Block {} in cycle {}",
+                .{ block_num, cycle },
+            );
+            defer allocator.free(content);
+
             const block = ContextBlock{
                 .id = BlockId{ .bytes = id_bytes },
                 .version = 1,
-                .source_uri = try allocator.dupe(u8, "test://isolation"),
-                .content = try std.fmt.allocPrint(
-                    allocator,
-                    "Block {} in cycle {}",
-                    .{ block_num, cycle },
-                ),
-                .metadata_json = try allocator.dupe(u8, "{\"test\": true}"),
+                .source_uri = "test://isolation",
+                .content = content,
+                .metadata_json = "{\"test\": true}",
             };
 
             try engine.put_block(block);
@@ -86,10 +85,9 @@ test "memory isolation: single test with 25 storage cycles" {
 }
 
 test "memory isolation: HashMap operations under stress" {
-    // Use GeneralPurposeAllocator to avoid test framework corruption
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     // Stress test the HashMap operations specifically
     var sim = try Simulation.init(allocator, 0xFEEDFACE);
@@ -99,10 +97,7 @@ test "memory isolation: HashMap operations under stress" {
     const node_ptr = sim.find_node(node);
     const vfs = node_ptr.filesystem_interface();
 
-    const data_dir = try allocator.dupe(u8, "hashmap_stress");
-    // Note: StorageEngine will take ownership and free this in deinit()
-
-    var engine = try StorageEngine.init(allocator, vfs, data_dir);
+    var engine = try StorageEngine.init(testing.allocator, vfs, "hashmap_stress");
     defer engine.deinit();
 
     try engine.initialize_storage();
@@ -113,12 +108,15 @@ test "memory isolation: HashMap operations under stress" {
         var id_bytes: [16]u8 = undefined;
         std.mem.writeInt(u128, &id_bytes, i, .little);
 
+        const content = try std.fmt.allocPrint(allocator, "HashMap stress block {}", .{i});
+        defer allocator.free(content);
+
         const block = ContextBlock{
             .id = BlockId{ .bytes = id_bytes },
             .version = 1,
-            .source_uri = try allocator.dupe(u8, "test://hashmap"),
-            .content = try std.fmt.allocPrint(allocator, "HashMap stress block {}", .{i}),
-            .metadata_json = try allocator.dupe(u8, "{\"test\": true}"),
+            .source_uri = "test://hashmap",
+            .content = content,
+            .metadata_json = "{\"test\": true}",
         };
 
         try engine.put_block(block);
