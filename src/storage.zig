@@ -1312,6 +1312,48 @@ pub const StorageEngine = struct {
         return self.graph_index.traverse_bidirectional(start_id, options, allocator);
     }
 
+    /// Iterator for all blocks in storage (memtable and SSTables).
+    pub const BlockIterator = struct {
+        engine: *const StorageEngine,
+        memtable_iterator: ?std.HashMap(BlockId, ContextBlock, struct {
+            pub fn hash(ctx: @This(), key: BlockId) u64 {
+                _ = ctx;
+                return std.hash_map.hashString(&key.bytes);
+            }
+            pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
+                _ = ctx;
+                return a.eql(b);
+            }
+        }, std.hash_map.default_max_load_percentage).Iterator,
+
+        /// Get the next block in the iteration.
+        pub fn next(self: *BlockIterator) !?ContextBlock {
+            // First iterate through memtable blocks
+            if (self.memtable_iterator) |*iterator| {
+                if (iterator.next()) |entry| {
+                    return entry.value_ptr.*;
+                } else {
+                    // Memtable iteration complete, move to SSTables
+                    self.memtable_iterator = null;
+                    // TODO: Add SSTable iteration when needed
+                    // For now, just return null to end iteration
+                    return null;
+                }
+            } else {
+                // Already finished with memtable, and SSTable iteration not implemented yet
+                return null;
+            }
+        }
+    };
+
+    /// Get an iterator for all blocks in storage.
+    pub fn iterate_all_blocks(self: *const StorageEngine) BlockIterator {
+        return BlockIterator{
+            .engine = self,
+            .memtable_iterator = self.index.blocks.iterator(),
+        };
+    }
+
     /// Flush WAL to disk.
     pub fn flush_wal(self: *StorageEngine) !void {
         const start_time = std.time.nanoTimestamp();

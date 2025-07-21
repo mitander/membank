@@ -4,7 +4,6 @@ const std = @import("std");
 const CoreModules = struct {
     assert: *std.Build.Module,
     vfs: *std.Build.Module,
-    // buffer_pool: *std.Build.Module,  // TEMPORARY: Removed for simplification
     context_block: *std.Build.Module,
     error_context: *std.Build.Module,
     concurrency: *std.Build.Module,
@@ -25,12 +24,6 @@ fn create_core_modules(b: *std.Build) CoreModules {
     const vfs_module = b.createModule(.{
         .root_source_file = b.path("src/vfs.zig"),
     });
-
-    // TEMPORARY: BufferPool removed for simplification
-    // Can be re-added later after core stability is proven
-    // const buffer_pool_module = b.createModule(.{
-    //     .root_source_file = b.path("src/buffer_pool.zig"),
-    // });
 
     const context_block_module = b.createModule(.{
         .root_source_file = b.path("src/context_block.zig"),
@@ -82,7 +75,6 @@ fn create_core_modules(b: *std.Build) CoreModules {
     storage_module.addImport("vfs", vfs_module);
     storage_module.addImport("context_block", context_block_module);
     storage_module.addImport("sstable", sstable_module);
-    // storage_module.addImport("buffer_pool", buffer_pool_module);  // TEMPORARY: Removed
     storage_module.addImport("error_context", error_context_module);
     storage_module.addImport("concurrency", concurrency_module);
     storage_module.addImport("tiered_compaction", tiered_compaction_module);
@@ -97,7 +89,6 @@ fn create_core_modules(b: *std.Build) CoreModules {
     return CoreModules{
         .assert = assert_module,
         .vfs = vfs_module,
-        // .buffer_pool = buffer_pool_module,  // TEMPORARY: Removed
         .context_block = context_block_module,
         .error_context = error_context_module,
         .concurrency = concurrency_module,
@@ -113,7 +104,6 @@ fn create_core_modules(b: *std.Build) CoreModules {
 fn add_all_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     module.addImport("assert", core_modules.assert);
     module.addImport("vfs", core_modules.vfs);
-    // module.addImport("buffer_pool", core_modules.buffer_pool);  // TEMPORARY: Removed
     module.addImport("context_block", core_modules.context_block);
     module.addImport("error_context", core_modules.error_context);
     module.addImport("concurrency", core_modules.concurrency);
@@ -129,7 +119,6 @@ fn add_test_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     // Common imports for test files
     module.addImport("assert", core_modules.assert);
     module.addImport("vfs", core_modules.vfs);
-    // module.addImport("buffer_pool", core_modules.buffer_pool);  // TEMPORARY: Removed
     module.addImport("context_block", core_modules.context_block);
     module.addImport("simulation", core_modules.simulation);
     module.addImport("simulation_vfs", core_modules.simulation_vfs);
@@ -201,12 +190,6 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/memory_isolation_test.zig",
             .description = "Memory isolation tests - single test with multiple cycles",
         },
-        // TEMPORARY: BufferPool tests disabled for simplification
-        // .{
-        //     .name = "buffer_pool_integration",
-        //     .source_file = "tests/buffer_pool_integration_test.zig",
-        //     .description = "buffer pool integration tests",
-        // },
         .{
             .name = "integration",
             .source_file = "tests/integration_test.zig",

@@ -5,7 +5,10 @@
 //! and WAL operations.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("assert");
+
+// Alias for backward compatibility with existing code
+const debug_assert = std.debug.assert;
 
 /// Magic number to identify buffer pool allocations
 const POOL_ALLOCATION_MAGIC: u32 = 0xBEEF_CAFE;
@@ -79,7 +82,7 @@ pub const PooledBuffer = struct {
     }
 
     pub fn slice(self: PooledBuffer, len: usize) []u8 {
-        assert(len <= self.data.len);
+        debug_assert(len <= self.data.len);
         return self.data[0..len];
     }
 };
@@ -136,20 +139,68 @@ pub const PooledAllocator = struct {
     ) void {
         if (bytes.len == 0) return;
 
-        // Check if this is a pool allocation by address range
+        // Enhanced validation: Check if this is a pool allocation by address range
         if (self.pool.is_pool_allocation(bytes.ptr)) {
-            // This is a pool allocation - extract header and return to pool
+            // This is a pool allocation - validate header and return to pool
             const header_ptr = @as(
                 *AllocationHeader,
                 @ptrFromInt(@intFromPtr(bytes.ptr) - AllocationHeader.SIZE),
             );
+
+            // Runtime validation: Verify allocation header integrity
+            if (!header_ptr.is_valid()) {
+                // Critical error: corrupted allocation header detected
+                assert.assert_always(
+                    false,
+                    "PooledAllocator: Corrupted allocation header. Magic: 0x{X}, expected: 0x{X}",
+                    .{ header_ptr.magic, POOL_ALLOCATION_MAGIC },
+                );
+                unreachable;
+            }
+
+            // Runtime validation: Verify alignment consistency
+            const user_addr = @intFromPtr(bytes.ptr);
+            const alignment_bytes = @as(usize, 1) << @intFromEnum(alignment);
+            if (user_addr % alignment_bytes != 0) {
+                // Alignment mismatch: the allocation was requested with different alignment
+                assert.assert_always(
+                    false,
+                    "PooledAllocator: Alignment violation. Address: 0x{X}, align: {}, rem: {}",
+                    .{ user_addr, alignment_bytes, user_addr % alignment_bytes },
+                );
+                unreachable;
+            }
+
+            // Runtime validation: Verify size class bounds
+            const expected_size = header_ptr.size_class.size();
+            if (bytes.len > expected_size) {
+                assert.assert_always(
+                    false,
+                    "PooledAllocator: Size mismatch. Freeing {} bytes from {}-byte size class",
+                    .{ bytes.len, expected_size },
+                );
+                unreachable;
+            }
+
             const header_as_bytes = @as([*]u8, @ptrCast(header_ptr));
             const original_buffer = header_as_bytes[0 .. bytes.len + AllocationHeader.SIZE];
             self.pool.free_to_class(header_ptr.size_class, original_buffer);
             return;
         }
 
-        // Not a pool allocation, use fallback allocator with proper alignment
+        // Not a pool allocation - validate alignment before delegating to fallback
+        const user_addr = @intFromPtr(bytes.ptr);
+        const alignment_bytes = @as(usize, 1) << @intFromEnum(alignment);
+        if (user_addr % alignment_bytes != 0) {
+            assert.assert_always(
+                false,
+                "PooledAllocator: Heap alignment violation. Address: 0x{X}, align: {}",
+                .{ user_addr, alignment_bytes },
+            );
+            unreachable;
+        }
+
+        // Delegate to fallback allocator with proper alignment validation
         self.fallback_allocator.vtable.free(
             self.fallback_allocator.ptr,
             bytes,
@@ -178,17 +229,58 @@ pub const PooledAllocator = struct {
     ) ?[*]u8 {
         const self: *PooledAllocator = @ptrCast(@alignCast(ctx));
 
+        // Runtime validation: Verify reasonable allocation size
+        if (len > MAX_BUFFER_SIZE * 2) {
+            // Extremely large allocation - likely a bug or attack
+            assert.assert_always(
+                false,
+                "PooledAllocator: Suspiciously large allocation request: {} bytes (max pool: {})",
+                .{ len, MAX_BUFFER_SIZE },
+            );
+            return null;
+        }
+
         // Try pool allocation first (with header space)
         if (self.pool.acquire_buffer(len + AllocationHeader.SIZE)) |pooled_buffer| {
             const raw_buffer = pooled_buffer.data;
 
+            // Runtime validation: Verify buffer pool returned valid buffer
+            if (raw_buffer.len < AllocationHeader.SIZE + len) {
+                assert.assert_always(
+                    false,
+                    "PooledAllocator: Buffer pool returned undersized buffer: {} < {}",
+                    .{ raw_buffer.len, AllocationHeader.SIZE + len },
+                );
+                return null;
+            }
+
             const header_ptr: *AllocationHeader = @ptrCast(@alignCast(raw_buffer.ptr));
             header_ptr.* = AllocationHeader.init(pooled_buffer.size_class);
 
+            // Runtime validation: Verify header was properly initialized
+            if (!header_ptr.is_valid()) {
+                assert.assert_always(
+                    false,
+                    "PooledAllocator: Failed to initialize allocation header properly",
+                    .{},
+                );
+                return null;
+            }
+
             const user_ptr = @as([*]u8, @ptrCast(raw_buffer.ptr)) + AllocationHeader.SIZE;
             const alignment_bytes = @as(usize, 1) << @intFromEnum(ptr_align);
-            if (@intFromPtr(user_ptr) % alignment_bytes != 0) {
-                // Alignment not satisfied, fallback to heap
+            const user_addr = @intFromPtr(user_ptr);
+
+            // Runtime validation: Verify alignment is satisfied
+            if (user_addr % alignment_bytes != 0) {
+                // Enhanced error reporting for alignment failures
+                assert.assert(
+                    false,
+                    "PooledAllocator: Pool align failure. Addr: 0x{X}, req: {}, rem: {}",
+                    .{ user_addr, alignment_bytes, user_addr % alignment_bytes },
+                );
+
+                // Fallback to heap allocation for alignment requirements
                 return self.fallback_allocator.vtable.alloc(
                     self.fallback_allocator.ptr,
                     len,
@@ -197,16 +289,49 @@ pub const PooledAllocator = struct {
                 );
             }
 
+            // Runtime validation: Final consistency check
+            assert.assert(
+                @intFromPtr(user_ptr) >= @intFromPtr(raw_buffer.ptr) + AllocationHeader.SIZE,
+                "PooledAllocator: User pointer calculation error",
+                .{},
+            );
+
             return user_ptr;
         }
 
-        // Fallback to heap allocation
-        return self.fallback_allocator.vtable.alloc(
+        // Pool allocation failed - validate parameters before fallback
+        const alignment_bytes = @as(usize, 1) << @intFromEnum(ptr_align);
+        if (alignment_bytes > 4096) {
+            // Unusually large alignment requirement
+            assert.assert(
+                false,
+                "PooledAllocator: Excessive alignment requirement: {} bytes",
+                .{alignment_bytes},
+            );
+        }
+
+        // Fallback to heap allocation with parameter validation
+        const result = self.fallback_allocator.vtable.alloc(
             self.fallback_allocator.ptr,
             len,
             ptr_align,
             ret_addr,
         );
+
+        // Runtime validation: Verify fallback allocator returned properly aligned memory
+        if (result) |ptr| {
+            const result_addr = @intFromPtr(ptr);
+            if (result_addr % alignment_bytes != 0) {
+                assert.assert_always(
+                    false,
+                    "PooledAllocator: Fallback align violation. Addr: 0x{X}, req: {}",
+                    .{ result_addr, alignment_bytes },
+                );
+                return null;
+            }
+        }
+
+        return result;
     }
 
     fn resize_impl(
@@ -218,24 +343,90 @@ pub const PooledAllocator = struct {
     ) bool {
         const self: *PooledAllocator = @ptrCast(@alignCast(ctx));
 
-        // Check if this is a pool allocation
-        const header_ptr = @as(
-            *AllocationHeader,
-            @ptrFromInt(@intFromPtr(buf.ptr) - AllocationHeader.SIZE),
-        );
-        if (@intFromPtr(header_ptr) >= 0x1000 and header_ptr.is_valid()) {
-            // Pool allocations cannot be resized
+        // Runtime validation: Verify input parameters
+        if (buf.len == 0 and new_len > 0) {
+            assert.assert_always(
+                false,
+                "PooledAllocator: Invalid resize from empty buffer to {} bytes",
+                .{new_len},
+            );
             return false;
         }
 
-        // Delegate to fallback allocator
-        return self.fallback_allocator.vtable.resize(
+        // Runtime validation: Check alignment consistency
+        const user_addr = @intFromPtr(buf.ptr);
+        const alignment_bytes = @as(usize, 1) << @intFromEnum(buf_align);
+        if (user_addr % alignment_bytes != 0) {
+            assert.assert_always(
+                false,
+                "PooledAllocator: Resize alignment violation. Address: 0x{X}, alignment: {}",
+                .{ user_addr, alignment_bytes },
+            );
+            return false;
+        }
+
+        // Enhanced pool allocation detection with bounds checking
+        if (buf.len > 0) {
+            const potential_header_addr = @intFromPtr(buf.ptr) - AllocationHeader.SIZE;
+
+            // Runtime validation: Ensure header pointer is in valid memory range
+            if (potential_header_addr < 0x1000) {
+                assert.assert(
+                    false,
+                    "PooledAllocator: Invalid header address during resize: 0x{X}",
+                    .{potential_header_addr},
+                );
+                return false;
+            }
+
+            const header_ptr = @as(*AllocationHeader, @ptrFromInt(potential_header_addr));
+
+            // Check if this is a valid pool allocation
+            if (self.pool.is_pool_allocation(buf.ptr) and header_ptr.is_valid()) {
+                // Runtime validation: Verify this is actually a pool allocation
+                assert.assert(
+                    header_ptr.magic == POOL_ALLOCATION_MAGIC,
+                    "PooledAllocator: Invalid pool allocation magic during resize. Found: 0x{X}",
+                    .{header_ptr.magic},
+                );
+
+                // Pool allocations cannot be resized - this is intentional design
+                return false;
+            }
+        }
+
+        // Runtime validation: Check for reasonable resize request
+        if (new_len > MAX_BUFFER_SIZE * 4) {
+            assert.assert(
+                false,
+                "PooledAllocator: Excessive resize request: {} bytes (buffer pool max: {})",
+                .{ new_len, MAX_BUFFER_SIZE },
+            );
+        }
+
+        // Delegate to fallback allocator with enhanced error checking
+        const result = self.fallback_allocator.vtable.resize(
             self.fallback_allocator.ptr,
             buf,
             buf_align,
             new_len,
             ret_addr,
         );
+
+        // Runtime validation: If resize succeeded, verify alignment is preserved
+        if (result and new_len > 0) {
+            const new_addr = @intFromPtr(buf.ptr); // buf.ptr should now point to resized memory
+            if (new_addr % alignment_bytes != 0) {
+                assert.assert_always(
+                    false,
+                    "PooledAllocator: Fallback broke align on resize. Addr: 0x{X}, align: {}",
+                    .{ new_addr, alignment_bytes },
+                );
+                return false;
+            }
+        }
+
+        return result;
     }
 
     fn free_impl(ctx: *anyopaque, buf: []u8, buf_align: std.mem.Alignment, ret_addr: usize) void {
@@ -417,7 +608,8 @@ pub const BufferPool = struct {
 
         // Set the bit to mark as free
         const old_mask = free_mask.fetchOr(@as(u8, 1) << @intCast(buf_index), .monotonic);
-        assert((old_mask & (@as(u8, 1) << @intCast(buf_index))) == 0); // Should not already be free
+        // Should not already be free
+        debug_assert((old_mask & (@as(u8, 1) << @intCast(buf_index))) == 0);
     }
 
     /// Allocate from specific size class
@@ -438,7 +630,7 @@ pub const BufferPool = struct {
 
             // Find first set bit (free buffer)
             const buf_index = @ctz(current);
-            assert(buf_index < BUFFERS_PER_CLASS);
+            debug_assert(buf_index < BUFFERS_PER_CLASS);
 
             const new_mask = current & ~(@as(u8, 1) << @intCast(buf_index));
 
@@ -454,7 +646,7 @@ pub const BufferPool = struct {
 
     /// Get buffer at specific index for size class
     fn buffer_at_index(self: *BufferPool, size_class: BufferSizeClass, index: usize) []u8 {
-        assert(index < BUFFERS_PER_CLASS);
+        debug_assert(index < BUFFERS_PER_CLASS);
 
         return switch (size_class) {
             .tiny => &self.tiny_buffers[index],
@@ -480,11 +672,11 @@ pub const BufferPool = struct {
         const buffer_ptr = @intFromPtr(buffer.ptr);
         const buffer_size = size_class.size();
 
-        assert(buffer_ptr >= buffers_start);
+        debug_assert(buffer_ptr >= buffers_start);
         const offset = buffer_ptr - buffers_start;
         const index = offset / buffer_size;
 
-        assert(index < BUFFERS_PER_CLASS);
+        debug_assert(index < BUFFERS_PER_CLASS);
         return index;
     }
 
@@ -591,31 +783,199 @@ test "BufferPool statistics" {
     try std.testing.expectEqual(@as(u64, 1), after_free_stats.deallocations);
 }
 
-// TODO Fix PooledAllocator allocator interface implementation
-// Temporarily disabled due to VTable interface issues and memory corruption
-// test "PooledAllocator safe memory management" {
-//     var pool = try BufferPool.init(std.testing.allocator);
-//     defer pool.deinit();
-//
-//     const pooled_allocator = PooledAllocator.init(&pool, std.testing.allocator);
-//     const allocator = pooled_allocator.allocator();
-//
-//     // Test small allocation that should use pool
-//     const small_memory = try allocator.alloc(u8, 100);
-//     defer allocator.free(small_memory);
-//
-//     // Test large allocation that should use heap
-//     const large_memory = try allocator.alloc(u8, MAX_BUFFER_SIZE + 1000);
-//     defer allocator.free(large_memory);
-//
-//     // Verify both work correctly
-//     @memset(small_memory, 0xAA);
-//     @memset(large_memory, 0xBB);
-//
-//     // Check that patterns are preserved
-//     try std.testing.expectEqual(@as(u8, 0xAA), small_memory[50]);
-//     try std.testing.expectEqual(@as(u8, 0xBB), large_memory[500]);
-// }
+test "PooledAllocator safe memory management" {
+    var pool = try BufferPool.init(std.testing.allocator);
+    defer pool.deinit();
+
+    var pooled_allocator = PooledAllocator.init(&pool, std.testing.allocator);
+    const allocator = pooled_allocator.allocator();
+
+    // Test small allocation that should use pool
+    const small_memory = try allocator.alloc(u8, 100);
+    defer allocator.free(small_memory);
+
+    // Test large allocation that should use heap
+    const large_memory = try allocator.alloc(u8, MAX_BUFFER_SIZE + 1000);
+    defer allocator.free(large_memory);
+
+    // Verify both work correctly
+    @memset(small_memory, 0xAA);
+    @memset(large_memory, 0xBB);
+
+    // Check that patterns are preserved
+    try std.testing.expectEqual(@as(u8, 0xAA), small_memory[50]);
+    try std.testing.expectEqual(@as(u8, 0xBB), large_memory[500]);
+}
+
+test "PooledAllocator VTable interface comprehensive testing" {
+    var pool = try BufferPool.init(std.testing.allocator);
+    defer pool.deinit();
+
+    var pooled_allocator = PooledAllocator.init(&pool, std.testing.allocator);
+    const allocator = pooled_allocator.allocator();
+
+    // Test multiple allocations of different sizes
+    var allocations: [10][]u8 = undefined;
+
+    // Mix of pool and heap allocations
+    const sizes = [_]usize{
+        100,
+        2000,
+        50,
+        MAX_BUFFER_SIZE + 100,
+        500,
+        10000,
+        200,
+        300,
+        1000,
+        MAX_BUFFER_SIZE + 500,
+    };
+
+    for (sizes, 0..) |size, i| {
+        allocations[i] = try allocator.alloc(u8, size);
+
+        // Write pattern to verify memory integrity
+        @memset(allocations[i], @intCast(i + 1));
+
+        // Verify the pattern was written correctly
+        try std.testing.expectEqual(@as(u8, @intCast(i + 1)), allocations[i][0]);
+        try std.testing.expectEqual(@as(u8, @intCast(i + 1)), allocations[i][size - 1]);
+    }
+
+    // Free all allocations in reverse order
+    for (0..10) |i| {
+        const index = 9 - i;
+        allocator.free(allocations[index]);
+    }
+
+    // Test different typed allocations
+    const int_array = try allocator.alloc(u32, 25);
+    defer allocator.free(int_array);
+
+    const float_array = try allocator.alloc(f64, 50);
+    defer allocator.free(float_array);
+
+    // Test alignment requirements
+    const aligned_memory = try allocator.alignedAlloc(u8, 16, 128);
+    defer allocator.free(aligned_memory);
+
+    // Verify alignment
+    try std.testing.expectEqual(@as(usize, 0), @intFromPtr(aligned_memory.ptr) % 16);
+}
+
+test "PooledAllocator resize operation" {
+    var pool = try BufferPool.init(std.testing.allocator);
+    defer pool.deinit();
+
+    var pooled_allocator = PooledAllocator.init(&pool, std.testing.allocator);
+    const allocator = pooled_allocator.allocator();
+
+    // Test heap allocation resize (pool allocations cannot be resized)
+    var large_memory = try allocator.alloc(u8, MAX_BUFFER_SIZE + 1000);
+    @memset(large_memory, 0xCD);
+
+    const new_size = MAX_BUFFER_SIZE + 2000;
+
+    // Attempt to resize - should work for heap allocations
+    const resize_success = allocator.resize(large_memory, new_size);
+
+    if (resize_success) {
+        // If resize succeeded, verify the data is still intact within original bounds
+        try std.testing.expectEqual(@as(u8, 0xCD), large_memory[100]);
+        // Update slice to reflect new size - this is safe because resize succeeded
+        large_memory = large_memory.ptr[0..new_size];
+    }
+
+    // Test that pool allocations cannot be resized
+    const small_memory = try allocator.alloc(u8, 100);
+    const pool_resize_success = allocator.resize(small_memory, 200);
+
+    // Pool allocations should not be resizable
+    try std.testing.expectEqual(false, pool_resize_success);
+
+    allocator.free(small_memory);
+    allocator.free(large_memory);
+}
+
+test "PooledAllocator stress test and memory corruption detection" {
+    var pool = try BufferPool.init(std.testing.allocator);
+    defer pool.deinit();
+
+    var pooled_allocator = PooledAllocator.init(&pool, std.testing.allocator);
+    const allocator = pooled_allocator.allocator();
+
+    // Stress test: Allocate and free many buffers rapidly
+    for (0..100) |iteration| {
+        var temp_allocations: [20][]u8 = undefined;
+
+        // Allocate different sizes
+        for (0..20) |i| {
+            const size = (i + 1) * 100;
+            temp_allocations[i] = try allocator.alloc(u8, size);
+
+            // Write unique pattern per iteration and allocation
+            const pattern: u8 = @intCast((iteration * 20 + i) % 256);
+            @memset(temp_allocations[i], pattern);
+        }
+
+        // Verify patterns before freeing
+        for (temp_allocations, 0..) |allocation, i| {
+            const expected_pattern: u8 = @intCast((iteration * 20 + i) % 256);
+            try std.testing.expectEqual(expected_pattern, allocation[0]);
+            try std.testing.expectEqual(expected_pattern, allocation[allocation.len - 1]);
+        }
+
+        // Free in random order to test robustness
+        const free_order = [20]usize{
+            19, 0,  15, 7,  3,  11, 18, 2,  9,  14,
+            6,  1,  13, 17, 4,  8,  12, 10, 5,  16,
+        };
+        for (free_order) |index| {
+            allocator.free(temp_allocations[index]);
+        }
+    }
+}
+
+test "PooledAllocator mixed allocation patterns" {
+    var pool = try BufferPool.init(std.testing.allocator);
+    defer pool.deinit();
+
+    var pooled_allocator = PooledAllocator.init(&pool, std.testing.allocator);
+    const allocator = pooled_allocator.allocator();
+
+    // Test interleaved pool and heap allocations
+    var pool_allocations: [5][]u8 = undefined;
+    var heap_allocations: [5][]u8 = undefined;
+
+    for (0..5) |i| {
+        // Pool allocation (small size)
+        pool_allocations[i] = try allocator.alloc(u8, 200 + i * 50);
+        @memset(pool_allocations[i], @intCast(i + 1));
+
+        // Heap allocation (large size)
+        heap_allocations[i] = try allocator.alloc(u8, MAX_BUFFER_SIZE + 1000 + i * 500);
+        @memset(heap_allocations[i], @intCast(i + 101));
+    }
+
+    // Verify all allocations are intact
+    for (pool_allocations, 0..) |allocation, i| {
+        try std.testing.expectEqual(@as(u8, @intCast(i + 1)), allocation[0]);
+        try std.testing.expectEqual(@as(u8, @intCast(i + 1)), allocation[allocation.len - 1]);
+    }
+
+    for (heap_allocations, 0..) |allocation, i| {
+        try std.testing.expectEqual(@as(u8, @intCast(i + 101)), allocation[0]);
+        try std.testing.expectEqual(@as(u8, @intCast(i + 101)), allocation[allocation.len - 1]);
+    }
+
+    // Free all allocations
+    for (pool_allocations) |allocation| {
+        allocator.free(allocation);
+    }
+    for (heap_allocations) |allocation| {
+        allocator.free(allocation);
+    }
+}
 
 test "AllocationHeader validation" {
     const header = AllocationHeader.init(.medium);

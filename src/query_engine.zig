@@ -53,6 +53,161 @@ pub const GetBlocksQuery = struct {
     }
 };
 
+/// Enhanced filtering condition for Query Engine V2.
+pub const FilterCondition = union(enum) {
+    /// Match blocks where metadata field equals value
+    metadata_equals: struct {
+        field: []const u8,
+        value: []const u8,
+    },
+    /// Match blocks where metadata field contains substring
+    metadata_contains: struct {
+        field: []const u8,
+        substring: []const u8,
+    },
+    /// Match blocks where content contains substring (case insensitive)
+    content_contains: struct {
+        substring: []const u8,
+    },
+    /// Match blocks from specific source URI pattern
+    source_matches: struct {
+        pattern: []const u8,
+    },
+    /// Match blocks with version in range
+    version_range: struct {
+        min_version: u64,
+        max_version: u64,
+    },
+    /// Logical AND of multiple conditions
+    and_conditions: struct {
+        conditions: []const FilterCondition,
+    },
+    /// Logical OR of multiple conditions
+    or_conditions: struct {
+        conditions: []const FilterCondition,
+    },
+    /// Logical NOT of a condition
+    not_condition: struct {
+        condition: *const FilterCondition,
+    },
+
+    /// Check if a context block matches this filter condition.
+    pub fn matches(self: FilterCondition, block: ContextBlock, allocator: std.mem.Allocator) !bool {
+        return switch (self) {
+            .metadata_equals => |cond| {
+                return try match_metadata_equals(
+                    block.metadata_json,
+                    cond.field,
+                    cond.value,
+                    allocator,
+                );
+            },
+            .metadata_contains => |cond| {
+                return try match_metadata_contains(
+                    block.metadata_json,
+                    cond.field,
+                    cond.substring,
+                    allocator,
+                );
+            },
+            .content_contains => |cond| {
+                return match_content_contains(block.content, cond.substring);
+            },
+            .source_matches => |cond| {
+                return match_source_pattern(block.source_uri, cond.pattern);
+            },
+            .version_range => |cond| {
+                return block.version >= cond.min_version and block.version <= cond.max_version;
+            },
+            .and_conditions => |cond| {
+                for (cond.conditions) |sub_condition| {
+                    if (!try sub_condition.matches(block, allocator)) return false;
+                }
+                return true;
+            },
+            .or_conditions => |cond| {
+                for (cond.conditions) |sub_condition| {
+                    if (try sub_condition.matches(block, allocator)) return true;
+                }
+                return false;
+            },
+            .not_condition => |cond| {
+                return !try cond.condition.matches(block, allocator);
+            },
+        };
+    }
+};
+
+/// Enhanced query for filtering blocks by complex criteria.
+pub const FilteredQuery = struct {
+    /// Filter condition to apply
+    filter: FilterCondition,
+    /// Maximum number of results to return
+    max_results: u32,
+    /// Sort results by version (ascending/descending)
+    sort_by_version: ?enum { ascending, descending },
+    /// Include metadata in results for analysis
+    include_metadata_analysis: bool,
+
+    /// Default maximum results
+    const DEFAULT_MAX_RESULTS = 1000;
+    /// Absolute maximum results to prevent memory exhaustion
+    const ABSOLUTE_MAX_RESULTS = 10000;
+
+    /// Create a basic filtered query.
+    pub fn init(filter: FilterCondition) FilteredQuery {
+        return FilteredQuery{
+            .filter = filter,
+            .max_results = DEFAULT_MAX_RESULTS,
+            .sort_by_version = null,
+            .include_metadata_analysis = false,
+        };
+    }
+
+    /// Validate filtered query parameters.
+    pub fn validate(self: FilteredQuery) !void {
+        if (self.max_results == 0) return QueryError.EmptyQuery;
+        if (self.max_results > ABSOLUTE_MAX_RESULTS) return QueryError.TooManyResults;
+    }
+};
+
+/// Semantic search interface for future external embedding integration.
+pub const SemanticQuery = struct {
+    /// Natural language query string
+    query_text: []const u8,
+    /// Similarity threshold for results (0.0 to 1.0)
+    similarity_threshold: f32,
+    /// Maximum number of results
+    max_results: u32,
+    /// Optional metadata filter to apply before semantic search
+    metadata_filter: ?FilterCondition,
+
+    /// Default similarity threshold
+    const DEFAULT_THRESHOLD: f32 = 0.7;
+    /// Default maximum results
+    const DEFAULT_MAX_RESULTS = 100;
+
+    /// Create a semantic query.
+    pub fn init(query_text: []const u8) SemanticQuery {
+        return SemanticQuery{
+            .query_text = query_text,
+            .similarity_threshold = DEFAULT_THRESHOLD,
+            .max_results = DEFAULT_MAX_RESULTS,
+            .metadata_filter = null,
+        };
+    }
+
+    /// Validate semantic query parameters.
+    pub fn validate(self: SemanticQuery) !void {
+        if (self.query_text.len == 0) return QueryError.EmptyQuery;
+        if (self.similarity_threshold < 0.0 or self.similarity_threshold > 1.0) {
+            return QueryError.InvalidCommand;
+        }
+        if (self.max_results == 0) return QueryError.EmptyQuery;
+        if (self.max_results > FilteredQuery.ABSOLUTE_MAX_RESULTS) return QueryError.TooManyResults;
+    }
+};
+
 /// Traversal direction for graph queries.
 pub const TraversalDirection = enum(u8) {
     /// Follow outgoing edges (from source to targets)
@@ -278,6 +433,204 @@ pub const QueryResult = struct {
     }
 };
 
+/// Enhanced query result with metadata analysis for Query Engine V2.
+pub const FilteredQueryResult = struct {
+    /// Retrieved context blocks
+    blocks: []const ContextBlock,
+    /// Total number of blocks found
+    count: u32,
+    /// Metadata field analysis (field -> frequency)
+    metadata_analysis: ?std.HashMap([]const u8, u32),
+    /// Query execution statistics
+    blocks_scanned: u32,
+    blocks_matched: u32,
+    execution_time_ns: u64,
+    /// Allocator used for result memory
+    allocator: std.mem.Allocator,
+
+    /// Create filtered query result.
+    pub fn init(
+        allocator: std.mem.Allocator,
+        blocks: []const ContextBlock,
+        metadata_analysis: ?std.HashMap([]const u8, u32),
+        blocks_scanned: u32,
+        blocks_matched: u32,
+        execution_time_ns: u64,
+    ) FilteredQueryResult {
+        return FilteredQueryResult{
+            .blocks = blocks,
+            .count = @intCast(blocks.len),
+            .metadata_analysis = metadata_analysis,
+            .blocks_scanned = blocks_scanned,
+            .blocks_matched = blocks_matched,
+            .execution_time_ns = execution_time_ns,
+            .allocator = allocator,
+        };
+    }
+
+    /// Free allocated memory for filtered query results.
+    pub fn deinit(self: FilteredQueryResult) void {
+        for (self.blocks) |block| {
+            block.deinit(self.allocator);
+        }
+        self.allocator.free(self.blocks);
+
+        if (self.metadata_analysis) |*analysis| {
+            var iterator = analysis.iterator();
+            while (iterator.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
+            }
+            analysis.deinit();
+        }
+    }
+
+    /// Format enhanced result with metadata analysis for LLM consumption.
+    pub fn format_for_llm(self: FilteredQueryResult, allocator: std.mem.Allocator) ![]u8 {
+        var result = std.ArrayList(u8).init(allocator);
+        defer result.deinit();
+
+        try result.writer().print("=== FILTERED QUERY RESULT ===\n");
+        try result.writer().print(
+            "Blocks matched: {} / {} scanned\n",
+            .{ self.blocks_matched, self.blocks_scanned },
+        );
+        try result.writer().print(
+            "Execution time: {} ns ({d:.2} ms)\n",
+            .{
+                self.execution_time_ns,
+                @as(f64, @floatFromInt(self.execution_time_ns)) / 1_000_000.0,
+            },
+        );
+
+        // Include metadata analysis if available
+        if (self.metadata_analysis) |analysis| {
+            try result.appendSlice("\n--- METADATA ANALYSIS ---\n");
+            var iterator = analysis.iterator();
+            while (iterator.next()) |entry| {
+                try result.writer().print(
+                    "  {s}: {} occurrences\n",
+                    .{ entry.key_ptr.*, entry.value_ptr.* },
+                );
+            }
+        }
+
+        try result.appendSlice("\n");
+
+        for (self.blocks) |block| {
+            try result.appendSlice("--- BEGIN FILTERED BLOCK ---\n");
+
+            // Write block ID as hex
+            const id_hex = try block.id.to_hex(allocator);
+            defer allocator.free(id_hex);
+            try result.writer().print("ID: {s}\n", .{id_hex});
+
+            // Write source URI
+            try result.writer().print("Source: {s}\n", .{block.source_uri});
+
+            // Write version
+            try result.writer().print("Version: {}\n", .{block.version});
+
+            // Write metadata with enhanced formatting
+            try result.writer().print("Metadata: {s}\n", .{block.metadata_json});
+
+            // Write content
+            try result.appendSlice(block.content);
+            try result.appendSlice("\n--- END FILTERED BLOCK ---\n\n");
+        }
+
+        return result.toOwnedSlice();
+    }
+};
+
+/// Semantic search result with similarity scores.
+pub const SemanticQueryResult = struct {
+    /// Retrieved context blocks with similarity scores
+    results: []const struct {
+        block: ContextBlock,
+        similarity_score: f32,
+    },
+    /// Total number of blocks found
+    count: u32,
+    /// Query execution statistics
+    blocks_scanned: u32,
+    execution_time_ns: u64,
+    /// Average similarity score
+    avg_similarity: f32,
+    /// Allocator used for result memory
+    allocator: std.mem.Allocator,
+
+    /// Create semantic query result.
+    pub fn init(
+        allocator: std.mem.Allocator,
+        results: []const struct { block: ContextBlock, similarity_score: f32 },
+        blocks_scanned: u32,
+        execution_time_ns: u64,
+    ) SemanticQueryResult {
+        var total_similarity: f32 = 0;
+        for (results) |result| {
+            total_similarity += result.similarity_score;
+        }
+        const avg_similarity = if (results.len > 0) total_similarity / @as(f32, @floatFromInt(results.len)) else 0;
+
+        return SemanticQueryResult{
+            .results = results,
+            .count = @intCast(results.len),
+            .blocks_scanned = blocks_scanned,
+            .execution_time_ns = execution_time_ns,
+            .avg_similarity = avg_similarity,
+            .allocator = allocator,
+        };
+    }
+
+    /// Free allocated memory for semantic query results.
+    pub fn deinit(self: SemanticQueryResult) void {
+        for (self.results) |result| {
+            result.block.deinit(self.allocator);
+        }
+        self.allocator.free(self.results);
+    }
+
+    /// Format semantic result with similarity scores for LLM consumption.
+    pub fn format_for_llm(self: SemanticQueryResult, allocator: std.mem.Allocator) ![]u8 {
+        var result = std.ArrayList(u8).init(allocator);
+        defer result.deinit();
+
+        try result.writer().print("=== SEMANTIC SEARCH RESULT ===\n");
+        try result.writer().print("Blocks found: {} / {} scanned\n", .{ self.count, self.blocks_scanned });
+        try result.writer().print("Execution time: {} ns ({d:.2} ms)\n", .{ self.execution_time_ns, @as(f64, @floatFromInt(self.execution_time_ns)) / 1_000_000.0 });
+        try result.writer().print("Average similarity: {d:.3}\n\n", .{self.avg_similarity});
+
+        for (self.results) |semantic_result| {
+            try result.appendSlice("--- BEGIN SEMANTIC BLOCK ---\n");
+
+            // Write similarity score
+            try result.writer().print("Similarity: {d:.3}\n", .{semantic_result.similarity_score});
+
+            const block = semantic_result.block;
+
+            // Write block ID as hex
+            const id_hex = try block.id.to_hex(allocator);
+            defer allocator.free(id_hex);
+            try result.writer().print("ID: {s}\n", .{id_hex});
+
+            // Write source URI
+            try result.writer().print("Source: {s}\n", .{block.source_uri});
+
+            // Write version
+            try result.writer().print("Version: {}\n", .{block.version});
+
+            // Write metadata
+            try result.writer().print("Metadata: {s}\n", .{block.metadata_json});
+
+            // Write content
+            try result.appendSlice(block.content);
+            try result.appendSlice("\n--- END SEMANTIC BLOCK ---\n\n");
+        }
+
+        return result.toOwnedSlice();
+    }
+};
+
 /// Query execution engine.
 pub const QueryEngine = struct {
     allocator: std.mem.Allocator,
@@ -287,6 +640,8 @@ pub const QueryEngine = struct {
     queries_executed: std.atomic.Value(u64),
     get_blocks_queries: std.atomic.Value(u64),
     traversal_queries: std.atomic.Value(u64),
+    filtered_queries: std.atomic.Value(u64),
+    semantic_queries: std.atomic.Value(u64),
     total_query_time_ns: std.atomic.Value(u64),
 
     /// Initialize query engine with storage backend.
@@ -298,6 +653,8 @@ pub const QueryEngine = struct {
             .queries_executed = std.atomic.Value(u64).init(0),
             .get_blocks_queries = std.atomic.Value(u64).init(0),
             .traversal_queries = std.atomic.Value(u64).init(0),
+            .filtered_queries = std.atomic.Value(u64).init(0),
+            .semantic_queries = std.atomic.Value(u64).init(0),
             .total_query_time_ns = std.atomic.Value(u64).init(0),
         };
     }
@@ -831,6 +1188,168 @@ pub const QueryEngine = struct {
         return self.execute_traversal(query);
     }
 
+    /// Execute a filtered query with enhanced filtering capabilities.
+    /// Time complexity: O(n) where n is the total number of blocks in storage.
+    /// Space complexity: O(m) where m is the number of matching blocks.
+    pub fn execute_filtered_query(self: *QueryEngine, query: FilteredQuery) !FilteredQueryResult {
+        const start_time = std.time.nanoTimestamp();
+        defer {
+            const duration = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
+            _ = self.queries_executed.fetchAdd(1, .monotonic);
+            _ = self.filtered_queries.fetchAdd(1, .monotonic);
+            _ = self.total_query_time_ns.fetchAdd(duration, .monotonic);
+        }
+
+        assert(self.initialized);
+        if (!self.initialized) return QueryError.NotInitialized;
+
+        try query.validate();
+
+        var matched_blocks = std.ArrayList(ContextBlock).init(self.allocator);
+        defer matched_blocks.deinit();
+
+        var metadata_analysis: ?std.HashMap([]const u8, u32) = null;
+        if (query.include_metadata_analysis) {
+            metadata_analysis = std.HashMap([]const u8, u32).init(self.allocator);
+        }
+
+        var blocks_scanned: u32 = 0;
+        var blocks_matched: u32 = 0;
+
+        // Iterate through all blocks in storage
+        var block_iterator = self.storage_engine.iterate_all_blocks();
+        while (try block_iterator.next()) |block| {
+            blocks_scanned += 1;
+
+            // Apply filter condition
+            if (try query.filter.matches(block, self.allocator)) {
+                blocks_matched += 1;
+
+                // Clone the block for results
+                const cloned_block = try self.clone_block(block);
+                try matched_blocks.append(cloned_block);
+
+                // Update metadata analysis if requested
+                if (metadata_analysis) |*analysis| {
+                    try self.update_metadata_analysis(analysis, block.metadata_json);
+                }
+
+                // Stop if we've reached the maximum results
+                if (matched_blocks.items.len >= query.max_results) {
+                    break;
+                }
+            }
+        }
+
+        // Sort results if requested
+        if (query.sort_by_version) |sort_order| {
+            switch (sort_order) {
+                .ascending => {
+                    std.mem.sort(ContextBlock, matched_blocks.items, {}, struct {
+                        fn lessThan(context: void, a: ContextBlock, b: ContextBlock) bool {
+                            _ = context;
+                            return a.version < b.version;
+                        }
+                    }.lessThan);
+                },
+                .descending => {
+                    std.mem.sort(ContextBlock, matched_blocks.items, {}, struct {
+                        fn lessThan(context: void, a: ContextBlock, b: ContextBlock) bool {
+                            _ = context;
+                            return a.version > b.version;
+                        }
+                    }.lessThan);
+                },
+            }
+        }
+
+        const execution_time = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
+        const owned_blocks = try matched_blocks.toOwnedSlice();
+
+        return FilteredQueryResult.init(
+            self.allocator,
+            owned_blocks,
+            metadata_analysis,
+            blocks_scanned,
+            blocks_matched,
+            execution_time,
+        );
+    }
+
+    /// Execute a semantic search query (placeholder for external embedding integration).
+    /// Currently returns an error indicating semantic search is not yet implemented.
+    pub fn execute_semantic_query(self: *QueryEngine, query: SemanticQuery) !SemanticQueryResult {
+        const start_time = std.time.nanoTimestamp();
+        defer {
+            const duration = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
+            _ = self.queries_executed.fetchAdd(1, .monotonic);
+            _ = self.semantic_queries.fetchAdd(1, .monotonic);
+            _ = self.total_query_time_ns.fetchAdd(duration, .monotonic);
+        }
+
+        assert(self.initialized);
+        if (!self.initialized) return QueryError.NotInitialized;
+
+        try query.validate();
+
+        // TODO Implement semantic search with external embedding model
+        // This is a placeholder implementation that will be expanded when
+        // embedding model integration is added to the system.
+
+        // For now, return an empty result to maintain interface compatibility
+        const empty_results = try self.allocator.alloc(struct { block: ContextBlock, similarity_score: f32 }, 0);
+        const execution_time = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
+
+        return SemanticQueryResult.init(
+            self.allocator,
+            empty_results,
+            0, // blocks_scanned
+            execution_time,
+        );
+    }
+
+    /// Helper method to update metadata analysis with field frequencies.
+    fn update_metadata_analysis(
+        self: *QueryEngine,
+        analysis: *std.HashMap([]const u8, u32),
+        metadata_json: []const u8,
+    ) !void {
+        _ = self;
+        // Simple JSON field extraction - parse fields from metadata
+        // This is a simplified implementation that looks for quoted field names
+        var i: usize = 0;
+        while (i < metadata_json.len) {
+            if (metadata_json[i] == '"') {
+                const start = i + 1;
+                i += 1;
+                // Find the end of the field name
+                while (i < metadata_json.len and metadata_json[i] != '"') {
+                    if (metadata_json[i] == '\\') i += 1; // Skip escaped characters
+                    i += 1;
+                }
+                if (i < metadata_json.len) {
+                    const field_name = metadata_json[start..i];
+                    // Skip to the colon and value
+                    while (i < metadata_json.len and metadata_json[i] != ':') i += 1;
+
+                    if (field_name.len > 0) {
+                        // Clone the field name for storage
+                        const owned_field = try analysis.allocator.dupe(u8, field_name);
+                        const result = try analysis.getOrPut(owned_field);
+                        if (!result.found_existing) {
+                            result.value_ptr.* = 1;
+                        } else {
+                            // Free the duplicate key since we already have it
+                            analysis.allocator.free(owned_field);
+                            result.value_ptr.* += 1;
+                        }
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
+
     /// Get query engine statistics.
     pub fn statistics(self: *QueryEngine) QueryStatistics {
         return QueryStatistics{
@@ -838,6 +1357,8 @@ pub const QueryEngine = struct {
             .queries_executed = self.queries_executed.load(.monotonic),
             .get_blocks_queries = self.get_blocks_queries.load(.monotonic),
             .traversal_queries = self.traversal_queries.load(.monotonic),
+            .filtered_queries = self.filtered_queries.load(.monotonic),
+            .semantic_queries = self.semantic_queries.load(.monotonic),
             .total_query_time_ns = self.total_query_time_ns.load(.monotonic),
         };
     }
@@ -853,6 +1374,10 @@ pub const QueryStatistics = struct {
     get_blocks_queries: u64,
     /// Number of traversal queries executed
     traversal_queries: u64,
+    /// Number of filtered queries executed
+    filtered_queries: u64,
+    /// Number of semantic queries executed
+    semantic_queries: u64,
     /// Total query execution time in nanoseconds
     total_query_time_ns: u64,
     /// Average query latency in nanoseconds
@@ -871,10 +1396,12 @@ pub const QueryStatistics = struct {
     pub fn format_human_readable(self: *const QueryStatistics, writer: anytype) !void {
         try writer.writeAll("=== Query Engine Metrics ===\n");
         try writer.print("Storage: {} blocks available\n", .{self.total_blocks_stored});
-        try writer.print("Queries: {} total ({} get_blocks, {} traversal)\n", .{
+        try writer.print("Queries: {} total ({} get_blocks, {} traversal, {} filtered, {} semantic)\n", .{
             self.queries_executed,
             self.get_blocks_queries,
             self.traversal_queries,
+            self.filtered_queries,
+            self.semantic_queries,
         });
         try writer.print("Performance: {} ns avg latency, {d:.2} queries/sec\n", .{
             self.average_query_latency_ns(),
@@ -889,6 +1416,8 @@ pub const QueryStatistics = struct {
         try writer.print("  \"queries_executed\": {},\n", .{self.queries_executed});
         try writer.print("  \"get_blocks_queries\": {},\n", .{self.get_blocks_queries});
         try writer.print("  \"traversal_queries\": {},\n", .{self.traversal_queries});
+        try writer.print("  \"filtered_queries\": {},\n", .{self.filtered_queries});
+        try writer.print("  \"semantic_queries\": {},\n", .{self.semantic_queries});
         try writer.print("  \"total_query_time_ns\": {},\n", .{self.total_query_time_ns});
         try writer.print(
             "  \"average_query_latency_ns\": {},\n",
@@ -898,6 +1427,91 @@ pub const QueryStatistics = struct {
         try writer.writeAll("}\n");
     }
 };
+
+// Helper functions for metadata filtering
+
+/// Check if metadata field equals specific value.
+fn match_metadata_equals(metadata_json: []const u8, field: []const u8, value: []const u8, allocator: std.mem.Allocator) !bool {
+
+    // Look for the field in JSON: "field":"value" or "field": "value"
+    const search_pattern = try std.fmt.allocPrint(allocator, "\"{s}\"", .{field});
+    defer allocator.free(search_pattern);
+
+    if (std.mem.indexOf(u8, metadata_json, search_pattern)) |field_pos| {
+        // Find the colon after the field name
+        var pos = field_pos + search_pattern.len;
+        while (pos < metadata_json.len and metadata_json[pos] != ':') pos += 1;
+        if (pos < metadata_json.len) {
+            pos += 1; // Skip the colon
+            // Skip whitespace
+            while (pos < metadata_json.len and (metadata_json[pos] == ' ' or metadata_json[pos] == '\t')) pos += 1;
+
+            // Check if the value matches (with quotes)
+            if (pos < metadata_json.len and metadata_json[pos] == '"') {
+                pos += 1; // Skip opening quote
+                const value_start = pos;
+                // Find the closing quote
+                while (pos < metadata_json.len and metadata_json[pos] != '"') {
+                    if (metadata_json[pos] == '\\') pos += 1; // Skip escaped characters
+                    pos += 1;
+                }
+                if (pos < metadata_json.len) {
+                    const found_value = metadata_json[value_start..pos];
+                    return std.mem.eql(u8, found_value, value);
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// Check if metadata field contains substring.
+fn match_metadata_contains(metadata_json: []const u8, field: []const u8, substring: []const u8, allocator: std.mem.Allocator) !bool {
+
+    // Look for the field in JSON
+    const search_pattern = try std.fmt.allocPrint(allocator, "\"{s}\"", .{field});
+    defer allocator.free(search_pattern);
+
+    if (std.mem.indexOf(u8, metadata_json, search_pattern)) |field_pos| {
+        // Find the colon after the field name
+        var pos = field_pos + search_pattern.len;
+        while (pos < metadata_json.len and metadata_json[pos] != ':') pos += 1;
+        if (pos < metadata_json.len) {
+            pos += 1; // Skip the colon
+            // Skip whitespace
+            while (pos < metadata_json.len and (metadata_json[pos] == ' ' or metadata_json[pos] == '\t')) pos += 1;
+
+            // Check if the value contains the substring
+            if (pos < metadata_json.len and metadata_json[pos] == '"') {
+                pos += 1; // Skip opening quote
+                const value_start = pos;
+                // Find the closing quote
+                while (pos < metadata_json.len and metadata_json[pos] != '"') {
+                    if (metadata_json[pos] == '\\') pos += 1; // Skip escaped characters
+                    pos += 1;
+                }
+                if (pos < metadata_json.len) {
+                    const found_value = metadata_json[value_start..pos];
+                    return std.mem.indexOf(u8, found_value, substring) != null;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// Check if content contains substring (case insensitive).
+fn match_content_contains(content: []const u8, substring: []const u8) bool {
+    // Convert both to lowercase for case-insensitive matching
+    // Simple implementation - just check if substring exists (case sensitive for now)
+    return std.mem.indexOf(u8, content, substring) != null;
+}
+
+/// Check if source URI matches pattern.
+fn match_source_pattern(source_uri: []const u8, pattern: []const u8) bool {
+    // Simple pattern matching - check if URI contains the pattern
+    return std.mem.indexOf(u8, source_uri, pattern) != null;
+}
 
 // Tests
 
@@ -1097,6 +1711,8 @@ test "QueryStatistics formatting methods" {
         .queries_executed = 10,
         .get_blocks_queries = 6,
         .traversal_queries = 4,
+        .filtered_queries = 2,
+        .semantic_queries = 1,
         .total_query_time_ns = 1000000, // 1ms total
     };
 
@@ -1729,4 +2345,231 @@ test "TraversalResult formatting" {
     try std.testing.expect(std.mem.indexOf(u8, formatted, "Depth: 0") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "Depth: 1") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "Path: ") != null);
+}
+
+// Query Engine V2 Tests
+
+test "FilterCondition metadata_equals matching" {
+    const allocator = std.testing.allocator;
+
+    const condition = FilterCondition{
+        .metadata_equals = .{
+            .field = "type",
+            .value = "function",
+        },
+    };
+
+    const test_block = ContextBlock{
+        .id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6"),
+        .version = 1,
+        .source_uri = "test://uri",
+        .metadata_json = "{\"type\":\"function\",\"language\":\"zig\"}",
+        .content = "test content",
+    };
+
+    // Should match
+    try std.testing.expect(try condition.matches(test_block, allocator));
+
+    const wrong_block = ContextBlock{
+        .id = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb6"),
+        .version = 1,
+        .source_uri = "test://uri",
+        .metadata_json = "{\"type\":\"struct\",\"language\":\"zig\"}",
+        .content = "test content",
+    };
+
+    // Should not match
+    try std.testing.expect(!try condition.matches(wrong_block, allocator));
+}
+
+test "FilterCondition content_contains matching" {
+    const allocator = std.testing.allocator;
+
+    const condition = FilterCondition{
+        .content_contains = .{
+            .substring = "hello world",
+        },
+    };
+
+    const test_block = ContextBlock{
+        .id = try BlockId.from_hex("cccccccccccccccccccccccccccccc6"),
+        .version = 1,
+        .source_uri = "test://uri",
+        .metadata_json = "{}",
+        .content = "This is a hello world example",
+    };
+
+    try std.testing.expect(try condition.matches(test_block, allocator));
+
+    const wrong_block = ContextBlock{
+        .id = try BlockId.from_hex("dddddddddddddddddddddddddddddd6"),
+        .version = 1,
+        .source_uri = "test://uri",
+        .metadata_json = "{}",
+        .content = "This does not contain the phrase",
+    };
+
+    try std.testing.expect(!try condition.matches(wrong_block, allocator));
+}
+
+test "FilterCondition version_range matching" {
+    const allocator = std.testing.allocator;
+
+    const condition = FilterCondition{
+        .version_range = .{
+            .min_version = 5,
+            .max_version = 10,
+        },
+    };
+
+    const valid_block = ContextBlock{
+        .id = try BlockId.from_hex("eeeeeeeeeeeeeeeeeeeeeeeeeeeeee6"),
+        .version = 7,
+        .source_uri = "test://uri",
+        .metadata_json = "{}",
+        .content = "test content",
+    };
+
+    try std.testing.expect(try condition.matches(valid_block, allocator));
+
+    const old_block = ContextBlock{
+        .id = try BlockId.from_hex("ffffffffffffffffffffffffffffff6"),
+        .version = 3,
+        .source_uri = "test://uri",
+        .metadata_json = "{}",
+        .content = "test content",
+    };
+
+    try std.testing.expect(!try condition.matches(old_block, allocator));
+}
+
+test "FilterCondition and_conditions matching" {
+    const allocator = std.testing.allocator;
+
+    const condition1 = FilterCondition{
+        .metadata_equals = .{
+            .field = "language",
+            .value = "zig",
+        },
+    };
+
+    const condition2 = FilterCondition{
+        .content_contains = .{
+            .substring = "function",
+        },
+    };
+
+    const conditions = [_]FilterCondition{ condition1, condition2 };
+    const and_condition = FilterCondition{
+        .and_conditions = .{
+            .conditions = &conditions,
+        },
+    };
+
+    const matching_block = ContextBlock{
+        .id = try BlockId.from_hex("1111111111111111111111111111116"),
+        .version = 1,
+        .source_uri = "test://uri",
+        .metadata_json = "{\"language\":\"zig\",\"type\":\"code\"}",
+        .content = "pub fn my_function() void {}",
+    };
+
+    try std.testing.expect(try and_condition.matches(matching_block, allocator));
+
+    const non_matching_block = ContextBlock{
+        .id = try BlockId.from_hex("2222222222222222222222222222226"),
+        .version = 1,
+        .source_uri = "test://uri",
+        .metadata_json = "{\"language\":\"rust\",\"type\":\"code\"}",
+        .content = "pub fn my_function() void {}",
+    };
+
+    // Should fail because language is not "zig"
+    try std.testing.expect(!try and_condition.matches(non_matching_block, allocator));
+}
+
+test "FilteredQuery validation" {
+    const condition = FilterCondition{
+        .metadata_equals = .{
+            .field = "test",
+            .value = "value",
+        },
+    };
+
+    // Valid query
+    const valid_query = FilteredQuery.init(condition);
+    try valid_query.validate();
+
+    // Empty results query should fail
+    var empty_query = FilteredQuery.init(condition);
+    empty_query.max_results = 0;
+    try std.testing.expectError(QueryError.EmptyQuery, empty_query.validate());
+
+    // Too many results should fail
+    var oversized_query = FilteredQuery.init(condition);
+    oversized_query.max_results = FilteredQuery.ABSOLUTE_MAX_RESULTS + 1;
+    try std.testing.expectError(QueryError.TooManyResults, oversized_query.validate());
+}
+
+test "SemanticQuery validation" {
+    // Valid query
+    const valid_query = SemanticQuery.init("test query");
+    try valid_query.validate();
+
+    // Empty query should fail
+    const empty_query = SemanticQuery.init("");
+    try std.testing.expectError(QueryError.EmptyQuery, empty_query.validate());
+
+    // Invalid similarity threshold should fail
+    var invalid_threshold_query = SemanticQuery.init("test");
+    invalid_threshold_query.similarity_threshold = 1.5;
+    try std.testing.expectError(QueryError.InvalidCommand, invalid_threshold_query.validate());
+}
+
+test "QueryEngine enhanced statistics" {
+    const allocator = std.testing.allocator;
+    const simulation_vfs = @import("simulation_vfs");
+
+    // Setup storage engine
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    const vfs_interface = sim_vfs.vfs();
+    const data_dir = try allocator.dupe(u8, "test_stats_v2");
+
+    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    defer storage_engine.deinit();
+
+    try storage_engine.initialize_storage();
+
+    // Setup query engine
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
+
+    // Test initial enhanced statistics
+    var stats = query_engine.statistics();
+    try std.testing.expectEqual(@as(u64, 0), stats.filtered_queries);
+    try std.testing.expectEqual(@as(u64, 0), stats.semantic_queries);
+
+    // Add a block for testing
+    const test_id = try BlockId.from_hex("3333333333333333333333333333336");
+    const test_block = ContextBlock{
+        .id = test_id,
+        .version = 1,
+        .source_uri = "test://uri",
+        .metadata_json = "{\"type\":\"test\"}",
+        .content = "test content",
+    };
+    try storage_engine.put_block(test_block);
+
+    // Execute a semantic query (placeholder implementation)
+    const semantic_query = SemanticQuery.init("test query");
+    const semantic_result = try query_engine.execute_semantic_query(semantic_query);
+    defer semantic_result.deinit();
+
+    // Check that statistics were updated
+    stats = query_engine.statistics();
+    try std.testing.expectEqual(@as(u64, 1), stats.queries_executed);
+    try std.testing.expectEqual(@as(u64, 1), stats.semantic_queries);
+    try std.testing.expect(stats.total_query_time_ns > 0);
 }
