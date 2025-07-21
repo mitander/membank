@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const log = std.log.scoped(.storage);
 const vfs = @import("vfs");
 const context_block = @import("context_block");
 const sstable = @import("sstable");
@@ -1383,7 +1384,7 @@ pub const StorageEngine = struct {
         // Clear the in-memory index (blocks are now persisted in SSTable)
         self.index.clear();
 
-        std.log.info(
+        log.info(
             "Flushed {} blocks to SSTable: {s} (size: {} bytes)",
             .{ blocks_to_flush.items.len, sstable_path, file_size },
         );
@@ -1397,7 +1398,7 @@ pub const StorageEngine = struct {
         concurrency.assert_main_thread();
 
         if (self.compaction_manager.check_compaction_needed()) |job| {
-            std.log.info(
+            log.info(
                 "Starting {s} compaction: L{} -> L{} ({} SSTables)",
                 .{
                     @tagName(job.compaction_type),
@@ -1529,7 +1530,7 @@ pub const StorageEngine = struct {
             const file_entries = self.recover_from_wal_file(file_path) catch |err| switch (err) {
                 StorageError.InvalidChecksum, StorageError.InvalidWALEntryType => {
                     // Corruption detected - stop recovery at this point
-                    std.log.warn("WAL corruption detected in {s}, stopping recovery", .{file_path});
+                    log.warn("WAL corruption detected in {s}, stopping recovery", .{file_path});
                     break;
                 },
                 else => return err,
@@ -1539,7 +1540,7 @@ pub const StorageEngine = struct {
             files_processed += 1;
         }
 
-        std.log.info(
+        log.info(
             "WAL recovery completed: {} files processed, {} entries recovered",
             .{ files_processed, entries_recovered },
         );

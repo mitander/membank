@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const log = std.log.scoped(.sstable);
 const context_block = @import("context_block");
 const vfs = @import("vfs");
 
@@ -530,7 +531,7 @@ pub const Compactor = struct {
         // Remove input files after successful compaction
         for (input_paths) |path| {
             self.filesystem.remove(path) catch |err| {
-                std.log.warn("Failed to remove input SSTable {s}: {}", .{ path, err });
+                log.warn("Failed to remove input SSTable {s}: {}", .{ path, err });
             };
         }
     }

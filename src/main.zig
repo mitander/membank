@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const log = std.log.scoped(.main);
 const storage = @import("storage");
 const query_engine = @import("query_engine");
 const context_block = @import("context_block");
@@ -106,6 +107,7 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 
 fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("=== CortexDB Storage and Query Demo ===\n\n", .{});
+    log.info("Starting CortexDB demo with scoped logging", .{});
 
     // Create simulation VFS
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
@@ -120,11 +122,13 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 
     try storage_engine.startup();
     std.debug.print("✓ Storage engine initialized and recovered from WAL\n", .{});
+    log.info("Storage engine startup completed successfully", .{});
 
     // Initialize query engine
     var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();
     std.debug.print("✓ Query engine initialized\n\n", .{});
+    log.info("Query engine initialization completed", .{});
 
     // Create sample context blocks
     const block1_id = try BlockId.from_hex("0123456789abcdeffedcba9876543210");
@@ -212,7 +216,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     });
 
     // Also show query engine metrics
-    const query_stats = query_engine.statistics();
+    const query_stats = query_eng.statistics();
     std.debug.print("\n=== Query Engine Metrics ===\n", .{});
     std.debug.print("Storage: {} blocks available\n", .{query_stats.total_blocks_stored});
     std.debug.print("Queries: {} total ({} get_blocks, {} traversal)\n", .{
@@ -222,6 +226,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     });
 
     std.debug.print("\nDemo completed successfully!\n", .{});
+    log.info("CortexDB demo completed successfully with scoped logging", .{});
 }
 
 test "main module tests" {

@@ -6,6 +6,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const context_block = @import("context_block");
+const log = std.log.scoped(.error_context);
 
 const BlockId = context_block.BlockId;
 
@@ -141,7 +142,7 @@ pub const BufferContext = struct {
 /// Returns the original error for easy chaining.
 pub fn storage_error(err: anyerror, context: StorageContext) anyerror {
     if (builtin.mode == .Debug) {
-        std.log.err("Storage operation failed: {any} - {any}", .{ err, context });
+        log.err("Storage operation failed: {any} - {any}", .{ err, context });
     }
     return err;
 }
@@ -149,7 +150,7 @@ pub fn storage_error(err: anyerror, context: StorageContext) anyerror {
 /// Log a WAL error with context in debug builds only.
 pub fn wal_error(err: anyerror, context: WALContext) anyerror {
     if (builtin.mode == .Debug) {
-        std.log.err("WAL operation failed: {any} - {any}", .{ err, context });
+        log.err("WAL operation failed: {any} - {any}", .{ err, context });
     }
     return err;
 }
@@ -157,7 +158,7 @@ pub fn wal_error(err: anyerror, context: WALContext) anyerror {
 /// Log a buffer error with context in debug builds only.
 pub fn buffer_error(err: anyerror, context: BufferContext) anyerror {
     if (builtin.mode == .Debug) {
-        std.log.err("Buffer operation failed: {any} - {any}", .{ err, context });
+        log.err("Buffer operation failed: {any} - {any}", .{ err, context });
     }
     return err;
 }
