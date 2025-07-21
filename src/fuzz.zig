@@ -162,8 +162,8 @@ fn generate_block_data(allocator: std.mem.Allocator, random: std.Random) ![]u8 {
 
     // Occasionally inject valid-looking headers
     if (size >= 8 and random.boolean()) {
-        std.mem.writeInt(u32, data[0..4], 0xDEADBEEF, .little); // Magic number
-        std.mem.writeInt(u32, data[4..8], @intCast(size - 8), .little); // Size
+        std.mem.writeInt(u32, data[0..4], 0xDEADBEEF, .little);
+        std.mem.writeInt(u32, data[4..8], @intCast(size - 8), .little);
     }
 
     return data;
@@ -176,9 +176,9 @@ fn generate_query_data(allocator: std.mem.Allocator, random: std.Random) ![]u8 {
     // Generate mostly ASCII with some random bytes
     for (data) |*byte| {
         if (random.boolean()) {
-            byte.* = random.intRangeAtMost(u8, 32, 126); // Printable ASCII
+            byte.* = random.intRangeAtMost(u8, 32, 126);
         } else {
-            byte.* = random.int(u8); // Random byte
+            byte.* = random.int(u8);
         }
     }
 

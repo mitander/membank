@@ -695,7 +695,6 @@ pub const QueryEngine = struct {
                     else => return err,
                 };
 
-            // Clone the block to ensure result ownership
             const cloned_block = ContextBlock{
                 .id = maybe_block.id,
                 .version = maybe_block.version,
@@ -736,7 +735,6 @@ pub const QueryEngine = struct {
 
         try query.validate();
 
-        // Check if start block exists
         const start_block_ptr = self.storage_engine.find_block_by_id(
             query.start_block_id,
         ) catch |err| switch (err) {
@@ -799,7 +797,6 @@ pub const QueryEngine = struct {
             queue.deinit();
         }
 
-        // Start with the initial block
         const start_path = try self.allocator.alloc(BlockId, 1);
         start_path[0] = query.start_block_id;
 
@@ -821,27 +818,22 @@ pub const QueryEngine = struct {
             blocks_traversed += 1;
             max_depth_reached = @max(max_depth_reached, current.depth);
 
-            // Get the current block
             const current_block = self.storage_engine.find_block_by_id(
                 current.block_id,
             ) catch continue;
 
-            // Clone the block for results
             const cloned_block = try self.clone_block(current_block);
             try result_blocks.append(cloned_block);
 
-            // Clone the path for results
             const cloned_path = try self.allocator.dupe(BlockId, current.path);
             try result_paths.append(cloned_path);
 
             try result_depths.append(current.depth);
 
-            // Stop if we've reached max depth
             if (query.max_depth > 0 and current.depth >= query.max_depth) {
                 continue;
             }
 
-            // Add neighbors to queue based on traversal direction
             try self.add_neighbors_to_queue(
                 &queue,
                 &visited,
@@ -852,7 +844,6 @@ pub const QueryEngine = struct {
             );
         }
 
-        // Convert to owned slices
         const owned_blocks = try result_blocks.toOwnedSlice();
         const owned_paths = try result_paths.toOwnedSlice();
         const owned_depths = try result_depths.toOwnedSlice();
@@ -915,7 +906,6 @@ pub const QueryEngine = struct {
             stack.deinit();
         }
 
-        // Start with the initial block
         const start_path = try self.allocator.alloc(BlockId, 1);
         start_path[0] = query.start_block_id;
 
@@ -932,7 +922,6 @@ pub const QueryEngine = struct {
             const current = stack.pop();
             defer self.allocator.free(current.path);
 
-            // Skip if already visited
             if (visited.contains(current.block_id)) {
                 continue;
             }
@@ -941,27 +930,22 @@ pub const QueryEngine = struct {
             blocks_traversed += 1;
             max_depth_reached = @max(max_depth_reached, current.depth);
 
-            // Get the current block
             const current_block = self.storage_engine.find_block_by_id(
                 current.block_id,
             ) catch continue;
 
-            // Clone the block for results
             const cloned_block = try self.clone_block(current_block);
             try result_blocks.append(cloned_block);
 
-            // Clone the path for results
             const cloned_path = try self.allocator.dupe(BlockId, current.path);
             try result_paths.append(cloned_path);
 
             try result_depths.append(current.depth);
 
-            // Stop if we've reached max depth
             if (query.max_depth > 0 and current.depth >= query.max_depth) {
                 continue;
             }
 
-            // Add neighbors to stack based on traversal direction
             try self.add_neighbors_to_stack(
                 &stack,
                 &visited,
@@ -972,7 +956,6 @@ pub const QueryEngine = struct {
             );
         }
 
-        // Convert to owned slices
         const owned_blocks = try result_blocks.toOwnedSlice();
         const owned_paths = try result_paths.toOwnedSlice();
         const owned_depths = try result_depths.toOwnedSlice();
@@ -1228,7 +1211,6 @@ pub const QueryEngine = struct {
             if (try query.filter.matches(block, self.allocator)) {
                 blocks_matched += 1;
 
-                // Clone the block for results
                 const cloned_block = try self.clone_block(block);
                 try matched_blocks.append(cloned_block);
 
@@ -1237,7 +1219,6 @@ pub const QueryEngine = struct {
                     try self.update_metadata_analysis(analysis, block.metadata_json);
                 }
 
-                // Stop if we've reached the maximum results
                 if (matched_blocks.items.len >= query.max_results) {
                     break;
                 }
@@ -1335,7 +1316,6 @@ pub const QueryEngine = struct {
                     while (i < metadata_json.len and metadata_json[i] != ':') i += 1;
 
                     if (field_name.len > 0) {
-                        // Clone the field name for storage
                         const owned_field = try analysis.allocator.dupe(u8, field_name);
                         const result = try analysis.getOrPut(owned_field);
                         if (!result.found_existing) {
@@ -1504,7 +1484,6 @@ fn match_metadata_contains(metadata_json: []const u8, field: []const u8, substri
 
 /// Check if content contains substring (case insensitive).
 fn match_content_contains(content: []const u8, substring: []const u8) bool {
-    // Convert both to lowercase for case-insensitive matching
     // Simple implementation - just check if substring exists (case sensitive for now)
     return std.mem.indexOf(u8, content, substring) != null;
 }
@@ -1549,7 +1528,6 @@ test "GetBlocksQuery validation" {
 test "QueryResult formatting" {
     const allocator = std.testing.allocator;
 
-    // Create test block
     const test_id = try BlockId.from_hex("0123456789abcdeffedcba9876543210");
     const test_block = ContextBlock{
         .id = test_id,
@@ -1559,7 +1537,6 @@ test "QueryResult formatting" {
         .content = "pub fn test_function() void { return; }",
     };
 
-    // Clone block for result (since QueryResult takes ownership)
     const cloned_block = ContextBlock{
         .id = test_block.id,
         .version = test_block.version,
@@ -1606,7 +1583,6 @@ test "QueryEngine basic operations" {
     var query_engine = QueryEngine.init(allocator, &storage_engine);
     defer query_engine.deinit();
 
-    // Create and store test block
     const test_id = try BlockId.from_hex("0123456789abcdeffedcba9876543210");
     const test_block = ContextBlock{
         .id = test_id,
@@ -1654,7 +1630,6 @@ test "QueryEngine multiple blocks" {
     var query_engine = QueryEngine.init(allocator, &storage_engine);
     defer query_engine.deinit();
 
-    // Create and store multiple test blocks
     const block1_id = try BlockId.from_hex("0123456789abcdeffedcba9876543210");
     const block2_id = try BlockId.from_hex("fedcba9876543210123456789abcdef0");
     const block3_id = try BlockId.from_hex("1111111111111111222222222222222");
@@ -1761,7 +1736,6 @@ test "QueryEngine statistics" {
     var stats = query_engine.statistics();
     try std.testing.expectEqual(@as(u32, 0), stats.total_blocks_stored);
 
-    // Add a block and verify statistics
     const test_id = try BlockId.from_hex("0123456789abcdeffedcba9876543210");
     const test_block = ContextBlock{
         .id = test_id,
@@ -1815,8 +1789,6 @@ test "QueryEngine breadth-first traversal" {
     var query_engine = QueryEngine.init(allocator, &storage_engine);
     defer query_engine.deinit();
 
-    // Create test blocks: A -> B -> C
-    //                     A -> D
     const block_a_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0");
     const block_b_id = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0");
     const block_c_id = try BlockId.from_hex("cccccccccccccccccccccccccccccc0");
@@ -2290,7 +2262,6 @@ test "QueryEngine traversal depth limits" {
 test "TraversalResult formatting" {
     const allocator = std.testing.allocator;
 
-    // Create test blocks and paths
     const block_a_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5");
     const block_b_id = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb5");
 
@@ -2553,7 +2524,6 @@ test "QueryEngine enhanced statistics" {
     try std.testing.expectEqual(@as(u64, 0), stats.filtered_queries);
     try std.testing.expectEqual(@as(u64, 0), stats.semantic_queries);
 
-    // Add a block for testing
     const test_id = try BlockId.from_hex("3333333333333333333333333333336");
     const test_block = ContextBlock{
         .id = test_id,

@@ -1,7 +1,20 @@
 //! SSTable (Sorted String Table) implementation for CortexDB LSM-Tree.
 //!
-//! SSTables are immutable, sorted files that store Context Blocks and Graph Edges.
-//! They support efficient range queries and are the foundation of the LSM-Tree storage engine.
+//! ## On-Disk Format Philosophy
+//!
+//! The SSTable on-disk format is designed with three principles in mind:
+//!
+//! 1.  **Performance:** The file header is 64-byte aligned. This ensures that it fits
+//!     cleanly within a typical CPU cache line, improving read performance.
+//!
+//! 2.  **Robustness:** All data structures are protected by checksums. This allows the
+//!     engine to detect silent disk corruption (bit rot) and fail gracefully rather
+//!     than propagating corrupted data.
+//!
+//! 3.  **Forward/Backward Compatibility:** The header includes a `format_version`. This
+//!     allows future versions of CortexDB to read older SSTables and perform safe
+//!     upgrades. The `reserved` fields provide space for new features without
+//!     breaking the format for older clients.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -44,15 +57,12 @@ pub const SSTable = struct {
 
             var offset: usize = 0;
 
-            // Write block ID
             @memcpy(buffer[offset .. offset + 16], &self.block_id.bytes);
             offset += 16;
 
-            // Write offset
             std.mem.writeInt(u64, buffer[offset..][0..8], self.offset, .little);
             offset += 8;
 
-            // Write size
             std.mem.writeInt(u32, buffer[offset..][0..4], self.size, .little);
         }
 
@@ -62,17 +72,14 @@ pub const SSTable = struct {
 
             var offset: usize = 0;
 
-            // Read block ID
             var id_bytes: [16]u8 = undefined;
             @memcpy(&id_bytes, buffer[offset .. offset + 16]);
             const block_id = BlockId.from_bytes(id_bytes);
             offset += 16;
 
-            // Read offset
             const block_offset = std.mem.readInt(u64, buffer[offset..][0..8], .little);
             offset += 8;
 
-            // Read size
             const size = std.mem.readInt(u32, buffer[offset..][0..4], .little);
 
             return IndexEntry{
@@ -99,35 +106,28 @@ pub const SSTable = struct {
 
             var offset: usize = 0;
 
-            // Write magic
             @memcpy(buffer[offset .. offset + 4], &self.magic);
             offset += 4;
 
-            // Write format version
             std.mem.writeInt(u16, buffer[offset..][0..2], self.format_version, .little);
             offset += 2;
 
-            // Write flags
             std.mem.writeInt(u16, buffer[offset..][0..2], self.flags, .little);
             offset += 2;
 
-            // Write index offset
             std.mem.writeInt(u64, buffer[offset..][0..8], self.index_offset, .little);
             offset += 8;
 
-            // Write block count
             std.mem.writeInt(u32, buffer[offset..][0..4], self.block_count, .little);
             offset += 4;
 
-            // Write file checksum
             std.mem.writeInt(u32, buffer[offset..][0..4], self.file_checksum, .little);
             offset += 4;
 
-            // Write created timestamp
             std.mem.writeInt(u64, buffer[offset..][0..8], self.created_timestamp, .little);
             offset += 8;
 
-            // Write reserved bytes (must be zero)
+            // Reserved bytes must be zero for future compatibility
             @memset(buffer[offset .. offset + 32], 0);
         }
 
@@ -137,37 +137,30 @@ pub const SSTable = struct {
 
             var offset: usize = 0;
 
-            // Read and validate magic
             const magic = buffer[offset .. offset + 4];
             if (!std.mem.eql(u8, magic, &MAGIC)) return error.InvalidMagic;
             offset += 4;
 
-            // Read format version
             const format_version = std.mem.readInt(u16, buffer[offset..][0..2], .little);
             if (format_version > VERSION) return error.UnsupportedVersion;
             offset += 2;
 
-            // Read flags
             const flags = std.mem.readInt(u16, buffer[offset..][0..2], .little);
             offset += 2;
 
-            // Read index offset
             const index_offset = std.mem.readInt(u64, buffer[offset..][0..8], .little);
             offset += 8;
 
-            // Read block count
             const block_count = std.mem.readInt(u32, buffer[offset..][0..4], .little);
             offset += 4;
 
-            // Read file checksum
             const file_checksum = std.mem.readInt(u32, buffer[offset..][0..4], .little);
             offset += 4;
 
-            // Read created timestamp
             const created_timestamp = std.mem.readInt(u64, buffer[offset..][0..8], .little);
             offset += 8;
 
-            // Validate reserved bytes are zero
+            // Validate reserved bytes are zero for forward compatibility
             const reserved = buffer[offset .. offset + 32];
             for (reserved) |byte| {
                 if (byte != 0) return error.InvalidReservedBytes;
@@ -216,16 +209,13 @@ pub const SSTable = struct {
             }
         }.less_than);
 
-        // Create the SSTable file
         var file = try self.filesystem.create(self.file_path);
         defer file.close() catch {};
 
-        // Reserve space for header
         var header_buffer: [HEADER_SIZE]u8 = undefined;
         @memset(&header_buffer, 0);
         _ = try file.write(&header_buffer);
 
-        // Write blocks and build index
         var current_offset: u64 = HEADER_SIZE;
 
         for (sorted_blocks) |block| {
@@ -236,10 +226,8 @@ pub const SSTable = struct {
             const written = try block.serialize(buffer);
             assert(written == block_size);
 
-            // Write block data
             _ = try file.write(buffer);
 
-            // Add to index
             try self.index.append(IndexEntry{
                 .block_id = block.id,
                 .offset = current_offset,
@@ -249,7 +237,6 @@ pub const SSTable = struct {
             current_offset += block_size;
         }
 
-        // Write index
         const index_offset = current_offset;
         for (self.index.items) |entry| {
             var entry_buffer: [IndexEntry.SERIALIZED_SIZE]u8 = undefined;
@@ -268,12 +255,10 @@ pub const SSTable = struct {
         hasher.update(std.mem.asBytes(&content_size));
         const footer_checksum = hasher.final();
 
-        // Write footer
         var footer_buffer: [FOOTER_SIZE]u8 = undefined;
         std.mem.writeInt(u64, &footer_buffer, footer_checksum, .little);
         _ = try file.write(&footer_buffer);
 
-        // Go back and write header with calculated checksum
         _ = try file.seek(0, .start);
         const header = Header{
             .magic = MAGIC,
@@ -297,7 +282,6 @@ pub const SSTable = struct {
     fn calculate_file_checksum(self: *SSTable, file: *vfs.VFile, index_offset: u64) !u32 {
         _ = self;
 
-        // Calculate checksum over blocks and index sections
         var crc = std.hash.Crc32.init();
 
         // Read block data section (from end of header to start of index)
@@ -339,7 +323,6 @@ pub const SSTable = struct {
         var file = try self.filesystem.open(self.file_path, .read);
         defer file.close() catch {};
 
-        // Read and validate header
         var header_buffer: [HEADER_SIZE]u8 = undefined;
         _ = try file.read(&header_buffer);
 
@@ -357,7 +340,6 @@ pub const SSTable = struct {
             }
         }
 
-        // Read index entries
         _ = try file.seek(@intCast(header.index_offset), .start);
 
         for (0..header.block_count) |_| {
@@ -390,7 +372,6 @@ pub const SSTable = struct {
 
         const found_entry = entry orelse return null;
 
-        // Read block from file
         var file = try self.filesystem.open(self.file_path, .read);
         defer file.close() catch {};
 
@@ -443,7 +424,6 @@ pub const SSTableIterator = struct {
         const entry = self.sstable.index.items[self.current_index];
         self.current_index += 1;
 
-        // Read block from file
         _ = try self.file.?.seek(@intCast(entry.offset), .start);
 
         const buffer = try self.sstable.allocator.alloc(u8, entry.size);
@@ -477,7 +457,6 @@ pub const Compactor = struct {
     ) !void {
         assert(input_paths.len > 1);
 
-        // Open all input SSTables
         var input_tables = try self.allocator.alloc(SSTable, input_paths.len);
         defer {
             for (input_tables) |*table| {
@@ -492,12 +471,10 @@ pub const Compactor = struct {
             try input_tables[i].read_index();
         }
 
-        // Create output SSTable
         const output_path_copy = try self.allocator.dupe(u8, output_path);
         var output_table = SSTable.init(self.allocator, self.filesystem, output_path_copy);
         defer output_table.deinit();
 
-        // Merge sort all blocks from input tables
         var all_blocks = std.ArrayList(ContextBlock).init(self.allocator);
         defer {
             for (all_blocks.items) |block| {
@@ -506,7 +483,6 @@ pub const Compactor = struct {
             all_blocks.deinit();
         }
 
-        // Collect all blocks
         for (input_tables) |*table| {
             var iter = table.iterator();
             defer iter.deinit();
@@ -525,7 +501,6 @@ pub const Compactor = struct {
             self.allocator.free(unique_blocks);
         }
 
-        // Write compacted SSTable
         try output_table.write_blocks(unique_blocks);
 
         // Remove input files after successful compaction
@@ -540,7 +515,6 @@ pub const Compactor = struct {
     fn dedup_blocks(self: *Compactor, blocks: []ContextBlock) ![]ContextBlock {
         if (blocks.len == 0) return try self.allocator.alloc(ContextBlock, 0);
 
-        // Sort by ID first
         const sorted = try self.allocator.dupe(ContextBlock, blocks);
         std.mem.sort(ContextBlock, sorted, {}, struct {
             fn less_than(context: void, a: ContextBlock, b: ContextBlock) bool {
@@ -554,14 +528,12 @@ pub const Compactor = struct {
             }
         }.less_than);
 
-        // Keep only the highest version of each block
         var unique = std.ArrayList(ContextBlock).init(self.allocator);
         defer unique.deinit();
 
         var prev_id: ?BlockId = null;
         for (sorted) |block| {
             if (prev_id == null or !block.id.eql(prev_id.?)) {
-                // Clone the block for ownership
                 const cloned = ContextBlock{
                     .id = block.id,
                     .version = block.version,
@@ -572,7 +544,6 @@ pub const Compactor = struct {
                 try unique.append(cloned);
                 prev_id = block.id;
             }
-            // Skip duplicates (lower versions)
         }
 
         self.allocator.free(sorted);
@@ -592,7 +563,6 @@ test "SSTable write and read" {
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "test.sst"));
     defer sstable.deinit();
 
-    // Create test blocks
     const block1 = ContextBlock{
         .id = try BlockId.from_hex("0123456789abcdeffedcba9876543210"),
         .version = 1,
@@ -611,14 +581,11 @@ test "SSTable write and read" {
 
     const blocks = [_]ContextBlock{ block1, block2 };
 
-    // Write blocks to SSTable
     try sstable.write_blocks(&blocks);
 
-    // Read index
     try sstable.read_index();
     try std.testing.expectEqual(@as(u32, 2), sstable.block_count);
 
-    // Test find_block
     const retrieved1 = try sstable.find_block(block1.id);
     try std.testing.expect(retrieved1 != null);
     try std.testing.expect(retrieved1.?.id.eql(block1.id));
@@ -628,7 +595,6 @@ test "SSTable write and read" {
         block.deinit(allocator);
     }
 
-    // Test non-existent block
     const non_existent_id = try BlockId.from_hex("1111111111111111111111111111111");
     const not_found = try sstable.find_block(non_existent_id);
     try std.testing.expect(not_found == null);
@@ -644,7 +610,6 @@ test "SSTable iterator" {
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "test_iter.sst"));
     defer sstable.deinit();
 
-    // Create test blocks
     const blocks = [_]ContextBlock{
         ContextBlock{
             .id = try BlockId.from_hex("3333333333333333333333333333333"),
@@ -702,7 +667,6 @@ test "SSTable compaction" {
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Create first SSTable
     var sstable1 = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "table1.sst"));
     defer sstable1.deinit();
 
@@ -725,7 +689,6 @@ test "SSTable compaction" {
 
     try sstable1.write_blocks(&blocks1);
 
-    // Create second SSTable with overlapping data
     var sstable2 = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "table2.sst"));
     defer sstable2.deinit();
 
@@ -748,12 +711,10 @@ test "SSTable compaction" {
 
     try sstable2.write_blocks(&blocks2);
 
-    // Compact tables
     var compactor = Compactor.init(allocator, sim_vfs.vfs(), "test_data");
     const input_paths = [_][]const u8{ "table1.sst", "table2.sst" };
     try compactor.compact_sstables(&input_paths, "compacted.sst");
 
-    // Verify compacted result
     var compacted = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "compacted.sst"));
     defer compacted.deinit();
 
@@ -783,7 +744,6 @@ test "SSTable checksum validation" {
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), path);
     defer sstable.deinit();
 
-    // Create test block
     const block = ContextBlock{
         .id = try BlockId.from_hex("1234567890abcdef1234567890abcdef"),
         .version = 1,
@@ -794,14 +754,11 @@ test "SSTable checksum validation" {
 
     const blocks = [_]ContextBlock{block};
 
-    // Write blocks (this calculates and stores checksum)
     try sstable.write_blocks(&blocks);
 
-    // Reading should succeed with valid checksum
     try sstable.read_index();
     try std.testing.expectEqual(@as(u32, 1), sstable.block_count);
 
-    // Corrupt the file by modifying a byte in the block data
     var file = try sim_vfs.vfs().open("checksum_test.sst", .write);
     defer file.close() catch {};
 
@@ -811,10 +768,8 @@ test "SSTable checksum validation" {
     _ = try file.write(&corrupt_byte);
     try file.close();
 
-    // Reset SSTable for fresh read
     sstable.index.clearAndFree();
     sstable.block_count = 0;
 
-    // Reading should now fail with checksum mismatch
     try std.testing.expectError(error.ChecksumMismatch, sstable.read_index());
 }

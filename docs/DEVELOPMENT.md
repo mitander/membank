@@ -4,9 +4,9 @@
 
 Welcome to CortexDB. We are building a high-performance, mission-critical database, and our development practices reflect that. Our philosophy is simple:
 
-*   **Simplicity is Non-Negotiable:** We build reliable systems by relentlessly pursuing simplicity. We choose simple, explicit patterns over complex, "magical" abstractions.
-*   **We Don't Mock; We Simulate:** The only way to trust a complex system is to test it holistically. Our primary method of validation is through a deterministic simulation framework that can reproduce the most hostile production environments byte-for-byte.
-*   **The Toolchain Serves the Developer:** Our build system, tests, and scripts are designed to be simple, consistent, and cross-platform. There should be zero friction in writing, testing, and debugging high-quality code.
+- **Simplicity is Non-Negotiable:** We build reliable systems by relentlessly pursuing simplicity. We choose simple, explicit patterns over complex, "magical" abstractions.
+- **We Don't Mock; We Simulate:** The only way to trust a complex system is to test it holistically. Our primary method of validation is through a deterministic simulation framework that can reproduce the most hostile production environments byte-for-byte.
+- **The Toolchain Serves the Developer:** Our build system, tests, and scripts are designed to be simple, consistent, and cross-platform. There should be zero friction in writing, testing, and debugging high-quality code.
 
 ## 2. One-Step Setup
 
@@ -32,7 +32,7 @@ We enforce code quality and commit message standards automatically. This script 
 
 That's it. You are now ready to build CortexDB.
 
-*(Optional)*: If you use `direnv`, running `direnv allow` will show a reminder to use the project's `./zig/zig` executable.
+_(Optional)_: If you use `direnv`, running `direnv allow` will show a reminder to use the project's `./zig/zig` executable.
 
 ## 3. The Core Workflow: The Inner Loop
 
@@ -41,47 +41,62 @@ We have one command that represents the "inner loop" for 95% of development. It 
 **This is the only command you need to run before committing:**
 
 ```bash
-./zig/zig build test
+./cortex test
 ```
 
 A successful run of this command means your code is correct, well-formatted, and meets our style guidelines. If it passes, you can commit with confidence.
 
 ## 4. The Toolchain: A Deeper Dive
 
-While `zig build test` is your primary tool, the build system provides several granular targets for specific tasks.
+While `./zig/zig build test` is your primary tool, the build system provides several granular targets for specific tasks.
 
-### Building
+### Main Commands
 
-*   **Standard Debug Build:** `zig build` (or `./zig/zig build`)
-    This is the default. It builds with full safety checks and debug symbols, ideal for development.
-*   **Optimized Release Build:** `zig build -Doptimize=ReleaseFast`
-    This builds a highly optimized binary for performance testing and production use. Assertions are disabled.
+- **Run CortexDB:** `./zig/zig build run`
+  Builds and runs the CortexDB database server.
+- **Run All Tests:** `./zig/zig build test`
+  As mentioned, this is the canonical way to validate your changes.
+- **Quick Check:** `./zig/zig build check`
+  Run tests and code quality checks together.
+- **Performance Benchmarks:** `./zig/zig build benchmark`
+  Build and run performance benchmarks.
+- **Fuzz Testing:** `./zig/zig build fuzz`
+  Build and run fuzz tests.
+- **Code Quality:** `./zig/zig build tidy`
+  Run CortexDB-specific linting and style checks.
+- **Complete CI:** `./zig/zig build ci`
+  Run the complete CI pipeline (formatting, tidy, tests).
 
-### Testing
+### Test Categories
 
-*   **Run All Tests:** `zig build test`
-    As mentioned, this is the canonical way to validate your changes.
-*   **Run a Specific Test File:** `zig test tests/wal_recovery_test.zig`
-    Useful for focusing on a single component during development.
+- **Unit Tests:** `./zig/zig build unit-test`
+  Core module tests.
+- **Simulation Tests:** `./zig/zig build simulation`
+  Deterministic simulation framework tests.
+- **Storage Tests:** `./zig/zig build storage_simulation`
+  Storage layer simulation tests.
+- **WAL Recovery Tests:** `./zig/zig build wal_recovery`
+  Write-Ahead Log recovery tests.
+- **WAL Memory Safety:** `./zig/zig build wal_memory_safety`
+  WAL memory safety validation.
+- **Memory Isolation Tests:** `./zig/zig build memory_isolation`
+  Memory isolation and arena safety tests.
+- **Integration Tests:** `./zig/zig build integration`
+  End-to-end integration tests.
 
-### Code Quality (`tidy`)
+### Code Formatting
 
-Our `tidy` check is an aggressive linter that enforces CortexDB-specific style and correctness patterns beyond what `zig fmt` provides. It is automatically run as part of `zig build test`.
+- **Check Formatting:** `./zig/zig build fmt`
+  Verify code formatting without making changes.
+- **Fix Formatting:** `./zig/zig build fmt-fix`
+  Automatically fix code formatting issues.
 
-*   **Run Manually:** `zig build tidy`
+### Setup Commands
 
-### Benchmarking & Fuzzing
-
-*   **Run Benchmarks:**
-    ```bash
-    zig build benchmark
-    ./zig-out/bin/benchmark all
-    ```
-*   **Run Fuzz Tests:**
-    ```bash
-    zig build fuzz
-    ./zig-out/bin/fuzz all 10000
-    ```
+- **Install Zig:** `./scripts/install-zig.sh`
+  Install or update the project Zig toolchain.
+- **Setup Hooks:** `./scripts/setup-hooks.sh`
+  Setup git hooks for development.
 
 ## 5. Debugging Memory Issues: A Pragmatic Guide
 
@@ -104,7 +119,7 @@ test "my component is crashing" {
 }
 ```
 
-This will instantly detect most use-after-free, double-free, and buffer overflow bugs, causing a panic at the *exact line* of the corruption. This turns most debugging sessions into a 5-minute fix.
+This will instantly detect most use-after-free, double-free, and buffer overflow bugs, causing a panic at the _exact line_ of the corruption. This turns most debugging sessions into a 5-minute fix.
 
 ### Tier 2: LLVM AddressSanitizer (ASan)
 

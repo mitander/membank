@@ -106,27 +106,21 @@ pub const ContextBlock = struct {
 
             var offset: usize = 0;
 
-            // Write magic
             std.mem.writeInt(u32, buffer[offset..][0..4], self.magic, .little);
             offset += 4;
 
-            // Write format version
             std.mem.writeInt(u16, buffer[offset..][0..2], self.format_version, .little);
             offset += 2;
 
-            // Write flags
             std.mem.writeInt(u16, buffer[offset..][0..2], self.flags, .little);
             offset += 2;
 
-            // Write ID
             @memcpy(buffer[offset .. offset + 16], &self.id);
             offset += 16;
 
-            // Write block version
             std.mem.writeInt(u64, buffer[offset..][0..8], self.block_version, .little);
             offset += 8;
 
-            // Write lengths
             std.mem.writeInt(u32, buffer[offset..][0..4], self.source_uri_len, .little);
             offset += 4;
             std.mem.writeInt(u32, buffer[offset..][0..4], self.metadata_json_len, .little);
@@ -134,11 +128,10 @@ pub const ContextBlock = struct {
             std.mem.writeInt(u32, buffer[offset..][0..4], self.content_len, .little);
             offset += 4;
 
-            // Write checksum
             std.mem.writeInt(u32, buffer[offset..][0..4], self.checksum, .little);
             offset += 4;
 
-            // Write reserved bytes (must be zero)
+            // Reserved bytes must be zero for forward compatibility
             @memset(buffer[offset .. offset + 12], 0);
         }
 
@@ -148,30 +141,24 @@ pub const ContextBlock = struct {
 
             var offset: usize = 0;
 
-            // Read and validate magic
             const magic = std.mem.readInt(u32, buffer[offset..][0..4], .little);
             if (magic != ContextBlock.MAGIC) return error.InvalidMagic;
             offset += 4;
 
-            // Read format version
             const format_version = std.mem.readInt(u16, buffer[offset..][0..2], .little);
             if (format_version > ContextBlock.FORMAT_VERSION) return error.UnsupportedVersion;
             offset += 2;
 
-            // Read flags
             const flags = std.mem.readInt(u16, buffer[offset..][0..2], .little);
             offset += 2;
 
-            // Read ID
             var id: [16]u8 = undefined;
             @memcpy(&id, buffer[offset .. offset + 16]);
             offset += 16;
 
-            // Read block version
             const block_version = std.mem.readInt(u64, buffer[offset..][0..8], .little);
             offset += 8;
 
-            // Read lengths
             const source_uri_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
             offset += 4;
             const metadata_json_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
@@ -179,11 +166,10 @@ pub const ContextBlock = struct {
             const content_len = std.mem.readInt(u32, buffer[offset..][0..4], .little);
             offset += 4;
 
-            // Read checksum
             const checksum = std.mem.readInt(u32, buffer[offset..][0..4], .little);
             offset += 4;
 
-            // Validate reserved bytes are zero (forward compatibility check)
+            // Reserved bytes must be zero for forward compatibility
             const reserved_bytes = buffer[offset .. offset + 12];
             for (reserved_bytes) |byte| {
                 if (byte != 0) return error.InvalidReservedBytes;

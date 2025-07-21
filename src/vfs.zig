@@ -1,8 +1,19 @@
-//! Virtual File System interface for deterministic testing.
+//! Virtual File System (VFS) interface for CortexDB.
 //!
-//! Provides an abstraction over file system operations that allows
-//! the same code to run in production (using real OS calls) and
-//! simulation (using in-memory data structures).
+//! ## The Cornerstone of Determinism
+//!
+//! The VFS is the single most important abstraction for ensuring the correctness and
+//! reliability of CortexDB. It is not merely an OS abstraction layer; it is the
+//! foundation of our "Simulation First" testing philosophy.
+//!
+//! Every single file I/O operation in the engine MUST go through this interface.
+//! This allows the production code to be tested, byte-for-byte, within a
+//! deterministic `SimulationVFS` that can simulate disk corruption, I/O errors,
+//! and other catastrophic failures in a perfectly reproducible manner.
+//!
+//! **Developer Consideration:** Bypassing the VFS (e.g., by using `std.fs` directly
+//! in the storage engine) is considered a critical architectural violation, as it
+//! undermines the system's guarantee of testability and correctness.
 
 const std = @import("std");
 const assert = std.debug.assert;

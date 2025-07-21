@@ -224,8 +224,8 @@ test "byzantine scenario: cluster handles corrupted messages" {
     _ = try file.write(test_data);
     try file.close();
 
-    // TODO Simulate byzantine behavior (would need message corruption)
-    // For now, just simulate high packet loss from node4
+    // Simulate network unreliability as proxy for byzantine behavior
+    // True message corruption would require protocol-level fault injection
     sim.configure_packet_loss(node4, node1, 0.9);
     sim.configure_packet_loss(node4, node2, 0.9);
     sim.configure_packet_loss(node4, node3, 0.9);

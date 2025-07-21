@@ -63,10 +63,8 @@ pub const Simulation = struct {
     pub fn tick(self: *Self) void {
         self.tick_count += 1;
 
-        // Process network messages
         self.network.process_tick();
 
-        // Process each node
         for (self.nodes.items) |*node| {
             node.process_tick(&self.network);
         }
@@ -366,27 +364,21 @@ pub const Network = struct {
     pub fn send_message(self: *Self, message: Message) !void {
         const pair = NodePair{ .a = message.sender, .b = message.receiver };
 
-        // Check if nodes are partitioned
         if (self.partitions.contains(pair.normalize())) {
-            // Drop message due to partition
             self.allocator.free(message.data);
             return;
         }
 
-        // Check packet loss
         if (self.packet_loss.get(pair.normalize())) |loss_rate| {
             if (self.prng.random().float(f32) < loss_rate) {
-                // Drop message due to packet loss
                 self.allocator.free(message.data);
                 return;
             }
         }
 
-        // Calculate delivery time
         const base_latency = self.latencies.get(pair.normalize()) orelse 1;
         const delivery_tick = 0 + base_latency;
 
-        // Queue the message for delivery
         const delayed_message = DelayedMessage{
             .message = message,
             .delivery_tick = delivery_tick,

@@ -101,7 +101,6 @@ const SentinelInfo = struct {
 
     /// Initialize guard regions with canary values
     pub fn init_guards(self: *SentinelInfo) void {
-        // Fill prefix guard with canary pattern
         const prefix = self.prefix_guard();
         var i: usize = 0;
         while (i < prefix.len) : (i += 8) {
@@ -109,14 +108,13 @@ const SentinelInfo = struct {
                 const buffer: *[8]u8 = @ptrCast(prefix[i .. i + 8]);
                 std.mem.writeInt(u64, buffer, GUARD_CANARY_PREFIX, .little);
             } else {
-                // Handle partial write at end
+                // Handle partial write at end for unaligned guard sizes
                 const remaining = prefix.len - i;
                 const canary_bytes = std.mem.asBytes(&GUARD_CANARY_PREFIX);
                 @memcpy(prefix[i .. i + remaining], canary_bytes[0..remaining]);
             }
         }
 
-        // Fill suffix guard with canary pattern
         const suffix = self.suffix_guard();
         i = 0;
         while (i < suffix.len) : (i += 8) {
@@ -124,7 +122,7 @@ const SentinelInfo = struct {
                 const buffer: *[8]u8 = @ptrCast(suffix[i .. i + 8]);
                 std.mem.writeInt(u64, buffer, GUARD_CANARY_SUFFIX, .little);
             } else {
-                // Handle partial write at end
+                // Handle partial write at end for unaligned guard sizes
                 const remaining = suffix.len - i;
                 const canary_bytes = std.mem.asBytes(&GUARD_CANARY_SUFFIX);
                 @memcpy(suffix[i .. i + remaining], canary_bytes[0..remaining]);
@@ -134,7 +132,6 @@ const SentinelInfo = struct {
 
     /// Validate guard regions for corruption
     pub fn validate_guards(self: *const SentinelInfo) !void {
-        // Check prefix guard
         const prefix = self.prefix_guard();
         var i: usize = 0;
         while (i < prefix.len) : (i += 8) {
@@ -145,7 +142,7 @@ const SentinelInfo = struct {
                     return MemorySentinelError.PrefixGuardCorrupted;
                 }
             } else {
-                // Handle partial check at end
+                // Handle partial check at end for unaligned guard sizes
                 const remaining = prefix.len - i;
                 const expected_bytes = std.mem.asBytes(&GUARD_CANARY_PREFIX);
                 if (!std.mem.eql(u8, prefix[i .. i + remaining], expected_bytes[0..remaining])) {
@@ -154,7 +151,6 @@ const SentinelInfo = struct {
             }
         }
 
-        // Check suffix guard
         const suffix = self.suffix_guard();
         i = 0;
         while (i < suffix.len) : (i += 8) {
@@ -281,32 +277,26 @@ pub const MemorySentinel = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        // Find free sentinel slot
         const slot_index = self.free_slots.findFirstSet() orelse {
             return MemorySentinelError.SentinelTableFull;
         };
 
-        // Calculate total allocation size (user data + 2 * guard size)
         const total_size = size + 2 * GUARD_SIZE;
 
-        // Allocate memory from backing allocator
         const allocation = try self.backing_allocator.alloc(u8, total_size);
 
-        // Initialize sentinel info
         const sentinel_id = self.next_sentinel_id;
         self.next_sentinel_id += 1;
 
         var sentinel_info = SentinelInfo.init(allocation.ptr, total_size, size, sentinel_id);
         sentinel_info.init_guards();
 
-        // Store in tracking table
         self.free_slots.unset(slot_index);
         self.sentinels[slot_index] = sentinel_info;
 
-        // Update statistics
         self.stats.record_creation(size);
 
-        // Trigger periodic integrity check
+        // Periodic integrity checks prevent memory corruption from going undetected
         self.operation_counter += 1;
         if (self.operation_counter % INTEGRITY_CHECK_FREQUENCY == 0) {
             self.check_all_sentinels_integrity() catch |err| {

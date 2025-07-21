@@ -15,8 +15,8 @@ Modern LLM applications suffer from "context drift." They operate on a tiny, tra
 
 Instead of just storing text, CortexDB stores structured knowledge:
 
-*   **Context Blocks:** The atomic unit of knowledge. A block isn't just a string; it's a logical chunk of information—a function, a document paragraph, a configuration setting—with a unique ID, rich metadata, and a version history.
-*   **The Knowledge Graph:** Blocks are linked by typed edges (`IMPORTS`, `DEFINED_IN`, `REFERENCES`). This allows the query engine to traverse relationships, retrieving not just one piece of information, but a rich, interconnected graph of relevant context for the LLM to reason about.
+- **Context Blocks:** The atomic unit of knowledge. A block isn't just a string; it's a logical chunk of information—a function, a document paragraph, a configuration setting—with a unique ID, rich metadata, and a version history.
+- **The Knowledge Graph:** Blocks are linked by typed edges (`IMPORTS`, `DEFINED_IN`, `REFERENCES`). This allows the query engine to traverse relationships, retrieving not just one piece of information, but a rich, interconnected graph of relevant context for the LLM to reason about.
 
 ## The Philosophy: Why Zig? Why This Way?
 
@@ -33,6 +33,7 @@ CortexDB is heavily inspired by the design of high-performance financial databas
 Get from `git clone` to a running demo in under a minute.
 
 **1. Clone the repo:**
+
 ```bash
 git clone https://github.com/cortexdb/cortexdb.git
 cd cortexdb
@@ -40,25 +41,33 @@ cd cortexdb
 
 **2. Install the toolchain:**
 The included scripts ensure you have the exact Zig version needed for the project.
+
 ```bash
 ./scripts/install-zig.sh
 ./scripts/setup-hooks.sh
 ```
 
-**3. Build and Run the Demo:**
-This command builds the project, runs all tests, and then executes a demo that showcases the storage engine and query capabilities.
+**3. Build and Test:**
+This command builds the project and runs the comprehensive test suite.
+
 ```bash
-./zig/zig build test && ./zig-out/bin/cortexdb demo
+./zig/zig build test
+```
+
+**4. Run CortexDB:**
+
+```bash
+./zig/zig build run
 ```
 
 ## Core Features
 
-*   **Absurdly Fast:** Designed for low-latency queries to feed context into LLM prompts with minimal overhead.
-*   **Deterministic by Design:** A simulation-first testing framework allows for byte-for-byte reproducible testing of complex distributed scenarios.
-*   **Robust Memory Safety:** A simple, `ArenaAllocator`-based memory model eliminates entire classes of memory corruption bugs by design.
-*   **Log-Structured Merge-Tree:** The storage engine is a custom LSMT optimized for high-volume ingestion and fast writes.
-*   **Self-Contained:** Zero external dependencies. The entire project is pure Zig.
-*   **Defensive Programming:** A comprehensive assertion framework (`src/assert.zig`) catches invariants and logic bugs early in development.
+- **Absurdly Fast:** Designed for low-latency queries to feed context into LLM prompts with minimal overhead.
+- **Deterministic by Design:** A simulation-first testing framework allows for byte-for-byte reproducible testing of complex distributed scenarios.
+- **Robust Memory Safety:** A simple, `ArenaAllocator`-based memory model eliminates entire classes of memory corruption bugs by design.
+- **Log-Structured Merge-Tree:** The storage engine is a custom LSMT optimized for high-volume ingestion and fast writes.
+- **Self-Contained:** Zero external dependencies. The entire project is pure Zig.
+- **Defensive Programming:** A comprehensive assertion framework (`src/assert.zig`) catches invariants and logic bugs early in development.
 
 ## Project Status
 
@@ -68,15 +77,36 @@ Current focus is on building out the **Ingestion Pipeline** and a pragmatic **Re
 
 ## Development
 
-Contributions are welcome. The goal is a frictionless development experience. The single most important command is `zig build test`, which formats, builds, and runs the entire test suite.
+Contributions are welcome. The goal is a frictionless development experience. The single most important command is `./zig/zig build test`, which builds and runs the entire test suite.
+
+**Available Commands:**
+
+- `./zig/zig build test` - Run all tests
+- `./zig/zig build run` - Run CortexDB server
+- `./zig/zig build check` - Quick compilation check and quality checks
+- `./zig/zig build benchmark` - Performance benchmarks
+- `./zig/zig build fuzz` - Fuzz testing
+- `./zig/zig build tidy` - Code quality checks
+- `./zig/zig build fmt` - Check formatting
+- `./zig/zig build ci` - Complete CI pipeline
+
+**Test Categories:**
+
+- `./zig/zig build unit-test` - Unit tests
+- `./zig/zig build simulation` - Simulation tests
+- `./zig/zig build storage_simulation` - Storage simulation tests
+- `./zig/zig build wal_recovery` - WAL recovery tests
+- `./zig/zig build wal_memory_safety` - WAL memory safety tests
+- `./zig/zig build memory_isolation` - Memory isolation tests
+- `./zig/zig build integration` - Integration tests
 
 For a deeper dive into the workflow, debugging tools, and commit standards, please read the **[Development Guide](docs/DEVELOPMENT.md)**.
 
 ## Documentation
 
-*   **[DESIGN.md](docs/DESIGN.md):** The "why." The architecture and philosophy of the project.
-*   **[DEVELOPMENT.md](docs/DEVELOPMENT.md):** The "how." The development workflow, toolchain, and debugging guide.
-*   **[STYLE.md](docs/STYLE.md):** The coding standards and conventions.
+- **[DESIGN.md](docs/DESIGN.md):** The "why." The architecture and philosophy of the project.
+- **[DEVELOPMENT.md](docs/DEVELOPMENT.md):** The "how." The development workflow, toolchain, and debugging guide.
+- **[STYLE.md](docs/STYLE.md):** The coding standards and conventions.
 
 ## License
 

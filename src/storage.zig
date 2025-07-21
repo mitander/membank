@@ -389,8 +389,23 @@ pub const WALEntry = struct {
         allocator.free(self.payload);
     }
 };
-
-/// In-memory block index for fast lookups.
+// In-memory block index for fast lookups.
+//
+// ## Memory Management: The Arena-per-Subsystem Model
+//
+// The BlockIndex employs a two-part memory strategy for performance and safety, which
+// is a core architectural pattern in CortexDB.
+//
+// - `backing_allocator`: A stable, long-lived allocator (e.g., GeneralPurposeAllocator)
+//   is used for the HashMap structure itself. This part of the index persists.
+//
+// - `arena`: An ArenaAllocator is used for ALL data stored within the HashMap. This includes
+//   every `source_uri`, `metadata_json`, and `content` string.
+//
+// The rationale for this design is the `flush_memtable_to_sstable` operation. Instead of
+// iterating through thousands of blocks to free each string individually, the entire
+// set of in-memory blocks can be deallocated in a single, O(1) operation by calling
+// `arena.reset()`. This is fundamental to achieving high ingestion throughput.
 pub const BlockIndex = struct {
     blocks: std.HashMap(
         BlockId,
@@ -1134,12 +1149,10 @@ pub const StorageEngine = struct {
 
         const start_time = std.time.nanoTimestamp();
 
-        // First check in-memory index (most recent data)
+        // Check memory first as it contains most recent writes
         if (self.index.find_block(block_id)) |block| {
-            // Track successful read from memory
             _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
 
-            // Track bytes read (approximate block size)
             const block_size = block.source_uri.len + block.metadata_json.len +
                 block.content.len + 32;
             _ = self.storage_metrics.total_bytes_read.fetchAdd(block_size, .monotonic);
@@ -1150,7 +1163,7 @@ pub const StorageEngine = struct {
             return block;
         }
 
-        // Search SSTables (older data)
+        // Fall back to SSTables for older data not yet compacted
         for (self.sstables.items) |sstable_path| {
             const path_copy = self.backing_allocator.dupe(u8, sstable_path) catch |err| {
                 _ = self.storage_metrics.read_errors.fetchAdd(1, .monotonic);
@@ -1160,19 +1173,16 @@ pub const StorageEngine = struct {
             defer table.deinit();
 
             _ = self.storage_metrics.sstable_reads.fetchAdd(1, .monotonic);
-            table.read_index() catch continue; // Skip corrupted SSTables
+            table.read_index() catch continue;
 
             if (table.find_block(block_id) catch null) |block| {
-                // Free the original block after cloning into index
                 defer block.deinit(self.backing_allocator);
 
-                // Transfer ownership to index for future fast access
-                self.index.put_block(block) catch {}; // Ignore errors, it's an optimization
+                // Cache in memory to avoid repeated SSTable reads
+                self.index.put_block(block) catch {};
 
-                // Track successful read from SSTable
                 _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
 
-                // Track bytes read from SSTable
                 const block_size = block.source_uri.len + block.metadata_json.len +
                     block.content.len + 32;
                 _ = self.storage_metrics.total_bytes_read.fetchAdd(block_size, .monotonic);
@@ -1372,7 +1382,21 @@ pub const StorageEngine = struct {
         _ = self.storage_metrics.total_wal_flush_time_ns.fetchAdd(duration, .monotonic);
     }
 
-    /// Flush in-memory blocks to an SSTable.
+    /// Flushes the in-memory index (memtable) to a new, immutable SSTable on disk.
+    ///
+    /// ## Data Durability and Lifecycle
+    ///
+    /// This function is a critical part of the LSM-Tree lifecycle. The sequence of
+    /// operations is designed to ensure durability without sacrificing performance:
+    ///
+    /// 1. All writes (`put_block`, `delete_block`) are first written to the Write-Ahead Log (WAL).
+    ///    This guarantees that even if the server crashes, the operation is not lost.
+    /// 2. The write is then applied to the in-memory `BlockIndex`.
+    /// 3. When the `BlockIndex` reaches a certain size, this function is called.
+    /// 4. It writes a complete, sorted, and immutable SSTable file to disk.
+    /// 5. **Crucially**, only after the SSTable is successfully written and persisted is the
+    ///    in-memory `BlockIndex` cleared via `arena.reset()`. This is safe because all the
+    ///    data it contained is now durable in both the WAL and the new SSTable.
     pub fn flush_memtable_to_sstable(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
         assert(self.initialized);
@@ -1634,13 +1658,13 @@ pub const StorageEngine = struct {
     /// Recover from a single WAL file.
     fn recover_from_wal_file(self: *StorageEngine, file_path: []const u8) !u32 {
         var file = self.vfs.open(file_path, .read) catch |err| switch (err) {
-            error.FileNotFound => return 0, // File doesn't exist, nothing to recover
+            error.FileNotFound => return 0,
             else => return err,
         };
         defer file.close() catch {};
 
         const file_size = try file.file_size();
-        if (file_size == 0) return 0; // Empty file
+        if (file_size == 0) return 0;
 
         const file_content = self.backing_allocator.alloc(u8, file_size) catch |err| {
             return error_context.storage_error(
@@ -1655,19 +1679,17 @@ pub const StorageEngine = struct {
         var offset: usize = 0;
         var entries_recovered: u32 = 0;
 
-        // Create arena for WAL entry processing to avoid memory leaks
+        // Arena prevents memory leaks during entry deserialization
         var arena = std.heap.ArenaAllocator.init(self.backing_allocator);
         defer arena.deinit();
         const temp_allocator = arena.allocator();
 
         while (offset < file_content.len) {
-            // Check if we have enough bytes for a header
             if (offset + WALEntry.HEADER_SIZE > file_content.len) {
-                // Incomplete header - likely corruption or partial write
                 break;
             }
 
-            // Read payload size from WAL entry header (self-describing format)
+            // WAL entries are self-describing with embedded payload size
             const payload_size = std.mem.readInt(u32, file_content[offset + 9 ..][0..4], .little);
 
             const total_entry_size = WALEntry.HEADER_SIZE + payload_size;
@@ -1675,7 +1697,6 @@ pub const StorageEngine = struct {
                 break;
             }
 
-            // Deserialize and apply the entry using temporary allocator
             const entry_buffer = file_content[offset .. offset + total_entry_size];
             const entry = WALEntry.deserialize(entry_buffer, temp_allocator) catch |err|
                 switch (err) {
@@ -1683,7 +1704,6 @@ pub const StorageEngine = struct {
                     else => return err,
                 };
 
-            // Apply the entry to rebuild state
             try self.apply_wal_entry(entry);
 
             offset += total_entry_size;

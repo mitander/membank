@@ -393,18 +393,15 @@ pub const DebugAllocator = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        // Calculate total allocation size including headers and guards
         const header_size = @sizeOf(AllocationHeader);
         const footer_size = @sizeOf(AllocationFooter);
         const total_size = header_size + len + footer_size;
 
-        // Find free tracking slot (set bit means free)
         const tracker_index = self.free_slots.findFirstSet() orelse {
             self.stats.alignment_violations += 1;
             return DebugAllocatorError.TrackerFull;
         };
 
-        // Perform the actual allocation
         const raw_memory = self.backing_allocator.vtable.alloc(
             self.backing_allocator.ptr,
             total_size,
@@ -412,18 +409,14 @@ pub const DebugAllocator = struct {
             @returnAddress(),
         ) orelse return null;
 
-        // Set up allocation header
         const header: *AllocationHeader = @ptrCast(@alignCast(raw_memory));
         header.* = AllocationHeader.init(len, ptr_align, @intCast(tracker_index));
 
-        // User pointer starts after header
         const user_ptr = raw_memory + header_size;
 
-        // Validate alignment
         if (self.config.enable_alignment_checks) {
             const alignment_bytes = @as(usize, 1) << @intFromEnum(ptr_align);
             if (@intFromPtr(user_ptr) % alignment_bytes != 0) {
-                // Free the allocation and report error
                 self.backing_allocator.vtable.free(
                     self.backing_allocator.ptr,
                     raw_memory[0..total_size],
@@ -435,15 +428,12 @@ pub const DebugAllocator = struct {
             }
         }
 
-        // Set up allocation footer
         const footer: *AllocationFooter = @ptrCast(@alignCast(user_ptr + len));
         footer.* = AllocationFooter.init();
 
-        // Record allocation in tracker
         self.free_slots.unset(tracker_index);
         self.allocations[tracker_index] = AllocationInfo.init(len, ptr_align, @intFromPtr(user_ptr));
 
-        // Update statistics
         self.stats.total_allocations += 1;
         self.stats.active_allocations += 1;
         self.stats.total_bytes_allocated += len;
