@@ -12,10 +12,6 @@
 
 const std = @import("std");
 const assert = @import("assert.zig");
-const buffer_pool = @import("buffer_pool.zig");
-
-const BufferPool = buffer_pool.BufferPool;
-const PooledAllocator = buffer_pool.PooledAllocator;
 
 /// Configuration for torture test parameters
 const TortureTestConfig = struct {
@@ -434,7 +430,7 @@ pub const AllocatorTortureTester = struct {
 
         // Note: We cannot actually test double-free because it would cause
         // undefined behavior. In a production system, this would be caught
-        // by the enhanced PooledAllocator validation we implemented earlier.
+        // by enhanced allocator validation (DebugAllocator, etc).
         self.stats.double_free_attempts += 1;
     }
 
@@ -460,29 +456,6 @@ test "AllocatorTortureTester: basic functionality" {
 
     const stats = tester.get_stats();
     try std.testing.expect(stats.total_allocations > 0);
-}
-
-test "AllocatorTortureTester: with PooledAllocator" {
-    var buffer_pool_instance = try BufferPool.init(std.testing.allocator);
-    defer buffer_pool_instance.deinit();
-
-    var pooled_allocator = PooledAllocator.init(&buffer_pool_instance, std.testing.allocator);
-    const allocator = pooled_allocator.allocator();
-
-    const config = TortureTestConfig{
-        .allocation_cycles = 50,
-        .max_allocation_size = 512, // Stay within pool limits
-        .random_seed = 123,
-        .enable_alignment_stress = false, // Pool has alignment limitations
-    };
-
-    var tester = try AllocatorTortureTester.init(allocator, config);
-    defer tester.deinit();
-
-    try tester.run_torture_test();
-
-    const stats = tester.get_stats();
-    try std.testing.expect(stats.successful_allocations > 0);
 }
 
 test "AllocatorTortureTester: pattern validation stress test" {

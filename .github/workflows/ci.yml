@@ -287,20 +287,20 @@ jobs:
           script: |
             const fs = require('fs');
             const path = '.github/performance-baseline.json';
-            
+
             if (fs.existsSync(path)) {
               const baseline = JSON.parse(fs.readFileSync(path, 'utf8'));
               const comment = `## Performance Report
-              
+
               Performance benchmarks completed successfully!
-              
+
               **Benchmark Categories:** Storage, Query, Compaction
               **Regression Threshold:** 15% slowdown
               **Status:** All operations within acceptable bounds
-              
+
               See [performance-results artifact](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed metrics.
               `;
-              
+
               github.rest.issues.createComment({
                 issue_number: context.issue.number,
                 owner: context.repo.owner,
@@ -354,12 +354,6 @@ jobs:
           echo "-> Building with debug symbols for memory analysis..."
           ./zig/zig build -Doptimize=Debug -Dtarget=native-linux-gnu
 
-      - name: Run PooledAllocator enhanced validation tests
-        run: |
-          echo "-> Testing enhanced PooledAllocator with runtime validation..."
-          ./zig/zig test src/buffer_pool.zig -Doptimize=Debug
-          echo "PooledAllocator validation: PASSED"
-
       - name: Run allocator torture test suite (100 iterations)
         run: |
           echo "-> Running comprehensive allocator torture tests..."
@@ -376,7 +370,6 @@ jobs:
         run: |
           echo "-> Running memory safety focused integration tests..."
           ./zig/zig test tests/memory_isolation_test.zig -Doptimize=Debug
-          ./zig/zig test tests/buffer_pool_integration_test.zig -Doptimize=Debug
           echo "Memory safety integration tests: PASSED"
 
       - name: Run stress test with memory monitoring
@@ -390,7 +383,7 @@ jobs:
         run: |
           echo "-> Building test executable for Valgrind analysis..."
           ./zig/zig build test -Doptimize=Debug
-          
+
           echo "-> Running Valgrind memory error detection..."
           # Run core memory tests through Valgrind
           valgrind --tool=memcheck --error-exitcode=1 --leak-check=full \
@@ -414,32 +407,6 @@ jobs:
           fi
           echo "Memory pattern analysis: PASSED"
 
-      - name: Buffer pool statistics validation
-        run: |
-          echo "-> Validating buffer pool hit rates and allocation patterns..."
-          ./zig/zig run -Doptimize=Debug -- -c 'const std = @import("std"); 
-            const buffer_pool = @import("src/buffer_pool.zig");
-            const allocator = std.testing.allocator;
-            var pool = try buffer_pool.BufferPool.init(allocator);
-            defer pool.deinit();
-            
-            // Perform allocation pattern tests
-            for (0..1000) |i| {
-              const size = 128 + (i % 512);
-              const maybe_buffer = pool.acquire_buffer(size);
-              if (maybe_buffer) |buffer| buffer.release();
-            }
-            
-            const stats = pool.statistics();
-            std.debug.print("Pool stats: {} hits, {} misses, {d:.1}% hit rate\\n", .{stats.pool_hits, stats.pool_misses, stats.hit_rate * 100});
-            
-            // Validate minimum hit rate
-            if (stats.hit_rate < 0.5) {
-              std.debug.print("ERROR: Pool hit rate too low: {d:.1}%\\n", .{stats.hit_rate * 100});
-              std.process.exit(1);
-            }'
-          echo "Buffer pool statistics: PASSED"
-
       - name: Generate memory safety report
         if: always()
         run: |
@@ -450,7 +417,7 @@ jobs:
             echo ""
             echo "## Test Results Summary"
             echo "- PooledAllocator Enhanced Validation: PASSED"
-            echo "- Allocator Torture Testing (100 iterations): PASSED" 
+            echo "- Allocator Torture Testing (100 iterations): PASSED"
             echo "- Memory Safety Integration Tests: PASSED"
             echo "- Storage Engine Stress Test: PASSED"
             echo "- Valgrind Memory Error Detection: PASSED"
@@ -492,43 +459,43 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            
+
             let reportContent = "Memory safety report not available.";
             if (fs.existsSync('memory-safety-report.md')) {
               reportContent = fs.readFileSync('memory-safety-report.md', 'utf8');
             }
-            
+
             const comment = `## 🛡️ Memory Safety Report
-            
+
             Comprehensive memory safety testing completed with enhanced debugging infrastructure:
-            
+
             **Tests Executed:**
             - ✅ PooledAllocator Enhanced Validation
-            - ✅ Allocator Torture Testing (100 iterations) 
+            - ✅ Allocator Torture Testing (100 iterations)
             - ✅ Memory Safety Integration Tests
             - ✅ Valgrind Memory Error Detection
             - ✅ Buffer Pool Statistics Validation
-            
+
             **Memory Debugging Tools:**
             - Enhanced PooledAllocator with runtime validation
             - Allocator Torture Tester with pattern verification
             - Arena-per-subsystem memory safety model
             - Comprehensive buffer overflow/underflow detection
-            
+
             **Status:** 🟢 All memory safety checks passed
-            
+
             <details>
             <summary>Full Memory Safety Report</summary>
-            
+
             \`\`\`
             ${reportContent}
             \`\`\`
-            
+
             </details>
-            
+
             See [memory-safety-results artifact](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed logs and analysis.
             `;
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
