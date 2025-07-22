@@ -21,11 +21,13 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.sstable);
 const context_block = @import("context_block");
 const vfs = @import("vfs");
+const bloom_filter = @import("bloom_filter");
 
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
 const VFS = vfs.VFS;
+const BloomFilter = bloom_filter.BloomFilter;
 
 /// SSTable file format:
 /// | Magic (4) | Version (4) | Index Offset (8) | Block Count (4) | Reserved (12) |
@@ -38,6 +40,7 @@ pub const SSTable = struct {
     file_path: []const u8,
     block_count: u32,
     index: std.ArrayList(IndexEntry),
+    bloom_filter: ?BloomFilter,
 
     const MAGIC = [4]u8{ 'S', 'S', 'T', 'B' }; // "SSTB" for SSTable Blocks
     const VERSION = 1;
@@ -99,7 +102,9 @@ pub const SSTable = struct {
         block_count: u32, // 4 bytes: Number of blocks
         file_checksum: u32, // 4 bytes: CRC32 of entire file
         created_timestamp: u64, // 8 bytes: Unix timestamp
-        reserved: [32]u8, // 32 bytes: Reserved for future use
+        bloom_filter_offset: u64, // 8 bytes: Offset to bloom filter
+        bloom_filter_size: u32, // 4 bytes: Size of serialized bloom filter
+        reserved: [20]u8, // 20 bytes: Reserved for future use
 
         pub fn serialize(self: Header, buffer: []u8) !void {
             assert(buffer.len >= HEADER_SIZE);
@@ -127,8 +132,14 @@ pub const SSTable = struct {
             std.mem.writeInt(u64, buffer[offset..][0..8], self.created_timestamp, .little);
             offset += 8;
 
+            std.mem.writeInt(u64, buffer[offset..][0..8], self.bloom_filter_offset, .little);
+            offset += 8;
+
+            std.mem.writeInt(u32, buffer[offset..][0..4], self.bloom_filter_size, .little);
+            offset += 4;
+
             // Reserved bytes must be zero for future compatibility
-            @memset(buffer[offset .. offset + 32], 0);
+            @memset(buffer[offset .. offset + 20], 0);
         }
 
         pub fn deserialize(buffer: []const u8) !Header {
@@ -160,8 +171,14 @@ pub const SSTable = struct {
             const created_timestamp = std.mem.readInt(u64, buffer[offset..][0..8], .little);
             offset += 8;
 
+            const bloom_filter_offset = std.mem.readInt(u64, buffer[offset..][0..8], .little);
+            offset += 8;
+
+            const bloom_filter_size = std.mem.readInt(u32, buffer[offset..][0..4], .little);
+            offset += 4;
+
             // Validate reserved bytes are zero for forward compatibility
-            const reserved = buffer[offset .. offset + 32];
+            const reserved = buffer[offset .. offset + 20];
             for (reserved) |byte| {
                 if (byte != 0) return error.InvalidReservedBytes;
             }
@@ -174,7 +191,9 @@ pub const SSTable = struct {
                 .block_count = block_count,
                 .file_checksum = file_checksum,
                 .created_timestamp = created_timestamp,
-                .reserved = [_]u8{0} ** 32,
+                .bloom_filter_offset = bloom_filter_offset,
+                .bloom_filter_size = bloom_filter_size,
+                .reserved = [_]u8{0} ** 20,
             };
         }
     };
@@ -186,11 +205,15 @@ pub const SSTable = struct {
             .file_path = file_path,
             .block_count = 0,
             .index = std.ArrayList(IndexEntry).init(allocator),
+            .bloom_filter = null,
         };
     }
 
     pub fn deinit(self: *SSTable) void {
         self.index.deinit();
+        if (self.bloom_filter) |*filter| {
+            filter.deinit();
+        }
         self.allocator.free(self.file_path);
     }
 
@@ -218,6 +241,19 @@ pub const SSTable = struct {
 
         var current_offset: u64 = HEADER_SIZE;
 
+        // Create and populate Bloom filter
+        const bloom_params = if (sorted_blocks.len < 1000)
+            BloomFilter.Params.small
+        else if (sorted_blocks.len < 10000)
+            BloomFilter.Params.medium
+        else
+            BloomFilter.Params.large;
+
+        var bloom = try BloomFilter.init(self.allocator, bloom_params);
+        for (sorted_blocks) |block| {
+            bloom.add(block.id);
+        }
+
         for (sorted_blocks) |block| {
             const block_size = block.serialized_size();
             const buffer = try self.allocator.alloc(u8, block_size);
@@ -242,10 +278,21 @@ pub const SSTable = struct {
             var entry_buffer: [IndexEntry.SERIALIZED_SIZE]u8 = undefined;
             try entry.serialize(&entry_buffer);
             _ = try file.write(&entry_buffer);
+            current_offset += IndexEntry.SERIALIZED_SIZE;
         }
 
+        // Write Bloom filter after index
+        const bloom_filter_offset = current_offset;
+        const bloom_filter_size = bloom.serialized_size();
+        const bloom_buffer = try self.allocator.alloc(u8, bloom_filter_size);
+        defer self.allocator.free(bloom_buffer);
+
+        try bloom.serialize(bloom_buffer);
+        _ = try file.write(bloom_buffer);
+        current_offset += bloom_filter_size;
+
         // Calculate file checksum over all content (excluding header checksum field)
-        const file_checksum = try self.calculate_file_checksum(&file, index_offset);
+        const file_checksum = try self.calculate_file_checksum(&file, current_offset);
 
         // Calculate footer checksum
         const file_size = try file.file_size();
@@ -268,7 +315,9 @@ pub const SSTable = struct {
             .block_count = @intCast(sorted_blocks.len),
             .file_checksum = file_checksum,
             .created_timestamp = @intCast(std.time.timestamp()),
-            .reserved = [_]u8{0} ** 32,
+            .bloom_filter_offset = bloom_filter_offset,
+            .bloom_filter_size = bloom_filter_size,
+            .reserved = [_]u8{0} ** 20,
         };
 
         try header.serialize(&header_buffer);
@@ -276,36 +325,24 @@ pub const SSTable = struct {
 
         try file.flush();
         self.block_count = @intCast(sorted_blocks.len);
+
+        // Store the Bloom filter in memory for future queries
+        self.bloom_filter = bloom;
     }
 
-    /// Calculate CRC32 checksum over file content (excluding header checksum field)
-    fn calculate_file_checksum(self: *SSTable, file: *vfs.VFile, index_offset: u64) !u32 {
+    /// Calculate CRC32 checksum over file content (excluding header checksum field and footer)
+    fn calculate_file_checksum(self: *SSTable, file: *vfs.VFile, content_end_offset: u64) !u32 {
         _ = self;
-
         var crc = std.hash.Crc32.init();
 
-        // Read block data section (from end of header to start of index)
+        // Calculate checksum over all content from header end to content end
+        // This includes: blocks + index + bloom filter (but excludes header and footer)
         _ = try file.seek(HEADER_SIZE, .start);
-        const block_data_size = index_offset - HEADER_SIZE;
+        const content_size = content_end_offset - HEADER_SIZE;
 
         var buffer: [4096]u8 = undefined;
-        var remaining = block_data_size;
+        var remaining = content_size;
 
-        while (remaining > 0) {
-            const chunk_size = @min(remaining, buffer.len);
-            const bytes_read = try file.read(buffer[0..chunk_size]);
-            if (bytes_read == 0) break;
-
-            crc.update(buffer[0..bytes_read]);
-            remaining -= bytes_read;
-        }
-
-        // Read index section
-        _ = try file.seek(@intCast(index_offset), .start);
-        const file_size = try file.file_size();
-        const index_size = file_size - index_offset - FOOTER_SIZE;
-
-        remaining = index_size;
         while (remaining > 0) {
             const chunk_size = @min(remaining, buffer.len);
             const bytes_read = try file.read(buffer[0..chunk_size]);
@@ -331,9 +368,15 @@ pub const SSTable = struct {
 
         // Verify file checksum if present
         if (header.file_checksum != 0) {
+            // Calculate checksum over content from header end to bloom filter end
+            const content_end = if (header.bloom_filter_size > 0)
+                header.bloom_filter_offset + header.bloom_filter_size
+            else
+                header.index_offset + (header.block_count * IndexEntry.SERIALIZED_SIZE);
+
             const calculated_checksum = try self.calculate_file_checksum(
                 &file,
-                header.index_offset,
+                content_end,
             );
             if (calculated_checksum != header.file_checksum) {
                 return error.ChecksumMismatch;
@@ -357,16 +400,48 @@ pub const SSTable = struct {
                 return std.mem.order(u8, &a.block_id.bytes, &b.block_id.bytes) == .lt;
             }
         }.less_than);
+
+        // Load Bloom filter if present
+        if (header.bloom_filter_size > 0) {
+            _ = try file.seek(@intCast(header.bloom_filter_offset), .start);
+
+            const bloom_buffer = try self.allocator.alloc(u8, header.bloom_filter_size);
+            defer self.allocator.free(bloom_buffer);
+
+            _ = try file.read(bloom_buffer);
+
+            self.bloom_filter = try BloomFilter.deserialize(self.allocator, bloom_buffer);
+        }
     }
 
     /// Find a block by ID from this SSTable
     pub fn find_block(self: *SSTable, block_id: BlockId) !?ContextBlock {
-        // Linear search through sorted index (simple implementation)
+        // Check Bloom filter first to avoid expensive disk I/O for non-existent keys
+        if (self.bloom_filter) |*filter| {
+            if (!filter.might_contain(block_id)) {
+                // Definitely not in this SSTable - no false negatives
+                return null;
+            }
+            // Might be in SSTable - proceed with index lookup (could be false positive)
+        }
+
+        // Binary search through sorted index for O(log n) performance
+        var left: usize = 0;
+        var right: usize = self.index.items.len;
         var entry: ?IndexEntry = null;
-        for (self.index.items) |idx_entry| {
-            if (idx_entry.block_id.eql(block_id)) {
-                entry = idx_entry;
-                break;
+
+        while (left < right) {
+            const mid = left + (right - left) / 2;
+            const mid_entry = self.index.items[mid];
+
+            const order = std.mem.order(u8, &mid_entry.block_id.bytes, &block_id.bytes);
+            switch (order) {
+                .lt => left = mid + 1,
+                .gt => right = mid,
+                .eq => {
+                    entry = mid_entry;
+                    break;
+                },
             }
         }
 
@@ -772,4 +847,245 @@ test "SSTable checksum validation" {
     sstable.block_count = 0;
 
     try std.testing.expectError(error.ChecksumMismatch, sstable.read_index());
+}
+
+test "SSTable Bloom filter functionality" {
+    const allocator = std.testing.allocator;
+    const simulation_vfs = @import("simulation_vfs");
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_test.sst"));
+    defer sstable.deinit();
+
+    const block1 = ContextBlock{
+        .id = try BlockId.from_hex("0123456789abcdeffedcba9876543210"),
+        .version = 1,
+        .source_uri = "test://block1",
+        .metadata_json = "{\"type\":\"test\"}",
+        .content = "test content 1",
+    };
+
+    const block2 = ContextBlock{
+        .id = try BlockId.from_hex("fedcba9876543210123456789abcdef0"),
+        .version = 1,
+        .source_uri = "test://block2",
+        .metadata_json = "{\"type\":\"test\"}",
+        .content = "test content 2",
+    };
+
+    const blocks = [_]ContextBlock{ block1, block2 };
+
+    // Write blocks - this should create and populate the Bloom filter
+    try sstable.write_blocks(&blocks);
+
+    // Verify Bloom filter was created
+    try std.testing.expect(sstable.bloom_filter != null);
+
+    // Test that all written blocks are found by Bloom filter
+    if (sstable.bloom_filter) |*filter| {
+        try std.testing.expect(filter.might_contain(block1.id));
+        try std.testing.expect(filter.might_contain(block2.id));
+    }
+
+    // Test actual block retrieval works
+    const retrieved1 = try sstable.find_block(block1.id);
+    try std.testing.expect(retrieved1 != null);
+    try std.testing.expect(retrieved1.?.id.eql(block1.id));
+    if (retrieved1) |block| {
+        block.deinit(allocator);
+    }
+
+    // Test with non-existent block - Bloom filter should eliminate false negatives
+    const non_existent_id = try BlockId.from_hex("1111111111111111111111111111111");
+    const not_found = try sstable.find_block(non_existent_id);
+    try std.testing.expect(not_found == null);
+}
+
+test "SSTable Bloom filter persistence" {
+    const allocator = std.testing.allocator;
+    const simulation_vfs = @import("simulation_vfs");
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    const file_path = try allocator.dupe(u8, "bloom_persist_test.sst");
+    defer allocator.free(file_path);
+
+    const block1 = ContextBlock{
+        .id = try BlockId.from_hex("0123456789abcdeffedcba9876543210"),
+        .version = 1,
+        .source_uri = "test://block1",
+        .metadata_json = "{\"type\":\"test\"}",
+        .content = "test content 1",
+    };
+
+    const block2 = ContextBlock{
+        .id = try BlockId.from_hex("fedcba9876543210123456789abcdef0"),
+        .version = 1,
+        .source_uri = "test://block2",
+        .metadata_json = "{\"type\":\"test\"}",
+        .content = "test content 2",
+    };
+
+    const blocks = [_]ContextBlock{ block1, block2 };
+
+    // Write SSTable with Bloom filter
+    {
+        var sstable_write = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, file_path));
+        defer sstable_write.deinit();
+
+        try sstable_write.write_blocks(&blocks);
+        try std.testing.expect(sstable_write.bloom_filter != null);
+    }
+
+    // Read SSTable and verify Bloom filter is loaded
+    {
+        var sstable_read = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, file_path));
+        defer sstable_read.deinit();
+
+        try sstable_read.read_index();
+        try std.testing.expect(sstable_read.bloom_filter != null);
+
+        // Verify Bloom filter behavior is preserved
+        if (sstable_read.bloom_filter) |*filter| {
+            try std.testing.expect(filter.might_contain(block1.id));
+            try std.testing.expect(filter.might_contain(block2.id));
+        }
+
+        // Test actual retrieval still works
+        const retrieved = try sstable_read.find_block(block1.id);
+        try std.testing.expect(retrieved != null);
+        if (retrieved) |block| {
+            block.deinit(allocator);
+        }
+    }
+}
+
+test "SSTable Bloom filter with many blocks" {
+    const allocator = std.testing.allocator;
+    const simulation_vfs = @import("simulation_vfs");
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_many_test.sst"));
+    defer sstable.deinit();
+
+    // Create many blocks to test Bloom filter scaling
+    var blocks = std.ArrayList(ContextBlock).init(allocator);
+    defer {
+        for (blocks.items) |block| {
+            block.deinit(allocator);
+        }
+        blocks.deinit();
+    }
+
+    var i: u8 = 0;
+    while (i < 50) : (i += 1) {
+        var id_bytes: [16]u8 = undefined;
+        @memset(&id_bytes, 0);
+        id_bytes[0] = i;
+
+        const block = ContextBlock{
+            .id = BlockId{ .bytes = id_bytes },
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://block{d}", .{i}),
+            .metadata_json = try allocator.dupe(u8, "{}"),
+            .content = try std.fmt.allocPrint(allocator, "content {d}", .{i}),
+        };
+        try blocks.append(block);
+    }
+
+    try sstable.write_blocks(blocks.items);
+
+    // Verify Bloom filter was created and all blocks are detected
+    try std.testing.expect(sstable.bloom_filter != null);
+    if (sstable.bloom_filter) |*filter| {
+        for (blocks.items) |block| {
+            try std.testing.expect(filter.might_contain(block.id));
+        }
+    }
+
+    // Test retrieval of several blocks
+    const retrieved_first = try sstable.find_block(blocks.items[0].id);
+    try std.testing.expect(retrieved_first != null);
+    if (retrieved_first) |block| {
+        block.deinit(allocator);
+    }
+
+    const retrieved_last = try sstable.find_block(blocks.items[blocks.items.len - 1].id);
+    try std.testing.expect(retrieved_last != null);
+    if (retrieved_last) |block| {
+        block.deinit(allocator);
+    }
+
+    // Test non-existent block
+    var non_existent_bytes: [16]u8 = undefined;
+    @memset(&non_existent_bytes, 0xFF);
+    const non_existent_id = BlockId{ .bytes = non_existent_bytes };
+    const not_found = try sstable.find_block(non_existent_id);
+    try std.testing.expect(not_found == null);
+}
+
+test "SSTable binary search performance" {
+    const allocator = std.testing.allocator;
+    const simulation_vfs = @import("simulation_vfs");
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "binary_search_test.sst"));
+    defer sstable.deinit();
+
+    // Create blocks with IDs that will test binary search ordering
+    var blocks = std.ArrayList(ContextBlock).init(allocator);
+    defer {
+        for (blocks.items) |block| {
+            block.deinit(allocator);
+        }
+        blocks.deinit();
+    }
+
+    // Create blocks with deliberately unsorted IDs to verify sorting works
+    const test_ids = [_][]const u8{
+        "ffff000000000000000000000000000", // Should be last after sorting
+        "0000000000000000000000000000000", // Should be first after sorting
+        "8888888888888888888888888888888", // Should be in middle
+        "4444444444444444444444444444444", // Should be in first half
+        "cccccccccccccccccccccccccccccccc", // Should be in second half
+    };
+
+    for (test_ids, 0..) |id_hex, i| {
+        const block = ContextBlock{
+            .id = try BlockId.from_hex(id_hex),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://block{d}", .{i}),
+            .metadata_json = try allocator.dupe(u8, "{}"),
+            .content = try std.fmt.allocPrint(allocator, "content {d}", .{i}),
+        };
+        try blocks.append(block);
+    }
+
+    try sstable.write_blocks(blocks.items);
+    try sstable.read_index();
+
+    // Verify all blocks can be found (binary search should work correctly)
+    for (blocks.items) |original_block| {
+        const found = try sstable.find_block(original_block.id);
+        try std.testing.expect(found != null);
+        try std.testing.expect(found.?.id.eql(original_block.id));
+        if (found) |block| {
+            block.deinit(allocator);
+        }
+    }
+
+    // Verify index is properly sorted
+    for (1..sstable.index.items.len) |i| {
+        const prev = sstable.index.items[i - 1];
+        const curr = sstable.index.items[i];
+        const order = std.mem.order(u8, &prev.block_id.bytes, &curr.block_id.bytes);
+        try std.testing.expect(order == .lt);
+    }
 }

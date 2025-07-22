@@ -7,6 +7,7 @@ const CoreModules = struct {
     context_block: *std.Build.Module,
     error_context: *std.Build.Module,
     concurrency: *std.Build.Module,
+    bloom_filter: *std.Build.Module,
     simulation_vfs: *std.Build.Module,
     simulation: *std.Build.Module,
     sstable: *std.Build.Module,
@@ -40,6 +41,11 @@ fn create_core_modules(b: *std.Build) CoreModules {
         .root_source_file = b.path("src/concurrency.zig"),
     });
 
+    const bloom_filter_module = b.createModule(.{
+        .root_source_file = b.path("src/bloom_filter.zig"),
+    });
+    bloom_filter_module.addImport("context_block", context_block_module);
+
     // Modules with single dependencies
     const error_context_module = b.createModule(.{
         .root_source_file = b.path("src/error_context.zig"),
@@ -66,6 +72,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
     });
     sstable_module.addImport("context_block", context_block_module);
     sstable_module.addImport("vfs", vfs_module);
+    sstable_module.addImport("bloom_filter", bloom_filter_module);
     sstable_module.addImport("simulation_vfs", simulation_vfs_module);
     sstable_module.addImport("error_context", error_context_module);
 
@@ -153,6 +160,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
         .context_block = context_block_module,
         .error_context = error_context_module,
         .concurrency = concurrency_module,
+        .bloom_filter = bloom_filter_module,
         .simulation_vfs = simulation_vfs_module,
         .simulation = simulation_module,
         .sstable = sstable_module,
@@ -175,6 +183,7 @@ fn add_all_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     module.addImport("context_block", core_modules.context_block);
     module.addImport("error_context", core_modules.error_context);
     module.addImport("concurrency", core_modules.concurrency);
+    module.addImport("bloom_filter", core_modules.bloom_filter);
     module.addImport("simulation_vfs", core_modules.simulation_vfs);
     module.addImport("simulation", core_modules.simulation);
     module.addImport("sstable", core_modules.sstable);
@@ -196,8 +205,10 @@ fn add_test_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     module.addImport("vfs", core_modules.vfs);
     module.addImport("context_block", core_modules.context_block);
     module.addImport("concurrency", core_modules.concurrency);
+    module.addImport("bloom_filter", core_modules.bloom_filter);
     module.addImport("simulation", core_modules.simulation);
     module.addImport("simulation_vfs", core_modules.simulation_vfs);
+    module.addImport("sstable", core_modules.sstable);
     module.addImport("storage", core_modules.storage);
     module.addImport("query_engine", core_modules.query_engine);
     module.addImport("ingestion", core_modules.ingestion);
