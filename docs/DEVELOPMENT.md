@@ -8,7 +8,49 @@ Welcome to CortexDB. We are building a high-performance, mission-critical databa
 - **We Don't Mock; We Simulate:** The only way to trust a complex system is to test it holistically. Our primary method of validation is through a deterministic simulation framework that can reproduce the most hostile production environments byte-for-byte.
 - **The Toolchain Serves the Developer:** Our build system, tests, and scripts are designed to be simple, consistent, and cross-platform. There should be zero friction in writing, testing, and debugging high-quality code.
 
-## 2. One-Step Setup
+## 2. Project Structure
+
+CortexDB follows a clean, modular architecture with clear separation of concerns:
+
+```
+src/
+├── cortexdb.zig          # Single public API entry point
+├── main.zig              # Application entry point
+├── core/                 # Foundation - types, VFS interface, utilities
+│   ├── types.zig         # Core data model (ContextBlock, BlockId, etc.)
+│   ├── vfs.zig           # Filesystem abstraction interface
+│   ├── assert.zig        # Assertion framework
+│   ├── concurrency.zig   # Thread safety utilities
+│   └── error_context.zig # Rich error reporting
+├── storage/              # Storage engine (LSM-tree, SSTables, WAL)
+├── query/                # Query processing
+├── ingestion/            # Data ingestion pipeline
+├── server/               # TCP server and protocol handling
+├── sim/                  # Simulation framework (testing only)
+└── dev/                  # Development tools (not shippable)
+
+tests/
+├── integration/          # End-to-end workflows
+├── simulation/           # Network partition/latency scenarios
+├── stress/               # High-load performance testing
+├── recovery/             # WAL corruption/recovery scenarios
+└── debug/                # Memory debugging tools
+
+scripts/
+├── fuzz.sh              # Unified fuzzing (profiles: quick, ci, deep, production)
+├── benchmark.sh         # Performance regression detection
+├── install_zig.sh       # Toolchain setup
+└── setup_hooks.sh       # Git hooks installation
+```
+
+**Key Principles:**
+
+- **Dependencies flow downward:** `storage` → `core`, `sim` → `core` (never `core` → `sim`)
+- **VFS abstraction:** Core defines interface, implementations live in respective modules
+- **Test categorization:** Run focused tests like `./zig/zig build storage_stress`
+- **Development isolation:** Tools in `dev/` are not part of the shippable library
+
+## 3. One-Step Setup
 
 Our goal is a "clone-and-build" developer experience on macOS, Linux, and Windows.
 
@@ -32,9 +74,7 @@ We enforce code quality and commit message standards automatically. This script 
 
 That's it. You are now ready to build CortexDB.
 
-_(Optional)_: If you use `direnv`, running `direnv allow` will show a reminder to use the project's `./zig/zig` executable.
-
-## 3. The Core Workflow: The Inner Loop
+## 4. The Core Workflow: The Inner Loop
 
 We have one command that represents the "inner loop" for 95% of development. It builds the project, runs all tests (unit, simulation, and integration), and verifies all code quality and formatting standards.
 
@@ -46,7 +86,7 @@ We have one command that represents the "inner loop" for 95% of development. It 
 
 A successful run of this command means your code is correct, well-formatted, and meets our style guidelines. If it passes, you can commit with confidence.
 
-## 4. The Toolchain: A Deeper Dive
+## 5. The Toolchain: A Deeper Dive
 
 While `./zig/zig build test` is your primary tool, the build system provides several granular targets for specific tasks.
 
@@ -98,7 +138,7 @@ While `./zig/zig build test` is your primary tool, the build system provides sev
 - **Setup Hooks:** `./scripts/setup_hooks.sh`
   Setup git hooks for development.
 
-## 5. Debugging Memory Issues: A Pragmatic Guide
+## 6. Debugging Memory Issues: A Pragmatic Guide
 
 We follow a tiered approach to debugging, escalating from simple checks to powerful tools.
 
@@ -132,7 +172,7 @@ For more subtle bugs, we use the AddressSanitizer built into the LLVM toolchain.
 
 ASan will halt the program on any memory error and provide a detailed report, including the stack trace of the invalid access, the allocation site, and the deallocation site.
 
-## 6. Build Modes and Optimization Levels
+## 7. Build Modes and Optimization Levels
 
 CortexDB supports all Zig optimization levels, but we recommend specific modes for different use cases:
 
@@ -172,7 +212,7 @@ Our CI pipeline uses `ReleaseSafe` by default to ensure:
 - Comprehensive safety checking without Debug mode overhead
 - Consistent behavior between local development and CI validation
 
-## 7. Contributing
+## 8. Contributing
 
 ### Commit Messages
 
