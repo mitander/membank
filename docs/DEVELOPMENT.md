@@ -18,7 +18,7 @@ CortexDB depends on a specific version of the Zig toolchain. We provide a script
 
 ```bash
 # This will download the correct Zig version for your OS/architecture.
-./scripts/install-zig.sh
+./scripts/install_zig.sh
 ```
 
 ### Step 2: Install Git Hooks
@@ -27,7 +27,7 @@ We enforce code quality and commit message standards automatically. This script 
 
 ```bash
 # This script is idempotent and safe to run multiple times.
-./scripts/setup-hooks.sh
+./scripts/setup_hooks.sh
 ```
 
 That's it. You are now ready to build CortexDB.
@@ -93,9 +93,9 @@ While `./zig/zig build test` is your primary tool, the build system provides sev
 
 ### Setup Commands
 
-- **Install Zig:** `./scripts/install-zig.sh`
+- **Install Zig:** `./scripts/install_zig.sh`
   Install or update the project Zig toolchain.
-- **Setup Hooks:** `./scripts/setup-hooks.sh`
+- **Setup Hooks:** `./scripts/setup_hooks.sh`
   Setup git hooks for development.
 
 ## 5. Debugging Memory Issues: A Pragmatic Guide

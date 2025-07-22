@@ -49,7 +49,7 @@ check_requirements() {
 
     # Check if project zig is available
     if [ ! -x "./zig/zig" ]; then
-        print_status "WARN" "Project Zig not found - run './scripts/install-zig.sh' to install"
+        print_status "WARN" "Project Zig not found - run './scripts/install_zig.sh' to install"
     else
         print_status "OK" "Project Zig found"
     fi

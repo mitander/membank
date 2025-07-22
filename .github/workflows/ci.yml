@@ -18,14 +18,14 @@ jobs:
       - name: Extract Zig version
         id: zig-version
         run: |
-          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install-zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
+          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install_zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
           echo "version=$ZIG_VERSION" >> $GITHUB_OUTPUT
           echo "Extracted Zig version: $ZIG_VERSION"
 
       - name: Setup Zig
         run: |
-          chmod +x scripts/install-zig.sh
-          ./scripts/install-zig.sh
+          chmod +x scripts/install_zig.sh
+          ./scripts/install_zig.sh
           echo "Using Zig: $(./zig/zig version)"
 
       - name: Cache Zig artifacts
@@ -78,15 +78,15 @@ jobs:
         id: zig-version
         shell: bash
         run: |
-          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install-zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
+          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install_zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
           echo "version=$ZIG_VERSION" >> $GITHUB_OUTPUT
           echo "Extracted Zig version: $ZIG_VERSION"
 
       - name: Setup Zig
         shell: bash
         run: |
-          chmod +x scripts/install-zig.sh
-          ./scripts/install-zig.sh
+          chmod +x scripts/install_zig.sh
+          ./scripts/install_zig.sh
           echo "Using Zig: $(./zig/zig version)"
 
       - name: Cache Zig artifacts
@@ -123,14 +123,14 @@ jobs:
       - name: Extract Zig version
         id: zig-version
         run: |
-          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install-zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
+          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install_zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
           echo "version=$ZIG_VERSION" >> $GITHUB_OUTPUT
           echo "Extracted Zig version: $ZIG_VERSION"
 
       - name: Setup Zig
         run: |
-          chmod +x scripts/install-zig.sh
-          ./scripts/install-zig.sh
+          chmod +x scripts/install_zig.sh
+          ./scripts/install_zig.sh
           echo "Using Zig: $(./zig/zig version)"
 
       - name: Cache Zig artifacts
@@ -158,14 +158,14 @@ jobs:
       - name: Extract Zig version
         id: zig-version
         run: |
-          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install-zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
+          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install_zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
           echo "version=$ZIG_VERSION" >> $GITHUB_OUTPUT
           echo "Extracted Zig version: $ZIG_VERSION"
 
       - name: Setup Zig
         run: |
-          chmod +x scripts/install-zig.sh
-          ./scripts/install-zig.sh
+          chmod +x scripts/install_zig.sh
+          ./scripts/install_zig.sh
           echo "Using Zig: $(./zig/zig version)"
 
       - name: Check for banned patterns
@@ -243,14 +243,14 @@ jobs:
       - name: Extract Zig version
         id: zig-version
         run: |
-          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install-zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
+          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install_zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
           echo "version=$ZIG_VERSION" >> $GITHUB_OUTPUT
           echo "Extracted Zig version: $ZIG_VERSION"
 
       - name: Setup Zig
         run: |
-          chmod +x scripts/install-zig.sh
-          ./scripts/install-zig.sh
+          chmod +x scripts/install_zig.sh
+          ./scripts/install_zig.sh
           echo "Using Zig: $(./zig/zig version)"
 
       - name: Cache Zig artifacts
@@ -321,14 +321,14 @@ jobs:
       - name: Extract Zig version
         id: zig-version
         run: |
-          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install-zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
+          ZIG_VERSION=$(grep 'ZIG_RELEASE_DEFAULT=' scripts/install_zig.sh | sed 's/.*="\([^"]*\)".*/\1/')
           echo "version=$ZIG_VERSION" >> $GITHUB_OUTPUT
           echo "Extracted Zig version: $ZIG_VERSION"
 
       - name: Setup Zig
         run: |
-          chmod +x scripts/install-zig.sh
-          ./scripts/install-zig.sh
+          chmod +x scripts/install_zig.sh
+          ./scripts/install_zig.sh
           echo "Using Zig: $(./zig/zig version)"
 
       - name: Cache Zig artifacts

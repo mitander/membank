@@ -43,8 +43,8 @@ cd cortexdb
 The included scripts ensure you have the exact Zig version needed for the project.
 
 ```bash
-./scripts/install-zig.sh
-./scripts/setup-hooks.sh
+./scripts/install_zig.sh
+./scripts/setup_hooks.sh
 ```
 
 **3. Build and Test:**

@@ -20,7 +20,7 @@ fi
 
 # Check if project zig is available
 if [ ! -x "./zig/zig" ]; then
-    echo "Error: Project Zig not found. Run './scripts/install-zig.sh' to install."
+    echo "Error: Project Zig not found. Run './scripts/install_zig.sh' to install."
     exit 1
 fi
 
