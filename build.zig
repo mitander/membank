@@ -261,42 +261,42 @@ pub fn build(b: *std.Build) void {
         .{ .name = "unit", .source_file = "src/main.zig", .description = "unit tests" },
         .{
             .name = "simulation",
-            .source_file = "tests/simulation_test.zig",
-            .description = "simulation tests",
+            .source_file = "tests/simulation/network.zig",
+            .description = "network simulation tests",
         },
         .{
-            .name = "storage_simulation",
-            .source_file = "tests/storage_simulation_test.zig",
-            .description = "storage simulation tests",
+            .name = "storage_stress",
+            .source_file = "tests/stress/storage.zig",
+            .description = "storage stress tests",
         },
         .{
             .name = "wal_recovery",
-            .source_file = "tests/wal_recovery_test.zig",
+            .source_file = "tests/recovery/wal.zig",
             .description = "WAL recovery tests",
         },
         .{
             .name = "wal_segmentation",
-            .source_file = "tests/wal_segmentation_test.zig",
+            .source_file = "tests/recovery/wal_segmentation.zig",
             .description = "WAL segmentation tests",
         },
         .{
             .name = "wal_memory_safety",
-            .source_file = "tests/wal_memory_safety_test.zig",
+            .source_file = "tests/recovery/wal_memory_safety.zig",
             .description = "WAL memory safety tests",
         },
         .{
-            .name = "memory_isolation",
-            .source_file = "tests/memory_isolation_test.zig",
-            .description = "Memory isolation tests - single test with multiple cycles",
+            .name = "memory_stress",
+            .source_file = "tests/stress/memory.zig",
+            .description = "Memory stress tests - single test with multiple cycles",
         },
         .{
             .name = "integration",
-            .source_file = "tests/integration_test.zig",
-            .description = "integration tests",
+            .source_file = "tests/integration/lifecycle.zig",
+            .description = "integration lifecycle tests",
         },
         .{
             .name = "debug_allocator",
-            .source_file = "tests/debug_allocator_test.zig",
+            .source_file = "tests/debug/debug_allocator.zig",
             .description = "debug allocator tests",
         },
         .{
@@ -306,8 +306,8 @@ pub fn build(b: *std.Build) void {
         },
         .{
             .name = "ingestion",
-            .source_file = "tests/ingestion_test.zig",
-            .description = "ingestion pipeline tests",
+            .source_file = "tests/integration/ingestion.zig",
+            .description = "ingestion pipeline integration tests",
         },
     };
 
