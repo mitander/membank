@@ -36,6 +36,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
     const context_block_module = b.createModule(.{
         .root_source_file = b.path("src/core/types.zig"),
     });
+    context_block_module.addImport("assert", assert_module);
 
     const concurrency_module = b.createModule(.{
         .root_source_file = b.path("src/core/concurrency.zig"),
@@ -86,6 +87,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
     const storage_module = b.createModule(.{
         .root_source_file = b.path("src/storage/storage.zig"),
     });
+    storage_module.addImport("assert", assert_module);
     storage_module.addImport("vfs", vfs_module);
     storage_module.addImport("context_block", context_block_module);
     storage_module.addImport("sstable", sstable_module);
@@ -177,26 +179,54 @@ fn create_core_modules(b: *std.Build) CoreModules {
     };
 }
 
-fn add_all_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+fn add_core_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     module.addImport("assert", core_modules.assert);
     module.addImport("vfs", core_modules.vfs);
     module.addImport("context_block", core_modules.context_block);
     module.addImport("error_context", core_modules.error_context);
     module.addImport("concurrency", core_modules.concurrency);
+}
+
+fn add_storage_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    add_core_imports(module, core_modules);
     module.addImport("bloom_filter", core_modules.bloom_filter);
-    module.addImport("simulation_vfs", core_modules.simulation_vfs);
-    module.addImport("simulation", core_modules.simulation);
     module.addImport("sstable", core_modules.sstable);
     module.addImport("tiered_compaction", core_modules.tiered_compaction);
     module.addImport("storage", core_modules.storage);
+}
+
+fn add_query_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    add_storage_imports(module, core_modules);
     module.addImport("query_engine", core_modules.query_engine);
+}
+
+fn add_ingestion_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    add_core_imports(module, core_modules);
     module.addImport("ingestion", core_modules.ingestion);
     module.addImport("git_source", core_modules.git_source);
     module.addImport("zig_parser", core_modules.zig_parser);
     module.addImport("semantic_chunker", core_modules.semantic_chunker);
+}
+
+fn add_server_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    add_query_imports(module, core_modules);
+    add_ingestion_imports(module, core_modules);
+    module.addImport("server", core_modules.server);
+}
+
+fn add_simulation_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    add_core_imports(module, core_modules);
+    module.addImport("simulation_vfs", core_modules.simulation_vfs);
+    module.addImport("simulation", core_modules.simulation);
     module.addImport("debug_allocator", core_modules.debug_allocator);
     module.addImport("allocator_torture_test", core_modules.allocator_torture_test);
-    module.addImport("server", core_modules.server);
+}
+
+fn add_fuzz_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    add_storage_imports(module, core_modules);
+    add_query_imports(module, core_modules);
+    add_ingestion_imports(module, core_modules);
+    add_simulation_imports(module, core_modules);
 }
 
 fn add_test_imports(module: *std.Build.Module, core_modules: CoreModules) void {
@@ -237,7 +267,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize_mode,
         }),
     });
-    add_all_imports(exe.root_module, core_modules);
+    add_server_imports(exe.root_module, core_modules);
     b.installArtifact(exe);
 
     // Run command for main executable
@@ -392,7 +422,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
-    add_all_imports(benchmark.root_module, core_modules);
+    add_storage_imports(benchmark.root_module, core_modules);
 
     const install_benchmark = b.addInstallArtifact(benchmark, .{});
     const benchmark_step = b.step("benchmark", "Build and install benchmark");
@@ -406,7 +436,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
-    add_all_imports(fuzz.root_module, core_modules);
+    add_fuzz_imports(fuzz.root_module, core_modules);
 
     const install_fuzz = b.addInstallArtifact(fuzz, .{});
     const fuzz_step = b.step("fuzz", "Build and install fuzz tester");
@@ -420,7 +450,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .Debug,
         }),
     });
-    add_all_imports(fuzz_debug.root_module, core_modules);
+    add_fuzz_imports(fuzz_debug.root_module, core_modules);
 
     const install_fuzz_debug = b.addInstallArtifact(fuzz_debug, .{});
     const fuzz_debug_step = b.step("fuzz-debug", "Build and install debug fuzz tester with AddressSanitizer");

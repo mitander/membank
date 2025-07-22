@@ -9,7 +9,12 @@
 //! These types form the foundation of CortexDB's knowledge representation model.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("assert");
+const assert = custom_assert.assert;
+const assert_not_null = custom_assert.assert_not_null;
+const assert_not_empty = custom_assert.assert_not_empty;
+const assert_range = custom_assert.assert_range;
+const assert_buffer_bounds = custom_assert.assert_buffer_bounds;
 
 /// 128-bit ULID identifier for Context Blocks.
 /// Time-ordered and unique, providing both uniqueness and natural ordering.
@@ -105,7 +110,7 @@ pub const ContextBlock = struct {
         pub const SIZE = 64; // Cache-aligned header size
 
         pub fn serialize(self: BlockHeader, buffer: []u8) !void {
-            assert(buffer.len >= SIZE);
+            assert(buffer.len >= SIZE, "Buffer too small for BlockHeader: {} < {}", .{ buffer.len, SIZE });
             if (buffer.len < SIZE) return error.BufferTooSmall;
 
             var offset: usize = 0;
@@ -140,7 +145,7 @@ pub const ContextBlock = struct {
         }
 
         pub fn deserialize(buffer: []const u8) !BlockHeader {
-            assert(buffer.len >= SIZE);
+            assert(buffer.len >= SIZE, "Buffer too small for BlockHeader deserialization: {} < {}", .{ buffer.len, SIZE });
             if (buffer.len < SIZE) return error.BufferTooSmall;
 
             var offset: usize = 0;
@@ -217,16 +222,20 @@ pub const ContextBlock = struct {
         // Deserialize header to get length fields
         const header = try BlockHeader.deserialize(buffer);
 
-        // Calculate total size
-        return MIN_SERIALIZED_SIZE + header.source_uri_len +
-            header.metadata_json_len + header.content_len;
+        // Calculate total size with overflow protection
+        const variable_data_size = std.math.add(u64, header.source_uri_len, header.metadata_json_len) catch return error.InvalidHeader;
+        const total_variable_size = std.math.add(u64, variable_data_size, header.content_len) catch return error.InvalidHeader;
+        const total_size = std.math.add(u64, MIN_SERIALIZED_SIZE, total_variable_size) catch return error.InvalidHeader;
+
+        if (total_size > std.math.maxInt(usize)) return error.InvalidHeader;
+        return @intCast(total_size);
     }
 
     /// Serialize the Context Block to bytes using versioned header format.
     /// Layout: | BlockHeader (64) | source_uri (...) | metadata_json (...) | content (...) |
     pub fn serialize(self: ContextBlock, buffer: []u8) !usize {
         const required_size = self.serialized_size();
-        assert(buffer.len >= required_size);
+        assert(buffer.len >= required_size, "Buffer too small for ContextBlock serialization: {} < {}", .{ buffer.len, required_size });
         if (buffer.len < required_size) return error.BufferTooSmall;
 
         // Calculate checksum of variable data
@@ -268,28 +277,52 @@ pub const ContextBlock = struct {
     /// Deserialize a Context Block from bytes with versioned header support.
     /// The returned block owns its data through the provided allocator.
     pub fn deserialize(buffer: []const u8, allocator: std.mem.Allocator) !ContextBlock {
-        assert(buffer.len > 0);
+        // Entry condition assertions
+        assert_not_empty(buffer, "Deserialize buffer cannot be empty", .{});
+        assert(@intFromPtr(allocator.ptr) != 0, "Allocator cannot be null", .{});
+        assert(buffer.len >= MIN_SERIALIZED_SIZE, "Buffer too small: {} < {}", .{ buffer.len, MIN_SERIALIZED_SIZE });
+
         if (buffer.len == 0) return error.EmptyBuffer;
         if (buffer.len < MIN_SERIALIZED_SIZE) return error.BufferTooSmall;
 
         // Deserialize and validate header
+        assert_buffer_bounds(0, BlockHeader.SIZE, buffer.len, "Header bounds check failed: {} + {} > {}", .{ 0, BlockHeader.SIZE, buffer.len });
         const header = try BlockHeader.deserialize(buffer[0..BlockHeader.SIZE]);
 
-        // Validate total size
-        const total_size = BlockHeader.SIZE + header.source_uri_len +
-            header.metadata_json_len + header.content_len;
-        if (buffer.len < total_size) return error.BufferTooSmall;
+        // Validate header contents
+        assert(header.magic == ContextBlock.MAGIC, "Invalid magic number: 0x{X} != 0x{X}", .{ header.magic, ContextBlock.MAGIC });
+        assert(header.format_version <= ContextBlock.FORMAT_VERSION, "Unsupported format version: {} > {}", .{ header.format_version, ContextBlock.FORMAT_VERSION });
+        assert(header.source_uri_len > 0, "Source URI length cannot be zero", .{});
+        assert(header.metadata_json_len > 0, "Metadata JSON length cannot be zero", .{});
+        assert(header.content_len > 0, "Content length cannot be zero", .{});
+
+        // Validate total size with overflow protection
+        const variable_data_size = std.math.add(u64, header.source_uri_len, header.metadata_json_len) catch return error.InvalidHeader;
+        const total_variable_size = std.math.add(u64, variable_data_size, header.content_len) catch return error.InvalidHeader;
+        const total_size = std.math.add(u64, BlockHeader.SIZE, total_variable_size) catch return error.InvalidHeader;
+
+        if (total_size > buffer.len) return error.BufferTooSmall;
+        if (total_size > std.math.maxInt(usize)) return error.InvalidHeader;
 
         var offset: usize = BlockHeader.SIZE;
 
-        // Extract variable-length data
+        // Extract variable-length data with bounds checking
+        assert_buffer_bounds(offset, header.source_uri_len, buffer.len, "Source URI bounds check failed: {} + {} > {}", .{ offset, header.source_uri_len, buffer.len });
         const source_uri_data = buffer[offset .. offset + header.source_uri_len];
         offset += header.source_uri_len;
+
+        assert_buffer_bounds(offset, header.metadata_json_len, buffer.len, "Metadata JSON bounds check failed: {} + {} > {}", .{ offset, header.metadata_json_len, buffer.len });
         const metadata_json_data = buffer[offset .. offset + header.metadata_json_len];
         offset += header.metadata_json_len;
+
+        assert_buffer_bounds(offset, header.content_len, buffer.len, "Content bounds check failed: {} + {} > {}", .{ offset, header.content_len, buffer.len });
         const content_data = buffer[offset .. offset + header.content_len];
 
         // Verify checksum
+        assert_not_empty(source_uri_data, "Source URI data cannot be empty for checksum", .{});
+        assert_not_empty(metadata_json_data, "Metadata JSON data cannot be empty for checksum", .{});
+        assert_not_empty(content_data, "Content data cannot be empty for checksum", .{});
+
         var hasher = std.hash.Wyhash.init(0);
         hasher.update(source_uri_data);
         hasher.update(metadata_json_data);
@@ -304,13 +337,27 @@ pub const ContextBlock = struct {
         const metadata_json = try allocator.dupe(u8, metadata_json_data);
         const content = try allocator.dupe(u8, content_data);
 
-        return ContextBlock{
+        // Validate allocations succeeded
+        assert(source_uri.len == header.source_uri_len, "Source URI allocation length mismatch: {} != {}", .{ source_uri.len, header.source_uri_len });
+        assert(metadata_json.len == header.metadata_json_len, "Metadata JSON allocation length mismatch: {} != {}", .{ metadata_json.len, header.metadata_json_len });
+        assert(content.len == header.content_len, "Content allocation length mismatch: {} != {}", .{ content.len, header.content_len });
+
+        const result = ContextBlock{
             .id = BlockId.from_bytes(header.id),
             .version = header.block_version,
             .source_uri = source_uri,
             .metadata_json = metadata_json,
             .content = content,
         };
+
+        // Exit condition assertions
+        assert(result.version == header.block_version, "Result version mismatch: {} != {}", .{ result.version, header.block_version });
+        assert(std.mem.eql(u8, &result.id.bytes, &header.id), "Result ID mismatch", .{});
+        assert_not_empty(result.source_uri, "Result source URI cannot be empty", .{});
+        assert_not_empty(result.metadata_json, "Result metadata JSON cannot be empty", .{});
+        assert_not_empty(result.content, "Result content cannot be empty", .{});
+
+        return result;
     }
 
     /// Free allocated memory for the Context Block.

@@ -5,7 +5,11 @@
 //! All I/O operations go through the VFS interface for deterministic testing.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("assert");
+const assert = custom_assert.assert;
+const assert_not_null = custom_assert.assert_not_null;
+const assert_not_empty = custom_assert.assert_not_empty;
+const assert_state_valid = custom_assert.assert_state_valid;
 const log = std.log.scoped(.storage);
 const vfs = @import("vfs");
 const context_block = @import("context_block");
@@ -1018,7 +1022,7 @@ pub const StorageEngine = struct {
     /// Initialize storage engine by creating necessary directories and files.
     pub fn initialize_storage(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
-        assert(!self.initialized);
+        assert(!self.initialized, "StorageEngine is already initialized", .{});
         if (self.initialized) return StorageError.AlreadyInitialized;
 
         // Create data directory structure
@@ -1113,7 +1117,15 @@ pub const StorageEngine = struct {
     /// Put a Context Block into storage.
     pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
         concurrency.assert_main_thread();
-        assert(self.initialized);
+
+        // Entry condition assertions
+        assert(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        assert_state_valid(self.initialized, "StorageEngine must be initialized before put_block", .{});
+        assert_not_empty(block.source_uri, "ContextBlock source_uri cannot be empty", .{});
+        assert_not_empty(block.metadata_json, "ContextBlock metadata_json cannot be empty", .{});
+        assert_not_empty(block.content, "ContextBlock content cannot be empty", .{});
+        assert(block.version > 0, "ContextBlock version must be positive, got {}", .{block.version});
+
         if (!self.initialized) return StorageError.NotInitialized;
 
         const start_time = std.time.nanoTimestamp();
@@ -1134,6 +1146,10 @@ pub const StorageEngine = struct {
         };
         defer wal_entry.deinit(self.backing_allocator);
 
+        // Validate WAL entry was created correctly
+        assert(wal_entry.entry_type == .put_block, "WAL entry type mismatch: expected put_block, got {}", .{wal_entry.entry_type});
+        assert(wal_entry.entry_type == .put_block, "WAL entry type mismatch: expected put_block, got {}", .{wal_entry.entry_type});
+
         // Write to WAL for durability
         self.write_wal_entry(wal_entry) catch |err| {
             _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
@@ -1142,10 +1158,15 @@ pub const StorageEngine = struct {
         };
 
         // Update in-memory index
+        const index_size_before = self.index.block_count();
         self.index.put_block(block) catch |err| {
             _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
             return err;
         };
+
+        // Validate index update
+        const index_size_after = self.index.block_count();
+        assert(index_size_after >= index_size_before, "Index size decreased after put: {} -> {}", .{ index_size_before, index_size_after });
 
         // Track successful operation
         _ = self.storage_metrics.blocks_written.fetchAdd(1, .monotonic);
@@ -1172,13 +1193,23 @@ pub const StorageEngine = struct {
         block_id: BlockId,
     ) StorageError!*const ContextBlock {
         concurrency.assert_main_thread();
-        assert(self.initialized);
+
+        // Entry condition assertions
+        assert(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        assert_state_valid(self.initialized, "StorageEngine must be initialized before find_block_by_id", .{});
+
         if (!self.initialized) return StorageError.NotInitialized;
 
         const start_time = std.time.nanoTimestamp();
 
         // Check memory first as it contains most recent writes
         if (self.index.find_block(block_id)) |block| {
+            // Validate found block
+            assert(@intFromPtr(block) != 0, "Index returned null block pointer", .{});
+            assert(std.mem.eql(u8, &block.id.bytes, &block_id.bytes), "Found block ID mismatch: expected {} got {}", .{ block_id, block.id });
+            assert_not_empty(block.source_uri, "Found block has empty source_uri", .{});
+            assert_not_empty(block.content, "Found block has empty content", .{});
+
             _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
 
             const block_size = block.source_uri.len + block.metadata_json.len +
@@ -1193,6 +1224,8 @@ pub const StorageEngine = struct {
 
         // Fall back to SSTables for older data not yet compacted
         for (self.sstables.items) |sstable_path| {
+            assert_not_empty(sstable_path, "SSTable path cannot be empty", .{});
+
             const path_copy = self.backing_allocator.dupe(u8, sstable_path) catch |err| {
                 _ = self.storage_metrics.read_errors.fetchAdd(1, .monotonic);
                 return err;
@@ -1204,6 +1237,11 @@ pub const StorageEngine = struct {
             table.read_index() catch continue;
 
             if (table.find_block(block_id) catch null) |block| {
+                // Validate SSTable found block
+                assert(std.mem.eql(u8, &block.id.bytes, &block_id.bytes), "SSTable block ID mismatch: expected {} got {}", .{ block_id, block.id });
+                assert_not_empty(block.source_uri, "SSTable block has empty source_uri", .{});
+                assert_not_empty(block.content, "SSTable block has empty content", .{});
+
                 defer block.deinit(self.backing_allocator);
 
                 // Cache in memory to avoid repeated SSTable reads
@@ -1219,10 +1257,14 @@ pub const StorageEngine = struct {
                 const duration = @as(u64, @intCast(end_time - start_time));
                 _ = self.storage_metrics.total_read_time_ns.fetchAdd(duration, .monotonic);
 
-                return self.index.find_block(block_id) orelse return error_context.storage_error(
+                const cached_block = self.index.find_block(block_id) orelse return error_context.storage_error(
                     StorageError.BlockNotFound,
                     error_context.block_context("find_block_after_sstable_transfer", block_id),
                 );
+
+                // Final validation of cached block
+                assert(std.mem.eql(u8, &cached_block.id.bytes, &block_id.bytes), "Cached block ID mismatch after SSTable transfer", .{});
+                return cached_block;
             }
         }
 
@@ -1233,7 +1275,7 @@ pub const StorageEngine = struct {
     /// Delete a Context Block by ID.
     pub fn delete_block(self: *StorageEngine, block_id: BlockId) !void {
         concurrency.assert_main_thread();
-        assert(self.initialized);
+        assert(self.initialized, "StorageEngine must be initialized before delete_block", .{});
         if (!self.initialized) return StorageError.NotInitialized;
 
         // Create WAL entry
@@ -1267,7 +1309,7 @@ pub const StorageEngine = struct {
     /// Put a Graph Edge into storage.
     pub fn put_edge(self: *StorageEngine, edge: GraphEdge) !void {
         concurrency.assert_main_thread();
-        assert(self.initialized);
+        assert(self.initialized, "StorageEngine must be initialized before put_edge", .{});
         if (!self.initialized) return StorageError.NotInitialized;
 
         // Create WAL entry
@@ -1423,7 +1465,7 @@ pub const StorageEngine = struct {
     ///    data it contained is now durable in both the WAL and the new SSTable.
     pub fn flush_memtable_to_sstable(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
-        assert(self.initialized);
+        assert(self.initialized, "StorageEngine must be initialized before flush_memtable_to_sstable", .{});
         if (!self.initialized) return StorageError.NotInitialized;
 
         if (self.index.block_count() == 0) {
@@ -1572,10 +1614,19 @@ pub const StorageEngine = struct {
 
     /// Write a WAL entry to the current WAL file.
     fn write_wal_entry(self: *StorageEngine, entry: WALEntry) !void {
-        assert(self.wal_file != null);
+        // Entry condition assertions
+        assert(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        if (self.wal_file == null) return StorageError.NotInitialized;
+        assert_not_empty(entry.payload, "WAL entry payload cannot be empty", .{});
+        assert(entry.entry_type != undefined, "WAL entry type must be defined", .{});
+
         if (self.wal_file == null) return StorageError.NotInitialized;
 
         const serialized_size = WALEntry.HEADER_SIZE + entry.payload.len;
+
+        // Validate serialized size bounds
+        assert(serialized_size > WALEntry.HEADER_SIZE, "Serialized size must be larger than header: {} <= {}", .{ serialized_size, WALEntry.HEADER_SIZE });
+        assert(serialized_size <= MAX_WAL_SEGMENT_SIZE, "WAL entry too large: {} > {}", .{ serialized_size, MAX_WAL_SEGMENT_SIZE });
 
         // Check if rotation is needed before writing
         if (self.wal_segment_size + serialized_size > MAX_WAL_SEGMENT_SIZE) {
@@ -1585,17 +1636,31 @@ pub const StorageEngine = struct {
         const buffer = try self.backing_allocator.alloc(u8, serialized_size);
         defer self.backing_allocator.free(buffer);
 
+        // Validate buffer allocation
+        assert(buffer.len == serialized_size, "Buffer allocation size mismatch: {} != {}", .{ buffer.len, serialized_size });
+
         const written = try entry.serialize(buffer);
-        assert(written == serialized_size);
+
+        // Validate serialization result
+        assert(written == serialized_size, "Serialized size mismatch: {} != {}", .{ written, serialized_size });
+        assert(written > 0, "Written bytes must be positive: {}", .{written});
 
         _ = try self.wal_file.?.write(buffer);
+
+        // Update segment size and validate state
+        const old_segment_size = self.wal_segment_size;
         self.wal_segment_size += written;
+
+        // Post-condition assertions
+        assert(self.wal_segment_size > old_segment_size, "WAL segment size must increase: {} -> {}", .{ old_segment_size, self.wal_segment_size });
+        assert(self.wal_segment_size <= MAX_WAL_SEGMENT_SIZE, "WAL segment size exceeded max: {} > {}", .{ self.wal_segment_size, MAX_WAL_SEGMENT_SIZE });
+
         _ = self.storage_metrics.wal_bytes_written.fetchAdd(buffer.len, .monotonic);
     }
 
     /// Rotate to a new WAL segment when current segment is full.
     fn rotate_wal_segment(self: *StorageEngine) !void {
-        assert(self.wal_file != null);
+        assert(self.wal_file != null, "WAL file must be open for rotation", .{});
 
         // Close current WAL file
         if (self.wal_file) |*file| {
@@ -1667,7 +1732,7 @@ pub const StorageEngine = struct {
     /// Recover storage state from WAL files.
     pub fn recover_from_wal(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
-        assert(self.initialized);
+        assert(self.initialized, "StorageEngine must be initialized before WAL recovery", .{});
         if (!self.initialized) return StorageError.NotInitialized;
 
         // Track WAL recovery attempt

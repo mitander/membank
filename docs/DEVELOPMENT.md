@@ -81,7 +81,7 @@ We have one command that represents the "inner loop" for 95% of development. It 
 **This is the only command you need to run before committing:**
 
 ```bash
-./cortex test
+./zig/zig build test
 ```
 
 A successful run of this command means your code is correct, well-formatted, and meets our style guidelines. If it passes, you can commit with confidence.
