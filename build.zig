@@ -289,6 +289,11 @@ pub fn build(b: *std.Build) void {
             .description = "debug allocator tests",
         },
         .{
+            .name = "allocator_torture",
+            .source_file = "src/allocator_torture_test.zig",
+            .description = "allocator torture tests",
+        },
+        .{
             .name = "ingestion",
             .source_file = "tests/ingestion_test.zig",
             .description = "ingestion pipeline tests",

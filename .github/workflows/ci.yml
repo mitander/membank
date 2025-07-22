@@ -267,8 +267,8 @@ jobs:
 
       - name: Run performance regression detection
         run: |
-          chmod +x scripts/performance-ci.sh
-          ./scripts/performance-ci.sh
+          chmod +x scripts/performance_ci.sh
+          ./scripts/performance_ci.sh
 
       - name: Upload performance results
         uses: actions/upload-artifact@v4
@@ -359,7 +359,7 @@ jobs:
           echo "-> Running comprehensive allocator torture tests..."
           for i in {1..100}; do
             echo "Iteration $i/100"
-            timeout 60s ./zig/zig test src/allocator_torture_test.zig -Doptimize=ReleaseSafe || {
+            timeout 60s ./zig/zig build allocator_torture -Doptimize=ReleaseSafe || {
               echo "ERROR: Torture test iteration $i failed"
               exit 1
             }
@@ -369,14 +369,14 @@ jobs:
       - name: Run memory safety integration tests
         run: |
           echo "-> Running memory safety focused integration tests..."
-          ./zig/zig test tests/memory_isolation_test.zig -Doptimize=ReleaseSafe
+          ./zig/zig build memory_isolation -Doptimize=ReleaseSafe
           echo "Memory safety integration tests: PASSED"
 
       - name: Run stress test with memory monitoring
         run: |
           echo "-> Running storage engine stress test with memory monitoring..."
           # Run stress test and monitor for memory issues
-          timeout 300s ./zig/zig test tests/integration_test.zig -Doptimize=ReleaseSafe
+          timeout 300s ./zig/zig build integration -Doptimize=ReleaseSafe
           echo "Storage engine stress test: PASSED"
 
       - name: Valgrind memory error detection
