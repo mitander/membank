@@ -22,6 +22,31 @@ pub const QueryEngine = query_engine.QueryEngine;
 pub const QueryResult = query_engine.QueryResult;
 pub const GetBlocksQuery = query_engine.GetBlocksQuery;
 
+// Ingestion Pipeline
+pub const ingestion = @import("ingestion.zig");
+pub const IngestionPipeline = ingestion.IngestionPipeline;
+pub const PipelineConfig = ingestion.PipelineConfig;
+pub const Source = ingestion.Source;
+pub const Parser = ingestion.Parser;
+pub const Chunker = ingestion.Chunker;
+pub const SourceContent = ingestion.SourceContent;
+pub const ParsedUnit = ingestion.ParsedUnit;
+
+// Source Connectors
+pub const git_source = @import("git_source.zig");
+pub const GitSource = git_source.GitSource;
+pub const GitSourceConfig = git_source.GitSourceConfig;
+
+// Content Parsers
+pub const zig_parser = @import("zig_parser.zig");
+pub const ZigParser = zig_parser.ZigParser;
+pub const ZigParserConfig = zig_parser.ZigParserConfig;
+
+// Content Chunkers
+pub const semantic_chunker = @import("semantic_chunker.zig");
+pub const SemanticChunker = semantic_chunker.SemanticChunker;
+pub const SemanticChunkerConfig = semantic_chunker.SemanticChunkerConfig;
+
 // Virtual File System
 pub const vfs = @import("vfs.zig");
 pub const VFS = vfs.VFS;

@@ -21,6 +21,63 @@ const assert = std.debug.assert;
 // Magic number for ProductionFile corruption detection
 const PRODUCTION_FILE_MAGIC: u64 = 0xDEADBEEF_CAFEBABE;
 
+/// Directory iterator for VFS
+pub const DirectoryIterator = struct {
+    entries: [][]const u8,
+    index: usize,
+    allocator: std.mem.Allocator,
+    vfs: *VFS,
+    base_path: []const u8,
+
+    pub const Entry = struct {
+        name: []const u8,
+        kind: Kind,
+
+        pub const Kind = enum {
+            file,
+            directory,
+            symlink,
+            unknown,
+        };
+    };
+
+    pub fn next(self: *DirectoryIterator) ?Entry {
+        if (self.index >= self.entries.len) {
+            return null;
+        }
+
+        const name = self.entries[self.index];
+        self.index += 1;
+
+        // Build full path to stat the entry
+        const full_path = std.fs.path.join(self.allocator, &.{ self.base_path, name }) catch {
+            return Entry{
+                .name = name,
+                .kind = .unknown,
+            };
+        };
+        defer self.allocator.free(full_path);
+
+        // Determine the actual file type
+        const kind = if (self.vfs.stat(full_path)) |stat|
+            if (stat.is_directory) Entry.Kind.directory else Entry.Kind.file
+        else |_|
+            Entry.Kind.unknown;
+
+        return Entry{
+            .name = name,
+            .kind = kind,
+        };
+    }
+
+    pub fn deinit(self: *DirectoryIterator) void {
+        for (self.entries) |entry| {
+            self.allocator.free(entry);
+        }
+        self.allocator.free(self.entries);
+    }
+};
+
 /// Virtual File System interface.
 /// All file I/O operations go through this interface.
 pub const VFS = struct {
@@ -108,6 +165,38 @@ pub const VFS = struct {
 
     pub fn deinit(self: *VFS) void {
         self.vtable.deinit(self.ptr);
+    }
+
+    /// Read entire file content into allocated memory
+    pub fn read_file_alloc(self: *VFS, allocator: std.mem.Allocator, path: []const u8, max_size: usize) ![]u8 {
+        var file = try self.open(path, .read);
+        defer file.close() catch {};
+
+        const file_size = try file.file_size();
+        if (file_size > max_size) {
+            return error.FileTooLarge;
+        }
+
+        const content = try allocator.alloc(u8, file_size);
+        const bytes_read = try file.read(content);
+        if (bytes_read != file_size) {
+            allocator.free(content);
+            return error.IncompleteRead;
+        }
+
+        return content;
+    }
+
+    /// Create directory iterator
+    pub fn iterate_directory(self: *VFS, path: []const u8) !DirectoryIterator {
+        const entries = try self.list_dir(path, std.heap.page_allocator);
+        return DirectoryIterator{
+            .entries = entries,
+            .index = 0,
+            .allocator = std.heap.page_allocator,
+            .vfs = self,
+            .base_path = path,
+        };
     }
 };
 

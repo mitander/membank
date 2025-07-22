@@ -13,6 +13,10 @@ const CoreModules = struct {
     tiered_compaction: *std.Build.Module,
     storage: *std.Build.Module,
     query_engine: *std.Build.Module,
+    ingestion: *std.Build.Module,
+    git_source: *std.Build.Module,
+    zig_parser: *std.Build.Module,
+    semantic_chunker: *std.Build.Module,
     debug_allocator: *std.Build.Module,
     allocator_torture_test: *std.Build.Module,
 };
@@ -88,6 +92,41 @@ fn create_core_modules(b: *std.Build) CoreModules {
     query_engine_module.addImport("storage", storage_module);
     query_engine_module.addImport("context_block", context_block_module);
 
+    // Ingestion pipeline
+    const ingestion_module = b.createModule(.{
+        .root_source_file = b.path("src/ingestion.zig"),
+    });
+    ingestion_module.addImport("context_block", context_block_module);
+    ingestion_module.addImport("vfs", vfs_module);
+    ingestion_module.addImport("assert", assert_module);
+    ingestion_module.addImport("concurrency", concurrency_module);
+
+    // Git source connector
+    const git_source_module = b.createModule(.{
+        .root_source_file = b.path("src/git_source.zig"),
+    });
+    git_source_module.addImport("ingestion", ingestion_module);
+    git_source_module.addImport("vfs", vfs_module);
+    git_source_module.addImport("assert", assert_module);
+    git_source_module.addImport("concurrency", concurrency_module);
+
+    // Zig parser
+    const zig_parser_module = b.createModule(.{
+        .root_source_file = b.path("src/zig_parser.zig"),
+    });
+    zig_parser_module.addImport("ingestion", ingestion_module);
+    zig_parser_module.addImport("assert", assert_module);
+    zig_parser_module.addImport("concurrency", concurrency_module);
+
+    // Semantic chunker
+    const semantic_chunker_module = b.createModule(.{
+        .root_source_file = b.path("src/semantic_chunker.zig"),
+    });
+    semantic_chunker_module.addImport("ingestion", ingestion_module);
+    semantic_chunker_module.addImport("context_block", context_block_module);
+    semantic_chunker_module.addImport("assert", assert_module);
+    semantic_chunker_module.addImport("concurrency", concurrency_module);
+
     // Debug and testing modules
     const debug_allocator_module = b.createModule(.{
         .root_source_file = b.path("src/debug_allocator.zig"),
@@ -111,6 +150,10 @@ fn create_core_modules(b: *std.Build) CoreModules {
         .tiered_compaction = tiered_compaction_module,
         .storage = storage_module,
         .query_engine = query_engine_module,
+        .ingestion = ingestion_module,
+        .git_source = git_source_module,
+        .zig_parser = zig_parser_module,
+        .semantic_chunker = semantic_chunker_module,
         .debug_allocator = debug_allocator_module,
         .allocator_torture_test = allocator_torture_test_module,
     };
@@ -128,6 +171,10 @@ fn add_all_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     module.addImport("tiered_compaction", core_modules.tiered_compaction);
     module.addImport("storage", core_modules.storage);
     module.addImport("query_engine", core_modules.query_engine);
+    module.addImport("ingestion", core_modules.ingestion);
+    module.addImport("git_source", core_modules.git_source);
+    module.addImport("zig_parser", core_modules.zig_parser);
+    module.addImport("semantic_chunker", core_modules.semantic_chunker);
 }
 
 fn add_test_imports(module: *std.Build.Module, core_modules: CoreModules) void {
@@ -135,10 +182,15 @@ fn add_test_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     module.addImport("assert", core_modules.assert);
     module.addImport("vfs", core_modules.vfs);
     module.addImport("context_block", core_modules.context_block);
+    module.addImport("concurrency", core_modules.concurrency);
     module.addImport("simulation", core_modules.simulation);
     module.addImport("simulation_vfs", core_modules.simulation_vfs);
     module.addImport("storage", core_modules.storage);
     module.addImport("query_engine", core_modules.query_engine);
+    module.addImport("ingestion", core_modules.ingestion);
+    module.addImport("git_source", core_modules.git_source);
+    module.addImport("zig_parser", core_modules.zig_parser);
+    module.addImport("semantic_chunker", core_modules.semantic_chunker);
     module.addImport("tiered_compaction", core_modules.tiered_compaction);
     module.addImport("debug_allocator", core_modules.debug_allocator);
     module.addImport("allocator_torture_test", core_modules.allocator_torture_test);
@@ -216,6 +268,11 @@ pub fn build(b: *std.Build) void {
             .name = "debug_allocator",
             .source_file = "tests/debug_allocator_test.zig",
             .description = "debug allocator tests",
+        },
+        .{
+            .name = "ingestion",
+            .source_file = "tests/ingestion_test.zig",
+            .description = "ingestion pipeline tests",
         },
     };
 
