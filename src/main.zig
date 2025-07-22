@@ -6,8 +6,7 @@ const log = std.log.scoped(.main);
 const storage = @import("storage");
 const query_engine = @import("query_engine");
 const context_block = @import("context_block");
-const simulation = @import("simulation");
-const simulation_vfs = @import("simulation_vfs");
+const vfs = @import("vfs");
 const concurrency = @import("concurrency");
 const server = @import("server");
 
@@ -79,11 +78,9 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 
     std.debug.print("CortexDB server starting...\n", .{});
 
-    // Create simulation VFS for demonstration
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    const vfs_interface = sim_vfs.vfs();
+    // Create production VFS for production server
+    var prod_vfs = vfs.ProductionVFS.init(allocator);
+    const vfs_interface = prod_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "cortexdb_data");
     defer allocator.free(data_dir);
 
@@ -119,11 +116,9 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("=== CortexDB Storage and Query Demo ===\n\n", .{});
     log.info("Starting CortexDB demo with scoped logging", .{});
 
-    // Create simulation VFS
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    const vfs_interface = sim_vfs.vfs();
+    // Create production VFS for demo
+    var prod_vfs = vfs.ProductionVFS.init(allocator);
+    const vfs_interface = prod_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "demo_data");
     defer allocator.free(data_dir);
 

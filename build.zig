@@ -214,8 +214,8 @@ fn add_ingestion_imports(module: *std.Build.Module, core_modules: CoreModules) v
 
 fn add_server_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     add_query_imports(module, core_modules);
-    add_ingestion_imports(module, core_modules);
     module.addImport("server", core_modules.server);
+    module.addImport("concurrency", core_modules.concurrency);
 }
 
 fn add_simulation_imports(module: *std.Build.Module, core_modules: CoreModules) void {
