@@ -26,41 +26,41 @@ const CoreModules = struct {
 fn create_core_modules(b: *std.Build) CoreModules {
     // Foundation modules (no dependencies)
     const assert_module = b.createModule(.{
-        .root_source_file = b.path("src/assert.zig"),
+        .root_source_file = b.path("src/core/assert.zig"),
     });
 
     const vfs_module = b.createModule(.{
-        .root_source_file = b.path("src/vfs.zig"),
+        .root_source_file = b.path("src/core/vfs.zig"),
     });
 
     const context_block_module = b.createModule(.{
-        .root_source_file = b.path("src/context_block.zig"),
+        .root_source_file = b.path("src/core/types.zig"),
     });
 
     const concurrency_module = b.createModule(.{
-        .root_source_file = b.path("src/concurrency.zig"),
+        .root_source_file = b.path("src/core/concurrency.zig"),
     });
 
     const bloom_filter_module = b.createModule(.{
-        .root_source_file = b.path("src/bloom_filter.zig"),
+        .root_source_file = b.path("src/storage/bloom_filter.zig"),
     });
     bloom_filter_module.addImport("context_block", context_block_module);
 
     // Modules with single dependencies
     const error_context_module = b.createModule(.{
-        .root_source_file = b.path("src/error_context.zig"),
+        .root_source_file = b.path("src/core/error_context.zig"),
     });
     error_context_module.addImport("context_block", context_block_module);
 
     const simulation_vfs_module = b.createModule(.{
-        .root_source_file = b.path("src/simulation_vfs.zig"),
+        .root_source_file = b.path("src/sim/simulation_vfs.zig"),
     });
     simulation_vfs_module.addImport("vfs", vfs_module);
     simulation_vfs_module.addImport("assert", assert_module);
 
     // Simulation framework
     const simulation_module = b.createModule(.{
-        .root_source_file = b.path("src/simulation.zig"),
+        .root_source_file = b.path("src/sim/simulation.zig"),
     });
     simulation_module.addImport("assert", assert_module);
     simulation_module.addImport("vfs", vfs_module);
@@ -68,7 +68,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
 
     // Storage layer modules
     const sstable_module = b.createModule(.{
-        .root_source_file = b.path("src/sstable.zig"),
+        .root_source_file = b.path("src/storage/sstable.zig"),
     });
     sstable_module.addImport("context_block", context_block_module);
     sstable_module.addImport("vfs", vfs_module);
@@ -77,14 +77,14 @@ fn create_core_modules(b: *std.Build) CoreModules {
     sstable_module.addImport("error_context", error_context_module);
 
     const tiered_compaction_module = b.createModule(.{
-        .root_source_file = b.path("src/tiered_compaction.zig"),
+        .root_source_file = b.path("src/storage/tiered_compaction.zig"),
     });
     tiered_compaction_module.addImport("vfs", vfs_module);
     tiered_compaction_module.addImport("sstable", sstable_module);
     tiered_compaction_module.addImport("concurrency", concurrency_module);
 
     const storage_module = b.createModule(.{
-        .root_source_file = b.path("src/storage.zig"),
+        .root_source_file = b.path("src/storage/storage.zig"),
     });
     storage_module.addImport("vfs", vfs_module);
     storage_module.addImport("context_block", context_block_module);
@@ -95,14 +95,14 @@ fn create_core_modules(b: *std.Build) CoreModules {
 
     // Query engine (top level)
     const query_engine_module = b.createModule(.{
-        .root_source_file = b.path("src/query_engine.zig"),
+        .root_source_file = b.path("src/query/query_engine.zig"),
     });
     query_engine_module.addImport("storage", storage_module);
     query_engine_module.addImport("context_block", context_block_module);
 
     // Ingestion pipeline
     const ingestion_module = b.createModule(.{
-        .root_source_file = b.path("src/ingestion.zig"),
+        .root_source_file = b.path("src/ingestion/pipeline.zig"),
     });
     ingestion_module.addImport("context_block", context_block_module);
     ingestion_module.addImport("vfs", vfs_module);
@@ -111,7 +111,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
 
     // Git source connector
     const git_source_module = b.createModule(.{
-        .root_source_file = b.path("src/git_source.zig"),
+        .root_source_file = b.path("src/ingestion/git_source.zig"),
     });
     git_source_module.addImport("ingestion", ingestion_module);
     git_source_module.addImport("vfs", vfs_module);
@@ -120,7 +120,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
 
     // Zig parser
     const zig_parser_module = b.createModule(.{
-        .root_source_file = b.path("src/zig_parser.zig"),
+        .root_source_file = b.path("src/ingestion/zig_parser.zig"),
     });
     zig_parser_module.addImport("ingestion", ingestion_module);
     zig_parser_module.addImport("assert", assert_module);
@@ -128,7 +128,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
 
     // Semantic chunker
     const semantic_chunker_module = b.createModule(.{
-        .root_source_file = b.path("src/semantic_chunker.zig"),
+        .root_source_file = b.path("src/ingestion/semantic_chunker.zig"),
     });
     semantic_chunker_module.addImport("ingestion", ingestion_module);
     semantic_chunker_module.addImport("context_block", context_block_module);
@@ -137,17 +137,17 @@ fn create_core_modules(b: *std.Build) CoreModules {
 
     // Debug and testing modules
     const debug_allocator_module = b.createModule(.{
-        .root_source_file = b.path("src/debug_allocator.zig"),
+        .root_source_file = b.path("src/dev/debug_allocator.zig"),
     });
     debug_allocator_module.addImport("assert", assert_module);
 
     const allocator_torture_test_module = b.createModule(.{
-        .root_source_file = b.path("src/allocator_torture_test.zig"),
+        .root_source_file = b.path("src/dev/allocator_torture_test.zig"),
     });
     allocator_torture_test_module.addImport("assert", assert_module);
 
     const server_module = b.createModule(.{
-        .root_source_file = b.path("src/server.zig"),
+        .root_source_file = b.path("src/server/handler.zig"),
     });
     server_module.addImport("concurrency", concurrency_module);
     server_module.addImport("storage", storage_module);
@@ -301,7 +301,7 @@ pub fn build(b: *std.Build) void {
         },
         .{
             .name = "allocator_torture",
-            .source_file = "src/allocator_torture_test.zig",
+            .source_file = "src/dev/allocator_torture_test.zig",
             .description = "allocator torture tests",
         },
         .{
@@ -336,7 +336,7 @@ pub fn build(b: *std.Build) void {
     // Tidy tests for code quality
     const tidy_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/tidy.zig"),
+            .root_source_file = b.path("src/dev/tidy.zig"),
             .target = target,
             .optimize = optimize_mode,
         }),
@@ -387,7 +387,7 @@ pub fn build(b: *std.Build) void {
     const benchmark = b.addExecutable(.{
         .name = "benchmark",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/benchmark.zig"),
+            .root_source_file = b.path("src/dev/benchmark.zig"),
             .target = target,
             .optimize = .ReleaseFast,
         }),
@@ -401,7 +401,7 @@ pub fn build(b: *std.Build) void {
     const fuzz = b.addExecutable(.{
         .name = "fuzz",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/fuzz.zig"),
+            .root_source_file = b.path("src/dev/fuzz.zig"),
             .target = target,
             .optimize = .ReleaseFast,
         }),
@@ -415,7 +415,7 @@ pub fn build(b: *std.Build) void {
     const fuzz_debug = b.addExecutable(.{
         .name = "fuzz-debug",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/fuzz.zig"),
+            .root_source_file = b.path("src/dev/fuzz.zig"),
             .target = target,
             .optimize = .Debug,
         }),
