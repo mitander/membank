@@ -14,6 +14,9 @@ const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 
+/// String-to-frequency mapping for metadata analysis
+const MetadataAnalysisMap = std.StringHashMap(u32);
+
 /// Query engine errors.
 const QueryError = error{
     /// Invalid query command
@@ -440,7 +443,7 @@ pub const FilteredQueryResult = struct {
     /// Total number of blocks found
     count: u32,
     /// Metadata field analysis (field -> frequency)
-    metadata_analysis: ?std.HashMap([]const u8, u32),
+    metadata_analysis: ?MetadataAnalysisMap,
     /// Query execution statistics
     blocks_scanned: u32,
     blocks_matched: u32,
@@ -452,7 +455,7 @@ pub const FilteredQueryResult = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         blocks: []const ContextBlock,
-        metadata_analysis: ?std.HashMap([]const u8, u32),
+        metadata_analysis: ?MetadataAnalysisMap,
         blocks_scanned: u32,
         blocks_matched: u32,
         execution_time_ns: u64,
@@ -469,7 +472,7 @@ pub const FilteredQueryResult = struct {
     }
 
     /// Free allocated memory for filtered query results.
-    pub fn deinit(self: FilteredQueryResult) void {
+    pub fn deinit(self: *FilteredQueryResult) void {
         for (self.blocks) |block| {
             block.deinit(self.allocator);
         }
@@ -1194,9 +1197,9 @@ pub const QueryEngine = struct {
         var matched_blocks = std.ArrayList(ContextBlock).init(self.allocator);
         defer matched_blocks.deinit();
 
-        var metadata_analysis: ?std.HashMap([]const u8, u32) = null;
+        var metadata_analysis: ?MetadataAnalysisMap = null;
         if (query.include_metadata_analysis) {
-            metadata_analysis = std.HashMap([]const u8, u32).init(self.allocator);
+            metadata_analysis = MetadataAnalysisMap.init(self.allocator);
         }
 
         var blocks_scanned: u32 = 0;
@@ -1294,7 +1297,7 @@ pub const QueryEngine = struct {
     /// Helper method to update metadata analysis with field frequencies.
     fn update_metadata_analysis(
         self: *QueryEngine,
-        analysis: *std.HashMap([]const u8, u32),
+        analysis: *MetadataAnalysisMap,
         metadata_json: []const u8,
     ) !void {
         _ = self;

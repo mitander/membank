@@ -9,6 +9,7 @@ const context_block = @import("context_block");
 const simulation = @import("simulation");
 const simulation_vfs = @import("simulation_vfs");
 const concurrency = @import("concurrency");
+const server = @import("server");
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
@@ -98,12 +99,20 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     defer query_eng.deinit();
 
     std.debug.print("Query engine initialized.\n", .{});
-    std.debug.print("Server ready! (Use Ctrl+C to stop)\n", .{});
 
-    // Simple server loop (placeholder)
-    while (true) {
-        std.Thread.sleep(1000000000); // Sleep for 1 second
-    }
+    // Initialize and start TCP server
+    const server_config = server.ServerConfig{
+        .port = 8080,
+        .enable_logging = true,
+    };
+
+    var cortex_server = server.CortexServer.init(allocator, server_config, &storage_engine, &query_eng);
+    defer cortex_server.deinit();
+
+    std.debug.print("Starting CortexDB TCP server on port {d}...\n", .{server_config.port});
+
+    // Start the server (this blocks until stopped)
+    try cortex_server.start();
 }
 
 fn run_demo(allocator: std.mem.Allocator) !void {

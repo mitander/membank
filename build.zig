@@ -19,6 +19,7 @@ const CoreModules = struct {
     semantic_chunker: *std.Build.Module,
     debug_allocator: *std.Build.Module,
     allocator_torture_test: *std.Build.Module,
+    server: *std.Build.Module,
 };
 
 fn create_core_modules(b: *std.Build) CoreModules {
@@ -138,6 +139,14 @@ fn create_core_modules(b: *std.Build) CoreModules {
     });
     allocator_torture_test_module.addImport("assert", assert_module);
 
+    const server_module = b.createModule(.{
+        .root_source_file = b.path("src/server.zig"),
+    });
+    server_module.addImport("concurrency", concurrency_module);
+    server_module.addImport("storage", storage_module);
+    server_module.addImport("query_engine", query_engine_module);
+    server_module.addImport("context_block", context_block_module);
+
     return CoreModules{
         .assert = assert_module,
         .vfs = vfs_module,
@@ -156,6 +165,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
         .semantic_chunker = semantic_chunker_module,
         .debug_allocator = debug_allocator_module,
         .allocator_torture_test = allocator_torture_test_module,
+        .server = server_module,
     };
 }
 
@@ -175,6 +185,9 @@ fn add_all_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     module.addImport("git_source", core_modules.git_source);
     module.addImport("zig_parser", core_modules.zig_parser);
     module.addImport("semantic_chunker", core_modules.semantic_chunker);
+    module.addImport("debug_allocator", core_modules.debug_allocator);
+    module.addImport("allocator_torture_test", core_modules.allocator_torture_test);
+    module.addImport("server", core_modules.server);
 }
 
 fn add_test_imports(module: *std.Build.Module, core_modules: CoreModules) void {
@@ -194,6 +207,7 @@ fn add_test_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     module.addImport("tiered_compaction", core_modules.tiered_compaction);
     module.addImport("debug_allocator", core_modules.debug_allocator);
     module.addImport("allocator_torture_test", core_modules.allocator_torture_test);
+    module.addImport("server", core_modules.server);
 }
 
 pub fn build(b: *std.Build) void {

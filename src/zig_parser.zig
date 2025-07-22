@@ -217,12 +217,12 @@ pub const ZigParser = struct {
                 try self.parse_import(context);
             } else if (std.mem.startsWith(u8, trimmed, "pub fn ") or std.mem.startsWith(u8, trimmed, "fn ")) {
                 try self.parse_function(context);
+            } else if (contains_keyword(trimmed, "struct") or contains_keyword(trimmed, "packed struct") or contains_keyword(trimmed, "extern struct")) {
+                try self.parse_struct(context);
             } else if (std.mem.startsWith(u8, trimmed, "pub const ") or std.mem.startsWith(u8, trimmed, "const ")) {
                 try self.parse_constant(context);
             } else if (std.mem.startsWith(u8, trimmed, "pub var ") or std.mem.startsWith(u8, trimmed, "var ")) {
                 try self.parse_variable(context);
-            } else if (contains_keyword(trimmed, "struct") or contains_keyword(trimmed, "packed struct") or contains_keyword(trimmed, "extern struct")) {
-                try self.parse_struct(context);
             } else if (contains_keyword(trimmed, "enum")) {
                 try self.parse_enum(context);
             } else if (std.mem.startsWith(u8, trimmed, "test ")) {

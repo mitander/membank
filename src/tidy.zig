@@ -427,6 +427,9 @@ fn check_function_naming(line: []const u8) ?[]const u8 {
     const fn_prefix = "fn ";
     const index = std.mem.indexOf(u8, line, fn_prefix) orelse return null;
 
+    // Skip if "fn " is inside a string literal
+    if (is_inside_string_literal(line, index)) return null;
+
     // Only check actual function definitions (line starts with "fn " or whitespace + "fn ")
     if (index == 0 or std.ascii.isWhitespace(line[index - 1])) {
         const begin = index + fn_prefix.len;
@@ -559,6 +562,37 @@ fn has_camel_case_in_name(name: []const u8) bool {
         }
     }
     return false;
+}
+
+fn is_inside_string_literal(line: []const u8, pos: usize) bool {
+    // Count unescaped quotes before the position
+    var quote_count: usize = 0;
+    var i: usize = 0;
+
+    while (i < pos and i < line.len) {
+        if (line[i] == '"') {
+            // Check if this quote is escaped
+            var escaped = false;
+            if (i > 0 and line[i - 1] == '\\') {
+                // Count consecutive backslashes to determine if quote is escaped
+                var backslash_count: usize = 0;
+                var j = i;
+                while (j > 0 and line[j - 1] == '\\') {
+                    backslash_count += 1;
+                    j -= 1;
+                }
+                escaped = (backslash_count % 2) == 1;
+            }
+
+            if (!escaped) {
+                quote_count += 1;
+            }
+        }
+        i += 1;
+    }
+
+    // If quote count is odd, we're inside a string literal
+    return (quote_count % 2) == 1;
 }
 
 fn has_improper_constant_case(line: []const u8) bool {

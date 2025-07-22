@@ -1325,16 +1325,12 @@ pub const StorageEngine = struct {
     /// Iterator for all blocks in storage (memtable and SSTables).
     pub const BlockIterator = struct {
         engine: *const StorageEngine,
-        memtable_iterator: ?std.HashMap(BlockId, ContextBlock, struct {
-            pub fn hash(ctx: @This(), key: BlockId) u64 {
-                _ = ctx;
-                return std.hash_map.hashString(&key.bytes);
-            }
-            pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
-                _ = ctx;
-                return a.eql(b);
-            }
-        }, std.hash_map.default_max_load_percentage).Iterator,
+        memtable_iterator: ?std.HashMap(
+            BlockId,
+            ContextBlock,
+            BlockIndex.BlockIdContext,
+            std.hash_map.default_max_load_percentage,
+        ).Iterator,
 
         /// Get the next block in the iteration.
         pub fn next(self: *BlockIterator) !?ContextBlock {
