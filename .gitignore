@@ -5,3 +5,4 @@ zig/
 CLAUDE.md
 CORTEX_TODO.md
 performance-baseline.json
+fuzz_reports

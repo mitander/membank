@@ -14,6 +14,26 @@ const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 
+/// Hash context for BlockId HashMap operations
+const BlockIdHashContext = struct {
+    pub fn hash(ctx: @This(), key: BlockId) u64 {
+        _ = ctx;
+        return std.hash_map.hashString(&key.bytes);
+    }
+    pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
+        _ = ctx;
+        return a.eql(b);
+    }
+};
+
+/// Common HashMap type for BlockId visited tracking
+const BlockIdHashMap = std.HashMap(
+    BlockId,
+    void,
+    BlockIdHashContext,
+    std.hash_map.default_max_load_percentage,
+);
+
 /// String-to-frequency mapping for metadata analysis
 const MetadataAnalysisMap = std.StringHashMap(u32);
 
@@ -759,21 +779,7 @@ pub const QueryEngine = struct {
         start_block: ContextBlock,
     ) !TraversalResult {
         _ = start_block;
-        var visited = std.HashMap(
-            BlockId,
-            void,
-            struct {
-                pub fn hash(ctx: @This(), key: BlockId) u64 {
-                    _ = ctx;
-                    return std.hash_map.hashString(&key.bytes);
-                }
-                pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
-                    _ = ctx;
-                    return a.eql(b);
-                }
-            },
-            std.hash_map.default_max_load_percentage,
-        ).init(self.allocator);
+        var visited = BlockIdHashMap.init(self.allocator);
         defer visited.deinit();
 
         var result_blocks = std.ArrayList(ContextBlock).init(self.allocator);
@@ -825,7 +831,7 @@ pub const QueryEngine = struct {
                 current.block_id,
             ) catch continue;
 
-            const cloned_block = try self.clone_block(current_block);
+            const cloned_block = try self.clone_block(current_block.*);
             try result_blocks.append(cloned_block);
 
             const cloned_path = try self.allocator.dupe(BlockId, current.path);
@@ -868,21 +874,7 @@ pub const QueryEngine = struct {
         start_block: ContextBlock,
     ) !TraversalResult {
         _ = start_block;
-        var visited = std.HashMap(
-            BlockId,
-            void,
-            struct {
-                pub fn hash(ctx: @This(), key: BlockId) u64 {
-                    _ = ctx;
-                    return std.hash_map.hashString(&key.bytes);
-                }
-                pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
-                    _ = ctx;
-                    return a.eql(b);
-                }
-            },
-            std.hash_map.default_max_load_percentage,
-        ).init(self.allocator);
+        var visited = BlockIdHashMap.init(self.allocator);
         defer visited.deinit();
 
         var result_blocks = std.ArrayList(ContextBlock).init(self.allocator);
@@ -922,7 +914,8 @@ pub const QueryEngine = struct {
         var max_depth_reached: u32 = 0;
 
         while (stack.items.len > 0 and result_blocks.items.len < query.max_results) {
-            const current = stack.pop();
+            const current = stack.items[stack.items.len - 1];
+            _ = stack.pop();
             defer self.allocator.free(current.path);
 
             if (visited.contains(current.block_id)) {
@@ -937,7 +930,7 @@ pub const QueryEngine = struct {
                 current.block_id,
             ) catch continue;
 
-            const cloned_block = try self.clone_block(current_block);
+            const cloned_block = try self.clone_block(current_block.*);
             try result_blocks.append(cloned_block);
 
             const cloned_path = try self.allocator.dupe(BlockId, current.path);
@@ -988,21 +981,7 @@ pub const QueryEngine = struct {
     fn add_neighbors_to_queue(
         self: *QueryEngine,
         queue: anytype,
-        visited: *std.HashMap(
-            BlockId,
-            void,
-            struct {
-                pub fn hash(ctx: @This(), key: BlockId) u64 {
-                    _ = ctx;
-                    return std.hash_map.hashString(&key.bytes);
-                }
-                pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
-                    _ = ctx;
-                    return a.eql(b);
-                }
-            },
-            std.hash_map.default_max_load_percentage,
-        ),
+        visited: *BlockIdHashMap,
         current_id: BlockId,
         next_depth: u32,
         current_path: []const BlockId,
@@ -1059,21 +1038,7 @@ pub const QueryEngine = struct {
     fn add_neighbors_to_stack(
         self: *QueryEngine,
         stack: anytype,
-        visited: *std.HashMap(
-            BlockId,
-            void,
-            struct {
-                pub fn hash(ctx: @This(), key: BlockId) u64 {
-                    _ = ctx;
-                    return std.hash_map.hashString(&key.bytes);
-                }
-                pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
-                    _ = ctx;
-                    return a.eql(b);
-                }
-            },
-            std.hash_map.default_max_load_percentage,
-        ),
+        visited: *BlockIdHashMap,
         current_id: BlockId,
         next_depth: u32,
         current_path: []const BlockId,

@@ -390,4 +390,18 @@ pub fn build(b: *std.Build) void {
     const install_fuzz = b.addInstallArtifact(fuzz, .{});
     const fuzz_step = b.step("fuzz", "Build and install fuzz tester");
     fuzz_step.dependOn(&install_fuzz.step);
+
+    const fuzz_debug = b.addExecutable(.{
+        .name = "fuzz-debug",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/fuzz.zig"),
+            .target = target,
+            .optimize = .Debug,
+        }),
+    });
+    add_all_imports(fuzz_debug.root_module, core_modules);
+
+    const install_fuzz_debug = b.addInstallArtifact(fuzz_debug, .{});
+    const fuzz_debug_step = b.step("fuzz-debug", "Build and install debug fuzz tester with AddressSanitizer");
+    fuzz_debug_step.dependOn(&install_fuzz_debug.step);
 }
