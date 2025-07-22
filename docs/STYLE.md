@@ -31,7 +31,7 @@ For managing the lifetime of complex, related objects, we use arenas. A subsyste
 This pattern eliminates manual `free()` calls for individual objects in favor of a single, atomic `arena.reset()`.
 
 ```zig
-// In src/storage.zig
+// In src/storage/storage.zig
 
 pub const BlockIndex = struct {
     blocks: std.HashMap(BlockId, ContextBlock, ...),
@@ -72,8 +72,8 @@ pub const BlockIndex = struct {
 
 Critical performance paths (e.g., WAL writes, query execution, SSTable compaction) must not use a general-purpose allocator (`gpa.alloc()`).
 
--   For short-lived, temporary memory, a temporary `ArenaAllocator` should be passed into the function.
--   For frequently used buffers, a `BufferPool` can be considered, but only if profiling proves it is a significant bottleneck and a safer implementation (e.g., with allocation headers) is used.
+- For short-lived, temporary memory, a temporary `ArenaAllocator` should be passed into the function.
+- For frequently used buffers, a `BufferPool` can be considered, but only if profiling proves it is a significant bottleneck and a safer implementation (e.g., with allocation headers) is used.
 
 ## 3. Error Handling
 
@@ -114,26 +114,26 @@ if (computed_checksum != header.checksum) {
 
 Our naming conventions follow Zig standards but add specific constraints to enforce our design philosophy.
 
-| Type             | Convention             | Good Examples                 | Bad Examples               |
-| ---------------- | ---------------------- | ----------------------------- | -------------------------- |
-| **Types**        | `PascalCase`           | `StorageEngine`, `BlockId`    | `storage_engine`           |
-| **Constants**    | `SCREAMING_SNAKE_CASE` | `MAX_BLOCKS`, `HEADER_SIZE`   | `MaxBlocks`, `header_size` |
-| **Functions**    | `snake_case`           | `find_block`, `serialize`     | `findBlock`, `GetBlock`    |
-| **Variables**    | `snake_case`           | `block_count`, `wal_file`     | `blockCount`, `WALFile`    |
+| Type          | Convention             | Good Examples               | Bad Examples               |
+| ------------- | ---------------------- | --------------------------- | -------------------------- |
+| **Types**     | `PascalCase`           | `StorageEngine`, `BlockId`  | `storage_engine`           |
+| **Constants** | `SCREAMING_SNAKE_CASE` | `MAX_BLOCKS`, `HEADER_SIZE` | `MaxBlocks`, `header_size` |
+| **Functions** | `snake_case`           | `find_block`, `serialize`   | `findBlock`, `GetBlock`    |
+| **Variables** | `snake_case`           | `block_count`, `wal_file`   | `blockCount`, `WALFile`    |
 
 **CRITICAL: Function Naming Philosophy**
 
 We strictly forbid `get_` and `set_` prefixes for function names. This enforces a clearer separation between simple accessors and operations with side effects.
 
--   **For simple getters:** Use a noun.
-    -   `fn id(self: *const Block) u64`
-    -   `fn capacity(self: *const Buffer) usize`
--   **For setters/mutators:** Use a specific verb that describes the action.
-    -   `fn update_id(self: *Block, id: u64)`
-    -   `fn clear(self: *BlockIndex)`
--   **For operations:** Use a verb that describes the work being done.
-    -   `fn find_block_by_id(...)`
-    -   `fn recover_from_wal(...)`
+- **For simple getters:** Use a noun.
+  - `fn id(self: *const Block) u64`
+  - `fn capacity(self: *const Buffer) usize`
+- **For setters/mutators:** Use a specific verb that describes the action.
+  - `fn update_id(self: *Block, id: u64)`
+  - `fn clear(self: *BlockIndex)`
+- **For operations:** Use a verb that describes the work being done.
+  - `fn find_block_by_id(...)`
+  - `fn recover_from_wal(...)`
 
 ## 5. Commenting Philosophy: The WHY, Not the WHAT
 
@@ -152,8 +152,8 @@ i += 1;
 for (self.index.items) |entry| { ... }
 ```
 
--   Public APIs must have full `///` documentation explaining their purpose, parameters, and potential errors.
--   `TODO` and `FIXME` comments are for local development only and **must be removed** before merging into `main`.
+- Public APIs must have full `///` documentation explaining their purpose, parameters, and potential errors.
+- `TODO` and `FIXME` comments are for local development only and **must be removed** before merging into `main`.
 
 ## 6. Testing
 

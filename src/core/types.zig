@@ -1,8 +1,12 @@
-//! Context Block data structure and serialization.
+//! Core Data Types for CortexDB
 //!
-//! Context Blocks are the atomic unit of knowledge in CortexDB. They represent
-//! any logical chunk of information (functions, classes, document paragraphs, etc.)
-//! with structured metadata and relationships to other blocks.
+//! This module defines the fundamental data structures used throughout the system:
+//! - ContextBlock: The atomic unit of knowledge with metadata and relationships
+//! - BlockId: 128-bit ULID identifiers for blocks
+//! - GraphEdge: Typed relationships between blocks
+//! - EdgeType: Enumeration of relationship types (imports, references, etc.)
+//!
+//! These types form the foundation of CortexDB's knowledge representation model.
 
 const std = @import("std");
 const assert = std.debug.assert;

@@ -67,7 +67,7 @@ This command builds the project and runs the comprehensive test suite.
 - **Robust Memory Safety:** A simple, `ArenaAllocator`-based memory model eliminates entire classes of memory corruption bugs by design.
 - **Log-Structured Merge-Tree:** The storage engine is a custom LSMT optimized for high-volume ingestion and fast writes.
 - **Self-Contained:** Zero external dependencies. The entire project is pure Zig.
-- **Defensive Programming:** A comprehensive assertion framework (`src/assert.zig`) catches invariants and logic bugs early in development.
+- **Defensive Programming:** A comprehensive assertion framework (`src/core/assert.zig`) catches invariants and logic bugs early in development.
 
 ## Project Status
 

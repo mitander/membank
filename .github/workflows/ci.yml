@@ -267,8 +267,8 @@ jobs:
 
       - name: Run performance regression detection
         run: |
-          chmod +x scripts/performance_ci.sh
-          ./scripts/performance_ci.sh
+          chmod +x scripts/benchmark.sh
+          ./scripts/benchmark.sh
 
       - name: Upload performance results
         uses: actions/upload-artifact@v4
