@@ -23,6 +23,10 @@ const SSTable = sstable.SSTable;
 const Compactor = sstable.Compactor;
 const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
 
+/// Maximum size of a WAL segment before rotation (64MB).
+/// Chosen to balance between recovery time and file handle usage.
+const MAX_WAL_SEGMENT_SIZE: u64 = 64 * 1024 * 1024;
+
 /// Performance metrics for storage engine observability.
 /// All counters are atomic for thread-safe access in concurrent environments.
 pub const StorageMetrics = struct {
@@ -947,6 +951,8 @@ pub const StorageEngine = struct {
     index: BlockIndex,
     graph_index: GraphEdgeIndex,
     wal_file: ?vfs.VFile,
+    wal_segment_number: u32,
+    wal_segment_size: u64,
     sstables: std.ArrayList([]const u8), // Paths to SSTable files
     compaction_manager: TieredCompactionManager,
     next_sstable_id: u32,
@@ -969,6 +975,8 @@ pub const StorageEngine = struct {
             .index = BlockIndex.init(allocator),
             .graph_index = GraphEdgeIndex.init(allocator),
             .wal_file = null,
+            .wal_segment_number = 0,
+            .wal_segment_size = 0,
             .sstables = std.ArrayList([]const u8).init(allocator),
             .compaction_manager = TieredCompactionManager.init(
                 allocator,
@@ -1030,11 +1038,29 @@ pub const StorageEngine = struct {
             try self.vfs.mkdir(sst_dir);
         }
 
-        // Open or create WAL file (wal_0000.log)
+        // Find the highest existing WAL segment number
+        const existing_segments = try self.list_wal_files(wal_dir);
+        defer {
+            for (existing_segments) |segment| {
+                self.backing_allocator.free(segment);
+            }
+            self.backing_allocator.free(existing_segments);
+        }
+
+        if (existing_segments.len > 0) {
+            // Extract segment number from last file (wal_XXXX.log)
+            const last_segment = existing_segments[existing_segments.len - 1];
+            if (last_segment.len >= 12 and std.mem.startsWith(u8, last_segment, "wal_")) {
+                const num_str = last_segment[4..8];
+                self.wal_segment_number = std.fmt.parseInt(u32, num_str, 10) catch 0;
+            }
+        }
+
+        // Open or create current WAL segment
         const wal_path = try std.fmt.allocPrint(
             self.backing_allocator,
-            "{s}/wal_0000.log",
-            .{wal_dir},
+            "{s}/wal_{d:0>4}.log",
+            .{ wal_dir, self.wal_segment_number },
         );
         defer self.backing_allocator.free(wal_path);
 
@@ -1043,9 +1069,11 @@ pub const StorageEngine = struct {
         if (self.vfs.exists(wal_path)) {
             self.wal_file = try self.vfs.open(wal_path, .write);
             // Seek to end for append behavior
-            _ = try self.wal_file.?.seek(0, .end);
+            const end_pos = try self.wal_file.?.seek(0, .end);
+            self.wal_segment_size = @intCast(end_pos);
         } else {
             self.wal_file = try self.vfs.create(wal_path);
+            self.wal_segment_size = 0;
         }
 
         // Create LOCK file to prevent multiple instances
@@ -1452,6 +1480,13 @@ pub const StorageEngine = struct {
             .{ blocks_to_flush.items.len, sstable_path, file_size },
         );
 
+        // Clean up old WAL segments now that data is persisted in SSTable
+        // We can safely delete all segments before the current one since
+        // all data has been flushed to the SSTable
+        if (self.wal_segment_number > 0) {
+            try self.cleanup_wal_segments(self.wal_segment_number);
+        }
+
         // Check for compaction opportunities
         try self.check_and_run_compaction();
     }
@@ -1542,6 +1577,11 @@ pub const StorageEngine = struct {
 
         const serialized_size = WALEntry.HEADER_SIZE + entry.payload.len;
 
+        // Check if rotation is needed before writing
+        if (self.wal_segment_size + serialized_size > MAX_WAL_SEGMENT_SIZE) {
+            try self.rotate_wal_segment();
+        }
+
         const buffer = try self.backing_allocator.alloc(u8, serialized_size);
         defer self.backing_allocator.free(buffer);
 
@@ -1549,7 +1589,79 @@ pub const StorageEngine = struct {
         assert(written == serialized_size);
 
         _ = try self.wal_file.?.write(buffer);
+        self.wal_segment_size += written;
         _ = self.storage_metrics.wal_bytes_written.fetchAdd(buffer.len, .monotonic);
+    }
+
+    /// Rotate to a new WAL segment when current segment is full.
+    fn rotate_wal_segment(self: *StorageEngine) !void {
+        assert(self.wal_file != null);
+
+        // Close current WAL file
+        if (self.wal_file) |*file| {
+            try file.flush();
+            try file.close();
+        }
+
+        // Increment segment number
+        self.wal_segment_number += 1;
+        self.wal_segment_size = 0;
+
+        // Create new WAL segment
+        const wal_dir = try std.fmt.allocPrint(
+            self.backing_allocator,
+            "{s}/wal",
+            .{self.data_dir},
+        );
+        defer self.backing_allocator.free(wal_dir);
+
+        const new_wal_path = try std.fmt.allocPrint(
+            self.backing_allocator,
+            "{s}/wal_{d:0>4}.log",
+            .{ wal_dir, self.wal_segment_number },
+        );
+        defer self.backing_allocator.free(new_wal_path);
+
+        self.wal_file = try self.vfs.create(new_wal_path);
+
+        log.info("Rotated WAL to segment {d}", .{self.wal_segment_number});
+    }
+
+    /// Clean up old WAL segments that have been flushed to SSTables.
+    /// Keeps the current active segment and deletes all segments with
+    /// numbers less than the specified threshold.
+    fn cleanup_wal_segments(self: *StorageEngine, up_to_segment: u32) !void {
+        // Only proceed if there are segments to clean
+        if (up_to_segment == 0) {
+            return;
+        }
+
+        const wal_dir = try std.fmt.allocPrint(
+            self.backing_allocator,
+            "{s}/wal",
+            .{self.data_dir},
+        );
+        defer self.backing_allocator.free(wal_dir);
+
+        // Delete all segments up to (but not including) the specified segment
+        var segment_num: u32 = 0;
+        while (segment_num < up_to_segment) : (segment_num += 1) {
+            const segment_path = try std.fmt.allocPrint(
+                self.backing_allocator,
+                "{s}/wal_{d:0>4}.log",
+                .{ wal_dir, segment_num },
+            );
+            defer self.backing_allocator.free(segment_path);
+
+            // Only delete if the file exists
+            if (self.vfs.exists(segment_path)) {
+                self.vfs.remove(segment_path) catch |err| {
+                    // Log error but continue cleanup
+                    log.warn("Failed to delete WAL segment {s}: {any}", .{ segment_path, err });
+                };
+                log.info("Deleted WAL segment {d} after SSTable flush", .{segment_num});
+            }
+        }
     }
 
     /// Recover storage state from WAL files.

@@ -264,6 +264,11 @@ pub fn build(b: *std.Build) void {
             .description = "WAL recovery tests",
         },
         .{
+            .name = "wal_segmentation",
+            .source_file = "tests/wal_segmentation_test.zig",
+            .description = "WAL segmentation tests",
+        },
+        .{
             .name = "wal_memory_safety",
             .source_file = "tests/wal_memory_safety_test.zig",
             .description = "WAL memory safety tests",
