@@ -366,6 +366,11 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/integration/ingestion.zig",
             .description = "ingestion pipeline integration tests",
         },
+        .{
+            .name = "fault_injection",
+            .source_file = "tests/fault_injection/storage_faults.zig",
+            .description = "fault injection and storage resilience tests",
+        },
     };
 
     var test_steps: [test_configs.len]*std.Build.Step.Run = undefined;
@@ -388,6 +393,8 @@ pub fn build(b: *std.Build) void {
             add_integration_imports(test_exe.root_module, core_modules);
         } else if (std.mem.eql(u8, config.name, "ingestion")) {
             add_ingestion_integration_imports(test_exe.root_module, core_modules);
+        } else if (std.mem.eql(u8, config.name, "fault_injection")) {
+            add_storage_simulation_imports(test_exe.root_module, core_modules);
         } else if (std.mem.eql(u8, config.name, "debug_allocator") or
             std.mem.eql(u8, config.name, "allocator_torture"))
         {
