@@ -229,26 +229,49 @@ fn add_fuzz_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     add_simulation_imports(module, core_modules);
 }
 
-fn add_test_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    // Common imports for test files
+fn add_storage_simulation_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    add_storage_imports(module, core_modules);
+    add_simulation_imports(module, core_modules);
+}
+
+fn add_ingestion_simulation_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    add_ingestion_imports(module, core_modules);
+    add_simulation_imports(module, core_modules);
+}
+
+fn add_integration_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    // Flat imports to avoid duplicate module registration
     module.addImport("assert", core_modules.assert);
     module.addImport("vfs", core_modules.vfs);
     module.addImport("context_block", core_modules.context_block);
+    module.addImport("error_context", core_modules.error_context);
     module.addImport("concurrency", core_modules.concurrency);
     module.addImport("bloom_filter", core_modules.bloom_filter);
-    module.addImport("simulation", core_modules.simulation);
-    module.addImport("simulation_vfs", core_modules.simulation_vfs);
     module.addImport("sstable", core_modules.sstable);
+    module.addImport("tiered_compaction", core_modules.tiered_compaction);
     module.addImport("storage", core_modules.storage);
     module.addImport("query_engine", core_modules.query_engine);
+    module.addImport("simulation_vfs", core_modules.simulation_vfs);
+    module.addImport("simulation", core_modules.simulation);
+}
+
+fn add_ingestion_integration_imports(module: *std.Build.Module, core_modules: CoreModules) void {
+    // Flat imports to avoid duplicate module registration
+    module.addImport("assert", core_modules.assert);
+    module.addImport("vfs", core_modules.vfs);
+    module.addImport("context_block", core_modules.context_block);
+    module.addImport("error_context", core_modules.error_context);
+    module.addImport("concurrency", core_modules.concurrency);
+    module.addImport("bloom_filter", core_modules.bloom_filter);
+    module.addImport("sstable", core_modules.sstable);
+    module.addImport("tiered_compaction", core_modules.tiered_compaction);
+    module.addImport("storage", core_modules.storage);
     module.addImport("ingestion", core_modules.ingestion);
     module.addImport("git_source", core_modules.git_source);
     module.addImport("zig_parser", core_modules.zig_parser);
     module.addImport("semantic_chunker", core_modules.semantic_chunker);
-    module.addImport("tiered_compaction", core_modules.tiered_compaction);
-    module.addImport("debug_allocator", core_modules.debug_allocator);
-    module.addImport("allocator_torture_test", core_modules.allocator_torture_test);
-    module.addImport("server", core_modules.server);
+    module.addImport("simulation_vfs", core_modules.simulation_vfs);
+    module.addImport("simulation", core_modules.simulation);
 }
 
 pub fn build(b: *std.Build) void {
@@ -352,7 +375,23 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize_mode,
             }),
         });
-        add_test_imports(test_exe.root_module, core_modules);
+        // Use granular imports based on test category to reduce coupling
+        if (std.mem.eql(u8, config.name, "unit")) {
+            add_core_imports(test_exe.root_module, core_modules);
+        } else if (std.mem.eql(u8, config.name, "simulation")) {
+            add_simulation_imports(test_exe.root_module, core_modules);
+        } else if (std.mem.eql(u8, config.name, "integration")) {
+            add_integration_imports(test_exe.root_module, core_modules);
+        } else if (std.mem.eql(u8, config.name, "ingestion")) {
+            add_ingestion_integration_imports(test_exe.root_module, core_modules);
+        } else if (std.mem.eql(u8, config.name, "debug_allocator") or
+            std.mem.eql(u8, config.name, "allocator_torture"))
+        {
+            add_simulation_imports(test_exe.root_module, core_modules);
+        } else {
+            // Storage and recovery tests need storage + simulation
+            add_storage_simulation_imports(test_exe.root_module, core_modules);
+        }
         test_steps[i] = b.addRunArtifact(test_exe);
     }
 

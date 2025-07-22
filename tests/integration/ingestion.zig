@@ -59,10 +59,6 @@ test "complete ingestion pipeline - git to storage" {
         }
         allocator.free(file_state);
     }
-    std.debug.print("Created files:\n", .{});
-    for (file_state) |fs| {
-        std.debug.print("  {s} (dir: {})\n", .{ fs.path, fs.is_directory });
-    }
 
     // Setup storage engine with separate arena to avoid cross-contamination
     var storage_arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -109,10 +105,6 @@ test "complete ingestion pipeline - git to storage" {
 
     // Execute pipeline
     const blocks = try pipeline.execute();
-
-    // Debug: Print pipeline statistics to understand what happened
-    const stats = pipeline.stats();
-    std.debug.print("Pipeline stats: sources_processed={}, sources_failed={}, units_parsed={}, blocks_generated={}\n", .{ stats.sources_processed, stats.sources_failed, stats.units_parsed, stats.blocks_generated });
 
     // Verify we got some blocks
     try testing.expect(blocks.len > 0);
