@@ -283,12 +283,9 @@ pub const IngestionPipeline = struct {
     pub fn deinit(self: *IngestionPipeline) void {
         // Note: Components are cleaned up by their owners, not by the pipeline
         // The pipeline only holds interface references, not ownership
-
-        // Clean up the ArrayLists themselves
         self.sources.deinit();
         self.parsers.deinit();
         self.chunkers.deinit();
-
         self.config.deinit();
         self.arena.deinit();
     }

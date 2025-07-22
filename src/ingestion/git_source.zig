@@ -15,6 +15,7 @@ const ingestion = @import("ingestion");
 const vfs = @import("vfs");
 const assert = @import("assert");
 const concurrency = @import("concurrency");
+const error_context = @import("error_context");
 
 const IngestionError = ingestion.IngestionError;
 const SourceContent = ingestion.SourceContent;
@@ -136,11 +137,11 @@ pub const GitSource = struct {
         };
     }
 
-    /// Clean up Git source resources (handled by arena allocator)
+    /// Clean up Git source resources
     pub fn deinit(self: *GitSource, allocator: std.mem.Allocator) void {
-        _ = self;
-        _ = allocator;
-        // All cleanup handled by arena allocator
+        if (self.metadata) |*metadata| {
+            metadata.deinit(allocator);
+        }
     }
 
     /// Create Source interface wrapper
@@ -160,7 +161,9 @@ pub const GitSource = struct {
         concurrency.assert_main_thread();
 
         // Validate repository exists
-        const repo_stat = file_system.stat(self.config.repository_path) catch return IngestionError.SourceFetchFailed;
+        const repo_stat = file_system.stat(self.config.repository_path) catch {
+            return IngestionError.SourceFetchFailed;
+        };
         if (!repo_stat.is_directory) {
             return IngestionError.SourceFetchFailed;
         }

@@ -79,11 +79,11 @@ test "complete ingestion pipeline - git to storage" {
     defer pipeline.deinit();
 
     // Setup Git source with pipeline's allocator to avoid cross-allocator issues
-    const git_config = try GitSourceConfig.init(allocator, "/test_repo");
-    // Note: git_config will be cleaned up when the arena is deinitialized
+    var git_config = try GitSourceConfig.init(allocator, "/test_repo");
+    defer git_config.deinit(allocator);
 
     var git_src = GitSource.init(allocator, git_config);
-    // Note: git_src will be cleaned up when the arena is deinitialized
+    defer git_src.deinit(allocator);
     try pipeline.register_source(git_src.source());
 
     // Setup Zig parser with pipeline's allocator
@@ -92,7 +92,7 @@ test "complete ingestion pipeline - git to storage" {
         .include_tests = true,
     };
     var zig_psr = ZigParser.init(allocator, zig_config);
-    // Note: zig_psr will be cleaned up when the arena is deinitialized
+    defer zig_psr.deinit(allocator);
     try pipeline.register_parser(zig_psr.parser());
 
     // Setup semantic chunker with pipeline's allocator
@@ -100,7 +100,7 @@ test "complete ingestion pipeline - git to storage" {
         .id_prefix = "test_repo",
     };
     var sem_chunker = SemanticChunker.init(allocator, chunker_config);
-    // Note: sem_chunker will be cleaned up when the arena is deinitialized
+    defer sem_chunker.deinit(allocator);
     try pipeline.register_chunker(sem_chunker.chunker());
 
     // Execute pipeline

@@ -17,6 +17,7 @@ const ingestion = @import("ingestion");
 const context_block = @import("context_block");
 const assert = @import("assert");
 const concurrency = @import("concurrency");
+const error_context = @import("error_context");
 
 const IngestionError = ingestion.IngestionError;
 const ParsedUnit = ingestion.ParsedUnit;
@@ -87,8 +88,14 @@ pub const SemanticChunker = struct {
                 continue;
             }
 
-            const block = try self.convert_unit_to_block(allocator, unit);
-            try blocks.append(block);
+            const block = self.convert_unit_to_block(allocator, unit) catch |err| {
+                std.log.err("Block conversion failed: {any} - unit_type={s} units_count={d}", .{ err, unit.unit_type, units.len });
+                return IngestionError.ChunkingFailed;
+            };
+            blocks.append(block) catch |err| {
+                std.log.err("Block append failed: {any} - unit_type={s} blocks_count={d}", .{ err, unit.unit_type, blocks.items.len });
+                return IngestionError.ChunkingFailed;
+            };
         }
 
         return blocks.toOwnedSlice();
@@ -97,20 +104,34 @@ pub const SemanticChunker = struct {
     /// Convert a single ParsedUnit to a ContextBlock
     fn convert_unit_to_block(self: *SemanticChunker, allocator: std.mem.Allocator, unit: ParsedUnit) !ContextBlock {
         // Generate deterministic block ID based on content and location
-        const block_id = try self.generate_block_id(allocator, unit);
+        const block_id = self.generate_block_id(allocator, unit) catch |err| {
+            std.log.err("Block ID generation failed: {any} - unit_type={s}", .{ err, unit.unit_type });
+            return IngestionError.ChunkingFailed;
+        };
 
         // Create source URI from location information
-        const source_uri = try self.create_source_uri(allocator, unit.location);
+        const source_uri = self.create_source_uri(allocator, unit.location) catch |err| {
+            std.log.err("Source URI creation failed: {any} - unit_type={s}", .{ err, unit.unit_type });
+            return IngestionError.ChunkingFailed;
+        };
 
         // Convert metadata to JSON
-        const metadata_json = try self.serialize_metadata(allocator, unit);
+        const metadata_json = self.serialize_metadata(allocator, unit) catch |err| {
+            std.log.err("Metadata serialization failed: {any} - unit_type={s}", .{ err, unit.unit_type });
+            return IngestionError.ChunkingFailed;
+        };
+
+        const content = allocator.dupe(u8, unit.content) catch |err| {
+            std.log.err("Content duplication failed: {any} - unit_type={s} content_len={d}", .{ err, unit.unit_type, unit.content.len });
+            return IngestionError.ChunkingFailed;
+        };
 
         return ContextBlock{
             .id = block_id,
             .version = self.config.block_version,
             .source_uri = source_uri,
             .metadata_json = metadata_json,
-            .content = try allocator.dupe(u8, unit.content),
+            .content = content,
         };
     }
 

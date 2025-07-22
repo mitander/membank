@@ -138,6 +138,66 @@ pub const BufferContext = struct {
     }
 };
 
+/// Context information for ingestion operations that can fail.
+pub const IngestionContext = struct {
+    operation: []const u8,
+    repository_path: ?[]const u8 = null,
+    file_path: ?[]const u8 = null,
+    content_type: ?[]const u8 = null,
+    line_number: ?u32 = null,
+    column_number: ?u32 = null,
+    unit_type: ?[]const u8 = null,
+    file_size: ?u64 = null,
+    max_allowed_size: ?u64 = null,
+    parsing_stage: ?[]const u8 = null,
+    unit_count: ?usize = null,
+
+    pub fn format(
+        self: IngestionContext,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("IngestionContext{{ operation=\"{s}\"", .{self.operation});
+
+        if (self.repository_path) |path| {
+            try writer.print(", repository=\"{s}\"", .{path});
+        }
+        if (self.file_path) |path| {
+            try writer.print(", file=\"{s}\"", .{path});
+        }
+        if (self.content_type) |ctype| {
+            try writer.print(", content_type=\"{s}\"", .{ctype});
+        }
+        if (self.line_number) |line| {
+            try writer.print(", line={}", .{line});
+        }
+        if (self.column_number) |col| {
+            try writer.print(", column={}", .{col});
+        }
+        if (self.unit_type) |utype| {
+            try writer.print(", unit_type=\"{s}\"", .{utype});
+        }
+        if (self.file_size) |size| {
+            try writer.print(", file_size={}", .{size});
+        }
+        if (self.max_allowed_size) |max_size| {
+            try writer.print(", max_size={}", .{max_size});
+        }
+        if (self.parsing_stage) |stage| {
+            try writer.print(", stage=\"{s}\"", .{stage});
+        }
+        if (self.unit_count) |count| {
+            try writer.print(", unit_count={}", .{count});
+        }
+
+        try writer.print(" }}", .{});
+    }
+};
+
 /// Log an error with context in debug builds only.
 /// Returns the original error for easy chaining.
 pub fn storage_error(err: anyerror, context: StorageContext) anyerror {
@@ -159,6 +219,14 @@ pub fn wal_error(err: anyerror, context: WALContext) anyerror {
 pub fn buffer_error(err: anyerror, context: BufferContext) anyerror {
     if (builtin.mode == .Debug) {
         log.err("Buffer operation failed: {any} - {any}", .{ err, context });
+    }
+    return err;
+}
+
+/// Log an ingestion error with context in debug builds only.
+pub fn ingestion_error(err: anyerror, context: IngestionContext) anyerror {
+    if (builtin.mode == .Debug) {
+        log.err("Ingestion operation failed: {any} - {any}", .{ err, context });
     }
     return err;
 }
@@ -221,6 +289,74 @@ pub fn buffer_size_context(
         .operation = operation,
         .required_size = required,
         .available_size = available,
+    };
+}
+
+/// Helper to create ingestion context for repository operations.
+pub fn repository_context(operation: []const u8, repository_path: []const u8) IngestionContext {
+    return IngestionContext{
+        .operation = operation,
+        .repository_path = repository_path,
+    };
+}
+
+/// Helper to create ingestion context for file operations.
+pub fn ingestion_file_context(
+    operation: []const u8,
+    repository_path: []const u8,
+    file_path: []const u8,
+    content_type: ?[]const u8,
+) IngestionContext {
+    return IngestionContext{
+        .operation = operation,
+        .repository_path = repository_path,
+        .file_path = file_path,
+        .content_type = content_type,
+    };
+}
+
+/// Helper to create ingestion context for file size violations.
+pub fn file_size_context(
+    operation: []const u8,
+    file_path: []const u8,
+    file_size: u64,
+    max_allowed_size: u64,
+) IngestionContext {
+    return IngestionContext{
+        .operation = operation,
+        .file_path = file_path,
+        .file_size = file_size,
+        .max_allowed_size = max_allowed_size,
+    };
+}
+
+/// Helper to create ingestion context for parsing operations.
+pub fn parsing_context(
+    operation: []const u8,
+    file_path: []const u8,
+    content_type: []const u8,
+    line_number: ?u32,
+    parsing_stage: ?[]const u8,
+) IngestionContext {
+    return IngestionContext{
+        .operation = operation,
+        .file_path = file_path,
+        .content_type = content_type,
+        .line_number = line_number,
+        .parsing_stage = parsing_stage,
+    };
+}
+
+/// Helper to create ingestion context for chunking operations.
+pub fn chunking_context(
+    operation: []const u8,
+    unit_type: []const u8,
+    unit_count: usize,
+) IngestionContext {
+    return IngestionContext{
+        .operation = operation,
+        .unit_type = unit_type,
+        .unit_count = unit_count,
     };
 }
 
@@ -288,4 +424,70 @@ test "error logging functions return original error" {
     const buffer_ctx = BufferContext{ .operation = "test" };
     const buffer_returned = buffer_error(original_error, buffer_ctx);
     try std.testing.expectEqual(original_error, buffer_returned);
+
+    const ingestion_ctx = IngestionContext{ .operation = "test" };
+    const ingestion_returned = ingestion_error(original_error, ingestion_ctx);
+    try std.testing.expectEqual(original_error, ingestion_returned);
+}
+
+test "IngestionContext formatting" {
+    const ctx = IngestionContext{
+        .operation = "parse_zig_function",
+        .repository_path = "./my-repo",
+        .file_path = "src/parser.zig",
+        .content_type = "text/zig",
+        .line_number = 245,
+        .unit_type = "function",
+        .file_size = 8192,
+        .max_allowed_size = 10240,
+        .parsing_stage = "tokenization",
+    };
+
+    var buf: [1024]u8 = undefined;
+    const formatted = try std.fmt.bufPrint(&buf, "{any}", .{ctx});
+
+    // Should contain all the context fields
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "parse_zig_function") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "./my-repo") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "src/parser.zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "text/zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "line=245") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "function") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "file_size=8192") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "tokenization") != null);
+}
+
+test "ingestion context helpers" {
+    // Test repository context
+    const repo_ctx = repository_context("validate_repository", "/path/to/repo");
+    try std.testing.expectEqualStrings("validate_repository", repo_ctx.operation);
+    try std.testing.expectEqualStrings("/path/to/repo", repo_ctx.repository_path.?);
+
+    // Test file context
+    const file_ctx = ingestion_file_context("read_file", "/repo", "file.zig", "text/zig");
+    try std.testing.expectEqualStrings("read_file", file_ctx.operation);
+    try std.testing.expectEqualStrings("/repo", file_ctx.repository_path.?);
+    try std.testing.expectEqualStrings("file.zig", file_ctx.file_path.?);
+    try std.testing.expectEqualStrings("text/zig", file_ctx.content_type.?);
+
+    // Test file size context
+    const size_ctx = file_size_context("validate_size", "large_file.txt", 20480, 10240);
+    try std.testing.expectEqualStrings("validate_size", size_ctx.operation);
+    try std.testing.expectEqualStrings("large_file.txt", size_ctx.file_path.?);
+    try std.testing.expectEqual(@as(u64, 20480), size_ctx.file_size.?);
+    try std.testing.expectEqual(@as(u64, 10240), size_ctx.max_allowed_size.?);
+
+    // Test parsing context
+    const parse_ctx = parsing_context("parse_function", "test.zig", "text/zig", 42, "ast_generation");
+    try std.testing.expectEqualStrings("parse_function", parse_ctx.operation);
+    try std.testing.expectEqualStrings("test.zig", parse_ctx.file_path.?);
+    try std.testing.expectEqualStrings("text/zig", parse_ctx.content_type.?);
+    try std.testing.expectEqual(@as(u32, 42), parse_ctx.line_number.?);
+    try std.testing.expectEqualStrings("ast_generation", parse_ctx.parsing_stage.?);
+
+    // Test chunking context
+    const chunk_ctx = chunking_context("create_chunks", "function", 15);
+    try std.testing.expectEqualStrings("create_chunks", chunk_ctx.operation);
+    try std.testing.expectEqualStrings("function", chunk_ctx.unit_type.?);
+    try std.testing.expectEqual(@as(usize, 15), chunk_ctx.unit_count.?);
 }

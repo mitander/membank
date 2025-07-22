@@ -119,14 +119,17 @@ fn create_core_modules(b: *std.Build) CoreModules {
     git_source_module.addImport("vfs", vfs_module);
     git_source_module.addImport("assert", assert_module);
     git_source_module.addImport("concurrency", concurrency_module);
+    git_source_module.addImport("error_context", error_context_module);
 
     // Zig parser
     const zig_parser_module = b.createModule(.{
         .root_source_file = b.path("src/ingestion/zig_parser.zig"),
     });
     zig_parser_module.addImport("ingestion", ingestion_module);
+    zig_parser_module.addImport("context_block", context_block_module);
     zig_parser_module.addImport("assert", assert_module);
     zig_parser_module.addImport("concurrency", concurrency_module);
+    zig_parser_module.addImport("error_context", error_context_module);
 
     // Semantic chunker
     const semantic_chunker_module = b.createModule(.{
@@ -136,6 +139,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
     semantic_chunker_module.addImport("context_block", context_block_module);
     semantic_chunker_module.addImport("assert", assert_module);
     semantic_chunker_module.addImport("concurrency", concurrency_module);
+    semantic_chunker_module.addImport("error_context", error_context_module);
 
     // Debug and testing modules
     const debug_allocator_module = b.createModule(.{
