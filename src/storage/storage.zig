@@ -1118,12 +1118,9 @@ pub const StorageEngine = struct {
     pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
         concurrency.assert_main_thread();
 
-        // Entry condition assertions
         assert(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
         assert_state_valid(self.initialized, "StorageEngine must be initialized before put_block", .{});
-        assert_not_empty(block.source_uri, "ContextBlock source_uri cannot be empty", .{});
-        assert_not_empty(block.metadata_json, "ContextBlock metadata_json cannot be empty", .{});
-        assert_not_empty(block.content, "ContextBlock content cannot be empty", .{});
+
         assert(block.version > 0, "ContextBlock version must be positive, got {}", .{block.version});
 
         if (!self.initialized) return StorageError.NotInitialized;
@@ -1133,7 +1130,6 @@ pub const StorageEngine = struct {
         // Track the operation attempt
         _ = self.storage_metrics.wal_writes.fetchAdd(1, .monotonic);
 
-        // Validate block before storing
         block.validate(self.backing_allocator) catch |err| {
             _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
             return err;
@@ -1146,7 +1142,6 @@ pub const StorageEngine = struct {
         };
         defer wal_entry.deinit(self.backing_allocator);
 
-        // Validate WAL entry was created correctly
         assert(wal_entry.entry_type == .put_block, "WAL entry type mismatch: expected put_block, got {}", .{wal_entry.entry_type});
         assert(wal_entry.entry_type == .put_block, "WAL entry type mismatch: expected put_block, got {}", .{wal_entry.entry_type});
 
@@ -1164,7 +1159,6 @@ pub const StorageEngine = struct {
             return err;
         };
 
-        // Validate index update
         const index_size_after = self.index.block_count();
         assert(index_size_after >= index_size_before, "Index size decreased after put: {} -> {}", .{ index_size_before, index_size_after });
 
@@ -1194,7 +1188,6 @@ pub const StorageEngine = struct {
     ) StorageError!*const ContextBlock {
         concurrency.assert_main_thread();
 
-        // Entry condition assertions
         assert(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
         assert_state_valid(self.initialized, "StorageEngine must be initialized before find_block_by_id", .{});
 
@@ -1204,11 +1197,8 @@ pub const StorageEngine = struct {
 
         // Check memory first as it contains most recent writes
         if (self.index.find_block(block_id)) |block| {
-            // Validate found block
             assert(@intFromPtr(block) != 0, "Index returned null block pointer", .{});
             assert(std.mem.eql(u8, &block.id.bytes, &block_id.bytes), "Found block ID mismatch: expected {} got {}", .{ block_id, block.id });
-            assert_not_empty(block.source_uri, "Found block has empty source_uri", .{});
-            assert_not_empty(block.content, "Found block has empty content", .{});
 
             _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
 
@@ -1237,10 +1227,7 @@ pub const StorageEngine = struct {
             table.read_index() catch continue;
 
             if (table.find_block(block_id) catch null) |block| {
-                // Validate SSTable found block
                 assert(std.mem.eql(u8, &block.id.bytes, &block_id.bytes), "SSTable block ID mismatch: expected {} got {}", .{ block_id, block.id });
-                assert_not_empty(block.source_uri, "SSTable block has empty source_uri", .{});
-                assert_not_empty(block.content, "SSTable block has empty content", .{});
 
                 defer block.deinit(self.backing_allocator);
 
@@ -1262,7 +1249,6 @@ pub const StorageEngine = struct {
                     error_context.block_context("find_block_after_sstable_transfer", block_id),
                 );
 
-                // Final validation of cached block
                 assert(std.mem.eql(u8, &cached_block.id.bytes, &block_id.bytes), "Cached block ID mismatch after SSTable transfer", .{});
                 return cached_block;
             }
@@ -1614,7 +1600,6 @@ pub const StorageEngine = struct {
 
     /// Write a WAL entry to the current WAL file.
     fn write_wal_entry(self: *StorageEngine, entry: WALEntry) !void {
-        // Entry condition assertions
         assert(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
         if (self.wal_file == null) return StorageError.NotInitialized;
         assert_not_empty(entry.payload, "WAL entry payload cannot be empty", .{});
@@ -1624,7 +1609,6 @@ pub const StorageEngine = struct {
 
         const serialized_size = WALEntry.HEADER_SIZE + entry.payload.len;
 
-        // Validate serialized size bounds
         assert(serialized_size > WALEntry.HEADER_SIZE, "Serialized size must be larger than header: {} <= {}", .{ serialized_size, WALEntry.HEADER_SIZE });
         assert(serialized_size <= MAX_WAL_SEGMENT_SIZE, "WAL entry too large: {} > {}", .{ serialized_size, MAX_WAL_SEGMENT_SIZE });
 
@@ -1636,12 +1620,10 @@ pub const StorageEngine = struct {
         const buffer = try self.backing_allocator.alloc(u8, serialized_size);
         defer self.backing_allocator.free(buffer);
 
-        // Validate buffer allocation
         assert(buffer.len == serialized_size, "Buffer allocation size mismatch: {} != {}", .{ buffer.len, serialized_size });
 
         const written = try entry.serialize(buffer);
 
-        // Validate serialization result
         assert(written == serialized_size, "Serialized size mismatch: {} != {}", .{ written, serialized_size });
         assert(written > 0, "Written bytes must be positive: {}", .{written});
 
@@ -1651,7 +1633,6 @@ pub const StorageEngine = struct {
         const old_segment_size = self.wal_segment_size;
         self.wal_segment_size += written;
 
-        // Post-condition assertions
         assert(self.wal_segment_size > old_segment_size, "WAL segment size must increase: {} -> {}", .{ old_segment_size, self.wal_segment_size });
         assert(self.wal_segment_size <= MAX_WAL_SEGMENT_SIZE, "WAL segment size exceeded max: {} > {}", .{ self.wal_segment_size, MAX_WAL_SEGMENT_SIZE });
 

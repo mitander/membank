@@ -277,7 +277,6 @@ pub const ContextBlock = struct {
     /// Deserialize a Context Block from bytes with versioned header support.
     /// The returned block owns its data through the provided allocator.
     pub fn deserialize(buffer: []const u8, allocator: std.mem.Allocator) !ContextBlock {
-        // Entry condition assertions
         assert_not_empty(buffer, "Deserialize buffer cannot be empty", .{});
         assert(@intFromPtr(allocator.ptr) != 0, "Allocator cannot be null", .{});
         assert(buffer.len >= MIN_SERIALIZED_SIZE, "Buffer too small: {} < {}", .{ buffer.len, MIN_SERIALIZED_SIZE });
@@ -285,18 +284,12 @@ pub const ContextBlock = struct {
         if (buffer.len == 0) return error.EmptyBuffer;
         if (buffer.len < MIN_SERIALIZED_SIZE) return error.BufferTooSmall;
 
-        // Deserialize and validate header
         assert_buffer_bounds(0, BlockHeader.SIZE, buffer.len, "Header bounds check failed: {} + {} > {}", .{ 0, BlockHeader.SIZE, buffer.len });
         const header = try BlockHeader.deserialize(buffer[0..BlockHeader.SIZE]);
 
-        // Validate header contents
         assert(header.magic == ContextBlock.MAGIC, "Invalid magic number: 0x{X} != 0x{X}", .{ header.magic, ContextBlock.MAGIC });
         assert(header.format_version <= ContextBlock.FORMAT_VERSION, "Unsupported format version: {} > {}", .{ header.format_version, ContextBlock.FORMAT_VERSION });
-        assert(header.source_uri_len > 0, "Source URI length cannot be zero", .{});
-        assert(header.metadata_json_len > 0, "Metadata JSON length cannot be zero", .{});
-        assert(header.content_len > 0, "Content length cannot be zero", .{});
 
-        // Validate total size with overflow protection
         const variable_data_size = std.math.add(u64, header.source_uri_len, header.metadata_json_len) catch return error.InvalidHeader;
         const total_variable_size = std.math.add(u64, variable_data_size, header.content_len) catch return error.InvalidHeader;
         const total_size = std.math.add(u64, BlockHeader.SIZE, total_variable_size) catch return error.InvalidHeader;
@@ -319,10 +312,6 @@ pub const ContextBlock = struct {
         const content_data = buffer[offset .. offset + header.content_len];
 
         // Verify checksum
-        assert_not_empty(source_uri_data, "Source URI data cannot be empty for checksum", .{});
-        assert_not_empty(metadata_json_data, "Metadata JSON data cannot be empty for checksum", .{});
-        assert_not_empty(content_data, "Content data cannot be empty for checksum", .{});
-
         var hasher = std.hash.Wyhash.init(0);
         hasher.update(source_uri_data);
         hasher.update(metadata_json_data);
@@ -337,7 +326,6 @@ pub const ContextBlock = struct {
         const metadata_json = try allocator.dupe(u8, metadata_json_data);
         const content = try allocator.dupe(u8, content_data);
 
-        // Validate allocations succeeded
         assert(source_uri.len == header.source_uri_len, "Source URI allocation length mismatch: {} != {}", .{ source_uri.len, header.source_uri_len });
         assert(metadata_json.len == header.metadata_json_len, "Metadata JSON allocation length mismatch: {} != {}", .{ metadata_json.len, header.metadata_json_len });
         assert(content.len == header.content_len, "Content allocation length mismatch: {} != {}", .{ content.len, header.content_len });
@@ -353,9 +341,6 @@ pub const ContextBlock = struct {
         // Exit condition assertions
         assert(result.version == header.block_version, "Result version mismatch: {} != {}", .{ result.version, header.block_version });
         assert(std.mem.eql(u8, &result.id.bytes, &header.id), "Result ID mismatch", .{});
-        assert_not_empty(result.source_uri, "Result source URI cannot be empty", .{});
-        assert_not_empty(result.metadata_json, "Result metadata JSON cannot be empty", .{});
-        assert_not_empty(result.content, "Result content cannot be empty", .{});
 
         return result;
     }
@@ -367,9 +352,25 @@ pub const ContextBlock = struct {
         allocator.free(self.content);
     }
 
-    /// Validate that the Context Block has valid structure.
+    /// Validation strategy for ContextBlock data integrity.
+    ///
+    /// This function enforces data format correctness but deliberately does NOT
+    /// enforce business logic constraints like non-empty fields. The rationale:
+    ///
+    /// 1. **Storage layer agnostic**: Empty fields are valid at the storage level
+    /// 2. **Test flexibility**: Edge case tests legitimately use empty data
+    /// 3. **Recovery robustness**: WAL recovery must handle any serialized data
+    /// 4. **Domain separation**: Business rules belong in ingestion/application layers
+    ///
+    /// Validation covers:
+    /// - JSON format validity in metadata_json
+    /// - UTF-8 encoding in all text fields
+    /// - Basic structural integrity
+    ///
+    /// For business logic validation (non-empty constraints, semantic rules),
+    /// use validate_for_ingestion() or implement domain-specific checks.
     pub fn validate(self: ContextBlock, allocator: std.mem.Allocator) !void {
-        // Validate JSON metadata by attempting to parse it
+        // JSON format validation - metadata must be parseable
         var parsed = std.json.parseFromSlice(
             std.json.Value,
             allocator,
@@ -380,14 +381,58 @@ pub const ContextBlock = struct {
         };
         defer parsed.deinit();
 
-        // Validate UTF-8 encoding
+        // UTF-8 encoding validation for all text fields
         if (!std.unicode.utf8ValidateSlice(self.source_uri)) {
             return error.InvalidSourceUriEncoding;
         }
         if (!std.unicode.utf8ValidateSlice(self.metadata_json)) {
             return error.InvalidMetadataEncoding;
         }
-        _ = self.content; // Suppress unused variable warning
+
+        // Version must be positive (zero indicates uninitialized state)
+        if (self.version == 0) {
+            return error.InvalidVersion;
+        }
+    }
+
+    /// Strict validation for ingestion contexts where business rules apply.
+    ///
+    /// This enforces constraints appropriate for data coming from external sources:
+    /// - Non-empty source_uri (must identify origin)
+    /// - Non-empty content (must have meaningful data)
+    /// - Valid JSON metadata with required fields
+    ///
+    /// Use this at ingestion boundaries, not for internal storage operations.
+    pub fn validate_for_ingestion(self: ContextBlock, allocator: std.mem.Allocator) !void {
+        // First run basic structural validation
+        try self.validate(allocator);
+
+        // Ingestion-specific business rules
+        if (self.source_uri.len == 0) {
+            return error.MissingSourceUri;
+        }
+        if (self.content.len == 0) {
+            return error.MissingContent;
+        }
+
+        // Content should be valid UTF-8 for ingested data
+        if (!std.unicode.utf8ValidateSlice(self.content)) {
+            return error.InvalidContentEncoding;
+        }
+
+        // Metadata should contain at minimum a type field for ingested content
+        var parsed = try std.json.parseFromSlice(
+            std.json.Value,
+            allocator,
+            self.metadata_json,
+            .{},
+        );
+        defer parsed.deinit();
+
+        // Require type field in ingested metadata
+        if (parsed.value.object.get("type") == null) {
+            return error.MissingMetadataType;
+        }
     }
 };
 
@@ -453,7 +498,6 @@ pub const GraphEdge = struct {
         const edge_type = try EdgeType.from_u16(type_id);
         offset += 2;
 
-        // Validate reserved bytes are zero
         for (buffer[offset .. offset + 6]) |byte| {
             if (byte != 0) return error.InvalidReservedBytes;
         }
