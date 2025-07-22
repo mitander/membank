@@ -166,7 +166,7 @@ const TrackedAllocation = struct {
 pub const AllocatorTortureTester = struct {
     allocator: std.mem.Allocator,
     config: TortureTestConfig,
-    stats: TortureTestStats,
+    current_stats: TortureTestStats,
     prng: std.Random.DefaultPrng,
     tracked_allocations: std.ArrayList(TrackedAllocation),
     next_allocation_id: u32,
@@ -176,7 +176,7 @@ pub const AllocatorTortureTester = struct {
         return AllocatorTortureTester{
             .allocator = allocator,
             .config = config,
-            .stats = TortureTestStats{},
+            .current_stats = TortureTestStats{},
             .prng = std.Random.DefaultPrng.init(config.random_seed),
             .tracked_allocations = std.ArrayList(TrackedAllocation).init(allocator),
             .next_allocation_id = 1,
@@ -228,11 +228,11 @@ pub const AllocatorTortureTester = struct {
 
             // Update peak statistics
             const current_allocs = @as(u64, @intCast(self.tracked_allocations.items.len));
-            if (current_allocs > self.stats.max_concurrent_allocations) {
-                self.stats.max_concurrent_allocations = current_allocs;
+            if (current_allocs > self.current_stats.max_concurrent_allocations) {
+                self.current_stats.max_concurrent_allocations = current_allocs;
             }
-            if (self.current_bytes_allocated > self.stats.peak_bytes_allocated) {
-                self.stats.peak_bytes_allocated = self.current_bytes_allocated;
+            if (self.current_bytes_allocated > self.current_stats.peak_bytes_allocated) {
+                self.current_stats.peak_bytes_allocated = self.current_bytes_allocated;
             }
         }
 
@@ -288,7 +288,7 @@ pub const AllocatorTortureTester = struct {
 
             // Verify alignment
             if (!tracked.verify_alignment()) {
-                self.stats.alignment_violations += 1;
+                self.current_stats.alignment_violations += 1;
                 const required_alignment = @as(usize, 1) << alignment_exp;
                 assert.assert(
                     false,
@@ -301,7 +301,7 @@ pub const AllocatorTortureTester = struct {
             if (self.config.enable_pattern_validation) {
                 tracked.write_pattern();
                 if (!tracked.verify_pattern()) {
-                    self.stats.pattern_violations += 1;
+                    self.current_stats.pattern_violations += 1;
                     assert.assert(false, "Pattern write verification failed immediately after allocation", .{});
                 }
             }
@@ -309,10 +309,10 @@ pub const AllocatorTortureTester = struct {
             // Track the allocation
             try self.tracked_allocations.append(tracked);
             self.current_bytes_allocated += size;
-            self.stats.record_allocation(size, true);
+            self.current_stats.record_allocation(size, true);
         } else {
             // Failed allocation
-            self.stats.record_allocation(size, false);
+            self.current_stats.record_allocation(size, false);
         }
     }
 
@@ -326,15 +326,15 @@ pub const AllocatorTortureTester = struct {
 
         if (tracked.is_freed) {
             // Attempting to free already freed memory
-            self.stats.double_free_attempts += 1;
-            self.stats.record_free(false);
+            self.current_stats.double_free_attempts += 1;
+            self.current_stats.record_free(false);
             return;
         }
 
         // Verify pattern before freeing
         if (self.config.enable_pattern_validation) {
             if (!tracked.verify_pattern()) {
-                self.stats.pattern_violations += 1;
+                self.current_stats.pattern_violations += 1;
                 assert.assert(
                     false,
                     "Pattern corruption detected in allocation {} before free",
@@ -361,7 +361,7 @@ pub const AllocatorTortureTester = struct {
 
         // Update statistics
         self.current_bytes_allocated -= tracked.size;
-        self.stats.record_free(true);
+        self.current_stats.record_free(true);
     }
 
     /// Verify all currently tracked allocations have intact patterns
@@ -370,7 +370,7 @@ pub const AllocatorTortureTester = struct {
 
         for (self.tracked_allocations.items) |*tracked| {
             if (!tracked.verify_pattern()) {
-                self.stats.pattern_violations += 1;
+                self.current_stats.pattern_violations += 1;
                 assert.assert(
                     false,
                     "Pattern corruption detected in allocation {} (size: {}, pattern: 0x{X})",
@@ -401,16 +401,16 @@ pub const AllocatorTortureTester = struct {
                 // Verify pattern
                 for (memory) |byte| {
                     if (byte != 0xBC) {
-                        self.stats.pattern_violations += 1;
+                        self.current_stats.pattern_violations += 1;
                         assert.assert(false, "Boundary test pattern corruption at size {}", .{size});
                     }
                 }
 
                 self.allocator.free(memory);
-                self.stats.record_allocation(size, true);
-                self.stats.record_free(true);
+                self.current_stats.record_allocation(size, true);
+                self.current_stats.record_free(true);
             } else {
-                self.stats.record_allocation(size, false);
+                self.current_stats.record_allocation(size, false);
             }
         }
     }
@@ -426,17 +426,17 @@ pub const AllocatorTortureTester = struct {
 
         // First free - should succeed
         self.allocator.free(memory);
-        self.stats.record_free(true);
+        self.current_stats.record_free(true);
 
         // Note: We cannot actually test double-free because it would cause
         // undefined behavior. In a production system, this would be caught
         // by enhanced allocator validation (DebugAllocator, etc).
-        self.stats.double_free_attempts += 1;
+        self.current_stats.double_free_attempts += 1;
     }
 
     /// Get current statistics
     pub fn stats(self: *const AllocatorTortureTester) TortureTestStats {
-        return self.stats;
+        return self.current_stats;
     }
 };
 
