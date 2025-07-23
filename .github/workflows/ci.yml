@@ -369,7 +369,7 @@ jobs:
       - name: Run memory safety integration tests
         run: |
           echo "-> Running memory safety focused integration tests..."
-          ./zig/zig build memory_isolation -Doptimize=ReleaseSafe
+          ./zig/zig build memory_stress -Doptimize=ReleaseSafe
           echo "Memory safety integration tests: PASSED"
 
       - name: Run stress test with memory monitoring
@@ -438,9 +438,9 @@ jobs:
             fi
             echo ""
             echo "## Recommendation"
-            echo "✅ Memory safety infrastructure is functioning correctly"
-            echo "✅ No critical memory errors detected"
-            echo "✅ All defensive programming measures operational"
+            echo "OK: Memory safety infrastructure is functioning correctly"
+            echo "OK: No critical memory errors detected"
+            echo "OK: All defensive programming measures operational"
           } > memory-safety-report.md
 
       - name: Upload memory safety artifacts
@@ -470,11 +470,11 @@ jobs:
             Comprehensive memory safety testing completed with enhanced debugging infrastructure:
 
             **Tests Executed:**
-            - ✅ PooledAllocator Enhanced Validation
-            - ✅ Allocator Torture Testing (100 iterations)
-            - ✅ Memory Safety Integration Tests
-            - ✅ Valgrind Memory Error Detection
-            - ✅ Buffer Pool Statistics Validation
+            - PooledAllocator Enhanced Validation
+            - Allocator Torture Testing (100 iterations)
+            - Memory Safety Integration Tests
+            - Valgrind Memory Error Detection
+            - Buffer Pool Statistics Validation
 
             **Memory Debugging Tools:**
             - Enhanced PooledAllocator with runtime validation
@@ -482,7 +482,7 @@ jobs:
             - Arena-per-subsystem memory safety model
             - Comprehensive buffer overflow/underflow detection
 
-            **Status:** 🟢 All memory safety checks passed
+            **Status:** All memory safety checks passed!
 
             <details>
             <summary>Full Memory Safety Report</summary>
