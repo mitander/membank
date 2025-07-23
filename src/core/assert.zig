@@ -19,8 +19,8 @@ pub fn assert(condition: bool, comptime format: []const u8, args: anytype) void 
         if (builtin.mode == .Debug) {
             std.debug.panic("Assertion failed: " ++ format, args);
         } else {
-            // In release builds, assertions are compiled out
-            unreachable;
+            // In release builds, still panic for safety but with different message
+            std.debug.panic("Release assertion failed: " ++ format, args);
         }
     }
 }

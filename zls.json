@@ -1,0 +1,4 @@
+{
+  "zig_exe_path": "./zig/zig",
+  "zig_lib_path": "./zig/lib"
+}

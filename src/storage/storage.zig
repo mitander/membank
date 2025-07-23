@@ -351,8 +351,24 @@ pub const WALEntry = struct {
     /// Create WAL entry for putting a Context Block.
     pub fn create_put_block(block: ContextBlock, allocator: std.mem.Allocator) !WALEntry {
         const payload_size = block.serialized_size();
+
+        // Debug the serialization issue in ReleaseSafe mode
+        if (payload_size == 0) {
+            std.debug.panic("ContextBlock serialized_size returned 0: source_uri.len={}, metadata_json.len={}, content.len={}", .{ block.source_uri.len, block.metadata_json.len, block.content.len });
+        }
+
         const payload = try allocator.alloc(u8, payload_size);
-        _ = try block.serialize(payload);
+
+        // More detailed debugging
+        if (payload.len == 0 and payload_size > 0) {
+            std.debug.panic("Allocator returned empty slice for size {}: possible allocator corruption", .{payload_size});
+        }
+
+        const bytes_written = try block.serialize(payload);
+
+        if (bytes_written != payload_size) {
+            std.debug.panic("Serialization size mismatch: expected {}, got {}", .{ payload_size, bytes_written });
+        }
 
         const checksum = calculate_checksum(.put_block, payload);
 
@@ -1643,7 +1659,10 @@ pub const StorageEngine = struct {
     fn write_wal_entry(self: *StorageEngine, entry: WALEntry) !void {
         assert(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
         if (self.wal_file == null) return StorageError.NotInitialized;
-        assert_not_empty(entry.payload, "WAL entry payload cannot be empty", .{});
+        // WAL entry payload should typically not be empty, but check the entry type first
+        if (entry.entry_type == .put_block and entry.payload.len == 0) {
+            std.debug.panic("WAL put_block entry payload cannot be empty - this indicates a serialization bug", .{});
+        }
         assert(entry.entry_type != undefined, "WAL entry type must be defined", .{});
 
         if (self.wal_file == null) return StorageError.NotInitialized;
