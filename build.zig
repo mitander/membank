@@ -334,6 +334,11 @@ pub fn build(b: *std.Build) void {
             .description = "WAL recovery tests",
         },
         .{
+            .name = "streaming_wal_recovery",
+            .source_file = "tests/recovery/streaming_wal_recovery.zig",
+            .description = "Streaming WAL recovery tests",
+        },
+        .{
             .name = "wal_segmentation",
             .source_file = "tests/recovery/wal_segmentation.zig",
             .description = "WAL segmentation tests",

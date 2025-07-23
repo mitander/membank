@@ -1883,7 +1883,8 @@ pub const StorageEngine = struct {
         return wal_file_slice;
     }
 
-    /// Recover from a single WAL file.
+    /// Recover from a single WAL file using streaming approach.
+    /// Reads and processes one WAL entry at a time to avoid loading entire file into memory.
     fn recover_from_wal_file(self: *StorageEngine, file_path: []const u8) !u32 {
         var file = self.vfs.open(file_path, .read) catch |err| switch (err) {
             error.FileNotFound => return 0,
@@ -1894,48 +1895,81 @@ pub const StorageEngine = struct {
         const file_size = try file.file_size();
         if (file_size == 0) return 0;
 
-        const file_content = self.backing_allocator.alloc(u8, file_size) catch |err| {
-            return error_context.storage_error(
-                err,
-                error_context.file_context("allocate_wal_recovery_buffer", file_path),
-            );
-        };
-        defer self.backing_allocator.free(file_content);
-
-        _ = try file.read(file_content);
-
-        var offset: usize = 0;
         var entries_recovered: u32 = 0;
+        var file_offset: u64 = 0;
 
         // Arena prevents memory leaks during entry deserialization
+        // Reset periodically to prevent unbounded growth during large recoveries
         var arena = std.heap.ArenaAllocator.init(self.backing_allocator);
         defer arena.deinit();
         const temp_allocator = arena.allocator();
 
-        while (offset < file_content.len) {
-            if (offset + WALEntry.HEADER_SIZE > file_content.len) {
+        // Buffer for reading WAL entry headers - small, fixed size
+        var header_buffer: [WALEntry.HEADER_SIZE]u8 = undefined;
+
+        while (file_offset < file_size) {
+            // Check if we have enough bytes left for a complete header
+            if (file_offset + WALEntry.HEADER_SIZE > file_size) {
+                // Incomplete header at file end - stop recovery
                 break;
             }
 
-            // WAL entries are self-describing with embedded payload size
-            const payload_size = std.mem.readInt(u32, file_content[offset + 9 ..][0..4], .little);
+            // Seek to current position and read entry header
+            _ = try file.seek(@intCast(file_offset), .start);
+            const header_bytes_read = try file.read(&header_buffer);
+            if (header_bytes_read < WALEntry.HEADER_SIZE) {
+                // EOF reached before complete header - stop recovery
+                break;
+            }
 
+            // Parse header to get payload size (offset 9 = 8 bytes checksum + 1 byte type)
+            const payload_size = std.mem.readInt(u32, header_buffer[9..][0..4], .little);
             const total_entry_size = WALEntry.HEADER_SIZE + payload_size;
-            if (offset + total_entry_size > file_content.len) {
+
+            // Validate we have enough bytes for complete entry
+            if (file_offset + total_entry_size > file_size) {
+                // Incomplete entry at file end - stop recovery
                 break;
             }
 
-            const entry_buffer = file_content[offset .. offset + total_entry_size];
+            // Allocate buffer for complete entry (header + payload)
+            const entry_buffer = temp_allocator.alloc(u8, total_entry_size) catch |err| {
+                return error_context.storage_error(
+                    err,
+                    error_context.file_context("allocate_wal_entry_buffer", file_path),
+                );
+            };
+
+            // Copy header and read payload
+            @memcpy(entry_buffer[0..WALEntry.HEADER_SIZE], &header_buffer);
+            _ = try file.seek(@intCast(file_offset + WALEntry.HEADER_SIZE), .start);
+            const payload_bytes_read = try file.read(entry_buffer[WALEntry.HEADER_SIZE..]);
+            if (payload_bytes_read < payload_size) {
+                // EOF reached before complete payload - stop recovery
+                break;
+            }
+
+            // Deserialize and apply entry
             const entry = WALEntry.deserialize(entry_buffer, temp_allocator) catch |err|
                 switch (err) {
-                    StorageError.InvalidChecksum => break,
+                    StorageError.InvalidChecksum => {
+                        // Corruption detected - stop recovery at this point
+                        log.warn("WAL entry checksum mismatch at offset {d} in {s}, stopping recovery", .{ file_offset, file_path });
+                        break;
+                    },
                     else => return err,
                 };
 
             try self.apply_wal_entry(entry);
 
-            offset += total_entry_size;
+            file_offset += total_entry_size;
             entries_recovered += 1;
+
+            // Periodic arena reset to prevent memory growth during large recovery
+            // Reset every 1000 entries to balance memory usage vs allocation overhead
+            if (entries_recovered % 1000 == 0) {
+                _ = arena.reset(.retain_capacity);
+            }
         }
 
         return entries_recovered;
