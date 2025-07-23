@@ -1135,7 +1135,6 @@ pub const StorageEngine = struct {
         defer self.backing_allocator.free(lock_content);
 
         _ = try lock_file.write(lock_content);
-        try lock_file.close();
 
         // Discover and register existing SSTables with compaction manager
         try self.discover_existing_sstables();
