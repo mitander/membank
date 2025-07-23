@@ -1,11 +1,12 @@
 //! CortexDB TCP Server Implementation
 //!
 //! Provides a simple, high-performance TCP server for client-server communication.
+//! Orchestrates the async I/O event loop and manages multiple client connections.
 //! Follows CortexDB architectural principles:
-//! - Single-threaded with async I/O
+//! - Single-threaded with async I/O event loop
+//! - Connection state machines for non-blocking I/O
 //! - Arena-per-connection memory management
 //! - Explicit allocator parameters
-//! - Simple binary protocol
 //! - Deterministic testing support via abstracted networking
 
 const std = @import("std");
@@ -18,6 +19,13 @@ const context_block = @import("context_block");
 const custom_assert = @import("assert");
 const comptime_assert = custom_assert.comptime_assert;
 const comptime_no_padding = custom_assert.comptime_no_padding;
+
+// Import connection state machine module
+const conn = @import("connection.zig");
+pub const ClientConnection = conn.ClientConnection;
+pub const MessageType = conn.MessageType;
+pub const MessageHeader = conn.MessageHeader;
+pub const ConnectionState = conn.ConnectionState;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
@@ -38,6 +46,15 @@ pub const ServerConfig = struct {
     max_response_size: u32 = 16 * 1024 * 1024, // 16MB
     /// Enable request/response logging
     enable_logging: bool = false,
+
+    /// Convert to connection-level configuration
+    pub fn to_connection_config(self: ServerConfig) conn.ServerConfig {
+        return conn.ServerConfig{
+            .max_request_size = self.max_request_size,
+            .max_response_size = self.max_response_size,
+            .enable_logging = self.enable_logging,
+        };
+    }
 };
 
 /// Server error types
@@ -59,160 +76,6 @@ pub const ServerError = error{
     /// End of stream
     EndOfStream,
 } || std.mem.Allocator.Error || std.net.Stream.ReadError || std.net.Stream.WriteError;
-
-/// Binary protocol message types
-pub const MessageType = enum(u8) {
-    // Client requests
-    ping = 0x01,
-    get_blocks = 0x02,
-    filtered_query = 0x03,
-    traversal_query = 0x04,
-
-    // Server responses
-    pong = 0x81,
-    blocks_response = 0x82,
-    filtered_response = 0x83,
-    traversal_response = 0x84,
-    error_response = 0xFF,
-
-    pub fn from_u8(value: u8) !MessageType {
-        return std.meta.intToEnum(MessageType, value) catch ServerError.InvalidRequest;
-    }
-};
-
-/// Binary protocol header (8 bytes, aligned)
-pub const MessageHeader = packed struct {
-    /// Message type
-    msg_type: MessageType,
-    /// Protocol version (currently 1)
-    version: u8 = 1,
-    /// Reserved for future use
-    reserved: u16 = 0,
-    /// Payload length in bytes
-    payload_length: u32,
-
-    const HEADER_SIZE = 8;
-
-    pub fn encode(self: MessageHeader, buffer: []u8) void {
-        assert(buffer.len >= HEADER_SIZE);
-        buffer[0] = @intFromEnum(self.msg_type);
-        buffer[1] = self.version;
-        std.mem.writeInt(u16, buffer[2..4], self.reserved, .little);
-        std.mem.writeInt(u32, buffer[4..8], self.payload_length, .little);
-    }
-
-    pub fn decode(buffer: []const u8) !MessageHeader {
-        if (buffer.len < HEADER_SIZE) return ServerError.InvalidRequest;
-
-        return MessageHeader{
-            .msg_type = try MessageType.from_u8(buffer[0]),
-            .version = buffer[1],
-            .reserved = std.mem.readInt(u16, buffer[2..4], .little),
-            .payload_length = std.mem.readInt(u32, buffer[4..8], .little),
-        };
-    }
-};
-
-// Compile-time guarantees for network protocol stability
-comptime {
-    comptime_assert(@sizeOf(MessageHeader) == 8, "MessageHeader must be exactly 8 bytes for network protocol compatibility");
-    comptime_assert(MessageHeader.HEADER_SIZE == @sizeOf(MessageHeader), "MessageHeader.HEADER_SIZE constant must match actual struct size");
-    comptime_no_padding(MessageHeader);
-    comptime_assert(@sizeOf(MessageType) == 1, "MessageType must be 1 byte");
-    comptime_assert(@sizeOf(u8) == 1, "version field must be 1 byte");
-    comptime_assert(@sizeOf(u16) == 2, "reserved field must be 2 bytes");
-    comptime_assert(@sizeOf(u32) == 4, "payload_length field must be 4 bytes");
-}
-
-/// Client connection state
-pub const ClientConnection = struct {
-    /// TCP stream for this connection
-    stream: std.net.Stream,
-    /// Arena allocator for this connection's memory
-    arena: std.heap.ArenaAllocator,
-    /// Connection ID for logging
-    connection_id: u32,
-    /// When this connection was established
-    established_time: i64,
-    /// Buffer for reading requests
-    read_buffer: [4096]u8,
-    /// Buffer for writing responses
-    write_buffer: [4096]u8,
-
-    pub fn init(allocator: std.mem.Allocator, stream: std.net.Stream, connection_id: u32) ClientConnection {
-        return ClientConnection{
-            .stream = stream,
-            .arena = std.heap.ArenaAllocator.init(allocator),
-            .connection_id = connection_id,
-            .established_time = std.time.timestamp(),
-            .read_buffer = std.mem.zeroes([4096]u8),
-            .write_buffer = std.mem.zeroes([4096]u8),
-        };
-    }
-
-    pub fn deinit(self: *ClientConnection) void {
-        self.stream.close();
-        self.arena.deinit();
-    }
-
-    /// Read a complete message from the client
-    pub fn read_message(self: *ClientConnection, config: ServerConfig) ![]u8 {
-        const allocator = self.arena.allocator();
-
-        // Read message header first
-        var header_bytes: [MessageHeader.HEADER_SIZE]u8 = undefined;
-        var bytes_read: usize = 0;
-        while (bytes_read < header_bytes.len) {
-            const n = try self.stream.read(header_bytes[bytes_read..]);
-            if (n == 0) return ServerError.ClientDisconnected;
-            bytes_read += n;
-        }
-
-        const header = try MessageHeader.decode(&header_bytes);
-
-        // Validate payload size
-        if (header.payload_length > config.max_request_size) {
-            return ServerError.RequestTooLarge;
-        }
-
-        // Read payload if present
-        if (header.payload_length == 0) {
-            return &[_]u8{}; // Empty payload
-        }
-
-        const payload = try allocator.alloc(u8, header.payload_length);
-        bytes_read = 0;
-        while (bytes_read < payload.len) {
-            const n = try self.stream.read(payload[bytes_read..]);
-            if (n == 0) return ServerError.ClientDisconnected;
-            bytes_read += n;
-        }
-
-        return payload;
-    }
-
-    /// Write a message to the client
-    pub fn write_message(self: *ClientConnection, msg_type: MessageType, payload: []const u8, config: ServerConfig) !void {
-        if (payload.len > config.max_response_size) {
-            return ServerError.ResponseTooLarge;
-        }
-
-        const header = MessageHeader{
-            .msg_type = msg_type,
-            .payload_length = @intCast(payload.len),
-        };
-
-        // Write header
-        var header_bytes: [MessageHeader.HEADER_SIZE]u8 = undefined;
-        header.encode(&header_bytes);
-        _ = try self.stream.writeAll(&header_bytes);
-
-        // Write payload if present
-        if (payload.len > 0) {
-            _ = try self.stream.writeAll(payload);
-        }
-    }
-};
 
 /// Main TCP server
 pub const CortexServer = struct {
@@ -287,17 +150,228 @@ pub const CortexServer = struct {
         const address = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, self.config.port);
         self.listener = try address.listen(.{ .reuse_address = true });
 
+        // Set listener socket to non-blocking mode for async I/O
+        const flags = try std.posix.fcntl(self.listener.?.stream.handle, std.posix.F.GETFL, 0);
+        const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
+        _ = try std.posix.fcntl(self.listener.?.stream.handle, std.posix.F.SETFL, flags | nonblock_flag);
+
         log.info("CortexDB server started on port {d}", .{self.config.port});
         log.info("Server config: max_connections={d}, timeout={d}s", .{ self.config.max_connections, self.config.connection_timeout_sec });
 
-        // Main server loop
+        // Main async event loop
+        try self.run_event_loop();
+    }
+
+    /// Main async event loop - polls all sockets and processes I/O events
+    fn run_event_loop(self: *CortexServer) !void {
+        // Allocate poll file descriptors array
+        var poll_fds = try self.allocator.alloc(std.posix.pollfd, self.config.max_connections + 1);
+        defer self.allocator.free(poll_fds);
+
         while (true) {
-            const connection = self.listener.?.accept() catch |err| switch (err) {
-                error.ConnectionAborted => continue,
+            // Setup poll array - first entry is listener socket
+            poll_fds[0] = std.posix.pollfd{
+                .fd = self.listener.?.stream.handle,
+                .events = std.posix.POLL.IN,
+                .revents = 0,
+            };
+
+            var poll_count: usize = 1;
+
+            // Add all active client connections to poll array
+            for (self.connections.items) |connection| {
+                if (poll_count >= poll_fds.len) break; // Safety check
+
+                var events: i16 = 0;
+
+                // Determine what events we're interested in based on connection state
+                switch (connection.state) {
+                    .reading_header, .reading_payload => events |= std.posix.POLL.IN,
+                    .writing_response => events |= std.posix.POLL.OUT,
+                    .processing => {}, // No I/O events needed
+                    .closing, .closed => continue, // Skip closed connections
+                }
+
+                if (events != 0) {
+                    poll_fds[poll_count] = std.posix.pollfd{
+                        .fd = connection.stream.handle,
+                        .events = events,
+                        .revents = 0,
+                    };
+                    poll_count += 1;
+                }
+            }
+
+            // Poll for I/O events (1 second timeout)
+            const ready_count = std.posix.poll(poll_fds[0..poll_count], 1000) catch |err| switch (err) {
+                error.Unexpected => continue, // Interrupted by signal, retry
                 else => return err,
             };
 
-            try self.handle_new_connection(connection);
+            if (ready_count == 0) {
+                // Timeout - perform maintenance tasks
+                try self.cleanup_timed_out_connections();
+                continue;
+            }
+
+            // Process events
+            try self.process_poll_events(poll_fds[0..poll_count]);
+        }
+    }
+
+    /// Process events from poll() results
+    fn process_poll_events(self: *CortexServer, poll_fds: []std.posix.pollfd) !void {
+        // Check listener socket for new connections
+        if (poll_fds[0].revents & std.posix.POLL.IN != 0) {
+            try self.accept_new_connections();
+        }
+
+        // Process client connection events
+        var i: usize = 1;
+        var conn_index: usize = 0;
+
+        while (i < poll_fds.len and conn_index < self.connections.items.len) {
+            const poll_fd = poll_fds[i];
+            const connection = self.connections.items[conn_index];
+
+            // Skip if this poll_fd doesn't match this connection
+            if (poll_fd.fd != connection.stream.handle) {
+                conn_index += 1;
+                continue;
+            }
+
+            // Check for error conditions
+            if (poll_fd.revents & (std.posix.POLL.ERR | std.posix.POLL.HUP | std.posix.POLL.NVAL) != 0) {
+                log.info("Connection {d}: socket error, closing", .{connection.connection_id});
+                self.close_connection(conn_index);
+                i += 1;
+                continue;
+            }
+
+            // Process I/O for this connection
+            const keep_alive = connection.process_io(self.config.to_connection_config()) catch |err| {
+                log.err("Connection {d}: I/O error: {any}", .{ connection.connection_id, err });
+                false;
+            };
+
+            if (!keep_alive) {
+                self.close_connection(conn_index);
+            } else {
+                // Check if connection has a complete request to process
+                if (connection.has_complete_request()) {
+                    try self.process_connection_request(connection);
+                }
+                conn_index += 1;
+            }
+
+            i += 1;
+        }
+    }
+
+    /// Accept new connections non-blockingly
+    fn accept_new_connections(self: *CortexServer) !void {
+        while (true) {
+            const tcp_connection = self.listener.?.accept() catch |err| switch (err) {
+                error.WouldBlock => break, // No more connections to accept
+                error.ConnectionAborted => continue, // Client canceled, try next
+                else => return err,
+            };
+
+            // Check connection limit
+            if (self.connections.items.len >= self.config.max_connections) {
+                tcp_connection.stream.close();
+                self.stats.errors_encountered += 1;
+                log.warn("Connection rejected: max connections ({d}) exceeded", .{self.config.max_connections});
+                continue;
+            }
+
+            // Create client connection and set to non-blocking
+            const connection = try self.allocator.create(ClientConnection);
+            connection.* = ClientConnection.init(self.allocator, tcp_connection.stream, self.next_connection_id);
+            const conn_flags = try std.posix.fcntl(connection.stream.handle, std.posix.F.GETFL, 0);
+            const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
+            _ = try std.posix.fcntl(connection.stream.handle, std.posix.F.SETFL, conn_flags | nonblock_flag);
+            self.next_connection_id += 1;
+
+            try self.connections.append(connection);
+            self.stats.connections_accepted += 1;
+            self.stats.connections_active += 1;
+
+            log.info("New connection {d} from {any}", .{ connection.connection_id, tcp_connection.address });
+        }
+    }
+
+    /// Process a complete request from a connection
+    fn process_connection_request(self: *CortexServer, connection: *ClientConnection) !void {
+        const payload = connection.request_payload() orelse return;
+        const header = connection.current_header orelse return;
+
+        // Process the request based on message type
+        switch (header.msg_type) {
+            .ping => {
+                const response = "CortexDB server v0.1.0";
+                connection.send_response(response);
+                self.stats.bytes_sent += response.len + MessageHeader.HEADER_SIZE;
+
+                if (self.config.enable_logging) {
+                    log.debug("Connection {d}: handled ping request", .{connection.connection_id});
+                }
+            },
+
+            .get_blocks => {
+                try self.handle_get_blocks_request_async(connection, payload);
+            },
+
+            .filtered_query => {
+                try self.handle_filtered_query_request_async(connection, payload);
+            },
+
+            .traversal_query => {
+                try self.handle_traversal_query_request_async(connection, payload);
+            },
+
+            // Server response types should not be sent by clients
+            .pong, .blocks_response, .filtered_response, .traversal_response, .error_response => {
+                const error_msg = "Invalid request: client sent server response type";
+                connection.send_response(error_msg);
+                self.stats.errors_encountered += 1;
+            },
+        }
+
+        self.stats.requests_processed += 1;
+        self.stats.bytes_received += payload.len + MessageHeader.HEADER_SIZE;
+    }
+
+    /// Close a connection and remove it from the connections list
+    fn close_connection(self: *CortexServer, index: usize) void {
+        assert(index < self.connections.items.len);
+
+        const connection = self.connections.items[index];
+        log.info("Connection {d} closed", .{connection.connection_id});
+
+        connection.deinit();
+        self.allocator.destroy(connection);
+        _ = self.connections.swapRemove(index);
+        self.stats.connections_active -= 1;
+    }
+
+    /// Clean up connections that have timed out
+    fn cleanup_timed_out_connections(self: *CortexServer) !void {
+        const current_time = std.time.timestamp();
+        const timeout_seconds: i64 = @intCast(self.config.connection_timeout_sec);
+
+        var i: usize = 0;
+        while (i < self.connections.items.len) {
+            const connection = self.connections.items[i];
+            const connection_age = current_time - connection.established_time;
+
+            if (connection_age > timeout_seconds) {
+                log.info("Connection {d}: timeout after {d}s", .{ connection.connection_id, connection_age });
+                self.close_connection(i);
+                // Don't increment i since we removed an element
+            } else {
+                i += 1;
+            }
         }
     }
 
@@ -310,158 +384,54 @@ pub const CortexServer = struct {
         log.info("CortexDB server stopped", .{});
     }
 
-    /// Handle a new client connection
-    fn handle_new_connection(self: *CortexServer, tcp_connection: std.net.Server.Connection) !void {
-        // Check connection limit
-        if (self.connections.items.len >= self.config.max_connections) {
-            tcp_connection.stream.close();
-            self.stats.errors_encountered += 1;
-            log.warn("Connection rejected: max connections ({d}) exceeded", .{self.config.max_connections});
-            return;
-        }
-
-        // Create client connection
-        const connection = try self.allocator.create(ClientConnection);
-        connection.* = ClientConnection.init(self.allocator, tcp_connection.stream, self.next_connection_id);
-        self.next_connection_id += 1;
-
-        try self.connections.append(connection);
-        self.stats.connections_accepted += 1;
-        self.stats.connections_active += 1;
-
-        log.info("New connection {d} from {any}", .{ connection.connection_id, tcp_connection.address });
-
-        // Handle connection in place (single-threaded)
-        self.handle_connection(connection) catch |err| {
-            log.err("Connection {d} error: {any}", .{ connection.connection_id, err });
-            self.stats.errors_encountered += 1;
-        };
-
-        // Clean up connection
-        self.cleanup_connection(connection);
-    }
-
-    /// Handle requests from a client connection
-    fn handle_connection(self: *CortexServer, connection: *ClientConnection) !void {
-        defer log.info("Connection {d} closed", .{connection.connection_id});
-
-        while (true) {
-            // Read request message
-            const payload = connection.read_message(self.config) catch |err| switch (err) {
-                error.EndOfStream => break, // Client disconnected
-                error.ConnectionResetByPeer => break,
-                else => return err,
-            };
-            defer connection.arena.allocator().free(payload);
-
-            self.stats.requests_processed += 1;
-            self.stats.bytes_received += payload.len + MessageHeader.HEADER_SIZE;
-
-            if (self.config.enable_logging) {
-                log.debug("Connection {d}: received {d} bytes", .{ connection.connection_id, payload.len });
-            }
-
-            // Process the request (implementation continues below)
-            try self.process_request(connection, payload);
-        }
-    }
-
-    /// Process a client request and send response
-    fn process_request(self: *CortexServer, connection: *ClientConnection, payload: []const u8) !void {
+    /// Handle get_blocks request asynchronously
+    fn handle_get_blocks_request_async(self: *CortexServer, connection: *ClientConnection, payload: []const u8) !void {
         const allocator = connection.arena.allocator();
 
-        // Read the message header from the beginning of the payload
-        if (payload.len < MessageHeader.HEADER_SIZE) {
-            try self.send_error_response(connection, "Invalid request: header too small");
-            return;
-        }
-
-        const header = MessageHeader.decode(payload[0..MessageHeader.HEADER_SIZE]) catch {
-            try self.send_error_response(connection, "Invalid request: malformed header");
-            return;
-        };
-
-        const request_payload = if (header.payload_length > 0) payload[MessageHeader.HEADER_SIZE..] else &[_]u8{};
-
-        switch (header.msg_type) {
-            .ping => {
-                try connection.write_message(.pong, "CortexDB server v0.1.0", self.config);
-                self.stats.bytes_sent += "CortexDB server v0.1.0".len + MessageHeader.HEADER_SIZE;
-
-                if (self.config.enable_logging) {
-                    log.debug("Connection {d}: handled ping request", .{connection.connection_id});
-                }
-            },
-
-            .get_blocks => {
-                try self.handle_get_blocks_request(connection, allocator, request_payload);
-            },
-
-            .filtered_query => {
-                try self.handle_filtered_query_request(connection, allocator, request_payload);
-            },
-
-            .traversal_query => {
-                try self.handle_traversal_query_request(connection, allocator, request_payload);
-            },
-
-            // Server response types should not be sent by clients
-            .pong, .blocks_response, .filtered_response, .traversal_response, .error_response => {
-                try self.send_error_response(connection, "Invalid request: client sent server response type");
-            },
-        }
-    }
-
-    /// Send an error response to the client
-    fn send_error_response(self: *CortexServer, connection: *ClientConnection, error_msg: []const u8) !void {
-        try connection.write_message(.error_response, error_msg, self.config);
-        self.stats.bytes_sent += error_msg.len + MessageHeader.HEADER_SIZE;
-        self.stats.errors_encountered += 1;
-
-        if (self.config.enable_logging) {
-            log.warn("Connection {d}: sent error response: {s}", .{ connection.connection_id, error_msg });
-        }
-    }
-
-    /// Handle get_blocks request - retrieve specific blocks by ID
-    fn handle_get_blocks_request(self: *CortexServer, connection: *ClientConnection, allocator: std.mem.Allocator, payload: []const u8) !void {
         // Parse block IDs from payload (simple format: count + list of 16-byte block IDs)
         if (payload.len < 4) {
-            try self.send_error_response(connection, "Invalid get_blocks request: missing block count");
+            const error_msg = "Invalid get_blocks request: missing block count";
+            connection.send_response(error_msg);
+            self.stats.errors_encountered += 1;
             return;
         }
 
         const block_count = std.mem.readInt(u32, payload[0..4], .little);
         if (block_count == 0) {
-            try self.send_error_response(connection, "Invalid get_blocks request: zero blocks requested");
+            const error_msg = "Invalid get_blocks request: zero blocks requested";
+            connection.send_response(error_msg);
+            self.stats.errors_encountered += 1;
             return;
         }
 
         if (payload.len < 4 + (block_count * 16)) {
-            try self.send_error_response(connection, "Invalid get_blocks request: insufficient payload for block IDs");
+            const error_msg = "Invalid get_blocks request: insufficient payload for block IDs";
+            connection.send_response(error_msg);
+            self.stats.errors_encountered += 1;
             return;
         }
 
         // Extract block IDs
-        var block_ids = try allocator.alloc(BlockId, block_count);
+        var block_ids = try allocator.alloc(context_block.BlockId, block_count);
         for (0..block_count) |i| {
             const id_start = 4 + (i * 16);
             const id_bytes = payload[id_start .. id_start + 16];
-            block_ids[i] = BlockId{ .bytes = id_bytes[0..16].* };
+            block_ids[i] = context_block.BlockId{ .bytes = id_bytes[0..16].* };
         }
 
         // Build query and execute
         const query = query_engine.GetBlocksQuery{ .block_ids = block_ids };
         const result = self.query_engine.execute_get_blocks(query) catch |err| {
             const error_msg = try std.fmt.allocPrint(allocator, "Query execution failed: {any}", .{err});
-            try self.send_error_response(connection, error_msg);
+            connection.send_response(error_msg);
+            self.stats.errors_encountered += 1;
             return;
         };
         defer result.deinit();
 
         // Serialize response
         const response_data = try self.serialize_blocks_response(allocator, result);
-        try connection.write_message(.blocks_response, response_data, self.config);
+        connection.send_response(response_data);
         self.stats.bytes_sent += response_data.len + MessageHeader.HEADER_SIZE;
 
         if (self.config.enable_logging) {
@@ -469,14 +439,15 @@ pub const CortexServer = struct {
         }
     }
 
-    /// Handle filtered query request - retrieve blocks matching metadata criteria
-    fn handle_filtered_query_request(self: *CortexServer, connection: *ClientConnection, allocator: std.mem.Allocator, payload: []const u8) !void {
+    /// Handle filtered query request asynchronously
+    fn handle_filtered_query_request_async(self: *CortexServer, connection: *ClientConnection, payload: []const u8) !void {
         _ = payload;
+        const allocator = connection.arena.allocator();
 
         const empty_blocks: []const ContextBlock = &[_]ContextBlock{};
         const common_result = query_engine.QueryResult.init(allocator, empty_blocks);
         const response_data = try self.serialize_blocks_response(allocator, common_result);
-        try connection.write_message(.filtered_response, response_data, self.config);
+        connection.send_response(response_data);
         self.stats.bytes_sent += response_data.len + MessageHeader.HEADER_SIZE;
 
         if (self.config.enable_logging) {
@@ -484,36 +455,43 @@ pub const CortexServer = struct {
         }
     }
 
-    /// Handle traversal query request - perform graph traversal from starting blocks
-    fn handle_traversal_query_request(self: *CortexServer, connection: *ClientConnection, allocator: std.mem.Allocator, payload: []const u8) !void {
+    /// Handle traversal query request asynchronously
+    fn handle_traversal_query_request_async(self: *CortexServer, connection: *ClientConnection, payload: []const u8) !void {
+        const allocator = connection.arena.allocator();
+
         // Parse traversal parameters from payload
         if (payload.len < 20) { // minimum: 4 bytes count + 16 bytes start ID
-            try self.send_error_response(connection, "Invalid traversal request: insufficient payload");
+            const error_msg = "Invalid traversal request: insufficient payload";
+            connection.send_response(error_msg);
+            self.stats.errors_encountered += 1;
             return;
         }
 
         const start_count = std.mem.readInt(u32, payload[0..4], .little);
         if (start_count == 0) {
-            try self.send_error_response(connection, "Invalid traversal request: no starting blocks");
+            const error_msg = "Invalid traversal request: no starting blocks";
+            connection.send_response(error_msg);
+            self.stats.errors_encountered += 1;
             return;
         }
 
         const start_id_bytes = payload[4..20];
-        const start_id = BlockId{ .bytes = start_id_bytes[0..16].* };
+        const start_id = context_block.BlockId{ .bytes = start_id_bytes[0..16].* };
 
         var result_blocks = std.ArrayList(ContextBlock).init(allocator);
         defer result_blocks.deinit();
 
         const start_block = self.storage_engine.find_block_by_id(start_id) catch |err| {
             const error_msg = try std.fmt.allocPrint(allocator, "Starting block not found: {any}", .{err});
-            try self.send_error_response(connection, error_msg);
+            connection.send_response(error_msg);
+            self.stats.errors_encountered += 1;
             return;
         };
 
         try result_blocks.append(start_block.*);
         const common_result = query_engine.QueryResult.init(allocator, result_blocks.items);
         const response_data = try self.serialize_blocks_response(allocator, common_result);
-        try connection.write_message(.traversal_response, response_data, self.config);
+        connection.send_response(response_data);
         self.stats.bytes_sent += response_data.len + MessageHeader.HEADER_SIZE;
 
         if (self.config.enable_logging) {
@@ -572,21 +550,6 @@ pub const CortexServer = struct {
 
         assert(offset == total_size);
         return buffer;
-    }
-
-    /// Remove a connection from the active list
-    fn cleanup_connection(self: *CortexServer, connection: *ClientConnection) void {
-        // Find and remove connection from list
-        for (self.connections.items, 0..) |conn, i| {
-            if (conn == connection) {
-                _ = self.connections.swapRemove(i);
-                break;
-            }
-        }
-
-        connection.deinit();
-        self.allocator.destroy(connection);
-        self.stats.connections_active -= 1;
     }
 
     /// Get current server statistics
