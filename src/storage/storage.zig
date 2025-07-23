@@ -1198,6 +1198,11 @@ pub const StorageEngine = struct {
         assert(wal_entry.entry_type == .put_block, "WAL entry type mismatch: expected put_block, got {}", .{wal_entry.entry_type});
         assert(wal_entry.entry_type == .put_block, "WAL entry type mismatch: expected put_block, got {}", .{wal_entry.entry_type});
 
+        // Debug: Check payload before writing
+        if (wal_entry.payload.len == 0) {
+            std.debug.panic("WAL payload became empty after creation but before writing", .{});
+        }
+
         // Write to WAL for durability
         self.write_wal_entry(wal_entry) catch |err| {
             _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
@@ -1663,7 +1668,10 @@ pub const StorageEngine = struct {
         if (entry.entry_type == .put_block and entry.payload.len == 0) {
             std.debug.panic("WAL put_block entry payload cannot be empty - this indicates a serialization bug", .{});
         }
-        assert(entry.entry_type != undefined, "WAL entry type must be defined", .{});
+        // Validate that entry_type is a valid WAL entry type
+        switch (entry.entry_type) {
+            .put_block, .delete_block, .put_edge => {},
+        }
 
         if (self.wal_file == null) return StorageError.NotInitialized;
 
