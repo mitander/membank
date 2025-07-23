@@ -1,8 +1,16 @@
+# Build outputs
 .zig-cache/
 zig-out/
 zig/
 *.o
+
+# Development artifacts
 CLAUDE.md
 CORTEX_TODO.md
 performance-baseline.json
 fuzz_reports/
+
+# Data directories (runtime generated)
+cortexdb_data/
+demo_data/
+test_data/
