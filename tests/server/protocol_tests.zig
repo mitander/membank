@@ -25,6 +25,7 @@ const ServerConfig = server_handler.ServerConfig;
 const MessageHeader = server_handler.MessageHeader;
 const MessageType = server_handler.MessageType;
 const ClientConnection = server_handler.ClientConnection;
+const ConnectionState = server_handler.ConnectionState;
 
 // Helper to create test storage engine
 fn create_test_storage(allocator: std.mem.Allocator, vfs_interface: vfs.VFS) !StorageEngine {
@@ -327,4 +328,323 @@ test "server - engine references" {
     // Verify configuration is properly copied
     try testing.expectEqual(config.port, server.config.port);
     try testing.expectEqual(config.max_connections, server.config.max_connections);
+}
+
+// Integration tests for async connection state machine
+test "connection state machine - header reading with partial I/O" {
+    concurrency.init();
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Create a mock pipe pair to simulate async I/O
+    const pipe_result = try std.posix.pipe();
+    const read_fd = pipe_result[0];
+    const write_fd = pipe_result[1];
+    defer std.posix.close(read_fd);
+    defer std.posix.close(write_fd);
+
+    // Set both ends to non-blocking
+    const read_flags = try std.posix.fcntl(read_fd, std.posix.F.GETFL, 0);
+    const write_flags = try std.posix.fcntl(write_fd, std.posix.F.GETFL, 0);
+    const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
+    _ = try std.posix.fcntl(read_fd, std.posix.F.SETFL, read_flags | nonblock_flag);
+    _ = try std.posix.fcntl(write_fd, std.posix.F.SETFL, write_flags | nonblock_flag);
+
+    const mock_stream = std.net.Stream{ .handle = read_fd };
+    var connection = ClientConnection.init(allocator, mock_stream, 1);
+    defer connection.arena.deinit(); // Only deinit the arena, not the stream
+
+    const server_config = server_handler.ServerConfig{};
+    const config = server_config.to_connection_config();
+
+    // Test partial header reads
+    try testing.expectEqual(ConnectionState.reading_header, connection.state);
+
+    // Write partial header (4 bytes out of 8)
+    const partial_header = [_]u8{ 0x01, 0x01, 0x00, 0x00 }; // ping, version 1, reserved 0
+    _ = try std.posix.write(write_fd, &partial_header);
+
+    // Process I/O - should remain in reading_header state
+    const keep_alive1 = try connection.process_io(config);
+    try testing.expect(keep_alive1);
+    try testing.expectEqual(ConnectionState.reading_header, connection.state);
+    try testing.expectEqual(@as(usize, 4), connection.header_bytes_read);
+    try testing.expect(connection.current_header == null);
+
+    // Write remaining header bytes
+    const remaining_header = [_]u8{ 0x00, 0x00, 0x00, 0x00 }; // payload_length = 0
+    _ = try std.posix.write(write_fd, &remaining_header);
+
+    // Process I/O - should transition to processing state
+    const keep_alive2 = try connection.process_io(config);
+    try testing.expect(keep_alive2);
+    try testing.expectEqual(ConnectionState.processing, connection.state);
+    try testing.expect(connection.current_header != null);
+    try testing.expectEqual(MessageType.ping, connection.current_header.?.msg_type);
+    try testing.expectEqual(@as(u32, 0), connection.current_header.?.payload_length);
+}
+
+test "connection state machine - payload reading with flow control" {
+    concurrency.init();
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Create a mock pipe pair
+    const pipe_result = try std.posix.pipe();
+    const read_fd = pipe_result[0];
+    const write_fd = pipe_result[1];
+    defer std.posix.close(read_fd);
+    defer std.posix.close(write_fd);
+
+    // Set both ends to non-blocking
+    const read_flags = try std.posix.fcntl(read_fd, std.posix.F.GETFL, 0);
+    const write_flags = try std.posix.fcntl(write_fd, std.posix.F.GETFL, 0);
+    const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
+    _ = try std.posix.fcntl(read_fd, std.posix.F.SETFL, read_flags | nonblock_flag);
+    _ = try std.posix.fcntl(write_fd, std.posix.F.SETFL, write_flags | nonblock_flag);
+
+    const mock_stream = std.net.Stream{ .handle = read_fd };
+    var connection = ClientConnection.init(allocator, mock_stream, 2);
+    defer connection.arena.deinit(); // Only deinit the arena, not the stream
+
+    const server_config = server_handler.ServerConfig{};
+    const config = server_config.to_connection_config();
+
+    // Write complete header for get_blocks with 20-byte payload
+    const header = MessageHeader{
+        .msg_type = MessageType.get_blocks,
+        .version = 1,
+        .reserved = 0,
+        .payload_length = 20,
+    };
+    var header_bytes: [MessageHeader.HEADER_SIZE]u8 = undefined;
+    header.encode(&header_bytes);
+    _ = try std.posix.write(write_fd, &header_bytes);
+
+    // Process header
+    const keep_alive1 = try connection.process_io(config);
+    try testing.expect(keep_alive1);
+    try testing.expectEqual(ConnectionState.reading_payload, connection.state);
+    try testing.expect(connection.current_payload != null);
+    try testing.expectEqual(@as(usize, 20), connection.current_payload.?.len);
+
+    // Write partial payload (12 bytes out of 20)
+    const partial_payload = [_]u8{ 0x01, 0x00, 0x00, 0x00 } ++ // block count = 1
+        [_]u8{ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77 }; // partial block ID
+    _ = try std.posix.write(write_fd, &partial_payload);
+
+    // Process partial payload
+    const keep_alive2 = try connection.process_io(config);
+    try testing.expect(keep_alive2);
+    try testing.expectEqual(ConnectionState.reading_payload, connection.state);
+    try testing.expectEqual(@as(usize, 12), connection.payload_bytes_read);
+
+    // Write remaining payload
+    const remaining_payload = [_]u8{ 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF };
+    _ = try std.posix.write(write_fd, &remaining_payload);
+
+    // Process complete payload
+    const keep_alive3 = try connection.process_io(config);
+    try testing.expect(keep_alive3);
+    try testing.expectEqual(ConnectionState.processing, connection.state);
+    try testing.expectEqual(@as(usize, 20), connection.payload_bytes_read);
+    try testing.expect(connection.has_complete_request());
+
+    const payload = connection.request_payload().?;
+    try testing.expectEqual(@as(usize, 20), payload.len);
+    try testing.expectEqual(@as(u32, 1), std.mem.readInt(u32, payload[0..4], .little));
+}
+
+test "connection state machine - response state transitions" {
+    concurrency.init();
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Create a mock pipe pair for successful write operations
+    const pipe_result = try std.posix.pipe();
+    const read_fd = pipe_result[0];
+    const write_fd = pipe_result[1];
+    defer std.posix.close(read_fd);
+    defer std.posix.close(write_fd);
+
+    // Set write end to non-blocking
+    const write_flags = try std.posix.fcntl(write_fd, std.posix.F.GETFL, 0);
+    const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
+    _ = try std.posix.fcntl(write_fd, std.posix.F.SETFL, write_flags | nonblock_flag);
+
+    const mock_stream = std.net.Stream{ .handle = write_fd };
+    var connection = ClientConnection.init(allocator, mock_stream, 3);
+    defer connection.arena.deinit(); // Only deinit the arena, not the stream
+
+    // Simulate connection in processing state with a response ready
+    connection.state = .processing;
+    connection.current_header = MessageHeader{
+        .msg_type = MessageType.ping,
+        .version = 1,
+        .reserved = 0,
+        .payload_length = 0,
+    };
+
+    // Send response - should transition to writing_response state
+    const response_data = "CortexDB server v0.1.0";
+    connection.send_response(response_data);
+    try testing.expectEqual(ConnectionState.writing_response, connection.state);
+    try testing.expect(connection.current_response != null);
+    try testing.expectEqual(@as(usize, 0), connection.response_bytes_written);
+
+    // Verify the response data is set correctly
+    try testing.expectEqual(response_data.len, connection.current_response.?.len);
+    try testing.expectEqualSlices(u8, response_data, connection.current_response.?);
+}
+
+test "connection state machine - request size limits" {
+    concurrency.init();
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Create a mock pipe pair
+    const pipe_result = try std.posix.pipe();
+    const read_fd = pipe_result[0];
+    const write_fd = pipe_result[1];
+    defer std.posix.close(read_fd);
+    defer std.posix.close(write_fd);
+
+    // Set both ends to non-blocking
+    const read_flags = try std.posix.fcntl(read_fd, std.posix.F.GETFL, 0);
+    const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
+    _ = try std.posix.fcntl(read_fd, std.posix.F.SETFL, read_flags | nonblock_flag);
+
+    const mock_stream = std.net.Stream{ .handle = read_fd };
+    var connection = ClientConnection.init(allocator, mock_stream, 4);
+    defer connection.arena.deinit(); // Only deinit the arena, not the stream
+
+    // Use a restrictive config with small max request size
+    const server_config = server_handler.ServerConfig{
+        .max_request_size = 100, // Very small limit
+    };
+    const config = server_config.to_connection_config();
+
+    // Write header with oversized payload
+    const header = MessageHeader{
+        .msg_type = MessageType.get_blocks,
+        .version = 1,
+        .reserved = 0,
+        .payload_length = 1000, // Exceeds limit
+    };
+    var header_bytes: [MessageHeader.HEADER_SIZE]u8 = undefined;
+    header.encode(&header_bytes);
+    _ = try std.posix.write(write_fd, &header_bytes);
+
+    // Process header - should reject due to size limit and transition to reading_payload first
+    const keep_alive = try connection.process_io(config);
+    try testing.expect(!keep_alive); // Connection should be closed due to oversized request
+}
+
+test "connection state machine - client disconnection handling" {
+    concurrency.init();
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Create a mock pipe pair
+    const pipe_result = try std.posix.pipe();
+    const read_fd = pipe_result[0];
+    const write_fd = pipe_result[1];
+    defer std.posix.close(read_fd);
+    // Close write end immediately to simulate client disconnection
+    std.posix.close(write_fd);
+
+    // Set read end to non-blocking
+    const read_flags = try std.posix.fcntl(read_fd, std.posix.F.GETFL, 0);
+    const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
+    _ = try std.posix.fcntl(read_fd, std.posix.F.SETFL, read_flags | nonblock_flag);
+
+    const mock_stream = std.net.Stream{ .handle = read_fd };
+    var connection = ClientConnection.init(allocator, mock_stream, 5);
+    defer connection.arena.deinit(); // Only deinit the arena, not the stream
+
+    const server_config = server_handler.ServerConfig{};
+    const config = server_config.to_connection_config();
+
+    // Try to read from closed socket
+    const keep_alive = try connection.process_io(config);
+    try testing.expect(!keep_alive); // Connection should be closed due to EOF
+}
+
+test "connection state machine - arena memory isolation" {
+    concurrency.init();
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Create a mock pipe pair
+    const pipe_result = try std.posix.pipe();
+    const read_fd = pipe_result[0];
+    const write_fd = pipe_result[1];
+    defer std.posix.close(read_fd);
+    defer std.posix.close(write_fd);
+
+    // Set both ends to non-blocking
+    const read_flags = try std.posix.fcntl(read_fd, std.posix.F.GETFL, 0);
+    const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
+    _ = try std.posix.fcntl(read_fd, std.posix.F.SETFL, read_flags | nonblock_flag);
+
+    const mock_stream = std.net.Stream{ .handle = read_fd };
+    var connection = ClientConnection.init(allocator, mock_stream, 6);
+    defer connection.arena.deinit(); // Only deinit the arena, not the stream
+
+    const server_config = server_handler.ServerConfig{};
+    const config = server_config.to_connection_config();
+
+    // Process a complete request with payload
+    const header = MessageHeader{
+        .msg_type = MessageType.get_blocks,
+        .version = 1,
+        .reserved = 0,
+        .payload_length = 20,
+    };
+    var header_bytes: [MessageHeader.HEADER_SIZE]u8 = undefined;
+    header.encode(&header_bytes);
+    _ = try std.posix.write(write_fd, &header_bytes);
+
+    const payload_data = [_]u8{ 0x01, 0x00, 0x00, 0x00 } ++ // block count = 1
+        [_]u8{ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10 }; // block ID
+    _ = try std.posix.write(write_fd, &payload_data);
+
+    // Process header and payload
+    _ = try connection.process_io(config);
+    _ = try connection.process_io(config);
+    try testing.expectEqual(ConnectionState.processing, connection.state);
+
+    // Verify payload is allocated in connection's arena
+    const payload = connection.request_payload().?;
+    try testing.expectEqual(@as(usize, 20), payload.len);
+
+    // Simulate response and reset
+    const response_data = "test response";
+    connection.send_response(response_data);
+    try testing.expectEqual(ConnectionState.writing_response, connection.state);
+
+    // Complete the response write (simulate successful write)
+    connection.response_bytes_written = response_data.len;
+    _ = try connection.process_io(config);
+
+    // Verify connection reset to initial state
+    try testing.expectEqual(ConnectionState.reading_header, connection.state);
+    try testing.expectEqual(@as(usize, 0), connection.header_bytes_read);
+    try testing.expect(connection.current_header == null);
+    try testing.expect(connection.current_payload == null);
+    try testing.expectEqual(@as(usize, 0), connection.payload_bytes_read);
+    try testing.expect(connection.current_response == null);
+    try testing.expectEqual(@as(usize, 0), connection.response_bytes_written);
 }
