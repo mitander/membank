@@ -21,9 +21,13 @@ const EdgeType = context_block.EdgeType;
 const Simulation = simulation.Simulation;
 
 test "wal segmentation: rotation at size limit" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in WAL segmentation test");
+    }
+    const allocator = gpa.allocator();
 
     var sim = try Simulation.init(allocator, 54321);
     defer sim.deinit();
@@ -89,9 +93,13 @@ test "wal segmentation: rotation at size limit" {
 }
 
 test "wal segmentation: cleanup after sstable flush" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in WAL cleanup test");
+    }
+    const allocator = gpa.allocator();
 
     var sim = try Simulation.init(allocator, 98765);
     defer sim.deinit();
@@ -180,9 +188,13 @@ test "wal segmentation: cleanup after sstable flush" {
 }
 
 test "wal segmentation: recovery from mixed segments and sstables" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in WAL mixed recovery test");
+    }
+    const allocator = gpa.allocator();
 
     var sim = try Simulation.init(allocator, 11111);
     defer sim.deinit();
@@ -258,9 +270,13 @@ test "wal segmentation: recovery from mixed segments and sstables" {
 }
 
 test "wal segmentation: segment number persistence" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in WAL persistence test");
+    }
+    const allocator = gpa.allocator();
 
     var sim = try Simulation.init(allocator, 22222);
     defer sim.deinit();
@@ -344,9 +360,13 @@ test "wal segmentation: segment number persistence" {
 }
 
 test "wal segmentation: empty segment handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in WAL empty segment test");
+    }
+    const allocator = gpa.allocator();
 
     var sim = try Simulation.init(allocator, 33333);
     defer sim.deinit();

@@ -20,9 +20,13 @@ const Simulation = simulation.Simulation;
 test "memory isolation: single test with 25 storage cycles" {
     var cycle: u32 = 0;
     while (cycle < 25) : (cycle += 1) {
-        var arena = std.heap.ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
-        const allocator = arena.allocator();
+        // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
+        var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+        defer {
+            const deinit_status = gpa.deinit();
+            if (deinit_status == .leak) @panic("Memory leak detected in memory isolation test");
+        }
+        const allocator = gpa.allocator();
         std.log.debug("Starting storage cycle {}", .{cycle});
 
         var sim = try Simulation.init(allocator, 0xDEADBEEF + cycle);
@@ -38,7 +42,7 @@ test "memory isolation: single test with 25 storage cycles" {
         const data_dir_owned = try allocator.dupe(u8, data_dir);
         defer allocator.free(data_dir_owned);
 
-        var engine = try StorageEngine.init(testing.allocator, vfs, data_dir_owned);
+        var engine = try StorageEngine.init(allocator, vfs, data_dir_owned);
         defer engine.deinit();
 
         try engine.initialize_storage();
@@ -85,9 +89,13 @@ test "memory isolation: single test with 25 storage cycles" {
 }
 
 test "memory isolation: HashMap operations under stress" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in HashMap stress test");
+    }
+    const allocator = gpa.allocator();
 
     // Stress test the HashMap operations specifically
     var sim = try Simulation.init(allocator, 0xFEEDFACE);
@@ -97,7 +105,7 @@ test "memory isolation: HashMap operations under stress" {
     const node_ptr = sim.find_node(node);
     const vfs = node_ptr.filesystem_interface();
 
-    var engine = try StorageEngine.init(testing.allocator, vfs, "hashmap_stress");
+    var engine = try StorageEngine.init(allocator, vfs, "hashmap_stress");
     defer engine.deinit();
 
     try engine.initialize_storage();

@@ -82,7 +82,7 @@ test "fault injection - disk full during compaction" {
     for (0..100) |i| {
         const source_uri = try std.fmt.allocPrint(allocator, "test://block{d}", .{i});
         defer allocator.free(source_uri);
-        const metadata_json = try std.fmt.allocPrint(allocator, "{{\"index\":{d}}}", .{i});
+        const metadata_json = try std.fmt.allocPrint(allocator, "{{\"index\":\"{d}\"}}", .{i});
         defer allocator.free(metadata_json);
         const content = try std.fmt.allocPrint(allocator, "Content for block {d} - large enough to trigger compaction", .{i});
         defer allocator.free(content);

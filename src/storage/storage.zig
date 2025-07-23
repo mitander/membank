@@ -454,13 +454,33 @@ pub const BlockIndex = struct {
     }
 
     pub fn deinit(self: *BlockIndex) void {
-        // Clean up HashMap (uses backing allocator) then arena content
-        self.blocks.deinit();
+        // Clear HashMap first to avoid use-after-free of arena-allocated strings
+        self.blocks.clearAndFree();
         self.arena.deinit();
     }
 
     pub fn put_block(self: *BlockIndex, block: ContextBlock) !void {
+        assert(@intFromPtr(self) != 0, "BlockIndex self pointer cannot be null", .{});
+        assert(@intFromPtr(&self.arena) != 0, "BlockIndex arena pointer cannot be null", .{});
+
         const arena_allocator = self.arena.allocator();
+
+        // Validate string lengths to prevent allocation of corrupted sizes
+        assert(block.source_uri.len < 1024 * 1024, "source_uri too large: {} bytes", .{block.source_uri.len});
+        assert(block.metadata_json.len < 1024 * 1024, "metadata_json too large: {} bytes", .{block.metadata_json.len});
+        assert(block.content.len < 100 * 1024 * 1024, "content too large: {} bytes", .{block.content.len});
+
+        // Catch null pointers masquerading as slices
+        if (block.source_uri.len > 0) {
+            assert(@intFromPtr(block.source_uri.ptr) != 0, "source_uri has null pointer with non-zero length", .{});
+        }
+        if (block.metadata_json.len > 0) {
+            assert(@intFromPtr(block.metadata_json.ptr) != 0, "metadata_json has null pointer with non-zero length", .{});
+        }
+        if (block.content.len > 0) {
+            assert(@intFromPtr(block.content.ptr) != 0, "content has null pointer with non-zero length", .{});
+        }
+
         const cloned_block = ContextBlock{
             .id = block.id,
             .version = block.version,
@@ -468,6 +488,16 @@ pub const BlockIndex = struct {
             .metadata_json = try arena_allocator.dupe(u8, block.metadata_json),
             .content = try arena_allocator.dupe(u8, block.content),
         };
+
+        if (block.source_uri.len > 0) {
+            assert(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "source_uri was not properly duped by arena allocator", .{});
+        }
+        if (block.metadata_json.len > 0) {
+            assert(@intFromPtr(cloned_block.metadata_json.ptr) != @intFromPtr(block.metadata_json.ptr), "metadata_json was not properly duped by arena allocator", .{});
+        }
+        if (block.content.len > 0) {
+            assert(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "content was not properly duped by arena allocator", .{});
+        }
 
         try self.blocks.put(block.id, cloned_block);
     }
@@ -485,8 +515,13 @@ pub const BlockIndex = struct {
     }
 
     pub fn clear(self: *BlockIndex) void {
+        assert(@intFromPtr(self) != 0, "BlockIndex self pointer cannot be null during clear", .{});
+        assert(@intFromPtr(&self.arena) != 0, "BlockIndex arena pointer cannot be null during clear", .{});
+
         self.blocks.clearRetainingCapacity();
         _ = self.arena.reset(.retain_capacity);
+
+        assert(self.blocks.count() == 0, "HashMap not properly cleared", .{});
     }
 };
 
@@ -1130,6 +1165,9 @@ pub const StorageEngine = struct {
         // Track the operation attempt
         _ = self.storage_metrics.wal_writes.fetchAdd(1, .monotonic);
 
+        assert(@intFromPtr(&self.index) != 0, "Storage index pointer cannot be null", .{});
+        assert(@intFromPtr(&self.index.arena) != 0, "Storage index arena pointer cannot be null", .{});
+
         block.validate(self.backing_allocator) catch |err| {
             _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
             return err;
@@ -1152,8 +1190,12 @@ pub const StorageEngine = struct {
             return err;
         };
 
-        // Update in-memory index
         const index_size_before = self.index.block_count();
+
+        // Catch corruption between WAL write and index insertion
+        assert(block.version > 0, "Block version became invalid before index insertion", .{});
+        assert(block.source_uri.len < 1024 * 1024, "Block source_uri became corrupted before index insertion", .{});
+
         self.index.put_block(block) catch |err| {
             _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
             return err;
