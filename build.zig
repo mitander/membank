@@ -481,7 +481,9 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
-    add_storage_imports(benchmark.root_module, core_modules);
+    add_query_imports(benchmark.root_module, core_modules);
+    benchmark.root_module.addImport("simulation_vfs", core_modules.simulation_vfs);
+    benchmark.root_module.addImport("simulation", core_modules.simulation);
 
     const install_benchmark = b.addInstallArtifact(benchmark, .{});
     const benchmark_step = b.step("benchmark", "Build and install benchmark");
