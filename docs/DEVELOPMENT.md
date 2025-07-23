@@ -39,6 +39,7 @@ tests/
 scripts/
 ├── fuzz.sh              # Unified fuzzing (profiles: quick, ci, deep, production)
 ├── benchmark.sh         # Performance regression detection
+├── local_ci.sh          # Local CI runner (mirrors GitHub Actions exactly)
 ├── install_zig.sh       # Toolchain setup
 └── setup_hooks.sh       # Git hooks installation
 ```
@@ -211,6 +212,33 @@ Our CI pipeline uses `ReleaseSafe` by default to ensure:
 - Fast, reliable builds (< 5 minute test cycles)
 - Comprehensive safety checking without Debug mode overhead
 - Consistent behavior between local development and CI validation
+
+### Local CI Runner
+
+The `./scripts/local_ci.sh` script eliminates the push-wait-read cycle by running the complete GitHub Actions pipeline locally. This mirrors the exact CI environment for faster iteration and debugging.
+
+**Basic Usage:**
+```bash
+./scripts/local_ci.sh                    # Run all CI jobs in parallel
+./scripts/local_ci.sh --job=test-ubuntu  # Run specific job only
+./scripts/local_ci.sh --sequential       # Run jobs sequentially (easier debugging)
+```
+
+**Key Features:**
+- **Exact CI Mirror:** Uses identical commands, flags, and environment as GitHub Actions
+- **Parallel Execution:** Runs multiple jobs concurrently for speed (like CI)
+- **Memory Testing:** Includes Valgrind integration for memory safety validation
+- **Color Output:** Clear visual feedback with timing information
+- **Interrupt Handling:** Clean shutdown on Ctrl+C with proper cleanup
+
+**Available Jobs:**
+- `test-ubuntu`: Core test suite on Ubuntu environment
+- `test-macos`: Core test suite on macOS environment
+- `build-ubuntu`: Release build validation
+- `performance`: Benchmark regression detection
+- `memory-safety`: Valgrind memory error detection
+
+This tool is essential for debugging CI failures without the friction of remote iteration.
 
 ## 8. Contributing
 

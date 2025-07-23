@@ -27,7 +27,10 @@ const GUARD_SIZE: usize = 32;
 const MAX_TRACKED_ALLOCATIONS: usize = if (builtin.mode == .Debug) 16384 else 1024;
 
 /// Enable stack trace capture (can be disabled to avoid slow Debug linking)
-const ENABLE_STACK_TRACES: bool = false; // TODO: Enable when Zig linking performance improves
+// Stack traces disabled in ReleaseSafe due to Zig linking performance constraints.
+// Debug builds experience 60+ second link times with comprehensive stack traces.
+// Current approach prioritizes fast development iteration over detailed debugging.
+const ENABLE_STACK_TRACES: bool = false;
 
 /// Maximum depth for stack trace collection
 const MAX_STACK_TRACE_DEPTH: usize = if (ENABLE_STACK_TRACES and builtin.mode == .Debug) 16 else 0;

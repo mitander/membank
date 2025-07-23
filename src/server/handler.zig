@@ -249,9 +249,9 @@ pub const CortexServer = struct {
             }
 
             // Process I/O for this connection
-            const keep_alive = connection.process_io(self.config.to_connection_config()) catch |err| {
+            const keep_alive = connection.process_io(self.config.to_connection_config()) catch |err| blk: {
                 log.err("Connection {d}: I/O error: {any}", .{ connection.connection_id, err });
-                false;
+                break :blk false;
             };
 
             if (!keep_alive) {
