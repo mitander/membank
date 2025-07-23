@@ -15,6 +15,9 @@ const concurrency = @import("concurrency");
 const storage = @import("storage");
 const query_engine = @import("query_engine");
 const context_block = @import("context_block");
+const custom_assert = @import("assert");
+const comptime_assert = custom_assert.comptime_assert;
+const comptime_no_padding = custom_assert.comptime_no_padding;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
@@ -109,6 +112,17 @@ pub const MessageHeader = packed struct {
         };
     }
 };
+
+// Compile-time guarantees for network protocol stability
+comptime {
+    comptime_assert(@sizeOf(MessageHeader) == 8, "MessageHeader must be exactly 8 bytes for network protocol compatibility");
+    comptime_assert(MessageHeader.HEADER_SIZE == @sizeOf(MessageHeader), "MessageHeader.HEADER_SIZE constant must match actual struct size");
+    comptime_no_padding(MessageHeader);
+    comptime_assert(@sizeOf(MessageType) == 1, "MessageType must be 1 byte");
+    comptime_assert(@sizeOf(u8) == 1, "version field must be 1 byte");
+    comptime_assert(@sizeOf(u16) == 2, "reserved field must be 2 bytes");
+    comptime_assert(@sizeOf(u32) == 4, "payload_length field must be 4 bytes");
+}
 
 /// Client connection state
 pub const ClientConnection = struct {

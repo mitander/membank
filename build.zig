@@ -76,6 +76,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
     sstable_module.addImport("bloom_filter", bloom_filter_module);
     sstable_module.addImport("simulation_vfs", simulation_vfs_module);
     sstable_module.addImport("error_context", error_context_module);
+    sstable_module.addImport("assert", assert_module);
 
     const tiered_compaction_module = b.createModule(.{
         .root_source_file = b.path("src/storage/tiered_compaction.zig"),
@@ -159,6 +160,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
     server_module.addImport("storage", storage_module);
     server_module.addImport("query_engine", query_engine_module);
     server_module.addImport("context_block", context_block_module);
+    server_module.addImport("assert", assert_module);
 
     return CoreModules{
         .assert = assert_module,

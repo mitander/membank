@@ -10,6 +10,7 @@ const assert = custom_assert.assert;
 const assert_not_null = custom_assert.assert_not_null;
 const assert_not_empty = custom_assert.assert_not_empty;
 const assert_state_valid = custom_assert.assert_state_valid;
+const comptime_assert = custom_assert.comptime_assert;
 const log = std.log.scoped(.storage);
 const vfs = @import("vfs");
 const context_block = @import("context_block");
@@ -30,6 +31,11 @@ const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
 /// Maximum size of a WAL segment before rotation (64MB).
 /// Chosen to balance between recovery time and file handle usage.
 const MAX_WAL_SEGMENT_SIZE: u64 = 64 * 1024 * 1024;
+
+// Compile-time guarantees for architectural invariants
+comptime {
+    comptime_assert(MAX_WAL_SEGMENT_SIZE & (MAX_WAL_SEGMENT_SIZE - 1) == 0, "MAX_WAL_SEGMENT_SIZE must be a power of two for efficient alignment and bitwise operations");
+}
 
 /// Performance metrics for storage engine observability.
 /// All counters are atomic for thread-safe access in concurrent environments.

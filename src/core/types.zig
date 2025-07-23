@@ -17,6 +17,8 @@ const assert_not_null = custom_assert.assert_not_null;
 const assert_not_empty = custom_assert.assert_not_empty;
 const assert_range = custom_assert.assert_range;
 const assert_buffer_bounds = custom_assert.assert_buffer_bounds;
+const comptime_assert = custom_assert.comptime_assert;
+const comptime_no_padding = custom_assert.comptime_no_padding;
 
 /// Unique identifier for a Context Block.
 /// Uses 128-bit UUID to ensure global uniqueness across distributed systems.
@@ -179,6 +181,14 @@ pub const ContextBlock = struct {
             };
         }
     };
+
+    // Compile-time guarantees for on-disk format integrity
+    comptime {
+        comptime_assert(@sizeOf(BlockHeader) == 64, "BlockHeader must be exactly 64 bytes for on-disk format compatibility");
+        comptime_assert(BlockHeader.SIZE == @sizeOf(BlockHeader), "BlockHeader.SIZE constant must match actual struct size");
+        comptime_assert(@sizeOf(u32) + @sizeOf(u16) + @sizeOf(u16) + 16 +
+            @sizeOf(u64) + @sizeOf(u32) + @sizeOf(u32) + @sizeOf(u64) + @sizeOf(u32) + 12 == 64, "BlockHeader field sizes must sum to exactly 64 bytes");
+    }
 
     pub const MAGIC: u32 = 0x42444358; // "XDBC" in little endian
     pub const FORMAT_VERSION: u16 = 1;
@@ -443,6 +453,14 @@ pub const GraphEdge = struct {
         };
     }
 };
+
+// Compile-time guarantees for GraphEdge serialization format
+comptime {
+    comptime_assert(GraphEdge.SERIALIZED_SIZE == 40, "GraphEdge SERIALIZED_SIZE must be 40 bytes (16 + 16 + 2 + 6 reserved)");
+    comptime_assert(@sizeOf(BlockId) == 16, "BlockId must be 16 bytes");
+    comptime_assert(@sizeOf(EdgeType) == 2, "EdgeType must be 2 bytes (u16)");
+    comptime_assert(16 + 16 + 2 + 6 == GraphEdge.SERIALIZED_SIZE, "GraphEdge field sizes plus reserved bytes must equal SERIALIZED_SIZE");
+}
 
 // Tests
 test "BlockId basic operations" {

@@ -120,6 +120,36 @@ pub fn comptime_assert(comptime condition: bool, comptime message: []const u8) v
     }
 }
 
+/// Compile-time assertion that a struct has no padding bytes.
+/// This ensures the struct layout is densely packed and predictable for
+/// on-disk formats and network protocols.
+/// # Examples
+/// ```zig
+/// comptime_no_padding(BlockHeader);
+/// ```
+pub fn comptime_no_padding(comptime T: type) void {
+    comptime {
+        const type_info = @typeInfo(T);
+        switch (type_info) {
+            .@"struct" => |struct_info| {
+                var expected_size: usize = 0;
+
+                // Calculate expected size by summing field sizes
+                for (struct_info.fields) |field| {
+                    expected_size += @sizeOf(field.type);
+                }
+
+                const actual_size = @sizeOf(T);
+                if (actual_size != expected_size) {
+                    @compileError(std.fmt.comptimePrint("Struct {} has padding: actual size {} != expected size {} (padding = {} bytes). " ++
+                        "Use packed struct or reorganize fields to eliminate padding.", .{ @typeName(T), actual_size, expected_size, actual_size - expected_size }));
+                }
+            },
+            else => @compileError("comptime_no_padding can only be used with struct types"),
+        }
+    }
+}
+
 /// Assert that a pointer is not null.
 /// # Examples
 /// ```zig
@@ -280,4 +310,21 @@ test "assert_state_valid functionality" {
 test "assert_stride_positive functionality" {
     assert_stride_positive(1, "Invalid stride: {} must be positive", .{1});
     assert_stride_positive(100, "Invalid stride: {} must be positive", .{100});
+}
+
+test "comptime_no_padding functionality" {
+    // Test struct with no padding
+    const PackedStruct = packed struct {
+        a: u8,
+        b: u8,
+        c: u16,
+    };
+    comptime_no_padding(PackedStruct);
+
+    // Test struct with natural alignment (no padding needed)
+    const AlignedStruct = struct {
+        a: u32,
+        b: u32,
+    };
+    comptime_no_padding(AlignedStruct);
 }

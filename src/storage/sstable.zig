@@ -22,6 +22,8 @@ const log = std.log.scoped(.sstable);
 const context_block = @import("context_block");
 const vfs = @import("vfs");
 const bloom_filter = @import("bloom_filter");
+const custom_assert = @import("assert");
+const comptime_assert = custom_assert.comptime_assert;
 
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
@@ -197,6 +199,14 @@ pub const SSTable = struct {
             };
         }
     };
+
+    // Compile-time guarantees for SSTable on-disk format integrity
+    comptime {
+        comptime_assert(@sizeOf(Header) == 64, "SSTable Header must be exactly 64 bytes for cache-aligned performance");
+        comptime_assert(HEADER_SIZE == @sizeOf(Header), "HEADER_SIZE constant must match actual Header struct size");
+        comptime_assert(4 + @sizeOf(u16) + @sizeOf(u16) + @sizeOf(u64) + @sizeOf(u32) +
+            @sizeOf(u32) + @sizeOf(u64) + @sizeOf(u64) + @sizeOf(u32) + 20 == 64, "SSTable Header field sizes must sum to exactly 64 bytes");
+    }
 
     pub fn init(allocator: std.mem.Allocator, filesystem: VFS, file_path: []const u8) SSTable {
         return SSTable{

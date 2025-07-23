@@ -32,6 +32,13 @@ const ENABLE_STACK_TRACES: bool = false; // TODO: Enable when Zig linking perfor
 /// Maximum depth for stack trace collection
 const MAX_STACK_TRACE_DEPTH: usize = if (ENABLE_STACK_TRACES and builtin.mode == .Debug) 16 else 0;
 
+// Compile-time guarantees to prevent debug features in release builds
+comptime {
+    if (builtin.mode != .Debug and ENABLE_STACK_TRACES) {
+        @compileError("Stack traces cannot be enabled in release builds - would severely impact performance");
+    }
+}
+
 /// Allocation metadata tracked for each allocation
 const AllocationInfo = struct {
     /// User-visible allocation size
