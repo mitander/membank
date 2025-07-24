@@ -36,8 +36,14 @@ test "complete ingestion pipeline - git to storage" {
     // Initialize concurrency module
     concurrency.init();
 
+    // Create a safety-enabled GPA for memory corruption detection
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer _ = gpa.deinit();
+
+    const backing_allocator = gpa.allocator();
+
     // Use a single arena for the entire test to eliminate cross-allocator issues
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    var arena = std.heap.ArenaAllocator.init(backing_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -61,7 +67,7 @@ test "complete ingestion pipeline - git to storage" {
     }
 
     // Setup storage engine with separate arena to avoid cross-contamination
-    var storage_arena = std.heap.ArenaAllocator.init(testing.allocator);
+    var storage_arena = std.heap.ArenaAllocator.init(backing_allocator);
     defer storage_arena.deinit();
 
     const vfs_for_storage = sim_vfs.vfs();
@@ -121,6 +127,14 @@ test "complete ingestion pipeline - git to storage" {
         };
         try storage_engine.put_block(storage_block);
     }
+
+    // Sort blocks by source URI for deterministic comparison order
+    std.sort.block(ContextBlock, blocks, {}, struct {
+        fn less_than(context: void, a: ContextBlock, b: ContextBlock) bool {
+            _ = context;
+            return std.mem.lessThan(u8, a.source_uri, b.source_uri);
+        }
+    }.less_than);
 
     // Verify blocks can be retrieved
     for (blocks) |block| {

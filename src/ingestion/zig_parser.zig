@@ -259,7 +259,8 @@ pub const ZigParser = struct {
         }
 
         if (content_builder.items.len > 0) {
-            const unit_id = try std.fmt.allocPrint(context.allocator, "comment_{d}", .{start_line});
+            const file_basename = std.fs.path.basename(context.file_path);
+            const unit_id = try std.fmt.allocPrint(context.allocator, "{s}_comment_{d}", .{ file_basename, start_line });
             const content = try content_builder.toOwnedSlice();
 
             const unit = ParsedUnit{
@@ -307,7 +308,8 @@ pub const ZigParser = struct {
         }
 
         if (var_name != null and import_path != null) {
-            const unit_id = try std.fmt.allocPrint(context.allocator, "import_{s}", .{var_name.?});
+            const file_basename = std.fs.path.basename(context.file_path);
+            const unit_id = try std.fmt.allocPrint(context.allocator, "{s}_import_{s}", .{ file_basename, var_name.? });
             const content = try context.allocator.dupe(u8, std.mem.trim(u8, line, " \t"));
 
             var metadata = std.StringHashMap([]const u8).init(context.allocator);
@@ -373,7 +375,8 @@ pub const ZigParser = struct {
             }
         }
 
-        const unit_id = try std.fmt.allocPrint(context.allocator, "fn_{s}", .{fn_name});
+        const file_basename = std.fs.path.basename(context.file_path);
+        const unit_id = try std.fmt.allocPrint(context.allocator, "{s}_fn_{s}", .{ file_basename, fn_name });
         const content = try content_builder.toOwnedSlice();
 
         var metadata = std.StringHashMap([]const u8).init(context.allocator);

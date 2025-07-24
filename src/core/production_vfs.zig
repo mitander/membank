@@ -48,7 +48,7 @@ pub const ProductionVFS = struct {
     pub fn init(backing_allocator: std.mem.Allocator) Self {
         return Self{ .arena = std.heap.ArenaAllocator.init(backing_allocator) };
     }
-    
+
     pub fn deinit(self: *Self) void {
         self.arena.deinit();
     }
@@ -101,7 +101,7 @@ pub const ProductionVFS = struct {
             .impl = .{ .production = .{
                 .file = file,
                 .closed = false,
-            }},
+            } },
         };
     }
 
@@ -124,7 +124,7 @@ pub const ProductionVFS = struct {
             .impl = .{ .production = .{
                 .file = file,
                 .closed = false,
-            }},
+            } },
         };
     }
 
