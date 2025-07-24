@@ -470,5 +470,3 @@ pub const SimulationFileData = struct {
     is_directory: bool,
 };
 
-// Re-export ProductionVFS for backwards compatibility
-pub const ProductionVFS = @import("production_vfs.zig").ProductionVFS;

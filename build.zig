@@ -4,6 +4,7 @@ const std = @import("std");
 const CoreModules = struct {
     assert: *std.Build.Module,
     vfs: *std.Build.Module,
+    production_vfs: *std.Build.Module,
     context_block: *std.Build.Module,
     error_context: *std.Build.Module,
     concurrency: *std.Build.Module,
@@ -33,6 +34,12 @@ fn create_core_modules(b: *std.Build) CoreModules {
         .root_source_file = b.path("src/core/vfs.zig"),
     });
     vfs_module.addImport("assert", assert_module);
+
+    const production_vfs_module = b.createModule(.{
+        .root_source_file = b.path("src/core/production_vfs.zig"),
+    });
+    production_vfs_module.addImport("assert", assert_module);
+    production_vfs_module.addImport("vfs", vfs_module);
 
     const context_block_module = b.createModule(.{
         .root_source_file = b.path("src/core/types.zig"),
@@ -166,6 +173,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
     return CoreModules{
         .assert = assert_module,
         .vfs = vfs_module,
+        .production_vfs = production_vfs_module,
         .context_block = context_block_module,
         .error_context = error_context_module,
         .concurrency = concurrency_module,
@@ -218,6 +226,7 @@ fn add_ingestion_imports(module: *std.Build.Module, core_modules: CoreModules) v
 fn add_server_imports(module: *std.Build.Module, core_modules: CoreModules) void {
     add_query_imports(module, core_modules);
     module.addImport("server", core_modules.server);
+    module.addImport("production_vfs", core_modules.production_vfs);
     module.addImport("concurrency", core_modules.concurrency);
 }
 

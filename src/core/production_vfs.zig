@@ -11,7 +11,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
-const vfs = @import("vfs.zig");
+const vfs = @import("vfs");
 
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;
@@ -41,12 +41,16 @@ comptime {
 
 /// Production VFS implementation using real OS filesystem operations
 pub const ProductionVFS = struct {
-    allocator: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return Self{ .allocator = allocator };
+    pub fn init(backing_allocator: std.mem.Allocator) Self {
+        return Self{ .arena = std.heap.ArenaAllocator.init(backing_allocator) };
+    }
+    
+    pub fn deinit(self: *Self) void {
+        self.arena.deinit();
     }
 
     /// Get VFS interface for this implementation
@@ -69,12 +73,13 @@ pub const ProductionVFS = struct {
         .rename = rename,
         .stat = stat,
         .sync = sync,
-        .deinit = deinit,
+        .deinit = vfs_deinit,
     };
 
     fn open(ptr: *anyopaque, path: []const u8, mode: VFS.OpenMode) VFSError!VFile {
         const self: *Self = @ptrCast(@alignCast(ptr));
         assert(path.len > 0 and path.len < MAX_PATH_LENGTH);
+        _ = self; // ProductionVFS no longer needs arena for VFile
 
         const file = std.fs.openFileAbsolute(path, .{
             .mode = switch (mode) {
@@ -92,24 +97,18 @@ pub const ProductionVFS = struct {
             };
         };
 
-        const prod_file = try self.allocator.create(ProductionFile);
-        prod_file.* = ProductionFile{
-            .magic = PRODUCTION_FILE_MAGIC,
-            .file = file,
-            .allocator = self.allocator,
-            .closed = false,
-        };
-
         return VFile{
-            .file_impl = prod_file,
-            .vtable = &ProductionFile.vtable_impl,
-            .allocator = self.allocator,
+            .impl = .{ .production = .{
+                .file = file,
+                .closed = false,
+            }},
         };
     }
 
     fn create(ptr: *anyopaque, path: []const u8) VFSError!VFile {
         const self: *Self = @ptrCast(@alignCast(ptr));
         assert(path.len > 0 and path.len < MAX_PATH_LENGTH);
+        _ = self; // ProductionVFS no longer needs arena for VFile
 
         const file = std.fs.createFileAbsolute(path, .{ .exclusive = true }) catch |err| {
             return switch (err) {
@@ -121,18 +120,11 @@ pub const ProductionVFS = struct {
             };
         };
 
-        const prod_file = try self.allocator.create(ProductionFile);
-        prod_file.* = ProductionFile{
-            .magic = PRODUCTION_FILE_MAGIC,
-            .file = file,
-            .allocator = self.allocator,
-            .closed = false,
-        };
-
         return VFile{
-            .file_impl = prod_file,
-            .vtable = &ProductionFile.vtable_impl,
-            .allocator = self.allocator,
+            .impl = .{ .production = .{
+                .file = file,
+                .closed = false,
+            }},
         };
     }
 
@@ -288,155 +280,15 @@ pub const ProductionVFS = struct {
         // Individual file sync is handled per-file via VFile.flush().
     }
 
-    fn deinit(ptr: *anyopaque, allocator: std.mem.Allocator) void {
+    fn vfs_deinit(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         const self: *Self = @ptrCast(@alignCast(ptr));
         _ = allocator;
-        _ = self;
-        // Production VFS has no allocated resources to clean up
+        // Clean up arena allocator - this handles all VFile instances automatically
+        self.arena.deinit();
     }
 };
 
-/// Production file implementation wrapping std.fs.File
-const ProductionFile = struct {
-    magic: u64,
-    file: std.fs.File,
-    allocator: std.mem.Allocator,
-    closed: bool,
-
-    const Self = @This();
-
-    const vtable_impl = VFile.VTable{
-        .read = read,
-        .write = write,
-        .seek = seek,
-        .tell = tell,
-        .flush = flush,
-        .close = close,
-        .file_size = file_size,
-        .destroy = destroy,
-    };
-
-    fn read(ptr: *anyopaque, buffer: []u8) VFileError!usize {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-
-        return self.file.read(buffer) catch |err| {
-            return switch (err) {
-                error.AccessDenied => VFileError.ReadError,
-                error.Unexpected => VFileError.IoError,
-                else => VFileError.IoError,
-            };
-        };
-    }
-
-    fn write(ptr: *anyopaque, data: []const u8) VFileError!usize {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-
-        return self.file.write(data) catch |err| {
-            return switch (err) {
-                error.AccessDenied => VFileError.WriteError,
-                error.NoSpaceLeft => VFileError.WriteError,
-                error.Unexpected => VFileError.IoError,
-                else => VFileError.IoError,
-            };
-        };
-    }
-
-    fn seek(ptr: *anyopaque, pos: u64, whence: VFile.SeekFrom) VFileError!u64 {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-
-        const target_pos = switch (whence) {
-            .start => pos,
-            .current => blk: {
-                const current_pos = self.file.getPos() catch return VFileError.IoError;
-                break :blk current_pos + pos;
-            },
-            .end => blk: {
-                const file_end = self.file.getEndPos() catch return VFileError.IoError;
-                break :blk file_end + pos;
-            },
-        };
-
-        self.file.seekTo(target_pos) catch |err| {
-            return switch (err) {
-                error.Unseekable => VFileError.InvalidSeek,
-                else => VFileError.IoError,
-            };
-        };
-
-        return self.file.getPos() catch VFileError.IoError;
-    }
-
-    fn tell(ptr: *anyopaque) VFileError!u64 {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-
-        return self.file.getPos() catch VFileError.IoError;
-    }
-
-    fn flush(ptr: *anyopaque) VFileError!void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-
-        self.file.sync() catch |err| {
-            return switch (err) {
-                error.AccessDenied => VFileError.WriteError,
-                else => VFileError.IoError,
-            };
-        };
-    }
-
-    fn close(ptr: *anyopaque) void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC);
-
-        if (!self.closed) {
-            self.file.close();
-            self.closed = true;
-        }
-    }
-
-    fn file_size(ptr: *anyopaque) VFileError!u64 {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-
-        const size = self.file.getEndPos() catch |err| {
-            return switch (err) {
-                error.AccessDenied => VFileError.ReadError,
-                else => VFileError.IoError,
-            };
-        };
-
-        // Defensive validation of file size
-        if (size > MAX_REASONABLE_FILE_SIZE) {
-            return VFileError.IoError;
-        }
-
-        return size;
-    }
-
-    fn destroy(ptr: *anyopaque, allocator: std.mem.Allocator) void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC);
-
-        // Ensure file is closed before destroying
-        if (!self.closed) {
-            self.file.close();
-        }
-
-        // Poison the magic number to catch use-after-free in debug builds
-        self.magic = 0xDEADDEAD;
-        allocator.destroy(self);
-    }
-};
+// ProductionFile struct removed - VFile is now a value type
 
 test "ProductionVFS basic file operations" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -444,6 +296,7 @@ test "ProductionVFS basic file operations" {
     const allocator = arena.allocator();
 
     var prod_vfs = ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
     const vfs_interface = prod_vfs.vfs();
 
     const test_path = "/tmp/cortexdb_test_file";
@@ -484,6 +337,7 @@ test "ProductionVFS directory operations" {
     const allocator = arena.allocator();
 
     var prod_vfs = ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
     const vfs_interface = prod_vfs.vfs();
 
     const test_dir = "/tmp/cortexdb_test_dir";
