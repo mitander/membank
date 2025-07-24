@@ -648,9 +648,17 @@ pub const WAL = struct {
         assert(file_path.len > 0);
         assert(file_path.len < MAX_PATH_LENGTH);
 
-        // Defensive limit to prevent runaway entry processing
+        // Comprehensive defensive limits to prevent infinite loops
         const MAX_ENTRIES_PER_SEGMENT = 1_000_000;
+        const MAX_CORRUPTION_SKIPS = 8192;
+        const MAX_READ_ITERATIONS = 100_000; // Prevent infinite read loops
+        const MAX_ZERO_PROGRESS_ITERATIONS = 10; // Detect stuck buffer processing
+
         var entries_processed: u32 = 0;
+        var corruption_skips: u32 = 0;
+        var read_iterations: u32 = 0;
+        var zero_progress_count: u32 = 0;
+        var last_file_position: u64 = 0;
 
         var file = self.vfs.open(file_path, .read) catch |err| switch (err) {
             error.FileNotFound => return WALError.FileNotFound,
@@ -668,20 +676,51 @@ pub const WAL = struct {
         comptime assert(@sizeOf(@TypeOf(buffer)) >= WALEntry.HEADER_SIZE * 4);
 
         while (true) {
+            // Defensive check: prevent infinite read loops
+            read_iterations += 1;
+            if (read_iterations > MAX_READ_ITERATIONS) {
+                log.err("WAL recovery exceeded maximum read iterations: {d}", .{MAX_READ_ITERATIONS});
+                return WALError.IoError;
+            }
+
+            // Track file position for progress monitoring
+            const current_file_position = file.tell() catch return WALError.IoError;
+
             const bytes_read = file.read(buffer[remaining.len..]) catch return WALError.IoError;
             if (bytes_read == 0 and remaining.len == 0) break;
+
+            // Defensive check: ensure we're making file-level progress
+            if (bytes_read == 0 and current_file_position == last_file_position) {
+                zero_progress_count += 1;
+                if (zero_progress_count > MAX_ZERO_PROGRESS_ITERATIONS) {
+                    log.err("WAL recovery stuck - no file progress for {d} iterations", .{zero_progress_count});
+                    return WALError.IoError;
+                }
+            } else {
+                zero_progress_count = 0;
+                last_file_position = current_file_position;
+            }
 
             const available = remaining.len + bytes_read;
             assert(available <= buffer.len);
             var pos: usize = 0;
+            const initial_pos = pos; // Track buffer processing progress
 
             while (pos + WALEntry.HEADER_SIZE <= available) {
                 const payload_size = std.mem.readInt(u32, buffer[pos + 9 ..][0..4], .little);
 
                 // Oversized payloads indicate corruption, not valid large blocks
                 if (payload_size > MAX_PAYLOAD_SIZE) {
-                    log.warn("Invalid payload size during recovery: {d} > {d}", .{ payload_size, MAX_PAYLOAD_SIZE });
-                    pos += 1;
+                    log.warn("Invalid payload size during recovery: {d} > {d} at position {d}", .{ payload_size, MAX_PAYLOAD_SIZE, pos });
+                    corruption_skips += 1;
+                    if (corruption_skips > MAX_CORRUPTION_SKIPS) {
+                        log.err("Too many corruption skips in WAL segment: {d}", .{corruption_skips});
+                        return WALError.CorruptedEntry;
+                    }
+
+                    // Advance by more than 1 byte to avoid getting stuck on repeated corruption patterns
+                    const skip_bytes = @min(WALEntry.HEADER_SIZE, available - pos);
+                    pos += skip_bytes;
                     continue;
                 }
 
@@ -695,7 +734,16 @@ pub const WAL = struct {
                 const entry_buffer = buffer[pos .. pos + entry_size];
                 var entry = WALEntry.deserialize(entry_buffer, self.allocator) catch |err| switch (err) {
                     WALError.InvalidChecksum, WALError.InvalidEntryType => {
-                        pos += 1;
+                        log.warn("WAL entry deserialization failed at position {d}: {}", .{ pos, err });
+                        corruption_skips += 1;
+                        if (corruption_skips > MAX_CORRUPTION_SKIPS) {
+                            log.err("Too many corruption skips in WAL segment: {d}", .{corruption_skips});
+                            return WALError.CorruptedEntry;
+                        }
+
+                        // Skip ahead by header size to avoid single-byte thrashing
+                        const skip_bytes = @min(WALEntry.HEADER_SIZE, available - pos);
+                        pos += skip_bytes;
                         continue;
                     },
                     else => return err,
@@ -728,13 +776,27 @@ pub const WAL = struct {
                 assert(pos <= available);
             }
 
+            // Defensive check: ensure we made some progress in this buffer
+            if (pos == initial_pos and available > 0) {
+                log.warn("No progress made in buffer processing, advancing by one byte to prevent infinite loop", .{});
+                pos = @min(pos + 1, available);
+            }
+
             // Preserve partial entry data across read boundaries to handle
             // entries spanning buffer chunks without re-reading from disk
             if (pos < available) {
                 const leftover_size = available - pos;
-                // Only copy if we actually need to move data (pos > 0)
-                if (pos > 0) {
-                    stdx.copy_left(u8, buffer[0..leftover_size], buffer[pos..available]);
+
+                // Defensive validation before copy
+                if (leftover_size > buffer.len) {
+                    log.err("Leftover size exceeds buffer capacity: {d} > {d}", .{ leftover_size, buffer.len });
+                    return WALError.IoError;
+                }
+
+                // Only copy if we actually need to move data and have valid size
+                if (pos > 0 and leftover_size > 0) {
+                    // Use safe copy that handles overlapping ranges properly
+                    std.mem.copyForwards(u8, buffer[0..leftover_size], buffer[pos..available]);
                 }
                 remaining = buffer[0..leftover_size];
             } else {

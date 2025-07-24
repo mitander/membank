@@ -382,6 +382,11 @@ pub fn build(b: *std.Build) void {
             .description = "debug allocator tests",
         },
         .{
+            .name = "wal_hang_debug",
+            .source_file = "tests/debug/wal_hang_debug.zig",
+            .description = "WAL hang debug tests",
+        },
+        .{
             .name = "allocator_torture",
             .source_file = "src/dev/allocator_torture_test.zig",
             .description = "allocator torture tests",
