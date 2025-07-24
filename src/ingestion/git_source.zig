@@ -155,7 +155,7 @@ pub const GitSourceIterator = struct {
         try metadata_map.put("repository_path", try allocator.dupe(u8, self.git_source.config.repository_path));
         try metadata_map.put("file_path", try allocator.dupe(u8, file.relative_path));
         try metadata_map.put("file_size", try std.fmt.allocPrint(allocator, "{d}", .{file.size}));
-        
+
         if (self.git_source.metadata) |meta| {
             try metadata_map.put("commit_hash", try allocator.dupe(u8, meta.commit_hash));
             try metadata_map.put("branch", try allocator.dupe(u8, meta.branch));
@@ -329,16 +329,16 @@ pub const GitSource = struct {
     fn find_matching_files(self: *GitSource, allocator: std.mem.Allocator, file_system: *VFS) ![]GitFileInfo {
         var files = std.ArrayList(GitFileInfo).init(allocator);
         try self.scan_directory_recursive(allocator, file_system, self.config.repository_path, "", &files);
-        
+
         // Sort files by relative path to ensure consistent processing order
         const file_slice = try files.toOwnedSlice();
         std.sort.block(GitFileInfo, file_slice, {}, struct {
-            fn lessThan(context: void, a: GitFileInfo, b: GitFileInfo) bool {
+            fn less_than(context: void, a: GitFileInfo, b: GitFileInfo) bool {
                 _ = context;
                 return std.mem.lessThan(u8, a.relative_path, b.relative_path);
             }
-        }.lessThan);
-        
+        }.less_than);
+
         return file_slice;
     }
 
