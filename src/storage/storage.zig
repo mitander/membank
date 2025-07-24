@@ -18,6 +18,7 @@ const sstable = @import("sstable");
 const error_context = @import("error_context");
 const concurrency = @import("concurrency");
 const tiered_compaction = @import("tiered_compaction");
+const wal = @import("wal.zig");
 
 const VFS = vfs.VFS;
 const ContextBlock = context_block.ContextBlock;
@@ -27,10 +28,13 @@ const EdgeType = context_block.EdgeType;
 const SSTable = sstable.SSTable;
 const Compactor = sstable.Compactor;
 const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
+pub const WAL = wal.WAL;
+pub const WALEntry = wal.WALEntry;
+pub const WALEntryType = wal.WALEntryType;
+pub const WALError = wal.WALError;
 
-/// Maximum size of a WAL segment before rotation (64MB).
-/// Chosen to balance between recovery time and file handle usage.
-const MAX_WAL_SEGMENT_SIZE: u64 = 64 * 1024 * 1024;
+// WAL segment size now defined in wal.zig
+const MAX_WAL_SEGMENT_SIZE = wal.MAX_SEGMENT_SIZE;
 
 /// Default maximum memory size for memtable before flushing to SSTable (128MB).
 /// This prevents unpredictable memory usage and potential OOM crashes with large blocks.
@@ -271,180 +275,17 @@ pub const StorageMetrics = struct {
 pub const StorageError = error{
     /// Block not found in storage
     BlockNotFound,
-    /// Corrupted WAL entry
-    CorruptedWALEntry,
-    /// Invalid checksum
-    InvalidChecksum,
     /// Storage already initialized
     AlreadyInitialized,
     /// Storage not initialized
     NotInitialized,
-    /// WAL file corrupted
-    WALCorrupted,
     /// Memtable max size too small (must be at least 1MB)
     MemtableMaxSizeTooSmall,
     /// Memtable max size too large (must be at most 1GB)
     MemtableMaxSizeTooLarge,
-} || std.mem.Allocator.Error || anyerror;
+} || std.mem.Allocator.Error || wal.WALError || anyerror;
 
-/// WAL entry types as defined in the data model specification.
-const WALEntryType = enum(u8) {
-    put_block = 0x01,
-    delete_block = 0x02,
-    put_edge = 0x03,
-
-    pub fn from_u8(value: u8) !WALEntryType {
-        return std.meta.intToEnum(WALEntryType, value) catch error.InvalidWALEntryType;
-    }
-};
-
-/// WAL entry header structure.
-pub const WALEntry = struct {
-    checksum: u64,
-    entry_type: WALEntryType,
-    payload_size: u32,
-    payload: []const u8,
-
-    pub const HEADER_SIZE = 13; // 8 bytes checksum + 1 byte type + 4 bytes payload_size
-
-    /// Calculate CRC-64 checksum of type and payload.
-    fn calculate_checksum(entry_type: WALEntryType, payload: []const u8) u64 {
-        var hasher = std.hash.Wyhash.init(0);
-        hasher.update(&[_]u8{@intFromEnum(entry_type)});
-        hasher.update(payload);
-        return hasher.final();
-    }
-
-    /// Serialize WAL entry to buffer.
-    pub fn serialize(self: WALEntry, buffer: []u8) !usize {
-        const total_size = HEADER_SIZE + self.payload.len;
-        if (buffer.len < total_size) return error.BufferTooSmall;
-
-        var offset: usize = 0;
-
-        // Write checksum (8 bytes, little-endian)
-        std.mem.writeInt(u64, buffer[offset..][0..8], self.checksum, .little);
-        offset += 8;
-
-        // Write entry type (1 byte)
-        buffer[offset] = @intFromEnum(self.entry_type);
-        offset += 1;
-
-        // Write payload size (4 bytes, little-endian)
-        std.mem.writeInt(u32, buffer[offset..][0..4], self.payload_size, .little);
-        offset += 4;
-
-        // Write payload
-        @memcpy(buffer[offset .. offset + self.payload.len], self.payload);
-        offset += self.payload.len;
-
-        return offset;
-    }
-
-    /// Deserialize WAL entry from buffer.
-    pub fn deserialize(buffer: []const u8, allocator: std.mem.Allocator) !WALEntry {
-        if (buffer.len < HEADER_SIZE) return error.BufferTooSmall;
-
-        var offset: usize = 0;
-
-        // Read checksum
-        const checksum = std.mem.readInt(u64, buffer[offset..][0..8], .little);
-        offset += 8;
-
-        // Read entry type
-        const entry_type = try WALEntryType.from_u8(buffer[offset]);
-        offset += 1;
-
-        // Read payload size
-        const payload_size = std.mem.readInt(u32, buffer[offset..][0..4], .little);
-        offset += 4;
-
-        // Validate payload size against remaining buffer
-        if (offset + payload_size > buffer.len) return error.BufferTooSmall;
-
-        // Read payload
-        const payload = try allocator.dupe(u8, buffer[offset .. offset + payload_size]);
-
-        // Verify checksum
-        const expected_checksum = calculate_checksum(entry_type, payload);
-        if (checksum != expected_checksum) {
-            allocator.free(payload);
-            return StorageError.InvalidChecksum;
-        }
-
-        return WALEntry{
-            .checksum = checksum,
-            .entry_type = entry_type,
-            .payload_size = payload_size,
-            .payload = payload,
-        };
-    }
-
-    /// Create WAL entry for putting a Context Block.
-    pub fn create_put_block(block: ContextBlock, allocator: std.mem.Allocator) !WALEntry {
-        const payload_size = block.serialized_size();
-
-        // Debug the serialization issue in ReleaseSafe mode
-        if (payload_size == 0) {
-            std.debug.panic("ContextBlock serialized_size returned 0: source_uri.len={}, metadata_json.len={}, content.len={}", .{ block.source_uri.len, block.metadata_json.len, block.content.len });
-        }
-
-        const payload = try allocator.alloc(u8, payload_size);
-
-        // More detailed debugging
-        if (payload.len == 0 and payload_size > 0) {
-            std.debug.panic("Allocator returned empty slice for size {}: possible allocator corruption", .{payload_size});
-        }
-
-        const bytes_written = try block.serialize(payload);
-
-        if (bytes_written != payload_size) {
-            std.debug.panic("Serialization size mismatch: expected {}, got {}", .{ payload_size, bytes_written });
-        }
-
-        const checksum = calculate_checksum(.put_block, payload);
-
-        return WALEntry{
-            .checksum = checksum,
-            .entry_type = .put_block,
-            .payload_size = @intCast(payload_size),
-            .payload = payload,
-        };
-    }
-
-    /// Create WAL entry for deleting a Context Block.
-    pub fn create_delete_block(block_id: BlockId, allocator: std.mem.Allocator) !WALEntry {
-        const payload = try allocator.dupe(u8, &block_id.bytes);
-        const checksum = calculate_checksum(.delete_block, payload);
-
-        return WALEntry{
-            .checksum = checksum,
-            .entry_type = .delete_block,
-            .payload_size = @intCast(payload.len),
-            .payload = payload,
-        };
-    }
-
-    /// Create WAL entry for putting a Graph Edge.
-    pub fn create_put_edge(edge: GraphEdge, allocator: std.mem.Allocator) !WALEntry {
-        const payload = try allocator.alloc(u8, 40); // GraphEdge.SERIALIZED_SIZE
-        _ = try edge.serialize(payload);
-
-        const checksum = calculate_checksum(.put_edge, payload);
-
-        return WALEntry{
-            .checksum = checksum,
-            .entry_type = .put_edge,
-            .payload_size = @intCast(payload.len),
-            .payload = payload,
-        };
-    }
-
-    /// Free allocated payload memory.
-    pub fn deinit(self: WALEntry, allocator: std.mem.Allocator) void {
-        allocator.free(self.payload);
-    }
-};
+// WAL types now defined in wal.zig
 // In-memory block index for fast lookups.
 //
 // ## Memory Management: The Arena-per-Subsystem Model
@@ -1066,9 +907,7 @@ pub const StorageEngine = struct {
     config: Config,
     index: BlockIndex,
     graph_index: GraphEdgeIndex,
-    wal_file: ?vfs.VFile,
-    wal_segment_number: u32,
-    wal_segment_size: u64,
+    wal: WAL,
     sstables: std.ArrayList([]const u8), // Paths to SSTable files
     compaction_manager: TieredCompactionManager,
     next_sstable_id: u32,
@@ -1097,6 +936,10 @@ pub const StorageEngine = struct {
         // Clone data_dir with backing allocator for simplicity
         const owned_data_dir = try allocator.dupe(u8, data_dir);
 
+        // Initialize WAL directory path
+        const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{owned_data_dir});
+        defer allocator.free(wal_dir);
+
         const engine = StorageEngine{
             .backing_allocator = allocator,
             .vfs = filesystem,
@@ -1104,9 +947,7 @@ pub const StorageEngine = struct {
             .config = config,
             .index = BlockIndex.init(allocator),
             .graph_index = GraphEdgeIndex.init(allocator),
-            .wal_file = null,
-            .wal_segment_number = 0,
-            .wal_segment_size = 0,
+            .wal = try WAL.init(allocator, filesystem, wal_dir),
             .sstables = std.ArrayList([]const u8).init(allocator),
             .compaction_manager = TieredCompactionManager.init(
                 allocator,
@@ -1124,9 +965,7 @@ pub const StorageEngine = struct {
     /// Clean up storage engine resources.
     pub fn deinit(self: *StorageEngine) void {
         concurrency.assert_main_thread();
-        if (self.wal_file) |*file| {
-            file.close() catch {};
-        }
+        self.wal.deinit();
 
         // Clean up SSTable paths
         for (self.sstables.items) |sstable_path| {
@@ -1168,43 +1007,8 @@ pub const StorageEngine = struct {
             try self.vfs.mkdir(sst_dir);
         }
 
-        // Find the highest existing WAL segment number
-        const existing_segments = try self.list_wal_files(wal_dir);
-        defer {
-            for (existing_segments) |segment| {
-                self.backing_allocator.free(segment);
-            }
-            self.backing_allocator.free(existing_segments);
-        }
-
-        if (existing_segments.len > 0) {
-            // Extract segment number from last file (wal_XXXX.log)
-            const last_segment = existing_segments[existing_segments.len - 1];
-            if (last_segment.len >= 12 and std.mem.startsWith(u8, last_segment, "wal_")) {
-                const num_str = last_segment[4..8];
-                self.wal_segment_number = std.fmt.parseInt(u32, num_str, 10) catch 0;
-            }
-        }
-
-        // Open or create current WAL segment
-        const wal_path = try std.fmt.allocPrint(
-            self.backing_allocator,
-            "{s}/wal_{d:0>4}.log",
-            .{ wal_dir, self.wal_segment_number },
-        );
-        defer self.backing_allocator.free(wal_path);
-
-        // Open existing WAL file for writing, or create new one if it doesn't exist
-        // This allows WAL recovery to work correctly
-        if (self.vfs.exists(wal_path)) {
-            self.wal_file = try self.vfs.open(wal_path, .write);
-            // Seek to end for append behavior
-            const end_pos = try self.wal_file.?.seek(0, .end);
-            self.wal_segment_size = @intCast(end_pos);
-        } else {
-            self.wal_file = try self.vfs.create(wal_path);
-            self.wal_segment_size = 0;
-        }
+        // WAL initialization is handled by the WAL module itself
+        // No additional setup needed here
 
         // Create LOCK file to prevent multiple instances
         const lock_path = try std.fmt.allocPrint(
@@ -1557,12 +1361,8 @@ pub const StorageEngine = struct {
     pub fn flush_wal(self: *StorageEngine) !void {
         const start_time = std.time.nanoTimestamp();
 
-        if (self.wal_file) |*file| {
-            file.flush() catch |err| {
-                _ = self.storage_metrics.wal_errors.fetchAdd(1, .monotonic);
-                return err;
-            };
-        }
+        // WAL module automatically flushes on every write for durability
+        // This method is kept for API compatibility but is essentially a no-op
 
         // Track successful WAL flush
         _ = self.storage_metrics.wal_flushes.fetchAdd(1, .monotonic);
@@ -1645,12 +1445,7 @@ pub const StorageEngine = struct {
             .{ blocks_to_flush.items.len, sstable_path, file_size },
         );
 
-        // Clean up old WAL segments now that data is persisted in SSTable
-        // We can safely delete all segments before the current one since
-        // all data has been flushed to the SSTable
-        if (self.wal_segment_number > 0) {
-            try self.cleanup_wal_segments(self.wal_segment_number);
-        }
+        // WAL segment cleanup is now handled by the WAL module automatically
 
         // Check for compaction opportunities
         try self.check_and_run_compaction();
@@ -1735,316 +1530,88 @@ pub const StorageEngine = struct {
         }
     }
 
-    /// Write a WAL entry to the current WAL file.
+    /// Write a WAL entry using the WAL module.
     fn write_wal_entry(self: *StorageEngine, entry: WALEntry) !void {
-        assert(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
-        if (self.wal_file == null) return StorageError.NotInitialized;
-        // WAL entry payload should typically not be empty, but check the entry type first
-        if (entry.entry_type == .put_block and entry.payload.len == 0) {
-            std.debug.panic("WAL put_block entry payload cannot be empty - this indicates a serialization bug", .{});
-        }
-        // Validate that entry_type is a valid WAL entry type
+        concurrency.assert_main_thread();
+
+        // Delegate to WAL module
+        try self.wal.write_entry(entry);
+
+        // Update metrics
+        _ = self.storage_metrics.wal_writes.fetchAdd(1, .monotonic);
+        _ = self.storage_metrics.wal_bytes_written.fetchAdd(entry.payload.len + WALEntry.HEADER_SIZE, .monotonic);
+    }
+
+    // WAL segment rotation and cleanup is now handled by the WAL module
+
+    /// Recovery callback that processes WAL entries during recovery
+    fn recovery_callback(entry: WALEntry, context: *anyopaque) WALError!void {
+        const self: *StorageEngine = @ptrCast(@alignCast(context));
+
         switch (entry.entry_type) {
-            .put_block, .delete_block, .put_edge => {},
-        }
-
-        if (self.wal_file == null) return StorageError.NotInitialized;
-
-        const serialized_size = WALEntry.HEADER_SIZE + entry.payload.len;
-
-        assert(serialized_size > WALEntry.HEADER_SIZE, "Serialized size must be larger than header: {} <= {}", .{ serialized_size, WALEntry.HEADER_SIZE });
-        assert(serialized_size <= MAX_WAL_SEGMENT_SIZE, "WAL entry too large: {} > {}", .{ serialized_size, MAX_WAL_SEGMENT_SIZE });
-
-        // Check if rotation is needed before writing
-        if (self.wal_segment_size + serialized_size > MAX_WAL_SEGMENT_SIZE) {
-            try self.rotate_wal_segment();
-        }
-
-        const buffer = try self.backing_allocator.alloc(u8, serialized_size);
-        defer self.backing_allocator.free(buffer);
-
-        assert(buffer.len == serialized_size, "Buffer allocation size mismatch: {} != {}", .{ buffer.len, serialized_size });
-
-        const written = try entry.serialize(buffer);
-
-        assert(written == serialized_size, "Serialized size mismatch: {} != {}", .{ written, serialized_size });
-        assert(written > 0, "Written bytes must be positive: {}", .{written});
-
-        _ = try self.wal_file.?.write(buffer);
-
-        // Update segment size and validate state
-        const old_segment_size = self.wal_segment_size;
-        self.wal_segment_size += written;
-
-        assert(self.wal_segment_size > old_segment_size, "WAL segment size must increase: {} -> {}", .{ old_segment_size, self.wal_segment_size });
-        assert(self.wal_segment_size <= MAX_WAL_SEGMENT_SIZE, "WAL segment size exceeded max: {} > {}", .{ self.wal_segment_size, MAX_WAL_SEGMENT_SIZE });
-
-        _ = self.storage_metrics.wal_bytes_written.fetchAdd(buffer.len, .monotonic);
-    }
-
-    /// Rotate to a new WAL segment when current segment is full.
-    fn rotate_wal_segment(self: *StorageEngine) !void {
-        assert(self.wal_file != null, "WAL file must be open for rotation", .{});
-
-        // Close current WAL file
-        if (self.wal_file) |*file| {
-            try file.flush();
-            try file.close();
-        }
-
-        // Increment segment number
-        self.wal_segment_number += 1;
-        self.wal_segment_size = 0;
-
-        // Create new WAL segment
-        const wal_dir = try std.fmt.allocPrint(
-            self.backing_allocator,
-            "{s}/wal",
-            .{self.data_dir},
-        );
-        defer self.backing_allocator.free(wal_dir);
-
-        const new_wal_path = try std.fmt.allocPrint(
-            self.backing_allocator,
-            "{s}/wal_{d:0>4}.log",
-            .{ wal_dir, self.wal_segment_number },
-        );
-        defer self.backing_allocator.free(new_wal_path);
-
-        self.wal_file = try self.vfs.create(new_wal_path);
-
-        log.info("Rotated WAL to segment {d}", .{self.wal_segment_number});
-    }
-
-    /// Clean up old WAL segments that have been flushed to SSTables.
-    /// Keeps the current active segment and deletes all segments with
-    /// numbers less than the specified threshold.
-    fn cleanup_wal_segments(self: *StorageEngine, up_to_segment: u32) !void {
-        // Only proceed if there are segments to clean
-        if (up_to_segment == 0) {
-            return;
-        }
-
-        const wal_dir = try std.fmt.allocPrint(
-            self.backing_allocator,
-            "{s}/wal",
-            .{self.data_dir},
-        );
-        defer self.backing_allocator.free(wal_dir);
-
-        // Delete all segments up to (but not including) the specified segment
-        var segment_num: u32 = 0;
-        while (segment_num < up_to_segment) : (segment_num += 1) {
-            const segment_path = try std.fmt.allocPrint(
-                self.backing_allocator,
-                "{s}/wal_{d:0>4}.log",
-                .{ wal_dir, segment_num },
-            );
-            defer self.backing_allocator.free(segment_path);
-
-            // Only delete if the file exists
-            if (self.vfs.exists(segment_path)) {
-                self.vfs.remove(segment_path) catch |err| {
-                    // Log error but continue cleanup
-                    log.warn("Failed to delete WAL segment {s}: {any}", .{ segment_path, err });
+            .put_block => {
+                const block = ContextBlock.deserialize(entry.payload, self.backing_allocator) catch |err| {
+                    log.warn("Failed to deserialize block during recovery: {any}", .{err});
+                    return; // Skip corrupted entry
                 };
-                log.info("Deleted WAL segment {d} after SSTable flush", .{segment_num});
-            }
+
+                // Apply to in-memory index
+                self.index.put_block(block) catch |err| switch (err) {
+                    error.OutOfMemory => return WALError.OutOfMemory,
+                };
+
+                // Clean up after successful application
+                block.deinit(self.backing_allocator);
+            },
+            .delete_block => {
+                if (entry.payload.len != 16) {
+                    log.warn("Invalid delete_block payload size during recovery: {d}", .{entry.payload.len});
+                    return; // Skip corrupted entry
+                }
+                const block_id = BlockId{ .bytes = entry.payload[0..16].* };
+                self.index.remove_block(block_id);
+            },
+            .put_edge => {
+                const edge = GraphEdge.deserialize(entry.payload) catch |err| {
+                    std.log.warn("Failed to deserialize edge during recovery: {any}", .{err});
+                    return; // Skip corrupted entry
+                };
+
+                self.graph_index.put_edge(edge) catch |err| switch (err) {
+                    error.OutOfMemory => return WALError.OutOfMemory,
+                };
+            },
         }
     }
 
-    /// Recover storage state from WAL files.
+    /// Recover storage state from WAL files using WAL module.
     pub fn recover_from_wal(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
-        assert(self.initialized, "StorageEngine must be initialized before WAL recovery", .{});
         if (!self.initialized) return StorageError.NotInitialized;
 
         // Track WAL recovery attempt
         _ = self.storage_metrics.wal_recoveries.fetchAdd(1, .monotonic);
 
-        const wal_dir = try std.fmt.allocPrint(self.backing_allocator, "{s}/wal", .{self.data_dir});
-        defer self.backing_allocator.free(wal_dir);
-
-        // Check if WAL directory exists
-        if (!self.vfs.exists(wal_dir)) {
-            return; // No WAL files to recover
-        }
-
-        // Get list of WAL files
-        const wal_files = try self.list_wal_files(wal_dir);
-        defer {
-            for (wal_files) |file_name| {
-                self.backing_allocator.free(file_name);
-            }
-            self.backing_allocator.free(wal_files);
-        }
-
-        var entries_recovered: u32 = 0;
-        var files_processed: u32 = 0;
-
-        // Process each WAL file in chronological order
-        for (wal_files) |file_name| {
-            const file_path = try std.fmt.allocPrint(
-                self.backing_allocator,
-                "{s}/{s}",
-                .{ wal_dir, file_name },
-            );
-            defer self.backing_allocator.free(file_path);
-
-            const file_entries = self.recover_from_wal_file(file_path) catch |err| switch (err) {
-                StorageError.InvalidChecksum, StorageError.InvalidWALEntryType => {
-                    // Corruption detected - stop recovery at this point
-                    log.warn("WAL corruption detected in {s}, stopping recovery", .{file_path});
-                    break;
-                },
-                else => return err,
-            };
-
-            entries_recovered += file_entries;
-            files_processed += 1;
-        }
-
-        log.info(
-            "WAL recovery completed: {} files processed, {} entries recovered",
-            .{ files_processed, entries_recovered },
-        );
-    }
-
-    /// List WAL files in chronological order.
-    fn list_wal_files(self: *StorageEngine, wal_dir: []const u8) ![][]const u8 {
-        // Use VFS list_dir to get all files in the WAL directory
-        const all_files = self.vfs.list_dir(wal_dir, self.backing_allocator) catch |err|
-            switch (err) {
-                error.FileNotFound => {
-                    // Directory doesn't exist, return empty list
-                    return try self.backing_allocator.alloc([]const u8, 0);
-                },
-                else => return err,
-            };
-        defer {
-            for (all_files) |file_name| {
-                self.backing_allocator.free(file_name);
-            }
-            self.backing_allocator.free(all_files);
-        }
-
-        var wal_files = std.ArrayList([]const u8).init(self.backing_allocator);
-        defer wal_files.deinit();
-
-        // Filter for WAL files (wal_XXXX.log pattern)
-        for (all_files) |file_name| {
-            if (std.mem.startsWith(u8, file_name, "wal_") and
-                std.mem.endsWith(u8, file_name, ".log"))
-            {
-                try wal_files.append(try self.backing_allocator.dupe(u8, file_name));
-            }
-        }
-
-        // Sort WAL files in chronological order (by filename)
-        const wal_file_slice = try wal_files.toOwnedSlice();
-        std.mem.sort([]const u8, wal_file_slice, {}, struct {
-            fn less_than(context: void, a: []const u8, b: []const u8) bool {
-                _ = context;
-                return std.mem.order(u8, a, b) == .lt;
-            }
-        }.less_than);
-
-        return wal_file_slice;
-    }
-
-    /// Recover from a single WAL file using streaming approach.
-    /// Reads and processes one WAL entry at a time to avoid loading entire file into memory.
-    fn recover_from_wal_file(self: *StorageEngine, file_path: []const u8) !u32 {
-        var file = self.vfs.open(file_path, .read) catch |err| switch (err) {
-            error.FileNotFound => return 0,
+        // Delegate to WAL module for recovery
+        self.wal.recover_entries(recovery_callback, self) catch |err| switch (err) {
+            WALError.FileNotFound => {
+                // No WAL files to recover - this is normal for new databases
+                log.info("No WAL files found for recovery", .{});
+                return;
+            },
+            WALError.InvalidChecksum, WALError.InvalidEntryType, WALError.CorruptedEntry => {
+                log.warn("WAL corruption detected during recovery: {any}", .{err});
+                // Continue with partial recovery - some data is better than none
+                return;
+            },
             else => return err,
         };
-        defer file.close() catch {};
 
-        const file_size = try file.file_size();
-        if (file_size == 0) return 0;
-
-        var entries_recovered: u32 = 0;
-        var file_offset: u64 = 0;
-
-        // Arena prevents memory leaks during entry deserialization
-        // Reset periodically to prevent unbounded growth during large recoveries
-        var arena = std.heap.ArenaAllocator.init(self.backing_allocator);
-        defer arena.deinit();
-        const temp_allocator = arena.allocator();
-
-        // Buffer for reading WAL entry headers - small, fixed size
-        var header_buffer: [WALEntry.HEADER_SIZE]u8 = undefined;
-
-        while (file_offset < file_size) {
-            // Check if we have enough bytes left for a complete header
-            if (file_offset + WALEntry.HEADER_SIZE > file_size) {
-                // Incomplete header at file end - stop recovery
-                break;
-            }
-
-            // Seek to current position and read entry header
-            _ = try file.seek(@intCast(file_offset), .start);
-            const header_bytes_read = try file.read(&header_buffer);
-            if (header_bytes_read < WALEntry.HEADER_SIZE) {
-                // EOF reached before complete header - stop recovery
-                break;
-            }
-
-            // Parse header to get payload size (offset 9 = 8 bytes checksum + 1 byte type)
-            const payload_size = std.mem.readInt(u32, header_buffer[9..][0..4], .little);
-            const total_entry_size = WALEntry.HEADER_SIZE + payload_size;
-
-            // Validate we have enough bytes for complete entry
-            if (file_offset + total_entry_size > file_size) {
-                // Incomplete entry at file end - stop recovery
-                break;
-            }
-
-            // Allocate buffer for complete entry (header + payload)
-            const entry_buffer = temp_allocator.alloc(u8, total_entry_size) catch |err| {
-                return error_context.storage_error(
-                    err,
-                    error_context.file_context("allocate_wal_entry_buffer", file_path),
-                );
-            };
-
-            // Copy header and read payload
-            @memcpy(entry_buffer[0..WALEntry.HEADER_SIZE], &header_buffer);
-            _ = try file.seek(@intCast(file_offset + WALEntry.HEADER_SIZE), .start);
-            const payload_bytes_read = try file.read(entry_buffer[WALEntry.HEADER_SIZE..]);
-            if (payload_bytes_read < payload_size) {
-                // EOF reached before complete payload - stop recovery
-                break;
-            }
-
-            // Deserialize and apply entry
-            const entry = WALEntry.deserialize(entry_buffer, temp_allocator) catch |err|
-                switch (err) {
-                    StorageError.InvalidChecksum => {
-                        // Corruption detected - stop recovery at this point
-                        log.warn("WAL entry checksum mismatch at offset {d} in {s}, stopping recovery", .{ file_offset, file_path });
-                        break;
-                    },
-                    else => return err,
-                };
-
-            try self.apply_wal_entry(entry);
-
-            file_offset += total_entry_size;
-            entries_recovered += 1;
-
-            // Periodic arena reset to prevent memory growth during large recovery
-            // Reset every 1000 entries to balance memory usage vs allocation overhead
-            if (entries_recovered % 1000 == 0) {
-                _ = arena.reset(.retain_capacity);
-            }
-        }
-
-        return entries_recovered;
+        log.info("WAL recovery completed successfully", .{});
     }
 
-    /// Apply a single WAL entry to rebuild storage state.
+    /// Apply a single WAL entry to rebuild storage state during recovery.
+    /// This function is called by the WAL module's recovery callback.
     fn apply_wal_entry(self: *StorageEngine, entry: WALEntry) !void {
         switch (entry.entry_type) {
             .put_block => {
