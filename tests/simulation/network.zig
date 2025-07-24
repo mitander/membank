@@ -35,11 +35,11 @@ test "network partition: write succeeds after partition heals" {
     try node1_vfs.mkdir("data");
 
     var file = try node1_vfs.create("data/block_001.db");
-    defer file.close() catch {};
+    defer file.close();
 
     const initial_data = "Initial block data";
     _ = try file.write(initial_data);
-    try file.close();
+    file.close();
 
     // Verify data was written
     try std.testing.expect(node1_vfs.exists("data/block_001.db"));
@@ -56,11 +56,10 @@ test "network partition: write succeeds after partition heals" {
 
     // Write additional data to node1 during partition
     var file2 = try node1_vfs.create("data/block_002.db");
-    defer file2.close() catch {};
+    defer file2.close();
 
     const partition_data = "Data written during partition";
     _ = try file2.write(partition_data);
-    try file2.close();
 
     // Heal the partition
     sim.heal_partition(node1, node3);
@@ -128,11 +127,11 @@ test "packet loss scenario: writes eventually succeed" {
     var node1_vfs = node1_ptr.filesystem_interface();
 
     var file = try node1_vfs.create("lossy_data.db");
-    defer file.close() catch {};
+    defer file.close();
 
     const test_data = "Data written with packet loss";
     _ = try file.write(test_data);
-    try file.close();
+    file.close();
 
     // Run simulation to allow retries
     sim.tick_multiple(100);
@@ -142,14 +141,14 @@ test "packet loss scenario: writes eventually succeed" {
 
     // Read back the data to verify integrity
     var read_file = try node1_vfs.open("lossy_data.db", .read);
-    defer read_file.force_close();
+    defer read_file.close();
 
     var buffer: [100]u8 = undefined;
     const bytes_read = try read_file.read(&buffer);
     try std.testing.expect(bytes_read == test_data.len);
     try std.testing.expect(std.mem.eql(u8, buffer[0..bytes_read], test_data));
 
-    try read_file.close();
+    read_file.close();
 }
 
 test "high latency scenario: operations complete despite delays" {
@@ -180,15 +179,13 @@ test "high latency scenario: operations complete despite delays" {
 
     // Write to node1
     var file1 = try node1_vfs.create("high_latency_node1.db");
-    defer file1.close() catch {};
+    defer file1.close();
     _ = try file1.write("Node1 data");
-    try file1.close();
 
     // Write to node2
     var file2 = try node2_vfs.create("high_latency_node2.db");
-    defer file2.close() catch {};
+    defer file2.close();
     _ = try file2.write("Node2 data");
-    try file2.close();
 
     // Run simulation to allow high-latency operations to complete
     sim.tick_multiple(100);
@@ -218,11 +215,11 @@ test "byzantine scenario: cluster handles corrupted messages" {
     var node1_vfs = node1_ptr.filesystem_interface();
 
     var file = try node1_vfs.create("byzantine_test.db");
-    defer file.close() catch {};
+    defer file.close();
 
     const test_data = "Byzantine fault tolerant data";
     _ = try file.write(test_data);
-    try file.close();
+    file.close();
 
     // Simulate network unreliability as proxy for byzantine behavior
     // True message corruption would require protocol-level fault injection
@@ -238,13 +235,13 @@ test "byzantine scenario: cluster handles corrupted messages" {
 
     // Read back data to verify integrity
     var read_file = try node1_vfs.open("byzantine_test.db", .read);
-    defer read_file.force_close();
+    defer read_file.close();
 
     var buffer: [100]u8 = undefined;
     const bytes_read = try read_file.read(&buffer);
     try std.testing.expect(std.mem.eql(u8, buffer[0..bytes_read], test_data));
 
-    try read_file.close();
+    read_file.close();
 }
 
 test "deterministic replay: same seed produces identical results" {
@@ -269,7 +266,7 @@ test "deterministic replay: same seed produces identical results" {
     var node1_vfs_a = node1_ptr_a.filesystem_interface();
     var file_a = try node1_vfs_a.create("replay_test.db");
     _ = try file_a.write("Deterministic data");
-    try file_a.close();
+    file_a.close();
 
     const state1 = try sim1.node_filesystem_state(node1_a);
     defer {
@@ -299,7 +296,7 @@ test "deterministic replay: same seed produces identical results" {
     var node1_vfs_b = node1_ptr_b.filesystem_interface();
     var file_b = try node1_vfs_b.create("replay_test.db");
     _ = try file_b.write("Deterministic data");
-    try file_b.close();
+    file_b.close();
 
     const state2 = try sim2.node_filesystem_state(node1_b);
     defer {
@@ -359,13 +356,13 @@ test "complex scenario: partition during write operations" {
         defer allocator.free(filename);
 
         var file = try node_vfs.create(filename);
-        defer file.close() catch {};
+        defer file.close();
 
         const data = try std.fmt.allocPrint(allocator, "Data from node {}", .{i});
         defer allocator.free(data);
 
         _ = try file.write(data);
-        try file.close();
+        file.close();
     }
 
     // Run for a few ticks
@@ -387,9 +384,8 @@ test "complex scenario: partition during write operations" {
     var node0_vfs = node0_ptr.filesystem_interface();
 
     var partition_file = try node0_vfs.create("partition_write.db");
-    defer partition_file.close() catch {};
     _ = try partition_file.write("Written during partition");
-    try partition_file.close();
+    partition_file.close();
 
     // Heal all partitions
     for (nodes[0..3]) |node_a| {
