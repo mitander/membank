@@ -360,7 +360,7 @@ test "wal recovery: corruption handling - invalid checksum" {
     // Manually corrupt the WAL file by modifying checksum
     const wal_file_path = "wal_corrupt_data/wal/wal_0000.log";
     var corrupt_file = try node1_vfs.open(wal_file_path, .read_write);
-    defer corrupt_file.close() catch {};
+    defer corrupt_file.force_close();
 
     // Read current content
     const file_size = try corrupt_file.file_size();
@@ -374,7 +374,7 @@ test "wal recovery: corruption handling - invalid checksum" {
     // Write back corrupted content
     _ = try corrupt_file.seek(0, .start);
     _ = try corrupt_file.write(content);
-    try corrupt_file.close();
+    try corrupt_file.flush();
 
     // Try to recover - should stop at corruption
     const data_dir2 = try allocator.dupe(u8, "wal_corrupt_data");

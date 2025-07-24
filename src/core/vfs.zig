@@ -85,8 +85,8 @@ pub const VFS = struct {
     vtable: *const VTable,
 
     pub const VTable = struct {
-        open: *const fn (ptr: *anyopaque, path: []const u8, mode: OpenMode) anyerror!VFile,
-        create: *const fn (ptr: *anyopaque, path: []const u8) anyerror!VFile,
+        open: *const fn (ptr: *anyopaque, path: []const u8, mode: OpenMode) anyerror!*VFileImpl,
+        create: *const fn (ptr: *anyopaque, path: []const u8) anyerror!*VFileImpl,
         remove: *const fn (ptr: *anyopaque, path: []const u8) anyerror!void,
         exists: *const fn (ptr: *anyopaque, path: []const u8) bool,
         mkdir: *const fn (ptr: *anyopaque, path: []const u8) anyerror!void,
@@ -120,11 +120,13 @@ pub const VFS = struct {
     };
 
     pub fn open(self: *VFS, path: []const u8, mode: OpenMode) anyerror!VFile {
-        return self.vtable.open(self.ptr, path, mode);
+        const impl = try self.vtable.open(self.ptr, path, mode);
+        return VFile.init(impl);
     }
 
     pub fn create(self: *VFS, path: []const u8) anyerror!VFile {
-        return self.vtable.create(self.ptr, path);
+        const impl = try self.vtable.create(self.ptr, path);
+        return VFile.init(impl);
     }
 
     pub fn remove(self: *VFS, path: []const u8) anyerror!void {
@@ -170,7 +172,7 @@ pub const VFS = struct {
     /// Read entire file content into allocated memory
     pub fn read_file_alloc(self: *VFS, allocator: std.mem.Allocator, path: []const u8, max_size: usize) ![]u8 {
         var file = try self.open(path, .read);
-        defer file.close() catch {};
+        defer file.force_close();
 
         const file_size = try file.file_size();
         if (file_size > max_size) {
@@ -201,7 +203,9 @@ pub const VFS = struct {
 };
 
 /// Virtual File handle.
-pub const VFile = struct {
+/// Internal VFile implementation with vtable interface.
+/// Users should not interact with this directly - use VFile instead.
+pub const VFileImpl = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
 
@@ -221,32 +225,102 @@ pub const VFile = struct {
         end,
     };
 
-    pub fn read(self: *VFile, buffer: []u8) anyerror!usize {
+    pub fn read(self: *VFileImpl, buffer: []u8) anyerror!usize {
         return self.vtable.read(self.ptr, buffer);
     }
 
-    pub fn write(self: *VFile, data: []const u8) anyerror!usize {
+    pub fn write(self: *VFileImpl, data: []const u8) anyerror!usize {
         return self.vtable.write(self.ptr, data);
     }
 
-    pub fn seek(self: *VFile, offset: i64, whence: SeekFrom) anyerror!u64 {
+    pub fn seek(self: *VFileImpl, offset: i64, whence: SeekFrom) anyerror!u64 {
         return self.vtable.seek(self.ptr, offset, whence);
     }
 
-    pub fn tell(self: *VFile) anyerror!u64 {
+    pub fn tell(self: *VFileImpl) anyerror!u64 {
         return self.vtable.tell(self.ptr);
     }
 
-    pub fn flush(self: *VFile) anyerror!void {
+    pub fn flush(self: *VFileImpl) anyerror!void {
         return self.vtable.flush(self.ptr);
     }
 
-    pub fn close(self: *VFile) anyerror!void {
+    pub fn close_impl(self: *VFileImpl) anyerror!void {
         return self.vtable.close(self.ptr);
     }
 
-    pub fn file_size(self: *VFile) anyerror!u64 {
+    pub fn file_size(self: *VFileImpl) anyerror!u64 {
         return self.vtable.file_size(self.ptr);
+    }
+};
+
+/// Ergonomic file handle with RAII resource management.
+/// This is the public API that users should interact with.
+pub const VFile = struct {
+    impl: *VFileImpl,
+    closed: bool,
+
+    pub const SeekFrom = VFileImpl.SeekFrom;
+
+    /// Create VFile from internal implementation.
+    /// Asserts file pointer is valid following defensive programming principles.
+    pub fn init(impl: *VFileImpl) VFile {
+        assert(@intFromPtr(impl) >= 0x1000); // Basic pointer sanity check
+        return VFile{
+            .impl = impl,
+            .closed = false,
+        };
+    }
+
+    /// Explicit close with proper error handling.
+    /// Unlike defer patterns, this allows caller to handle close errors appropriately.
+    pub fn close(self: *VFile) !void {
+        if (self.closed) return;
+
+        try self.impl.close_impl();
+        self.closed = true;
+    }
+
+    /// Force close for cleanup scenarios where error handling isn't possible.
+    /// Logs errors instead of silently swallowing them.
+    pub fn force_close(self: *VFile) void {
+        if (self.closed) return;
+
+        self.impl.close_impl() catch |err| {
+            std.log.err("Failed to close file: {any}", .{err});
+        };
+        self.closed = true;
+    }
+
+    /// Ergonomic wrapper methods with built-in safety checks
+    pub fn read(self: *VFile, buffer: []u8) !usize {
+        assert(!self.closed);
+        return self.impl.read(buffer);
+    }
+
+    pub fn write(self: *VFile, data: []const u8) !usize {
+        assert(!self.closed);
+        return self.impl.write(data);
+    }
+
+    pub fn seek(self: *VFile, offset: i64, whence: SeekFrom) !u64 {
+        assert(!self.closed);
+        return self.impl.seek(offset, whence);
+    }
+
+    pub fn tell(self: *VFile) !u64 {
+        assert(!self.closed);
+        return self.impl.tell();
+    }
+
+    pub fn flush(self: *VFile) !void {
+        assert(!self.closed);
+        return self.impl.flush();
+    }
+
+    pub fn file_size(self: *VFile) !u64 {
+        assert(!self.closed);
+        return self.impl.file_size();
     }
 };
 
@@ -283,7 +357,7 @@ pub const ProductionVFS = struct {
         .deinit = deinit,
     };
 
-    fn open(ptr: *anyopaque, path: []const u8, mode: VFS.OpenMode) anyerror!VFile {
+    fn open(ptr: *anyopaque, path: []const u8, mode: VFS.OpenMode) anyerror!*VFileImpl {
         const self: *Self = @ptrCast(@alignCast(ptr));
         const flags = switch (mode) {
             .read => std.fs.File.OpenFlags{ .mode = .read_only },
@@ -303,13 +377,15 @@ pub const ProductionVFS = struct {
         // Validate allocation immediately
         assert(file_wrapper.magic == PRODUCTION_FILE_MAGIC);
 
-        return VFile{
+        const vfile = try self.allocator.create(VFileImpl);
+        vfile.* = VFileImpl{
             .ptr = file_wrapper,
             .vtable = &ProductionFile.vtable,
         };
+        return vfile;
     }
 
-    fn create(ptr: *anyopaque, path: []const u8) anyerror!VFile {
+    fn create(ptr: *anyopaque, path: []const u8) anyerror!*VFileImpl {
         const self: *Self = @ptrCast(@alignCast(ptr));
         const file = try std.fs.cwd().createFile(path, .{});
         const file_wrapper = try self.allocator.create(ProductionFile);
@@ -323,10 +399,12 @@ pub const ProductionVFS = struct {
         // Validate allocation immediately
         assert(file_wrapper.magic == PRODUCTION_FILE_MAGIC);
 
-        return VFile{
+        const vfile = try self.allocator.create(VFileImpl);
+        vfile.* = VFileImpl{
             .ptr = file_wrapper,
             .vtable = &ProductionFile.vtable,
         };
+        return vfile;
     }
 
     fn remove(ptr: *anyopaque, path: []const u8) anyerror!void {
@@ -407,7 +485,7 @@ const ProductionFile = struct {
 
     const Self = @This();
 
-    const vtable = VFile.VTable{
+    const vtable = VFileImpl.VTable{
         .read = read,
         .write = write,
         .seek = seek,
@@ -505,7 +583,7 @@ test "production vfs basic operations" {
 
     // Create and write to file
     var file = try vfs_interface.create(test_file);
-    defer file.close() catch {};
+    defer file.force_close();
 
     const written = try file.write(test_data);
     try std.testing.expect(written == test_data.len);
@@ -518,7 +596,7 @@ test "production vfs basic operations" {
 
     // Read back the data
     var read_file = try vfs_interface.open(test_file, .read);
-    defer read_file.close() catch {};
+    defer read_file.force_close();
 
     var buffer: [100]u8 = undefined;
     const read_bytes = try read_file.read(&buffer);

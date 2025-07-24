@@ -29,6 +29,7 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
 const VFS = vfs.VFS;
+const VFile = vfs.VFile;
 const BloomFilter = bloom_filter.BloomFilter;
 
 /// SSTable file format:
@@ -341,7 +342,7 @@ pub const SSTable = struct {
     }
 
     /// Calculate CRC32 checksum over file content (excluding header checksum field and footer)
-    fn calculate_file_checksum(self: *SSTable, file: *vfs.VFile, content_end_offset: u64) !u32 {
+    fn calculate_file_checksum(self: *SSTable, file: *VFile, content_end_offset: u64) !u32 {
         _ = self;
         var crc = std.hash.Crc32.init();
 
@@ -368,7 +369,7 @@ pub const SSTable = struct {
     /// Read SSTable and load index
     pub fn read_index(self: *SSTable) !void {
         var file = try self.filesystem.open(self.file_path, .read);
-        defer file.close() catch {};
+        defer file.force_close();
 
         var header_buffer: [HEADER_SIZE]u8 = undefined;
         _ = try file.read(&header_buffer);
@@ -458,7 +459,7 @@ pub const SSTable = struct {
         const found_entry = entry orelse return null;
 
         var file = try self.filesystem.open(self.file_path, .read);
-        defer file.close() catch {};
+        defer file.force_close();
 
         _ = try file.seek(@intCast(found_entry.offset), .start);
 
@@ -845,7 +846,7 @@ test "SSTable checksum validation" {
     try std.testing.expectEqual(@as(u32, 1), sstable.block_count);
 
     var file = try sim_vfs.vfs().open("checksum_test.sst", .write);
-    defer file.close() catch {};
+    defer file.force_close();
 
     // Modify a byte in the block data section (after header)
     _ = try file.seek(SSTable.HEADER_SIZE + 10, .start);

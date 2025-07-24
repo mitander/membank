@@ -8,6 +8,7 @@ const assert = std.debug.assert;
 const vfs = @import("vfs");
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;
+const VFileImpl = vfs.VFileImpl;
 
 /// Simulation VFS that stores files in memory.
 pub const SimulationVFS = struct {
@@ -307,7 +308,7 @@ pub const SimulationVFS = struct {
         .deinit = deinit_vfs,
     };
 
-    fn open(ptr: *anyopaque, path: []const u8, mode: VFS.OpenMode) anyerror!VFile {
+    fn open(ptr: *anyopaque, path: []const u8, mode: VFS.OpenMode) anyerror!*VFileImpl {
         const self: *Self = @ptrCast(@alignCast(ptr));
 
         if (!self.files.contains(path)) {
@@ -330,13 +331,15 @@ pub const SimulationVFS = struct {
         };
         try self.file_handle_pool.append(file_wrapper);
 
-        return VFile{
+        const vfile = try self.allocator.create(VFileImpl);
+        vfile.* = VFileImpl{
             .ptr = file_wrapper,
             .vtable = &SimulationFile.vtable,
         };
+        return vfile;
     }
 
-    fn create(ptr: *anyopaque, path: []const u8) anyerror!VFile {
+    fn create(ptr: *anyopaque, path: []const u8) anyerror!*VFileImpl {
         const self: *Self = @ptrCast(@alignCast(ptr));
 
         // Check for I/O failure injection
@@ -388,10 +391,12 @@ pub const SimulationVFS = struct {
         };
         try self.file_handle_pool.append(file_wrapper);
 
-        return VFile{
+        const vfile = try self.allocator.create(VFileImpl);
+        vfile.* = VFileImpl{
             .ptr = file_wrapper,
             .vtable = &SimulationFile.vtable,
         };
+        return vfile;
     }
 
     fn remove(ptr: *anyopaque, path: []const u8) anyerror!void {
@@ -568,7 +573,7 @@ const SimulationFile = struct {
 
     const Self = @This();
 
-    const vtable = VFile.VTable{
+    const vtable = VFileImpl.VTable{
         .read = read,
         .write = write,
         .seek = seek,
@@ -710,19 +715,19 @@ test "simulation vfs basic operations" {
 
     // Create and write to file
     var file = try vfs_interface.create(test_file);
-    defer file.close() catch {};
+    defer file.force_close();
 
     const written = try file.write(test_data);
     try std.testing.expect(written == test_data.len);
 
-    try file.close();
+    try file.flush();
 
     // Verify file exists
     try std.testing.expect(vfs_interface.exists(test_file));
 
     // Read back the data
     var read_file = try vfs_interface.open(test_file, .read);
-    defer read_file.close() catch {};
+    defer read_file.force_close();
 
     var buffer: [100]u8 = undefined;
     const read_bytes = try read_file.read(&buffer);
@@ -807,7 +812,7 @@ test "fault injection - torn writes" {
     const test_data = "Hello, this is a test message for torn writes!";
 
     var file = try vfs_interface.create("test.txt");
-    defer file.close() catch {};
+    defer file.force_close();
 
     // Write should be torn (only partial data written)
     const written = try file.write(test_data);
@@ -819,7 +824,7 @@ test "fault injection - torn writes" {
 
     // Read back and verify partial content
     var read_file = try vfs_interface.open("test.txt", .read);
-    defer read_file.close() catch {};
+    defer read_file.force_close();
 
     var buffer: [100]u8 = undefined;
     const read_bytes = try read_file.read(&buffer);
@@ -842,12 +847,14 @@ test "fault injection - read corruption" {
     const test_data = "A" ** 1024; // 1KB of 'A's (0x41)
 
     var file = try vfs_interface.create("test.txt");
+    defer file.force_close();
+
     _ = try file.write(test_data);
     try file.close();
 
     // Read back - should have corruption
     var read_file = try vfs_interface.open("test.txt", .read);
-    defer read_file.close() catch {};
+    defer read_file.force_close();
 
     var buffer: [1024]u8 = undefined;
     const read_bytes = try read_file.read(&buffer);
@@ -879,7 +886,7 @@ test "fault injection - disk full" {
     const test_data = "This message is longer than 10 bytes";
 
     var file = try vfs_interface.create("test.txt");
-    defer file.close() catch {};
+    defer file.force_close();
 
     // Write should fail due to disk space limit
     const result = file.write(test_data);

@@ -142,7 +142,7 @@ test "packet loss scenario: writes eventually succeed" {
 
     // Read back the data to verify integrity
     var read_file = try node1_vfs.open("lossy_data.db", .read);
-    defer read_file.close() catch {};
+    defer read_file.force_close();
 
     var buffer: [100]u8 = undefined;
     const bytes_read = try read_file.read(&buffer);
@@ -238,7 +238,7 @@ test "byzantine scenario: cluster handles corrupted messages" {
 
     // Read back data to verify integrity
     var read_file = try node1_vfs.open("byzantine_test.db", .read);
-    defer read_file.close() catch {};
+    defer read_file.force_close();
 
     var buffer: [100]u8 = undefined;
     const bytes_read = try read_file.read(&buffer);
