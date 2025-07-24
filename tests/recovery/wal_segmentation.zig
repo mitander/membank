@@ -73,11 +73,19 @@ test "wal segmentation: rotation at size limit" {
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
     defer allocator.free(wal_dir);
 
-    const wal_files = try (&node_vfs).list_dir(wal_dir, allocator);
+    var dir_iterator = try (&node_vfs).iterate_directory(wal_dir, allocator);
+
+    var wal_files_list = std.ArrayList([]const u8).init(allocator);
     defer {
-        for (wal_files) |file| allocator.free(file);
-        allocator.free(wal_files);
+        for (wal_files_list.items) |file| allocator.free(file);
+        wal_files_list.deinit();
     }
+
+    while (dir_iterator.next()) |entry| {
+        const file_copy = try allocator.dupe(u8, entry.name);
+        try wal_files_list.append(file_copy);
+    }
+    const wal_files = wal_files_list.items;
 
     // We should have at least 2 segments after writing ~70MB
     try testing.expect(wal_files.len >= 2);
@@ -144,11 +152,19 @@ test "wal segmentation: cleanup after sstable flush" {
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
     defer allocator.free(wal_dir);
 
-    const pre_flush_files = try (&node_vfs).list_dir(wal_dir, allocator);
+    var pre_flush_iterator = try (&node_vfs).iterate_directory(wal_dir, allocator);
+
+    var pre_flush_files_list = std.ArrayList([]const u8).init(allocator);
     defer {
-        for (pre_flush_files) |file| allocator.free(file);
-        allocator.free(pre_flush_files);
+        for (pre_flush_files_list.items) |file| allocator.free(file);
+        pre_flush_files_list.deinit();
     }
+
+    while (pre_flush_iterator.next()) |entry| {
+        const file_copy = try allocator.dupe(u8, entry.name);
+        try pre_flush_files_list.append(file_copy);
+    }
+    const pre_flush_files = pre_flush_files_list.items;
 
     const segments_before = pre_flush_files.len;
     try testing.expect(segments_before >= 2);
@@ -157,11 +173,20 @@ test "wal segmentation: cleanup after sstable flush" {
     try engine.flush_memtable_to_sstable();
 
     // Check WAL segments after flush - old segments should be cleaned up
-    const post_flush_files = try (&node_vfs).list_dir(wal_dir, allocator);
+    var post_flush_iterator = try (&node_vfs).iterate_directory(wal_dir, allocator);
+
+    var post_flush_files_list = std.ArrayList([]const u8).init(allocator);
     defer {
-        for (post_flush_files) |file| allocator.free(file);
-        allocator.free(post_flush_files);
+        for (post_flush_files_list.items) |file| allocator.free(file);
+        post_flush_files_list.deinit();
     }
+
+    while (post_flush_iterator.next()) |entry| {
+        if (std.mem.startsWith(u8, entry.name, "segment-") and std.mem.endsWith(u8, entry.name, ".wal")) {
+            try post_flush_files_list.append(try allocator.dupe(u8, entry.name));
+        }
+    }
+    const post_flush_files = post_flush_files_list.items;
 
     // Should only have the current active segment
     try testing.expectEqual(@as(usize, 1), post_flush_files.len);
@@ -342,11 +367,19 @@ test "wal segmentation: segment number persistence" {
         const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
         defer allocator.free(wal_dir);
 
-        const wal_files = try (&node_vfs).list_dir(wal_dir, allocator);
+        var dir_iterator = try (&node_vfs).iterate_directory(wal_dir, allocator);
+
+        var wal_files_list = std.ArrayList([]const u8).init(allocator);
         defer {
-            for (wal_files) |file| allocator.free(file);
-            allocator.free(wal_files);
+            for (wal_files_list.items) |file| allocator.free(file);
+            wal_files_list.deinit();
         }
+
+        while (dir_iterator.next()) |entry| {
+            const file_copy = try allocator.dupe(u8, entry.name);
+            try wal_files_list.append(file_copy);
+        }
+        const wal_files = wal_files_list.items;
 
         // Should have multiple segments with sequential numbering
         try testing.expect(wal_files.len >= 2);
@@ -389,11 +422,19 @@ test "wal segmentation: empty segment handling" {
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
     defer allocator.free(wal_dir);
 
-    const wal_files = try (&node_vfs).list_dir(wal_dir, allocator);
+    var dir_iterator = try (&node_vfs).iterate_directory(wal_dir, allocator);
+
+    var wal_files_list = std.ArrayList([]const u8).init(allocator);
     defer {
-        for (wal_files) |file| allocator.free(file);
-        allocator.free(wal_files);
+        for (wal_files_list.items) |file| allocator.free(file);
+        wal_files_list.deinit();
     }
+
+    while (dir_iterator.next()) |entry| {
+        const file_copy = try allocator.dupe(u8, entry.name);
+        try wal_files_list.append(file_copy);
+    }
+    const wal_files = wal_files_list.items;
 
     try testing.expectEqual(@as(usize, 1), wal_files.len);
     try testing.expectEqualStrings("wal_0000.log", wal_files[0]);

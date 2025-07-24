@@ -357,16 +357,17 @@ pub const GitSource = struct {
             try std.fs.path.join(allocator, &.{ base_path, relative_path });
         defer allocator.free(full_path);
 
-        var dir_iter = file_system.iterate_directory(full_path) catch {
+        // Use proper directory iterator following arena-per-subsystem principle
+        var dir_iterator = file_system.iterate_directory(full_path, allocator) catch {
             return;
         };
-        defer dir_iter.deinit();
 
-        while (dir_iter.next()) |entry| {
+        while (dir_iterator.next()) |entry| {
+            const entry_name = entry.name;
             const entry_relative = if (relative_path.len == 0)
-                try allocator.dupe(u8, entry.name)
+                try allocator.dupe(u8, entry_name)
             else
-                try std.fs.path.join(allocator, &.{ relative_path, entry.name });
+                try std.fs.path.join(allocator, &.{ relative_path, entry_name });
             defer allocator.free(entry_relative);
 
             // Check if excluded
@@ -374,7 +375,11 @@ pub const GitSource = struct {
                 continue;
             }
 
+            // Use entry type from iterator (no need for separate stat call)
             switch (entry.kind) {
+                .directory => {
+                    try self.scan_directory_recursive(allocator, file_system, base_path, entry_relative, files);
+                },
                 .file => {
                     if (self.is_included(entry_relative)) {
                         const file_info = self.load_file_info(allocator, file_system, base_path, entry_relative) catch {
@@ -383,10 +388,7 @@ pub const GitSource = struct {
                         try files.append(file_info);
                     }
                 },
-                .directory => {
-                    try self.scan_directory_recursive(allocator, file_system, base_path, entry_relative, files);
-                },
-                else => continue,
+                else => {}, // Skip other types (symlinks, etc.)
             }
         }
     }

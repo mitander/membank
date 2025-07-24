@@ -147,7 +147,7 @@ pub const Node = struct {
     pub fn init(allocator: std.mem.Allocator, id: NodeId) !Self {
         return Self{
             .id = id,
-            .filesystem = sim_vfs.SimulationVFS.init(allocator),
+            .filesystem = try sim_vfs.SimulationVFS.init(allocator),
             .message_queue = std.ArrayList(Message).init(allocator),
             .allocator = allocator,
         };

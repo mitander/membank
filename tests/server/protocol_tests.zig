@@ -114,7 +114,7 @@ test "server initialization" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var storage_engine = try create_test_storage(allocator, sim_vfs.vfs());
@@ -203,7 +203,7 @@ test "server - connection limit configuration" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var storage_engine = try create_test_storage(allocator, sim_vfs.vfs());
@@ -232,7 +232,7 @@ test "server stats - initial values" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var storage_engine = try create_test_storage(allocator, sim_vfs.vfs());
@@ -307,7 +307,7 @@ test "server - engine references" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var storage_engine = try create_test_storage(allocator, sim_vfs.vfs());

@@ -109,6 +109,14 @@ pub const SSTable = struct {
         bloom_filter_size: u32, // 4 bytes: Size of serialized bloom filter
         reserved: [20]u8, // 20 bytes: Reserved for future use
 
+        // Compile-time guarantees for SSTable on-disk format integrity
+        comptime {
+            comptime_assert(@sizeOf(Header) == 64, "SSTable Header must be exactly 64 bytes for cache-aligned performance");
+            comptime_assert(HEADER_SIZE == @sizeOf(Header), "HEADER_SIZE constant must match actual Header struct size");
+            comptime_assert(4 + @sizeOf(u16) + @sizeOf(u16) + @sizeOf(u64) + @sizeOf(u32) +
+                @sizeOf(u32) + @sizeOf(u64) + @sizeOf(u64) + @sizeOf(u32) + 20 == 64, "SSTable Header field sizes must sum to exactly 64 bytes");
+        }
+
         pub fn serialize(self: Header, buffer: []u8) !void {
             assert(buffer.len >= HEADER_SIZE);
 
@@ -201,14 +209,6 @@ pub const SSTable = struct {
         }
     };
 
-    // Compile-time guarantees for SSTable on-disk format integrity
-    comptime {
-        comptime_assert(@sizeOf(Header) == 64, "SSTable Header must be exactly 64 bytes for cache-aligned performance");
-        comptime_assert(HEADER_SIZE == @sizeOf(Header), "HEADER_SIZE constant must match actual Header struct size");
-        comptime_assert(4 + @sizeOf(u16) + @sizeOf(u16) + @sizeOf(u64) + @sizeOf(u32) +
-            @sizeOf(u32) + @sizeOf(u64) + @sizeOf(u64) + @sizeOf(u32) + 20 == 64, "SSTable Header field sizes must sum to exactly 64 bytes");
-    }
-
     pub fn init(allocator: std.mem.Allocator, filesystem: VFS, file_path: []const u8) SSTable {
         return SSTable{
             .allocator = allocator,
@@ -244,7 +244,7 @@ pub const SSTable = struct {
         }.less_than);
 
         var file = try self.filesystem.create(self.file_path);
-        defer file.close() catch {};
+        defer file.close();
 
         var header_buffer: [HEADER_SIZE]u8 = undefined;
         @memset(&header_buffer, 0);
@@ -369,7 +369,7 @@ pub const SSTable = struct {
     /// Read SSTable and load index
     pub fn read_index(self: *SSTable) !void {
         var file = try self.filesystem.open(self.file_path, .read);
-        defer file.force_close();
+        defer file.close();
 
         var header_buffer: [HEADER_SIZE]u8 = undefined;
         _ = try file.read(&header_buffer);
@@ -459,7 +459,7 @@ pub const SSTable = struct {
         const found_entry = entry orelse return null;
 
         var file = try self.filesystem.open(self.file_path, .read);
-        defer file.force_close();
+        defer file.close();
 
         _ = try file.seek(@intCast(found_entry.offset), .start);
 
@@ -493,7 +493,7 @@ pub const SSTableIterator = struct {
 
     pub fn deinit(self: *SSTableIterator) void {
         if (self.file) |*file| {
-            file.close() catch {};
+            file.close();
         }
     }
 
@@ -846,7 +846,7 @@ test "SSTable checksum validation" {
     try std.testing.expectEqual(@as(u32, 1), sstable.block_count);
 
     var file = try sim_vfs.vfs().open("checksum_test.sst", .write);
-    defer file.force_close();
+    defer file.close() catch {};
 
     // Modify a byte in the block data section (after header)
     _ = try file.seek(SSTable.HEADER_SIZE + 10, .start);

@@ -294,9 +294,9 @@ test "wal recovery: multiple wal files" {
 
         // Write to file
         var file = try node1_vfs.create(wal_filename);
-        defer file.close() catch {};
+        defer file.close();
         _ = try file.write(buffer);
-        try file.close();
+        file.close();
     }
 
     // Now test recovery
@@ -360,7 +360,7 @@ test "wal recovery: corruption handling - invalid checksum" {
     // Manually corrupt the WAL file by modifying checksum
     const wal_file_path = "wal_corrupt_data/wal/wal_0000.log";
     var corrupt_file = try node1_vfs.open(wal_file_path, .read_write);
-    defer corrupt_file.force_close();
+    defer corrupt_file.close();
 
     // Read current content
     const file_size = try corrupt_file.file_size();
@@ -418,12 +418,12 @@ test "wal recovery: corruption handling - incomplete entry" {
     defer allocator.free(wal_file_path);
 
     var wal_file = try node1_vfs.create(wal_file_path);
-    defer wal_file.close() catch {};
+    defer wal_file.close();
 
     // Write only part of a WAL entry header (should be 9 bytes, write only 5)
     const incomplete_header = [_]u8{ 0x01, 0x02, 0x03, 0x04, 0x05 };
     _ = try wal_file.write(&incomplete_header);
-    try wal_file.close();
+    wal_file.close();
 
     // Try recovery
     const data_dir_copy = try allocator.dupe(u8, data_dir);

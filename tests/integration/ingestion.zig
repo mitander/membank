@@ -42,7 +42,7 @@ test "complete ingestion pipeline - git to storage" {
     const allocator = arena.allocator();
 
     // Setup simulation VFS
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     // Create a simulated Git repository with Zig files
@@ -148,7 +148,7 @@ test "zig parser extracts semantic units correctly" {
     const allocator = arena.allocator();
 
     // Setup simulation VFS
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     // Create test Zig file
@@ -319,7 +319,7 @@ test "git source handles missing repository gracefully" {
     const allocator = arena.allocator();
 
     // Setup simulation VFS
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     // Setup Git source pointing to non-existent repository
@@ -403,7 +403,7 @@ fn create_directory(sim_vfs: *simulation_vfs.SimulationVFS, path: []const u8) !v
 fn write_file(sim_vfs: *simulation_vfs.SimulationVFS, path: []const u8, content: []const u8) !void {
     var vfs_instance = sim_vfs.vfs();
     var file = try vfs_instance.create(path);
-    defer file.close() catch {};
+    defer file.close();
     _ = try file.write(content);
 }
 

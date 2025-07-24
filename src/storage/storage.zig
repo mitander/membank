@@ -1019,8 +1019,11 @@ pub const StorageEngine = struct {
         );
         defer self.backing_allocator.free(lock_path);
 
-        var lock_file = try self.vfs.create(lock_path);
-        defer lock_file.close() catch {};
+        var lock_file = self.vfs.create(lock_path) catch |err| switch (err) {
+            error.FileExists => try self.vfs.open(lock_path, .write),
+            else => return err,
+        };
+        defer lock_file.close();
 
         const process_id = 12345; // Placeholder PID for simulation
         const lock_content = try std.fmt.allocPrint(
@@ -1484,7 +1487,7 @@ pub const StorageEngine = struct {
     /// Read the size of a file in bytes.
     fn read_file_size(self: *StorageEngine, path: []const u8) !u64 {
         var file = try self.vfs.open(path, .read);
-        defer file.force_close();
+        defer file.close();
 
         return try file.file_size();
     }

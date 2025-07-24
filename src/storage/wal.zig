@@ -17,7 +17,6 @@ const error_context = @import("error_context");
 
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;
-const VFileImpl = vfs.VFileImpl;
 const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
@@ -301,7 +300,7 @@ pub const WALStats = struct {
 pub const WAL = struct {
     directory: []const u8,
     vfs: VFS,
-    active_file: ?*VFileImpl,
+    active_file: ?*VFile,
     segment_number: u32,
     segment_size: u64,
     allocator: std.mem.Allocator,
@@ -325,7 +324,7 @@ pub const WAL = struct {
 
         var vfs_copy = filesystem;
         vfs_copy.mkdir(directory) catch |err| switch (err) {
-            error.PathAlreadyExists => {},
+            error.FileExists => {},
             error.AccessDenied => return WALError.AccessDenied,
             error.FileNotFound => return WALError.FileNotFound,
             error.OutOfMemory => return WALError.OutOfMemory,
@@ -360,7 +359,8 @@ pub const WAL = struct {
     /// Safe to call multiple times.
     pub fn deinit(self: *WAL) void {
         if (self.active_file) |file| {
-            file.close_impl() catch {};
+            file.close();
+            file.deinit();
             self.allocator.destroy(file);
         }
         self.allocator.free(self.directory);
@@ -397,22 +397,10 @@ pub const WAL = struct {
         const bytes_written = try entry.serialize(buffer);
         assert(bytes_written == serialized_size);
 
-        // Active file must exist for writes - this is a critical invariant
-        assert(self.active_file != null);
-        const active_file = self.active_file.?;
-
-        const written = active_file.write(buffer) catch |err| switch (err) {
-            error.AccessDenied => return WALError.AccessDenied,
-            error.NoSpaceLeft => return WALError.IoError,
-            error.BrokenPipe => return WALError.IoError,
-            else => return WALError.IoError,
-        };
+        const written = self.active_file.?.write(buffer) catch return WALError.IoError;
         assert(written == buffer.len);
 
-        active_file.flush() catch |err| switch (err) {
-            error.AccessDenied => return WALError.AccessDenied,
-            else => return WALError.IoError,
-        };
+        self.active_file.?.flush() catch return WALError.IoError;
 
         const old_segment_size = self.segment_size;
         self.segment_size += bytes_written;
@@ -514,17 +502,16 @@ pub const WAL = struct {
             assert(segment_path.len < MAX_PATH_LENGTH);
 
             if (self.vfs.exists(segment_path)) {
-                const file = self.vfs.open(segment_path, .read_write) catch |err| switch (err) {
+                const vfile = self.vfs.open(segment_path, .read_write) catch |err| switch (err) {
                     error.FileNotFound => return WALError.FileNotFound,
                     error.AccessDenied => return WALError.AccessDenied,
                     error.OutOfMemory => return WALError.OutOfMemory,
                     else => return WALError.IoError,
                 };
-                self.active_file = file.impl;
-                assert(self.active_file != null);
-                const active_file = self.active_file.?;
-                const end_pos = active_file.seek(0, VFileImpl.SeekFrom.end) catch |err| switch (err) {
-                    error.AccessDenied => return WALError.AccessDenied,
+                self.active_file = try self.allocator.create(VFile);
+                self.active_file.?.* = vfile;
+                const end_pos = self.active_file.?.seek(0, VFile.SeekFrom.end) catch |err| switch (err) {
+                    error.InvalidSeek => return WALError.IoError,
                     else => return WALError.IoError,
                 };
                 self.segment_size = @intCast(end_pos);
@@ -536,12 +523,13 @@ pub const WAL = struct {
                     return WALError.CorruptedEntry;
                 }
             } else {
-                const file = self.vfs.create(segment_path) catch |err| switch (err) {
+                const vfile = self.vfs.create(segment_path) catch |err| switch (err) {
                     error.AccessDenied => return WALError.AccessDenied,
                     error.OutOfMemory => return WALError.OutOfMemory,
                     else => return WALError.IoError,
                 };
-                self.active_file = file.impl;
+                self.active_file = try self.allocator.create(VFile);
+                self.active_file.?.* = vfile;
                 self.segment_size = 0;
             }
         } else {
@@ -563,12 +551,13 @@ pub const WAL = struct {
         defer self.allocator.free(segment_path);
         assert(segment_path.len < MAX_PATH_LENGTH);
 
-        const file = self.vfs.create(segment_path) catch |err| switch (err) {
+        const vfile = self.vfs.create(segment_path) catch |err| switch (err) {
             error.AccessDenied => return WALError.AccessDenied,
             error.OutOfMemory => return WALError.OutOfMemory,
             else => return WALError.IoError,
         };
-        self.active_file = file.impl;
+        self.active_file = try self.allocator.create(VFile);
+        self.active_file.?.* = vfile;
         self.stats.segments_rotated += 1;
 
         // Segment creation must leave system in consistent write-ready state
@@ -585,7 +574,9 @@ pub const WAL = struct {
         assert(self.segment_number < std.math.maxInt(u32));
 
         if (self.active_file) |file| {
-            file.close_impl() catch {};
+            file.close();
+            file.deinit();
+            self.allocator.destroy(file);
             self.active_file = null;
         }
 
@@ -602,7 +593,7 @@ pub const WAL = struct {
     }
 
     fn list_segment_files(self: *WAL) WALError![][]const u8 {
-        const segment_files = self.vfs.list_dir(self.directory, self.allocator) catch |err|
+        var dir_iterator = self.vfs.iterate_directory(self.directory, self.allocator) catch |err|
             switch (err) {
                 error.FileNotFound => {
                     // Directory doesn't exist, return empty list
@@ -610,18 +601,13 @@ pub const WAL = struct {
                 },
                 else => return WALError.IoError,
             };
-        defer {
-            for (segment_files) |file_name| {
-                self.allocator.free(file_name);
-            }
-            self.allocator.free(segment_files);
-        }
 
         var wal_files = std.ArrayList([]const u8).init(self.allocator);
         defer wal_files.deinit();
 
         // Strict filename validation prevents processing of unrelated files
-        for (segment_files) |file_name| {
+        while (dir_iterator.next()) |entry| {
+            const file_name = entry.name;
             if (std.mem.startsWith(u8, file_name, WAL_FILE_PREFIX) and
                 std.mem.endsWith(u8, file_name, WAL_FILE_SUFFIX))
             {
@@ -637,9 +623,9 @@ pub const WAL = struct {
         // Lexicographic sort ensures chronological processing order
         const wal_file_slice = try wal_files.toOwnedSlice();
         std.sort.block([]const u8, wal_file_slice, {}, struct {
-            fn less_than(context: void, a: []const u8, b: []const u8) bool {
+            fn less_than(context: void, lhs: []const u8, rhs: []const u8) bool {
                 _ = context;
-                return std.mem.order(u8, a, b) == .lt;
+                return std.mem.order(u8, lhs, rhs) == .lt;
             }
         }.less_than);
 
@@ -657,7 +643,7 @@ pub const WAL = struct {
             error.OutOfMemory => return WALError.OutOfMemory,
             else => return WALError.IoError,
         };
-        defer file.force_close();
+        defer file.close();
 
         var entries_recovered: u32 = 0;
         var buffer: [8192]u8 = undefined;
@@ -667,11 +653,7 @@ pub const WAL = struct {
         comptime assert(@sizeOf(@TypeOf(buffer)) >= WALEntry.HEADER_SIZE * 4);
 
         while (true) {
-            const bytes_read = file.read(buffer[remaining.len..]) catch |err| switch (err) {
-                error.AccessDenied => return WALError.AccessDenied,
-                error.InputOutput => return WALError.IoError,
-                else => return WALError.IoError,
-            };
+            const bytes_read = file.read(buffer[remaining.len..]) catch return WALError.IoError;
             if (bytes_read == 0 and remaining.len == 0) break;
 
             const available = remaining.len + bytes_read;
@@ -721,7 +703,7 @@ pub const WAL = struct {
             // entries spanning buffer chunks without re-reading from disk
             if (pos < available) {
                 const leftover_size = available - pos;
-                @memcpy(buffer[0..leftover_size], buffer[pos..available]);
+                std.mem.copyForwards(u8, buffer[0..leftover_size], buffer[pos..available]);
                 remaining = buffer[0..leftover_size];
             } else {
                 remaining = &[_]u8{};
