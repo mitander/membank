@@ -3,6 +3,7 @@ const std = @import("std");
 // Module collection for easy management
 const CoreModules = struct {
     assert: *std.Build.Module,
+    stdx: *std.Build.Module,
     vfs: *std.Build.Module,
     production_vfs: *std.Build.Module,
     context_block: *std.Build.Module,
@@ -29,6 +30,11 @@ fn create_core_modules(b: *std.Build) CoreModules {
     const assert_module = b.createModule(.{
         .root_source_file = b.path("src/core/assert.zig"),
     });
+
+    const stdx_module = b.createModule(.{
+        .root_source_file = b.path("src/core/stdx.zig"),
+    });
+    stdx_module.addImport("assert", assert_module);
 
     const vfs_module = b.createModule(.{
         .root_source_file = b.path("src/core/vfs.zig"),
@@ -97,6 +103,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
         .root_source_file = b.path("src/storage/storage.zig"),
     });
     storage_module.addImport("assert", assert_module);
+    storage_module.addImport("stdx", stdx_module);
     storage_module.addImport("vfs", vfs_module);
     storage_module.addImport("context_block", context_block_module);
     storage_module.addImport("sstable", sstable_module);
@@ -172,6 +179,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
 
     return CoreModules{
         .assert = assert_module,
+        .stdx = stdx_module,
         .vfs = vfs_module,
         .production_vfs = production_vfs_module,
         .context_block = context_block_module,
