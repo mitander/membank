@@ -7,6 +7,7 @@
 //! detection while maintaining deterministic performance characteristics.
 
 const std = @import("std");
+const stdx = @import("stdx");
 const log = std.log.scoped(.wal);
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -300,7 +301,7 @@ pub const WALStats = struct {
 pub const WAL = struct {
     directory: []const u8,
     vfs: VFS,
-    active_file: ?*VFile,
+    active_file: ?VFile,
     segment_number: u32,
     segment_size: u64,
     allocator: std.mem.Allocator,
@@ -349,8 +350,8 @@ pub const WAL = struct {
 
         try wal.initialize_active_segment();
 
-        // Active file must exist unless this is the very first initialization
-        assert(wal.active_file != null or wal.segment_number == 0);
+        // Active file must exist after successful initialization
+        assert(wal.active_file != null);
 
         return wal;
     }
@@ -358,10 +359,9 @@ pub const WAL = struct {
     /// Release all WAL resources including active file handles and directory path.
     /// Safe to call multiple times.
     pub fn deinit(self: *WAL) void {
-        if (self.active_file) |file| {
+        if (self.active_file) |*file| {
             file.close();
             file.deinit();
-            self.allocator.destroy(file);
         }
         self.allocator.free(self.directory);
     }
@@ -508,8 +508,7 @@ pub const WAL = struct {
                     error.OutOfMemory => return WALError.OutOfMemory,
                     else => return WALError.IoError,
                 };
-                self.active_file = try self.allocator.create(VFile);
-                self.active_file.?.* = vfile;
+                self.active_file = vfile;
                 const end_pos = self.active_file.?.seek(0, VFile.SeekFrom.end) catch |err| switch (err) {
                     error.InvalidSeek => return WALError.IoError,
                     else => return WALError.IoError,
@@ -528,8 +527,7 @@ pub const WAL = struct {
                     error.OutOfMemory => return WALError.OutOfMemory,
                     else => return WALError.IoError,
                 };
-                self.active_file = try self.allocator.create(VFile);
-                self.active_file.?.* = vfile;
+                self.active_file = vfile;
                 self.segment_size = 0;
             }
         } else {
@@ -556,8 +554,7 @@ pub const WAL = struct {
             error.OutOfMemory => return WALError.OutOfMemory,
             else => return WALError.IoError,
         };
-        self.active_file = try self.allocator.create(VFile);
-        self.active_file.?.* = vfile;
+        self.active_file = vfile;
         self.stats.segments_rotated += 1;
 
         // Segment creation must leave system in consistent write-ready state
@@ -573,10 +570,9 @@ pub const WAL = struct {
         assert(self.segment_size > 0);
         assert(self.segment_number < std.math.maxInt(u32));
 
-        if (self.active_file) |file| {
+        if (self.active_file) |*file| {
             file.close();
             file.deinit();
-            self.allocator.destroy(file);
             self.active_file = null;
         }
 
@@ -593,7 +589,16 @@ pub const WAL = struct {
     }
 
     fn list_segment_files(self: *WAL) WALError![][]const u8 {
-        var dir_iterator = self.vfs.iterate_directory(self.directory, self.allocator) catch |err|
+        // Use temporary arena for directory iteration to prevent memory leaks
+        var temp_arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer temp_arena.deinit();
+        const temp_allocator = temp_arena.allocator();
+
+        // Defensive limit to prevent runaway directory iteration
+        const MAX_SEGMENTS = 10000;
+        var iteration_count: u32 = 0;
+
+        var dir_iterator = self.vfs.iterate_directory(self.directory, temp_allocator) catch |err|
             switch (err) {
                 error.FileNotFound => {
                     // Directory doesn't exist, return empty list
@@ -607,6 +612,12 @@ pub const WAL = struct {
 
         // Strict filename validation prevents processing of unrelated files
         while (dir_iterator.next()) |entry| {
+            iteration_count += 1;
+            if (iteration_count > MAX_SEGMENTS) {
+                log.err("Directory iteration exceeded maximum segments limit: {d}", .{MAX_SEGMENTS});
+                return WALError.IoError;
+            }
+
             const file_name = entry.name;
             if (std.mem.startsWith(u8, file_name, WAL_FILE_PREFIX) and
                 std.mem.endsWith(u8, file_name, WAL_FILE_SUFFIX))
@@ -636,6 +647,10 @@ pub const WAL = struct {
         // Path validation prevents buffer overflows in file operations
         assert(file_path.len > 0);
         assert(file_path.len < MAX_PATH_LENGTH);
+
+        // Defensive limit to prevent runaway entry processing
+        const MAX_ENTRIES_PER_SEGMENT = 1_000_000;
+        var entries_processed: u32 = 0;
 
         var file = self.vfs.open(file_path, .read) catch |err| switch (err) {
             error.FileNotFound => return WALError.FileNotFound,
@@ -693,7 +708,21 @@ pub const WAL = struct {
 
                 entry.deinit(self.allocator);
                 entries_recovered += 1;
+                entries_processed += 1;
+
+                // Defensive check: prevent runaway processing
+                if (entries_processed > MAX_ENTRIES_PER_SEGMENT) {
+                    log.err("WAL segment exceeded maximum entries limit: {d}", .{MAX_ENTRIES_PER_SEGMENT});
+                    return WALError.IoError;
+                }
+
+                // Defensive check: ensure we're making progress
+                const old_pos = pos;
                 pos += entry_size;
+                if (pos <= old_pos) {
+                    log.err("WAL recovery not making progress at position {d}", .{pos});
+                    return WALError.IoError;
+                }
 
                 // Position overflow indicates buffer management logic error
                 assert(pos <= available);
@@ -703,7 +732,10 @@ pub const WAL = struct {
             // entries spanning buffer chunks without re-reading from disk
             if (pos < available) {
                 const leftover_size = available - pos;
-                std.mem.copyForwards(u8, buffer[0..leftover_size], buffer[pos..available]);
+                // Only copy if we actually need to move data (pos > 0)
+                if (pos > 0) {
+                    stdx.copy_left(u8, buffer[0..leftover_size], buffer[pos..available]);
+                }
                 remaining = buffer[0..leftover_size];
             } else {
                 remaining = &[_]u8{};
