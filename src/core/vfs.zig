@@ -223,7 +223,7 @@ pub const VFS = struct {
 
     /// Read entire file into caller-provided arena allocator.
     /// Memory is owned by the arena and freed atomically on arena reset.
-    pub fn read_file_alloc(self: VFS, allocator: std.mem.Allocator, path: []const u8, max_size: usize) VFSError![]u8 {
+    pub fn read_file_alloc(self: VFS, allocator: std.mem.Allocator, path: []const u8, max_size: usize) (VFSError || VFileError)![]u8 {
         var file = try self.open(path, .read);
         defer file.close();
 
@@ -245,21 +245,27 @@ pub const VFS = struct {
     }
 };
 
-/// Virtual File interface providing platform-abstracted file operations
+/// Virtual File interface providing platform-abstracted file operations.
+/// VFile is a value type that manages its own resources internally,
+/// following the arena-per-subsystem memory management pattern.
 pub const VFile = struct {
-    file_impl: *anyopaque,
-    vtable: *const VTable,
-    allocator: std.mem.Allocator,
+    impl: union(enum) {
+        production: ProductionFileImpl,
+        simulation: SimulationFileImpl,
+    },
 
-    pub const VTable = struct {
-        read: *const fn (ptr: *anyopaque, buffer: []u8) VFileError!usize,
-        write: *const fn (ptr: *anyopaque, data: []const u8) VFileError!usize,
-        seek: *const fn (ptr: *anyopaque, pos: u64, whence: SeekFrom) VFileError!u64,
-        tell: *const fn (ptr: *anyopaque) VFileError!u64,
-        flush: *const fn (ptr: *anyopaque) VFileError!void,
-        close: *const fn (ptr: *anyopaque) void,
-        file_size: *const fn (ptr: *anyopaque) VFileError!u64,
-        destroy: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
+    const ProductionFileImpl = struct {
+        file: std.fs.File,
+        closed: bool,
+    };
+
+    const SimulationFileImpl = struct {
+        vfs_ptr: *anyopaque,
+        handle: u32,
+        position: u64,
+        mode: VFS.OpenMode,
+        closed: bool,
+        get_data_fn: *const fn (*anyopaque, u32) ?*SimulationFileData,
     };
 
     pub const SeekFrom = enum(u8) {
@@ -268,38 +274,201 @@ pub const VFile = struct {
         end = 0x03,
     };
 
-    // Delegation methods for type-safe interface
+    // Public interface methods
 
-    pub fn read(self: VFile, buffer: []u8) VFileError!usize {
-        return self.vtable.read(self.file_impl, buffer);
+    pub fn read(self: *VFile, buffer: []u8) VFileError!usize {
+        return switch (self.impl) {
+            .production => |*prod| blk: {
+                if (prod.closed) return VFileError.FileClosed;
+                break :blk prod.file.read(buffer) catch |err| switch (err) {
+                    error.AccessDenied => VFileError.ReadError,
+                    error.Unexpected => VFileError.IoError,
+                    else => VFileError.IoError,
+                };
+            },
+            .simulation => |*sim| blk: {
+                if (sim.closed) return VFileError.FileClosed;
+                if (!sim.mode.can_read()) return VFileError.ReadError;
+                
+                // Get file data via stable handle
+                const data = sim.get_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                
+                const available = @min(buffer.len, data.content.items.len - sim.position);
+                if (available == 0) break :blk 0;
+                
+                @memcpy(buffer[0..available], data.content.items[sim.position..sim.position + available]);
+                sim.position += available;
+                break :blk available;
+            },
+        };
     }
 
-    pub fn write(self: VFile, data: []const u8) VFileError!usize {
-        return self.vtable.write(self.file_impl, data);
+    pub fn write(self: *VFile, data: []const u8) VFileError!usize {
+        return switch (self.impl) {
+            .production => |*prod| blk: {
+                if (prod.closed) return VFileError.FileClosed;
+                break :blk prod.file.write(data) catch |err| switch (err) {
+                    error.AccessDenied => VFileError.WriteError,
+                    error.NoSpaceLeft => VFileError.WriteError,
+                    error.Unexpected => VFileError.IoError,
+                    else => VFileError.IoError,
+                };
+            },
+            .simulation => |*sim| blk: {
+                if (sim.closed) return VFileError.FileClosed;
+                if (!sim.mode.can_write()) return VFileError.WriteError;
+                
+                // Get file data via stable handle
+                const file_data = sim.get_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                
+                // Extend content if writing past end
+                if (sim.position + data.len > file_data.content.items.len) {
+                    try file_data.content.resize(sim.position + data.len);
+                }
+                
+                @memcpy(file_data.content.items[sim.position..sim.position + data.len], data);
+                sim.position += data.len;
+                file_data.modified_time = @intCast(std.time.nanoTimestamp());
+                break :blk data.len;
+            },
+        };
     }
 
-    pub fn seek(self: VFile, pos: u64, whence: SeekFrom) VFileError!u64 {
-        return self.vtable.seek(self.file_impl, pos, whence);
+    pub fn seek(self: *VFile, pos: u64, whence: SeekFrom) VFileError!u64 {
+        return switch (self.impl) {
+            .production => |*prod| blk: {
+                if (prod.closed) return VFileError.FileClosed;
+                const target_pos = switch (whence) {
+                    .start => pos,
+                    .current => blk2: {
+                        const current_pos = prod.file.getPos() catch return VFileError.IoError;
+                        break :blk2 current_pos + pos;
+                    },
+                    .end => blk2: {
+                        const file_end = prod.file.getEndPos() catch return VFileError.IoError;
+                        break :blk2 file_end + pos;
+                    },
+                };
+                
+                prod.file.seekTo(target_pos) catch |err| {
+                    return switch (err) {
+                        error.Unseekable => VFileError.InvalidSeek,
+                        else => VFileError.IoError,
+                    };
+                };
+                
+                break :blk prod.file.getPos() catch VFileError.IoError;
+            },
+            .simulation => |*sim| blk: {
+                if (sim.closed) return VFileError.FileClosed;
+                
+                // Get file data via stable handle
+                const file_data = sim.get_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                
+                const target_pos = switch (whence) {
+                    .start => pos,
+                    .current => sim.position + pos,
+                    .end => file_data.content.items.len + pos,
+                };
+                
+                sim.position = target_pos;
+                break :blk target_pos;
+            },
+        };
     }
 
-    pub fn tell(self: VFile) VFileError!u64 {
-        return self.vtable.tell(self.file_impl);
+    pub fn tell(self: *VFile) VFileError!u64 {
+        return switch (self.impl) {
+            .production => |*prod| blk: {
+                if (prod.closed) return VFileError.FileClosed;
+                break :blk prod.file.getPos() catch VFileError.IoError;
+            },
+            .simulation => |*sim| blk: {
+                if (sim.closed) return VFileError.FileClosed;
+                break :blk sim.position;
+            },
+        };
     }
 
-    pub fn flush(self: VFile) VFileError!void {
-        return self.vtable.flush(self.file_impl);
+    pub fn flush(self: *VFile) VFileError!void {
+        return switch (self.impl) {
+            .production => |*prod| blk: {
+                if (prod.closed) return VFileError.FileClosed;
+                prod.file.sync() catch |err| {
+                    break :blk switch (err) {
+                        error.AccessDenied => VFileError.WriteError,
+                        else => VFileError.IoError,
+                    };
+                };
+            },
+            .simulation => |*sim| blk: {
+                if (sim.closed) return VFileError.FileClosed;
+                // Simulation files are always "flushed" (in memory)
+                break :blk;
+            },
+        };
     }
 
-    pub fn close(self: VFile) void {
-        self.vtable.close(self.file_impl);
+    pub fn close(self: *VFile) void {
+        switch (self.impl) {
+            .production => |*prod| {
+                if (!prod.closed) {
+                    prod.file.close();
+                    prod.closed = true;
+                }
+            },
+            .simulation => |*sim| {
+                sim.closed = true;
+            },
+        }
     }
 
-    pub fn file_size(self: VFile) VFileError!u64 {
-        return self.vtable.file_size(self.file_impl);
+    pub fn file_size(self: *VFile) VFileError!u64 {
+        return switch (self.impl) {
+            .production => |*prod| blk: {
+                if (prod.closed) return VFileError.FileClosed;
+                const size = prod.file.getEndPos() catch |err| {
+                    return switch (err) {
+                        error.AccessDenied => VFileError.ReadError,
+                        else => VFileError.IoError,
+                    };
+                };
+                
+                // Defensive validation of file size
+                if (size > MAX_REASONABLE_FILE_SIZE) {
+                    return VFileError.IoError;
+                }
+                
+                break :blk size;
+            },
+            .simulation => |*sim| blk: {
+                if (sim.closed) return VFileError.FileClosed;
+                
+                // Get file data via stable handle
+                const file_data = sim.get_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                
+                break :blk file_data.content.items.len;
+            },
+        };
     }
 
-    /// Release file resources. Safe to call after close().
+    /// No-op for value type - resources managed by parent systems
     pub fn deinit(self: VFile) void {
-        self.vtable.destroy(self.file_impl, self.allocator);
+        _ = self;
+        // VFile is a value type - no manual cleanup needed
+        // Production files are closed via close()
+        // Simulation data is owned by VFS arena
     }
 };
+
+/// Simulation file data structure used by VFile.
+/// This must match the structure used by SimulationVFS implementations.
+pub const SimulationFileData = struct {
+    content: std.ArrayList(u8),
+    created_time: i64,
+    modified_time: i64,
+    is_directory: bool,
+};
+
+// Re-export ProductionVFS for backwards compatibility
+pub const ProductionVFS = @import("production_vfs.zig").ProductionVFS;

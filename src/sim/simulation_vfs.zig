@@ -12,14 +12,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
-const vfs = @import("vfs");
+const vfs_mod = @import("vfs");
 
-const VFS = vfs.VFS;
-const VFile = vfs.VFile;
-const VFSError = vfs.VFSError;
-const VFileError = vfs.VFileError;
-const DirectoryIterator = vfs.DirectoryIterator;
-const DirectoryEntry = vfs.DirectoryEntry;
+const VFS = vfs_mod.VFS;
+const VFile = vfs_mod.VFile;
+const VFSError = vfs_mod.VFSError;
+const VFileError = vfs_mod.VFileError;
+const DirectoryIterator = vfs_mod.DirectoryIterator;
+const DirectoryEntry = vfs_mod.DirectoryEntry;
 
 /// Maximum path length for defensive validation across platforms
 const MAX_PATH_LENGTH = 4096;
@@ -43,33 +43,33 @@ comptime {
     assert(SIMULATION_FILE_MAGIC != std.math.maxInt(u64));
 }
 
+/// Stable file handle for lifetime management
+const FileHandle = u32;
+
+/// File storage with stable references
+const FileStorage = struct {
+    data: vfs_mod.SimulationFileData,
+    path: []const u8,
+    handle: FileHandle,
+    active: bool,
+};
+
 /// Simulation VFS providing deterministic in-memory filesystem operations
 pub const SimulationVFS = struct {
     allocator: std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
-    files: std.StringHashMap(FileData),
+    files: std.StringHashMap(FileHandle),
+    file_storage: std.ArrayList(FileStorage),
     next_file_id: u64,
+    next_handle: FileHandle,
     current_time_ns: i64,
     fault_injection: FaultInjectionState,
 
     const Self = @This();
 
     /// File metadata and content storage for in-memory filesystem
-    const FileData = struct {
-        content: std.ArrayList(u8),
-        created_time: i64,
-        modified_time: i64,
-        is_directory: bool,
+    const FileData = vfs_mod.SimulationFileData;
 
-        fn init(allocator: std.mem.Allocator, is_directory: bool, current_time: i64) FileData {
-            return FileData{
-                .content = std.ArrayList(u8).init(allocator),
-                .created_time = current_time,
-                .modified_time = current_time,
-                .is_directory = is_directory,
-            };
-        }
-    };
 
     /// Fault injection configuration for deterministic failure simulation
     pub const FaultInjectionState = struct {
@@ -193,8 +193,10 @@ pub const SimulationVFS = struct {
         return SimulationVFS{
             .allocator = allocator,
             .arena = arena,
-            .files = std.StringHashMap(FileData).init(allocator),
+            .files = std.StringHashMap(FileHandle).init(allocator),
+            .file_storage = std.ArrayList(FileStorage).init(allocator),
             .next_file_id = 1,
+            .next_handle = 1,
             .current_time_ns = 1_700_000_000_000_000_000, // Fixed epoch for determinism
             .fault_injection = FaultInjectionState.init(seed),
         };
@@ -245,19 +247,72 @@ pub const SimulationVFS = struct {
         self.fault_injection.max_disk_space = max_bytes;
         // Recalculate current usage
         self.fault_injection.used_disk_space = 0;
-        var iterator = self.files.iterator();
-        while (iterator.next()) |entry| {
-            self.fault_injection.used_disk_space += entry.value_ptr.content.items.len;
+        for (self.file_storage.items) |storage| {
+            if (storage.active) {
+                self.fault_injection.used_disk_space += storage.data.content.items.len;
+            }
+        }
+    }
+
+    /// Get stable pointer to file data by handle
+    fn get_file_data(self: *SimulationVFS, handle: FileHandle) ?*vfs_mod.SimulationFileData {
+        for (self.file_storage.items) |*storage| {
+            if (storage.handle == handle and storage.active) {
+                return &storage.data;
+            }
+        }
+        return null;
+    }
+
+    /// Function pointer wrapper for VFile
+    fn get_file_data_fn(vfs_ptr: *anyopaque, handle: u32) ?*vfs_mod.SimulationFileData {
+        const self: *SimulationVFS = @ptrCast(@alignCast(vfs_ptr));
+        return self.get_file_data(handle);
+    }
+
+    /// Create new file storage entry
+    fn create_file_storage(self: *SimulationVFS, path: []const u8, data: vfs_mod.SimulationFileData) !FileHandle {
+        const handle = self.next_handle;
+        self.next_handle += 1;
+        
+        const path_copy = try self.allocator.dupe(u8, path);
+        
+        try self.file_storage.append(FileStorage{
+            .data = data,
+            .path = path_copy,
+            .handle = handle,
+            .active = true,
+        });
+        
+        return handle;
+    }
+
+    /// Remove file storage entry
+    fn remove_file_storage(self: *SimulationVFS, handle: FileHandle) void {
+        for (self.file_storage.items) |*storage| {
+            if (storage.handle == handle and storage.active) {
+                self.allocator.free(storage.path);
+                storage.active = false;
+                break;
+            }
         }
     }
 
     pub fn deinit(self: *SimulationVFS) void {
-        // Free path keys (HashMap structure uses regular allocator)
-        var iterator = self.files.iterator();
-        while (iterator.next()) |entry| {
+        // Free path keys and file storage
+        var file_iter = self.files.iterator();
+        while (file_iter.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
         }
         self.files.deinit();
+        
+        // Free file storage paths
+        for (self.file_storage.items) |storage| {
+            if (storage.active) {
+                self.allocator.free(storage.path);
+            }
+        }
+        self.file_storage.deinit();
 
         // Arena handles all file content cleanup
         self.arena.deinit();
@@ -278,7 +333,7 @@ pub const SimulationVFS = struct {
     }
 
     /// Export filesystem state for deterministic testing verification
-    pub fn state(self: *const SimulationVFS, allocator: std.mem.Allocator) ![]FileState {
+    pub fn state(self: *SimulationVFS, allocator: std.mem.Allocator) ![]FileState {
         var states = std.ArrayList(FileState).init(allocator);
         errdefer {
             for (states.items) |file_state| {
@@ -292,19 +347,22 @@ pub const SimulationVFS = struct {
 
         var iterator = self.files.iterator();
         while (iterator.next()) |entry| {
+            const handle = entry.value_ptr.*;
+            const file_data = self.get_file_data(handle) orelse continue;
+            
             const path = try allocator.dupe(u8, entry.key_ptr.*);
-            const content = if (!entry.value_ptr.is_directory)
-                try allocator.dupe(u8, entry.value_ptr.content.items)
+            const content = if (!file_data.is_directory)
+                try allocator.dupe(u8, file_data.content.items)
             else
                 null;
 
             try states.append(FileState{
                 .path = path,
                 .content = content,
-                .is_directory = entry.value_ptr.is_directory,
-                .size = entry.value_ptr.content.items.len,
-                .created_time = entry.value_ptr.created_time,
-                .modified_time = entry.value_ptr.modified_time,
+                .is_directory = file_data.is_directory,
+                .size = file_data.content.items.len,
+                .created_time = file_data.created_time,
+                .modified_time = file_data.modified_time,
             });
         }
 
@@ -350,30 +408,22 @@ pub const SimulationVFS = struct {
             return VFSError.IoError;
         }
 
-        if (!self.files.contains(path)) {
-            return VFSError.FileNotFound;
-        }
-
-        const file_data = self.files.getPtr(path).?;
+        const handle = self.files.get(path) orelse return VFSError.FileNotFound;
+        const file_data = self.get_file_data(handle) orelse return VFSError.FileNotFound;
+        
         if (file_data.is_directory) {
             return VFSError.IsDirectory;
         }
 
-        const sim_file = try self.allocator.create(SimulationFile);
-        sim_file.* = SimulationFile{
-            .magic = SIMULATION_FILE_MAGIC,
-            .data = file_data,
-            .position = 0,
-            .mode = mode,
-            .allocator = self.allocator,
-            .vfs = self,
-            .closed = false,
-        };
-
         return VFile{
-            .file_impl = sim_file,
-            .vtable = &SimulationFile.vtable_impl,
-            .allocator = self.allocator,
+            .impl = .{ .simulation = .{
+                .vfs_ptr = ptr,
+                .handle = handle,
+                .position = 0,
+                .mode = mode,
+                .closed = false,
+                .get_data_fn = get_file_data_fn,
+            }},
         };
     }
 
@@ -394,27 +444,29 @@ pub const SimulationVFS = struct {
             return VFSError.IoError; // Disk full
         }
 
+        const file_data = FileData{
+            .content = std.ArrayList(u8).init(self.arena.allocator()),
+            .created_time = self.current_time_ns,
+            .modified_time = self.current_time_ns,
+            .is_directory = false,
+        };
+        
+        const handle = try self.create_file_storage(path, file_data);
+        
         const path_copy = try self.allocator.dupe(u8, path);
         errdefer self.allocator.free(path_copy);
-
-        const file_data = FileData.init(self.arena.allocator(), false, self.current_time_ns);
-        try self.files.put(path_copy, file_data);
-
-        const sim_file = try self.allocator.create(SimulationFile);
-        sim_file.* = SimulationFile{
-            .magic = SIMULATION_FILE_MAGIC,
-            .data = self.files.getPtr(path_copy).?,
-            .position = 0,
-            .mode = .write,
-            .allocator = self.allocator,
-            .vfs = self,
-            .closed = false,
-        };
+        
+        try self.files.put(path_copy, handle);
 
         return VFile{
-            .file_impl = sim_file,
-            .vtable = &SimulationFile.vtable_impl,
-            .allocator = self.allocator,
+            .impl = .{ .simulation = .{
+                .vfs_ptr = ptr,
+                .handle = handle,
+                .position = 0,
+                .mode = .write,
+                .closed = false,
+                .get_data_fn = get_file_data_fn,
+            }},
         };
     }
 
@@ -426,11 +478,9 @@ pub const SimulationVFS = struct {
             return VFSError.IoError;
         }
 
-        if (!self.files.contains(path)) {
-            return VFSError.FileNotFound;
-        }
-
-        const file_data = self.files.get(path).?;
+        const handle = self.files.get(path) orelse return VFSError.FileNotFound;
+        const file_data = self.get_file_data(handle) orelse return VFSError.FileNotFound;
+        
         if (file_data.is_directory) {
             return VFSError.IsDirectory;
         }
@@ -441,6 +491,9 @@ pub const SimulationVFS = struct {
         // Remove the file (arena owns file content, we only free the path key)
         const removed_entry = self.files.fetchRemove(path).?;
         self.allocator.free(removed_entry.key);
+        
+        // Mark file storage as inactive
+        self.remove_file_storage(handle);
     }
 
     fn exists(ptr: *anyopaque, path: []const u8) bool {
@@ -461,11 +514,19 @@ pub const SimulationVFS = struct {
             return VFSError.FileExists;
         }
 
+        const dir_data = FileData{
+            .content = std.ArrayList(u8).init(self.arena.allocator()),
+            .created_time = self.current_time_ns,
+            .modified_time = self.current_time_ns,
+            .is_directory = true,
+        };
+        
+        const handle = try self.create_file_storage(path, dir_data);
+        
         const path_copy = try self.allocator.dupe(u8, path);
         errdefer self.allocator.free(path_copy);
-
-        const dir_data = FileData.init(self.arena.allocator(), true, self.current_time_ns);
-        try self.files.put(path_copy, dir_data);
+        
+        try self.files.put(path_copy, handle);
     }
 
     fn mkdir_all(ptr: *anyopaque, path: []const u8) VFSError!void {
@@ -473,7 +534,8 @@ pub const SimulationVFS = struct {
         assert(path.len > 0 and path.len < MAX_PATH_LENGTH);
 
         if (self.files.contains(path)) {
-            const file_data = self.files.get(path).?;
+            const handle = self.files.get(path).?;
+            const file_data = self.get_file_data(handle) orelse return VFSError.FileNotFound;
             if (file_data.is_directory) {
                 return; // Success - directory already exists
             } else {
@@ -490,11 +552,9 @@ pub const SimulationVFS = struct {
         const self: *Self = @ptrCast(@alignCast(ptr));
         assert(path.len > 0 and path.len < MAX_PATH_LENGTH);
 
-        if (!self.files.contains(path)) {
-            return VFSError.FileNotFound;
-        }
-
-        const file_data = self.files.get(path).?;
+        const handle = self.files.get(path) orelse return VFSError.FileNotFound;
+        const file_data = self.get_file_data(handle) orelse return VFSError.FileNotFound;
+        
         if (!file_data.is_directory) {
             return VFSError.NotDirectory;
         }
@@ -514,6 +574,9 @@ pub const SimulationVFS = struct {
         // Remove the directory (arena owns file content, we only free the path key)
         const removed_entry = self.files.fetchRemove(path).?;
         self.allocator.free(removed_entry.key);
+        
+        // Mark file storage as inactive
+        self.remove_file_storage(handle);
     }
 
     /// Iterate directory entries using caller-provided arena allocator.
@@ -523,11 +586,9 @@ pub const SimulationVFS = struct {
         const self: *Self = @ptrCast(@alignCast(ptr));
         assert(path.len > 0 and path.len < MAX_PATH_LENGTH);
 
-        if (!self.files.contains(path)) {
-            return VFSError.FileNotFound;
-        }
-
-        const file_data = self.files.get(path).?;
+        const handle = self.files.get(path) orelse return VFSError.FileNotFound;
+        const file_data = self.get_file_data(handle) orelse return VFSError.FileNotFound;
+        
         if (!file_data.is_directory) {
             return VFSError.NotDirectory;
         }
@@ -544,9 +605,12 @@ pub const SimulationVFS = struct {
             {
                 const relative_path = file_path[path.len + 1 ..];
                 if (std.mem.indexOf(u8, relative_path, "/") == null) {
+                    const child_handle = entry.value_ptr.*;
+                    const child_data = self.get_file_data(child_handle) orelse continue;
+                    
                     // This is a direct child - allocate name in caller's arena
                     const name = try allocator.dupe(u8, relative_path);
-                    const kind = if (entry.value_ptr.is_directory)
+                    const kind = if (child_data.is_directory)
                         DirectoryEntry.Kind.directory
                     else
                         DirectoryEntry.Kind.file;
@@ -581,7 +645,7 @@ pub const SimulationVFS = struct {
         const new_path_copy = try self.allocator.dupe(u8, new_path);
         errdefer self.allocator.free(new_path_copy);
 
-        // Move the file data
+        // Move the file handle
         const removed_entry = self.files.fetchRemove(old_path).?;
         self.allocator.free(removed_entry.key);
         try self.files.put(new_path_copy, removed_entry.value);
@@ -591,11 +655,9 @@ pub const SimulationVFS = struct {
         const self: *Self = @ptrCast(@alignCast(ptr));
         assert(path.len > 0 and path.len < MAX_PATH_LENGTH);
 
-        if (!self.files.contains(path)) {
-            return VFSError.FileNotFound;
-        }
+        const handle = self.files.get(path) orelse return VFSError.FileNotFound;
+        const file_data = self.get_file_data(handle) orelse return VFSError.FileNotFound;
 
-        const file_data = self.files.get(path).?;
         return VFS.FileStat{
             .size = file_data.content.items.len,
             .created_time = file_data.created_time,
@@ -619,164 +681,6 @@ pub const SimulationVFS = struct {
         _ = allocator;
         _ = self;
         // SimulationVFS resources are cleaned up by explicit deinit() call
-    }
-};
-
-/// Simulation file implementation wrapping in-memory content
-const SimulationFile = struct {
-    magic: u64,
-    data: *SimulationVFS.FileData,
-    position: u64,
-    mode: VFS.OpenMode,
-    allocator: std.mem.Allocator,
-    vfs: *SimulationVFS,
-    closed: bool,
-
-    const Self = @This();
-
-    const vtable_impl = VFile.VTable{
-        .read = read,
-        .write = write,
-        .seek = seek,
-        .tell = tell,
-        .flush = flush,
-        .close = close,
-        .file_size = file_size,
-        .destroy = destroy,
-    };
-
-    fn read(ptr: *anyopaque, buffer: []u8) VFileError!usize {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == SIMULATION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-        if (!self.mode.can_read()) return VFileError.ReadError;
-
-        if (self.vfs.fault_injection.should_fail_operation(.{ .read = true })) {
-            return VFileError.IoError;
-        }
-
-        const content = self.data.content.items;
-        if (self.position >= content.len) {
-            return 0; // End of file
-        }
-
-        const available = @min(buffer.len, content.len - self.position);
-        @memcpy(buffer[0..available], content[self.position .. self.position + available]);
-
-        // Apply read corruption simulation
-        self.vfs.fault_injection.apply_read_corruption(buffer[0..available]);
-
-        self.position += available;
-        return available;
-    }
-
-    fn write(ptr: *anyopaque, data: []const u8) VFileError!usize {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == SIMULATION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-        if (!self.mode.can_write()) return VFileError.WriteError;
-
-        if (self.vfs.fault_injection.should_fail_operation(.{ .write = true })) {
-            return VFileError.IoError;
-        }
-
-        // Check for torn write simulation
-        const write_size = if (self.vfs.fault_injection.should_torn_write(data.len)) |torn_size|
-            torn_size
-        else
-            data.len;
-
-        // Check disk space before writing
-        const old_size = self.data.content.items.len;
-        const new_size = @max(old_size, self.position + write_size);
-        const size_increase = if (new_size > old_size) new_size - old_size else 0;
-
-        if (!self.vfs.fault_injection.check_disk_space(size_increase)) {
-            return VFileError.WriteError; // Disk full
-        }
-
-        // Extend content if writing past end
-        if (self.position + write_size > self.data.content.items.len) {
-            try self.data.content.resize(self.position + write_size);
-        }
-
-        // Copy data to buffer
-        @memcpy(self.data.content.items[self.position .. self.position + write_size], data[0..write_size]);
-        self.position += write_size;
-
-        // Update disk usage and modification time
-        self.vfs.fault_injection.update_disk_usage(old_size, self.data.content.items.len);
-        self.data.modified_time = self.vfs.current_time_ns;
-
-        return write_size;
-    }
-
-    fn seek(ptr: *anyopaque, pos: u64, whence: VFile.SeekFrom) VFileError!u64 {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == SIMULATION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-
-        const new_position = switch (whence) {
-            .start => pos,
-            .current => self.position + pos,
-            .end => self.data.content.items.len + pos,
-        };
-
-        self.position = new_position;
-        return new_position;
-    }
-
-    fn tell(ptr: *anyopaque) VFileError!u64 {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == SIMULATION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-
-        return self.position;
-    }
-
-    fn flush(ptr: *anyopaque) VFileError!void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == SIMULATION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-
-        // Simulation VFS flush is a no-op since everything is already in memory
-    }
-
-    fn close(ptr: *anyopaque) void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == SIMULATION_FILE_MAGIC);
-
-        if (!self.closed) {
-            self.closed = true;
-        }
-    }
-
-    fn file_size(ptr: *anyopaque) VFileError!u64 {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == SIMULATION_FILE_MAGIC);
-        if (self.closed) return VFileError.FileClosed;
-
-        const size = self.data.content.items.len;
-        // Defensive validation of file size
-        if (size > MAX_REASONABLE_FILE_SIZE) {
-            return VFileError.IoError;
-        }
-
-        return size;
-    }
-
-    fn destroy(ptr: *anyopaque, allocator: std.mem.Allocator) void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == SIMULATION_FILE_MAGIC);
-
-        // Ensure file is closed before destroying
-        if (!self.closed) {
-            close(self);
-        }
-
-        // Poison the magic number to catch use-after-free in debug builds
-        self.magic = 0xDEADDEAD;
-        allocator.destroy(self);
     }
 };
 
