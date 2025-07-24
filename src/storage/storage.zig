@@ -21,6 +21,7 @@ const tiered_compaction = @import("tiered_compaction");
 const wal = @import("wal.zig");
 
 const VFS = vfs.VFS;
+
 const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
@@ -1483,7 +1484,7 @@ pub const StorageEngine = struct {
     /// Read the size of a file in bytes.
     fn read_file_size(self: *StorageEngine, path: []const u8) !u64 {
         var file = try self.vfs.open(path, .read);
-        defer file.close() catch {};
+        defer file.force_close();
 
         return try file.file_size();
     }
