@@ -430,7 +430,7 @@ pub const GitSource = struct {
             .relative_path = try allocator.dupe(u8, relative_path),
             .content = content,
             .size = stat.size,
-            .modified_time_ns = stat.modified_time,
+            .modified_time_ns = @intCast(stat.modified_time),
             .content_type = try allocator.dupe(u8, content_type),
         };
     }

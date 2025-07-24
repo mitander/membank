@@ -41,11 +41,11 @@ test "fault injection - simulation vfs infrastructure" {
 
     // Create a test file and write to it
     var file = try vfs_interface.create("test_torn_write.txt");
-    defer file.close() catch {};
+    defer file.close();
 
     const test_data = "This is a test message that should be partially written";
     const written = try file.write(test_data);
-    try file.close();
+    file.close();
 
     // Verify torn write occurred
     try testing.expect(written < test_data.len);
@@ -55,7 +55,7 @@ test "fault injection - simulation vfs infrastructure" {
     sim_vfs.configure_disk_space_limit(10);
 
     var file2 = try vfs_interface.create("test_disk_full.txt");
-    defer file2.close() catch {};
+    defer file2.close();
 
     const large_data = "This data exceeds the disk limit";
     const result = file2.write(large_data);
@@ -95,9 +95,8 @@ test "fault injection - disk full during compaction" {
             .content = content,
         };
 
-        storage_engine.put_block(block) catch |err| {
+        storage_engine.put_block(block) catch {
             // Any error during storage indicates resource exhaustion
-            _ = err;
             break;
         };
         blocks_written += 1;
@@ -162,10 +161,9 @@ test "fault injection - read corruption during query" {
 
 fn calculate_disk_usage(sim_vfs: *SimulationVFS) u64 {
     var total_usage: u64 = 0;
-    var iterator = sim_vfs.files.iterator();
-    while (iterator.next()) |entry| {
-        if (!entry.value_ptr.is_directory) {
-            total_usage += entry.value_ptr.content.items.len;
+    for (sim_vfs.file_storage.items) |file_entry| {
+        if (file_entry.active and !file_entry.data.is_directory) {
+            total_usage += file_entry.data.content.items.len;
         }
     }
     return total_usage;

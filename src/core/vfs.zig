@@ -42,6 +42,7 @@ pub const VFSError = error{
     OutOfMemory,
     IoError,
     Unsupported,
+    NoSpaceLeft,
 };
 
 /// VFile-specific errors for file operations
@@ -51,6 +52,7 @@ pub const VFileError = error{
     WriteError,
     FileClosed,
     IoError,
+    NoSpaceLeft,
 } || std.mem.Allocator.Error;
 
 /// Directory entry with type information for efficient filtering
@@ -265,7 +267,9 @@ pub const VFile = struct {
         position: u64,
         mode: VFS.OpenMode,
         closed: bool,
-        get_data_fn: *const fn (*anyopaque, u32) ?*SimulationFileData,
+        file_data_fn: *const fn (*anyopaque, u32) ?*SimulationFileData,
+        current_time_fn: *const fn (*anyopaque) i64,
+        fault_injection_fn: *const fn (*anyopaque, usize) VFileError!usize,
     };
 
     pub const SeekFrom = enum(u8) {
@@ -289,14 +293,19 @@ pub const VFile = struct {
             .simulation => |*sim| blk: {
                 if (sim.closed) return VFileError.FileClosed;
                 if (!sim.mode.can_read()) return VFileError.ReadError;
-                
+
+                // Defensive validation of simulation state
+                assert(@intFromPtr(sim.vfs_ptr) >= 0x1000);
+                assert(sim.handle > 0);
+                assert(!sim.closed);
+
                 // Get file data via stable handle
-                const data = sim.get_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
-                
+                const data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+
                 const available = @min(buffer.len, data.content.items.len - sim.position);
                 if (available == 0) break :blk 0;
-                
-                @memcpy(buffer[0..available], data.content.items[sim.position..sim.position + available]);
+
+                @memcpy(buffer[0..available], data.content.items[sim.position .. sim.position + available]);
                 sim.position += available;
                 break :blk available;
             },
@@ -317,19 +326,29 @@ pub const VFile = struct {
             .simulation => |*sim| blk: {
                 if (sim.closed) return VFileError.FileClosed;
                 if (!sim.mode.can_write()) return VFileError.WriteError;
-                
+
+                // Defensive validation of write parameters
+                assert(@intFromPtr(sim.vfs_ptr) >= 0x1000);
+                assert(sim.handle > 0);
+                assert(data.len > 0);
+
+                // Check fault injection (torn writes, disk space limits, etc.)
+                const actual_write_size = sim.fault_injection_fn(sim.vfs_ptr, data.len) catch |err| {
+                    return err;
+                };
+
                 // Get file data via stable handle
-                const file_data = sim.get_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
-                
+                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+
                 // Extend content if writing past end
-                if (sim.position + data.len > file_data.content.items.len) {
-                    try file_data.content.resize(sim.position + data.len);
+                if (sim.position + actual_write_size > file_data.content.items.len) {
+                    try file_data.content.resize(sim.position + actual_write_size);
                 }
-                
-                @memcpy(file_data.content.items[sim.position..sim.position + data.len], data);
-                sim.position += data.len;
-                file_data.modified_time = @intCast(std.time.nanoTimestamp());
-                break :blk data.len;
+
+                @memcpy(file_data.content.items[sim.position .. sim.position + actual_write_size], data[0..actual_write_size]);
+                sim.position += actual_write_size;
+                file_data.modified_time = sim.current_time_fn(sim.vfs_ptr);
+                break :blk actual_write_size;
             },
         };
     }
@@ -349,28 +368,33 @@ pub const VFile = struct {
                         break :blk2 file_end + pos;
                     },
                 };
-                
+
                 prod.file.seekTo(target_pos) catch |err| {
                     return switch (err) {
                         error.Unseekable => VFileError.InvalidSeek,
                         else => VFileError.IoError,
                     };
                 };
-                
+
                 break :blk prod.file.getPos() catch VFileError.IoError;
             },
             .simulation => |*sim| blk: {
                 if (sim.closed) return VFileError.FileClosed;
-                
+
+                // Defensive validation of simulation state
+                assert(@intFromPtr(sim.vfs_ptr) >= 0x1000);
+                assert(sim.handle > 0);
+                assert(!sim.closed);
+
                 // Get file data via stable handle
-                const file_data = sim.get_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
-                
+                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+
                 const target_pos = switch (whence) {
                     .start => pos,
                     .current => sim.position + pos,
                     .end => file_data.content.items.len + pos,
                 };
-                
+
                 sim.position = target_pos;
                 break :blk target_pos;
             },
@@ -433,20 +457,25 @@ pub const VFile = struct {
                         else => VFileError.IoError,
                     };
                 };
-                
+
                 // Defensive validation of file size
                 if (size > MAX_REASONABLE_FILE_SIZE) {
                     return VFileError.IoError;
                 }
-                
+
                 break :blk size;
             },
             .simulation => |*sim| blk: {
                 if (sim.closed) return VFileError.FileClosed;
-                
+
+                // Defensive validation of simulation state
+                assert(@intFromPtr(sim.vfs_ptr) >= 0x1000);
+                assert(sim.handle > 0);
+                assert(!sim.closed);
+
                 // Get file data via stable handle
-                const file_data = sim.get_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
-                
+                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+
                 break :blk file_data.content.items.len;
             },
         };
@@ -469,4 +498,3 @@ pub const SimulationFileData = struct {
     modified_time: i64,
     is_directory: bool,
 };
-

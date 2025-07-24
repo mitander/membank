@@ -344,7 +344,7 @@ test "pipeline handles parsing errors gracefully" {
     const allocator = arena.allocator();
 
     // Setup simulation VFS
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     // Create repository with unsupported file type
