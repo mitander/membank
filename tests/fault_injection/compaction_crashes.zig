@@ -66,7 +66,7 @@ test "compaction crash - recovery from partial sstable write" {
     const vfs_interface = sim_vfs.vfs();
 
     // Initial setup and population
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, "test_db");
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -101,7 +101,7 @@ test "compaction crash - recovery from partial sstable write" {
     sim_vfs.enable_io_failures(0, .{ .write = true });
 
     // Create new storage engine instance to simulate restart after crash
-    var recovered_engine = try StorageEngine.init(allocator, vfs_interface, "test_db");
+    var recovered_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer recovered_engine.deinit();
 
     try recovered_engine.initialize_storage();
@@ -156,7 +156,7 @@ test "compaction crash - recovery with orphaned files" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, "test_db");
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -187,7 +187,7 @@ test "compaction crash - recovery with orphaned files" {
     // Disable fault injection and restart
     sim_vfs.enable_io_failures(0, .{ .remove = true });
 
-    var recovered_engine = try StorageEngine.init(allocator, vfs_interface, "test_db");
+    var recovered_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer recovered_engine.deinit();
 
     try recovered_engine.initialize_storage();
@@ -238,7 +238,7 @@ test "compaction crash - multiple sequential crash recovery" {
     const max_crashes = 3;
 
     while (crash_count < max_crashes) : (crash_count += 1) {
-        var storage_engine = try StorageEngine.init(allocator, vfs_interface, "test_db");
+        var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
         defer storage_engine.deinit();
 
         try storage_engine.initialize_storage();
@@ -265,7 +265,7 @@ test "compaction crash - multiple sequential crash recovery" {
     }
 
     // Final recovery test
-    var final_engine = try StorageEngine.init(allocator, vfs_interface, "test_db");
+    var final_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer final_engine.deinit();
 
     try final_engine.initialize_storage();
@@ -300,7 +300,7 @@ test "compaction crash - torn write recovery" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, "test_db");
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -320,7 +320,7 @@ test "compaction crash - torn write recovery" {
     sim_vfs.enable_torn_writes(0, 0, 0);
 
     // Recovery test
-    var recovered_engine = try StorageEngine.init(allocator, vfs_interface, "test_db");
+    var recovered_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer recovered_engine.deinit();
 
     try recovered_engine.initialize_storage();

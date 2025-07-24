@@ -35,7 +35,7 @@ test "wal recovery: empty directory" {
 
     const data_dir = try allocator.dupe(u8, "wal_empty_data");
     defer allocator.free(data_dir);
-    var storage_engine = try StorageEngine.init(
+    var storage_engine = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir,
@@ -65,7 +65,7 @@ test "wal recovery: missing wal directory" {
 
     const data_dir = try allocator.dupe(u8, "wal_missing_data");
     defer allocator.free(data_dir);
-    var storage_engine = try StorageEngine.init(
+    var storage_engine = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir,
@@ -96,7 +96,7 @@ test "wal recovery: single block recovery" {
     // First storage engine: write data
     const data_dir = try allocator.dupe(u8, "wal_single_data");
     defer allocator.free(data_dir);
-    var storage_engine1 = try StorageEngine.init(
+    var storage_engine1 = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir,
@@ -120,7 +120,7 @@ test "wal recovery: single block recovery" {
     // Second storage engine: recover from WAL
     const data_dir2 = try allocator.dupe(u8, "wal_single_data");
     defer allocator.free(data_dir2);
-    var storage_engine2 = try StorageEngine.init(
+    var storage_engine2 = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir2,
@@ -156,7 +156,7 @@ test "wal recovery: multiple blocks and types" {
     // First storage engine: write data
     const data_dir = try allocator.dupe(u8, "wal_multiple_data");
     defer allocator.free(data_dir);
-    var storage_engine1 = try StorageEngine.init(
+    var storage_engine1 = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir,
@@ -201,7 +201,7 @@ test "wal recovery: multiple blocks and types" {
     // Second storage engine: recover from WAL
     const data_dir2 = try allocator.dupe(u8, "wal_multiple_data");
     defer allocator.free(data_dir2);
-    var storage_engine2 = try StorageEngine.init(
+    var storage_engine2 = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir2,
@@ -302,7 +302,7 @@ test "wal recovery: multiple wal files" {
     // Now test recovery
     const data_dir_copy = try allocator.dupe(u8, data_dir);
     defer allocator.free(data_dir_copy);
-    var storage_engine = try StorageEngine.init(
+    var storage_engine = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir_copy,
@@ -337,7 +337,7 @@ test "wal recovery: corruption handling - invalid checksum" {
     // Create storage and write valid block first
     const data_dir = try allocator.dupe(u8, "wal_corrupt_data");
     defer allocator.free(data_dir);
-    var storage_engine1 = try StorageEngine.init(
+    var storage_engine1 = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir,
@@ -379,7 +379,7 @@ test "wal recovery: corruption handling - invalid checksum" {
     // Try to recover - should stop at corruption
     const data_dir2 = try allocator.dupe(u8, "wal_corrupt_data");
     defer allocator.free(data_dir2);
-    var storage_engine2 = try StorageEngine.init(
+    var storage_engine2 = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir2,
@@ -428,7 +428,7 @@ test "wal recovery: corruption handling - incomplete entry" {
     // Try recovery
     const data_dir_copy = try allocator.dupe(u8, data_dir);
     defer allocator.free(data_dir_copy);
-    var storage_engine = try StorageEngine.init(
+    var storage_engine = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir_copy,
@@ -468,7 +468,7 @@ test "wal recovery: deterministic behavior" {
         // Write some data
         const data_dir_copy = try allocator.dupe(u8, data_dir);
         defer allocator.free(data_dir_copy);
-        var storage_engine1 = try StorageEngine.init(
+        var storage_engine1 = try StorageEngine.init_default(
             allocator,
             node1_vfs,
             data_dir_copy,
@@ -491,7 +491,7 @@ test "wal recovery: deterministic behavior" {
         // Recover
         const data_dir_copy2 = try allocator.dupe(u8, data_dir);
         defer allocator.free(data_dir_copy2);
-        var storage_engine2 = try StorageEngine.init(
+        var storage_engine2 = try StorageEngine.init_default(
             allocator,
             node1_vfs,
             data_dir_copy2,
@@ -538,7 +538,7 @@ test "wal recovery: large blocks" {
     // Write large block
     const data_dir = try allocator.dupe(u8, "wal_large_data");
     defer allocator.free(data_dir);
-    var storage_engine1 = try StorageEngine.init(
+    var storage_engine1 = try StorageEngine.init_default(
         testing.allocator,
         node1_vfs,
         data_dir,
@@ -552,7 +552,7 @@ test "wal recovery: large blocks" {
     // Recover large block
     const data_dir2 = try allocator.dupe(u8, "wal_large_data");
     defer allocator.free(data_dir2);
-    var storage_engine2 = try StorageEngine.init(
+    var storage_engine2 = try StorageEngine.init_default(
         testing.allocator,
         node1_vfs,
         data_dir2,
@@ -586,7 +586,7 @@ test "wal recovery: stress test with many entries" {
     // Write many blocks
     const data_dir = try allocator.dupe(u8, "wal_stress_data");
     defer allocator.free(data_dir);
-    var storage_engine1 = try StorageEngine.init(
+    var storage_engine1 = try StorageEngine.init_default(
         testing.allocator,
         node1_vfs,
         data_dir,
@@ -631,7 +631,7 @@ test "wal recovery: stress test with many entries" {
     // Recover all blocks
     const data_dir2 = try allocator.dupe(u8, "wal_stress_data");
     defer allocator.free(data_dir2);
-    var storage_engine2 = try StorageEngine.init(
+    var storage_engine2 = try StorageEngine.init_default(
         testing.allocator,
         node1_vfs,
         data_dir2,

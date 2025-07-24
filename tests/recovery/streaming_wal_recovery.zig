@@ -49,7 +49,7 @@ test "streaming WAL recovery - basic correctness" {
     // Create storage engine and write some blocks
     const data_dir = try allocator.dupe(u8, "test_streaming_recovery");
     defer allocator.free(data_dir);
-    var storage_engine = try StorageEngine.init(allocator, node1_vfs, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer storage_engine.deinit();
     try storage_engine.initialize_storage();
 
@@ -67,7 +67,7 @@ test "streaming WAL recovery - basic correctness" {
     try storage_engine.flush_wal();
 
     // Create a new storage engine to simulate recovery
-    var recovery_engine = try StorageEngine.init(allocator, node1_vfs, data_dir);
+    var recovery_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer recovery_engine.deinit();
 
     // Recover from WAL - this uses the new streaming implementation
@@ -98,7 +98,7 @@ test "streaming WAL recovery - large WAL file efficiency" {
     // Create storage engine
     const data_dir = try allocator.dupe(u8, "test_large_wal");
     defer allocator.free(data_dir);
-    var storage_engine = try StorageEngine.init(allocator, node1_vfs, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer storage_engine.deinit();
     try storage_engine.initialize_storage();
 
@@ -118,7 +118,7 @@ test "streaming WAL recovery - large WAL file efficiency" {
     try storage_engine.flush_wal();
 
     // Create new engine for recovery and verify memory usage is reasonable
-    var recovery_engine = try StorageEngine.init(allocator, node1_vfs, data_dir);
+    var recovery_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer recovery_engine.deinit();
 
     // Recovery should complete without excessive memory usage
@@ -157,7 +157,7 @@ test "streaming WAL recovery - empty WAL file handling" {
     // Create storage engine with empty WAL - this simulates recovery from empty state
     const data_dir = try allocator.dupe(u8, "test_empty_wal");
     defer allocator.free(data_dir);
-    var storage_engine = try StorageEngine.init(allocator, node1_vfs, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer storage_engine.deinit();
     try storage_engine.initialize_storage();
 
@@ -184,7 +184,7 @@ test "streaming WAL recovery - arena memory reset validation" {
     // Create storage engine
     const data_dir = try allocator.dupe(u8, "test_arena_reset");
     defer allocator.free(data_dir);
-    var storage_engine = try StorageEngine.init(allocator, node1_vfs, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer storage_engine.deinit();
     try storage_engine.initialize_storage();
 
@@ -204,7 +204,7 @@ test "streaming WAL recovery - arena memory reset validation" {
     try storage_engine.flush_wal();
 
     // Create new engine for recovery
-    var recovery_engine = try StorageEngine.init(allocator, node1_vfs, data_dir);
+    var recovery_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer recovery_engine.deinit();
 
     // Recovery should complete successfully with periodic arena resets

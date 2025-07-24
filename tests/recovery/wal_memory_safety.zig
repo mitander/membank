@@ -37,7 +37,7 @@ test "wal memory safety: sequential recovery cycles" {
 
         // Write phase
         {
-            var engine = try StorageEngine.init(allocator, vfs, data_dir);
+            var engine = try StorageEngine.init_default(allocator, vfs, data_dir);
             defer engine.deinit();
 
             try engine.initialize_storage();
@@ -79,7 +79,7 @@ test "wal memory safety: sequential recovery cycles" {
 
         // Recovery phase
         {
-            var engine = try StorageEngine.init(allocator, vfs, data_dir);
+            var engine = try StorageEngine.init_default(allocator, vfs, data_dir);
             defer engine.deinit();
 
             try engine.initialize_storage();
@@ -120,7 +120,7 @@ test "wal memory safety: allocator stress testing" {
     const vfs = node_ptr.filesystem_interface();
 
     // Test with large blocks that stress memory allocation patterns
-    var engine = try StorageEngine.init(
+    var engine = try StorageEngine.init_default(
         testing.allocator,
         vfs,
         "allocator_stress",
@@ -168,7 +168,7 @@ test "wal memory safety: allocator stress testing" {
     try engine.flush_wal();
 
     // Recovery with same allocator
-    var recovery_engine = try StorageEngine.init(
+    var recovery_engine = try StorageEngine.init_default(
         testing.allocator,
         vfs,
         "allocator_stress",
@@ -216,7 +216,7 @@ test "wal memory safety: rapid cycle stress test" {
         const data_dir = try std.fmt.allocPrint(allocator, "rapid_cycle_{}", .{cycle});
         defer allocator.free(data_dir);
 
-        var engine = try StorageEngine.init(allocator, vfs, data_dir);
+        var engine = try StorageEngine.init_default(allocator, vfs, data_dir);
         defer engine.deinit();
 
         try engine.initialize_storage();
@@ -260,7 +260,7 @@ test "wal memory safety: edge case robustness" {
 
     // Test 1: Empty strings (edge case for string handling)
     {
-        var engine = try StorageEngine.init(allocator, vfs, "edge_empty");
+        var engine = try StorageEngine.init_default(allocator, vfs, "edge_empty");
         defer engine.deinit();
 
         try engine.initialize_storage();
@@ -284,7 +284,7 @@ test "wal memory safety: edge case robustness" {
 
     // Test 2: Very long strings (stress string allocation)
     {
-        var engine = try StorageEngine.init(allocator, vfs, "edge_long");
+        var engine = try StorageEngine.init_default(allocator, vfs, "edge_long");
         defer engine.deinit();
 
         try engine.initialize_storage();
@@ -316,7 +316,7 @@ test "wal memory safety: edge case robustness" {
 
     // Test 3: Special characters and UTF-8 (encoding edge cases)
     {
-        var engine = try StorageEngine.init(allocator, vfs, "edge_utf8");
+        var engine = try StorageEngine.init_default(allocator, vfs, "edge_utf8");
         defer engine.deinit();
 
         try engine.initialize_storage();
@@ -355,7 +355,7 @@ test "wal memory safety: rapid sequential operations" {
     const node_ptr = sim.find_node(node);
     const vfs = node_ptr.filesystem_interface();
 
-    var engine = try StorageEngine.init(testing.allocator, vfs, "rapid_operations");
+    var engine = try StorageEngine.init_default(testing.allocator, vfs, "rapid_operations");
     defer engine.deinit();
 
     try engine.initialize_storage();
@@ -394,7 +394,7 @@ test "wal memory safety: rapid sequential operations" {
 
     // Test recovery of all operations
 
-    var recovery_engine = try StorageEngine.init(
+    var recovery_engine = try StorageEngine.init_default(
         testing.allocator,
         vfs,
         "rapid_operations",

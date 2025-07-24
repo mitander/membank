@@ -291,7 +291,7 @@ fn fuzz_storage_iteration(allocator: std.mem.Allocator, random: std.Random) !Fuz
     defer sim_vfs.deinit();
 
     const vfs_instance = sim_vfs.vfs();
-    var engine = StorageEngine.init(allocator, vfs_instance, "/test_db") catch {
+    var engine = StorageEngine.init_default(allocator, vfs_instance, "/test_db") catch {
         return FuzzResult.expected_error;
     };
     defer engine.deinit();
@@ -409,7 +409,7 @@ fn fuzz_query_iteration(allocator: std.mem.Allocator, random: std.Random) !FuzzR
     defer sim_vfs.deinit();
 
     const vfs_instance = sim_vfs.vfs();
-    var storage_engine = StorageEngine.init(allocator, vfs_instance, "/test_db") catch {
+    var storage_engine = StorageEngine.init_default(allocator, vfs_instance, "/test_db") catch {
         return FuzzResult.expected_error;
     };
     defer storage_engine.deinit();

@@ -32,10 +32,32 @@ const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
 /// Chosen to balance between recovery time and file handle usage.
 const MAX_WAL_SEGMENT_SIZE: u64 = 64 * 1024 * 1024;
 
+/// Default maximum memory size for memtable before flushing to SSTable (128MB).
+/// This prevents unpredictable memory usage and potential OOM crashes with large blocks.
+const DEFAULT_MEMTABLE_MAX_SIZE: u64 = 128 * 1024 * 1024;
+
 // Compile-time guarantees for architectural invariants
 comptime {
     comptime_assert(MAX_WAL_SEGMENT_SIZE & (MAX_WAL_SEGMENT_SIZE - 1) == 0, "MAX_WAL_SEGMENT_SIZE must be a power of two for efficient alignment and bitwise operations");
+    comptime_assert(DEFAULT_MEMTABLE_MAX_SIZE >= 64 * 1024 * 1024, "Memtable max size must be at least 64MB to avoid excessive flushes");
 }
+
+/// Configuration options for the storage engine.
+pub const Config = struct {
+    /// Maximum memory size for memtable before flushing to SSTable.
+    /// Prevents unpredictable memory usage and OOM crashes with large blocks.
+    memtable_max_size: u64 = DEFAULT_MEMTABLE_MAX_SIZE,
+
+    pub fn validate(self: Config) !void {
+        // Allow smaller sizes for testing (minimum 1MB), but recommend 16MB+ for production
+        if (self.memtable_max_size < 1024 * 1024) {
+            return error.MemtableMaxSizeTooSmall;
+        }
+        if (self.memtable_max_size > 1024 * 1024 * 1024) {
+            return error.MemtableMaxSizeTooLarge;
+        }
+    }
+};
 
 /// Performance metrics for storage engine observability.
 /// All counters are atomic for thread-safe access in concurrent environments.
@@ -259,6 +281,10 @@ pub const StorageError = error{
     NotInitialized,
     /// WAL file corrupted
     WALCorrupted,
+    /// Memtable max size too small (must be at least 1MB)
+    MemtableMaxSizeTooSmall,
+    /// Memtable max size too large (must be at most 1GB)
+    MemtableMaxSizeTooLarge,
 } || std.mem.Allocator.Error || anyerror;
 
 /// WAL entry types as defined in the data model specification.
@@ -445,6 +471,9 @@ pub const BlockIndex = struct {
     ),
     arena: std.heap.ArenaAllocator,
     backing_allocator: std.mem.Allocator,
+    /// Track total memory used by blocks in arena (strings only).
+    /// Does not include HashMap overhead, just the content bytes.
+    memory_used: u64,
 
     pub const BlockIdContext = struct {
         pub fn hash(self: @This(), block_id: BlockId) u64 {
@@ -472,6 +501,7 @@ pub const BlockIndex = struct {
             ).init(allocator), // HashMap uses stable backing allocator
             .arena = arena,
             .backing_allocator = allocator,
+            .memory_used = 0,
         };
     }
 
@@ -521,6 +551,18 @@ pub const BlockIndex = struct {
             assert(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "content was not properly duped by arena allocator", .{});
         }
 
+        // Check if we're replacing an existing block to adjust memory accounting
+        if (self.blocks.get(block.id)) |existing_block| {
+            // Subtract old block's memory usage
+            const old_memory = existing_block.source_uri.len + existing_block.metadata_json.len + existing_block.content.len;
+            assert(self.memory_used >= old_memory, "Memory accounting corruption: {} < {}", .{ self.memory_used, old_memory });
+            self.memory_used -= old_memory;
+        }
+
+        // Add new block's memory usage
+        const new_memory = block.source_uri.len + block.metadata_json.len + block.content.len;
+        self.memory_used += new_memory;
+
         try self.blocks.put(block.id, cloned_block);
     }
 
@@ -529,11 +571,22 @@ pub const BlockIndex = struct {
     }
 
     pub fn remove_block(self: *BlockIndex, block_id: BlockId) void {
+        // Subtract removed block's memory usage
+        if (self.blocks.get(block_id)) |existing_block| {
+            const old_memory = existing_block.source_uri.len + existing_block.metadata_json.len + existing_block.content.len;
+            assert(self.memory_used >= old_memory, "Memory accounting corruption: {} < {}", .{ self.memory_used, old_memory });
+            self.memory_used -= old_memory;
+        }
         _ = self.blocks.remove(block_id);
     }
 
     pub fn block_count(self: *const BlockIndex) u32 {
         return @intCast(self.blocks.count());
+    }
+
+    /// Get the current memory usage of blocks in the arena (strings only).
+    pub fn memory_usage(self: *const BlockIndex) u64 {
+        return self.memory_used;
     }
 
     pub fn clear(self: *BlockIndex) void {
@@ -542,6 +595,7 @@ pub const BlockIndex = struct {
 
         self.blocks.clearRetainingCapacity();
         _ = self.arena.reset(.retain_capacity);
+        self.memory_used = 0;
 
         assert(self.blocks.count() == 0, "HashMap not properly cleared", .{});
     }
@@ -1009,6 +1063,7 @@ pub const StorageEngine = struct {
     backing_allocator: std.mem.Allocator,
     vfs: VFS,
     data_dir: []const u8,
+    config: Config,
     index: BlockIndex,
     graph_index: GraphEdgeIndex,
     wal_file: ?vfs.VFile,
@@ -1020,12 +1075,25 @@ pub const StorageEngine = struct {
     initialized: bool,
     storage_metrics: StorageMetrics,
 
+    /// Initialize a new storage engine instance with default configuration.
+    pub fn init_default(
+        allocator: std.mem.Allocator,
+        filesystem: VFS,
+        data_dir: []const u8,
+    ) !StorageEngine {
+        return init(allocator, filesystem, data_dir, Config{});
+    }
+
     /// Initialize a new storage engine instance.
     pub fn init(
         allocator: std.mem.Allocator,
         filesystem: VFS,
         data_dir: []const u8,
+        config: Config,
     ) !StorageEngine {
+        // Validate configuration
+        try config.validate();
+
         // Clone data_dir with backing allocator for simplicity
         const owned_data_dir = try allocator.dupe(u8, data_dir);
 
@@ -1033,6 +1101,7 @@ pub const StorageEngine = struct {
             .backing_allocator = allocator,
             .vfs = filesystem,
             .data_dir = owned_data_dir,
+            .config = config,
             .index = BlockIndex.init(allocator),
             .graph_index = GraphEdgeIndex.init(allocator),
             .wal_file = null,
@@ -1243,8 +1312,8 @@ pub const StorageEngine = struct {
         const duration = @as(u64, @intCast(end_time - start_time));
         _ = self.storage_metrics.total_write_time_ns.fetchAdd(duration, .monotonic);
 
-        // Check if we need to flush MemTable to SSTable
-        if (self.index.block_count() >= 1000) { // Flush when we have 1000+ blocks
+        // Check if we need to flush MemTable to SSTable based on memory usage
+        if (self.index.memory_usage() >= self.config.memtable_max_size) {
             try self.flush_memtable_to_sstable();
         }
     }
@@ -2095,7 +2164,7 @@ test "StorageEngine basic operations" {
     const data_dir = try allocator.dupe(u8, "test_data");
     defer allocator.free(data_dir);
 
-    var storage = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage.deinit();
 
     // Initialize storage
@@ -2136,7 +2205,7 @@ test "StorageEngine graph edge operations" {
     const data_dir = try allocator.dupe(u8, "test_data");
     defer allocator.free(data_dir);
 
-    var storage = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage.deinit();
 
     try storage.initialize_storage();
@@ -2165,7 +2234,7 @@ test "StorageEngine graph edge indexing" {
 
     const data_dir = try allocator.dupe(u8, "/test");
     defer allocator.free(data_dir);
-    var storage = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage.deinit();
 
     try storage.startup();
@@ -2294,7 +2363,7 @@ test "StorageEngine graph edge WAL recovery" {
     {
         const owned_data_dir = try allocator.dupe(u8, data_dir);
         defer allocator.free(owned_data_dir);
-        var storage = try StorageEngine.init(
+        var storage = try StorageEngine.init_default(
             allocator,
             vfs_interface,
             owned_data_dir,
@@ -2344,7 +2413,7 @@ test "StorageEngine graph edge WAL recovery" {
     {
         const owned_data_dir = try allocator.dupe(u8, data_dir);
         defer allocator.free(owned_data_dir);
-        var storage = try StorageEngine.init(
+        var storage = try StorageEngine.init_default(
             allocator,
             vfs_interface,
             owned_data_dir,
@@ -2411,7 +2480,7 @@ test "StorageEngine metrics and observability" {
     const data_dir = try allocator.dupe(u8, "metrics_test_data");
     defer allocator.free(data_dir);
 
-    var storage = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage.deinit();
 
     try storage.initialize_storage();

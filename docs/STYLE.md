@@ -173,7 +173,7 @@ test "storage engine can write and read a block" {
     const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 1234);
-    var storage = try StorageEngine.init(allocator, ...);
+    var storage = try StorageEngine.init_default(allocator, ...);
     // ... rest of test logic ...
 }
 ```

@@ -85,7 +85,7 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     defer allocator.free(data_dir);
 
     // Initialize storage engine
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.startup();
@@ -123,7 +123,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     defer allocator.free(data_dir);
 
     // Initialize storage engine
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.startup();

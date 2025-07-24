@@ -37,7 +37,7 @@ test "integration: full data lifecycle with compaction" {
     const node1_vfs = node1_ptr.filesystem_interface();
 
     // Initialize storage and query engines
-    var storage_engine = try StorageEngine.init(
+    var storage_engine = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         "integration_test_data",
@@ -294,7 +294,7 @@ test "integration: concurrent storage and query operations" {
     const node1_vfs = node1_ptr.filesystem_interface();
 
     // Single storage engine (could extend to distributed later)
-    var storage_engine = try StorageEngine.init(
+    var storage_engine = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         "concurrent_test_data",
@@ -425,7 +425,7 @@ test "integration: storage recovery and query consistency" {
 
     // Phase 1: Initial data creation
     {
-        var storage_engine1 = try StorageEngine.init(
+        var storage_engine1 = try StorageEngine.init_default(
             allocator,
             node1_vfs,
             "recovery_consistency_data",
@@ -482,7 +482,7 @@ test "integration: storage recovery and query consistency" {
 
     // Phase 2: Recovery and consistency validation
     {
-        var storage_engine2 = try StorageEngine.init(
+        var storage_engine2 = try StorageEngine.init_default(
             allocator,
             node1_vfs,
             "recovery_consistency_data",
@@ -562,10 +562,17 @@ test "integration: large scale performance characteristics" {
     const node1_ptr = sim.find_node(node1);
     const node1_vfs = node1_ptr.filesystem_interface();
 
+    // Use smaller memtable size to force multiple flushes during the test
+    // With 2000 blocks * ~1094 bytes each = ~2.2MB total memory usage
+    // Setting limit to 1MB will force 2-3 flushes during the test
+    const test_config = storage.Config{
+        .memtable_max_size = 1024 * 1024, // 1MB to force multiple flushes
+    };
     var storage_engine = try StorageEngine.init(
         testing.allocator,
         node1_vfs,
         "large_scale_data",
+        test_config,
     );
     defer storage_engine.deinit();
 

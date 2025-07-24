@@ -42,7 +42,7 @@ test "memory isolation: single test with 25 storage cycles" {
         const data_dir_owned = try allocator.dupe(u8, data_dir);
         defer allocator.free(data_dir_owned);
 
-        var engine = try StorageEngine.init(allocator, vfs, data_dir_owned);
+        var engine = try StorageEngine.init_default(allocator, vfs, data_dir_owned);
         defer engine.deinit();
 
         try engine.initialize_storage();
@@ -105,7 +105,7 @@ test "memory isolation: HashMap operations under stress" {
     const node_ptr = sim.find_node(node);
     const vfs = node_ptr.filesystem_interface();
 
-    var engine = try StorageEngine.init(allocator, vfs, "hashmap_stress");
+    var engine = try StorageEngine.init_default(allocator, vfs, "hashmap_stress");
     defer engine.deinit();
 
     try engine.initialize_storage();

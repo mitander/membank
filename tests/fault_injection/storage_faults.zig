@@ -72,7 +72,7 @@ test "fault injection - disk full during compaction" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, "test_db");
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -135,7 +135,7 @@ test "fault injection - read corruption during query" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, "test_db");
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -188,7 +188,7 @@ test "fault injection - io failure during wal write" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, "test_db");
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();

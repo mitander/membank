@@ -38,7 +38,7 @@ test "wal segmentation: rotation at size limit" {
 
     const data_dir = try allocator.dupe(u8, "wal_segment_rotation");
     defer allocator.free(data_dir);
-    var engine = try StorageEngine.init(allocator, node_vfs, data_dir);
+    var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine.deinit();
 
     try engine.initialize_storage();
@@ -83,7 +83,7 @@ test "wal segmentation: rotation at size limit" {
     try testing.expect(wal_files.len >= 2);
 
     // Verify recovery works across segments
-    var engine2 = try StorageEngine.init(allocator, node_vfs, data_dir);
+    var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine2.deinit();
 
     try engine2.initialize_storage();
@@ -110,7 +110,7 @@ test "wal segmentation: cleanup after sstable flush" {
 
     const data_dir = try allocator.dupe(u8, "wal_segment_cleanup");
     defer allocator.free(data_dir);
-    var engine = try StorageEngine.init(allocator, node_vfs, data_dir);
+    var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine.deinit();
 
     try engine.initialize_storage();
@@ -167,7 +167,7 @@ test "wal segmentation: cleanup after sstable flush" {
     try testing.expectEqual(@as(usize, 1), post_flush_files.len);
 
     // Verify data integrity after cleanup
-    var engine2 = try StorageEngine.init(allocator, node_vfs, data_dir);
+    var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine2.deinit();
 
     try engine2.initialize_storage();
@@ -205,7 +205,7 @@ test "wal segmentation: recovery from mixed segments and sstables" {
 
     const data_dir = try allocator.dupe(u8, "wal_mixed_recovery");
     defer allocator.free(data_dir);
-    var engine = try StorageEngine.init(allocator, node_vfs, data_dir);
+    var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine.deinit();
 
     try engine.initialize_storage();
@@ -249,7 +249,7 @@ test "wal segmentation: recovery from mixed segments and sstables" {
     try engine.flush_wal();
 
     // Recover and verify all blocks
-    var engine2 = try StorageEngine.init(allocator, node_vfs, data_dir);
+    var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine2.deinit();
 
     try engine2.initialize_storage();
@@ -290,7 +290,7 @@ test "wal segmentation: segment number persistence" {
 
     // Create engine and force multiple segments
     {
-        var engine = try StorageEngine.init(allocator, node_vfs, data_dir);
+        var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
         defer engine.deinit();
 
         try engine.initialize_storage();
@@ -321,7 +321,7 @@ test "wal segmentation: segment number persistence" {
 
     // Restart and verify segment numbering continues correctly
     {
-        var engine2 = try StorageEngine.init(allocator, node_vfs, data_dir);
+        var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
         defer engine2.deinit();
 
         try engine2.initialize_storage();
@@ -377,7 +377,7 @@ test "wal segmentation: empty segment handling" {
 
     const data_dir = try allocator.dupe(u8, "wal_empty_segments");
     defer allocator.free(data_dir);
-    var engine = try StorageEngine.init(allocator, node_vfs, data_dir);
+    var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine.deinit();
 
     try engine.initialize_storage();
@@ -399,7 +399,7 @@ test "wal segmentation: empty segment handling" {
     try testing.expectEqualStrings("wal_0000.log", wal_files[0]);
 
     // Recovery should handle empty segments gracefully
-    var engine2 = try StorageEngine.init(allocator, node_vfs, data_dir);
+    var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine2.deinit();
 
     try engine2.initialize_storage();

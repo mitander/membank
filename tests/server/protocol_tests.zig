@@ -29,7 +29,7 @@ const ConnectionState = server_handler.ConnectionState;
 
 // Helper to create test storage engine
 fn create_test_storage(allocator: std.mem.Allocator, vfs_interface: vfs.VFS) !StorageEngine {
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, "test_server_db");
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_server_db");
     try storage_engine.initialize_storage();
     return storage_engine;
 }

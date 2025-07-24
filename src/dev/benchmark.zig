@@ -289,7 +289,7 @@ fn run_storage_benchmarks(allocator: std.mem.Allocator) !void {
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "benchmark_data");
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_data");
     defer storage_engine.deinit();
 
     try storage_engine.startup();
@@ -317,7 +317,7 @@ fn run_query_benchmarks(allocator: std.mem.Allocator) !void {
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "query_benchmark_data");
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "query_benchmark_data");
     defer storage_engine.deinit();
 
     try storage_engine.startup();
@@ -346,7 +346,7 @@ fn run_compaction_benchmarks(allocator: std.mem.Allocator) !void {
     defer sim_vfs.deinit();
 
     const data_dir = "compaction_benchmark_data";
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.startup();

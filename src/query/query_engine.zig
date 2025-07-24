@@ -1542,7 +1542,7 @@ test "QueryEngine basic operations" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_data");
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -1589,7 +1589,7 @@ test "QueryEngine multiple blocks" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_data");
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -1691,7 +1691,7 @@ test "QueryEngine statistics" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_data");
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -1748,7 +1748,7 @@ test "QueryEngine breadth-first traversal" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_traversal");
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -1871,7 +1871,7 @@ test "QueryEngine depth-first traversal" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_dfs");
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -1964,7 +1964,7 @@ test "QueryEngine traversal directions" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_directions");
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -2065,7 +2065,7 @@ test "QueryEngine traversal with edge type filter" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_filter");
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -2169,7 +2169,7 @@ test "QueryEngine traversal depth limits" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_depth");
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
@@ -2478,7 +2478,7 @@ test "QueryEngine enhanced statistics" {
     const vfs_interface = sim_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "test_stats_v2");
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, data_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.initialize_storage();
