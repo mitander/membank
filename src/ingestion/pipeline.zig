@@ -39,6 +39,29 @@ pub const IngestionError = error{
     UnsupportedContentType,
 } || std.mem.Allocator.Error || std.fs.File.ReadError || std.fs.File.WriteError;
 
+/// Iterator over source content items (one per file)
+pub const SourceIterator = struct {
+    ptr: *anyopaque,
+    vtable: *const VTable,
+
+    const VTable = struct {
+        /// Get the next content item, or null if finished
+        next: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) IngestionError!?SourceContent,
+        /// Clean up iterator resources
+        deinit: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
+    };
+
+    /// Get the next content item from the iterator
+    pub fn next(self: *SourceIterator, allocator: std.mem.Allocator) IngestionError!?SourceContent {
+        return self.vtable.next(self.ptr, allocator);
+    }
+
+    /// Clean up iterator resources
+    pub fn deinit(self: *SourceIterator, allocator: std.mem.Allocator) void {
+        self.vtable.deinit(self.ptr, allocator);
+    }
+};
+
 /// Metadata about fetched source content
 pub const SourceContent = struct {
     /// Raw content bytes
@@ -116,16 +139,16 @@ pub const Source = struct {
     vtable: *const VTable,
 
     const VTable = struct {
-        /// Fetch content from the source
-        fetch: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, file_system: *VFS) IngestionError!SourceContent,
+        /// Fetch content iterator from the source
+        fetch: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, file_system: *VFS) IngestionError!SourceIterator,
         /// Get human-readable description of this source
         describe: *const fn (ptr: *anyopaque) []const u8,
         /// Clean up source resources
         deinit: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
     };
 
-    /// Fetch content from this source
-    pub fn fetch(self: Source, allocator: std.mem.Allocator, file_system: *VFS) IngestionError!SourceContent {
+    /// Fetch content iterator from this source
+    pub fn fetch(self: Source, allocator: std.mem.Allocator, file_system: *VFS) IngestionError!SourceIterator {
         return self.vtable.fetch(self.ptr, allocator, file_system);
     }
 
@@ -336,32 +359,40 @@ pub const IngestionPipeline = struct {
     fn process_source(self: *IngestionPipeline, source: Source, blocks: *std.ArrayList(ContextBlock)) IngestionError!void {
         const allocator = self.arena.allocator();
 
-        // Fetch content from source
-        var content = try source.fetch(allocator, self.file_system);
-        defer content.deinit(allocator);
+        // Fetch content iterator from source
+        var content_iterator = try source.fetch(allocator, self.file_system);
+        defer content_iterator.deinit(allocator);
 
-        // Find compatible parser
-        const parser = self.find_parser(content.content_type) orelse {
-            return IngestionError.UnsupportedContentType;
-        };
+        // Process each content item from the source
+        while (try content_iterator.next(allocator)) |content| {
+            var mutable_content = content;
+            defer mutable_content.deinit(allocator);
 
-        // Parse content into semantic units
-        const units = try parser.parse(allocator, content);
-        defer {
-            for (units) |*unit| {
-                unit.deinit(allocator);
+            // Find compatible parser
+            const parser = self.find_parser(mutable_content.content_type) orelse {
+                // Skip unsupported content types instead of failing
+                continue;
+            };
+
+            // Parse content into semantic units
+            const units = try parser.parse(allocator, mutable_content);
+            defer {
+                for (units) |*unit| {
+                    unit.deinit(allocator);
+                }
+                allocator.free(units);
             }
-            allocator.free(units);
-        }
-        self.current_stats.units_parsed += @intCast(units.len);
+            self.current_stats.units_parsed += @intCast(units.len);
 
-        // Find compatible chunker and convert to blocks
-        for (self.chunkers.items) |chunker| {
-            const chunk_blocks = try chunker.chunk(allocator, units);
-            try blocks.appendSlice(chunk_blocks);
-            break;
-        } else {
-            return IngestionError.UnsupportedContentType;
+            // Find compatible chunker and convert to blocks
+            for (self.chunkers.items) |chunker| {
+                const chunk_blocks = try chunker.chunk(allocator, units);
+                try blocks.appendSlice(chunk_blocks);
+                break;
+            } else {
+                // Skip if no compatible chunker found
+                continue;
+            }
         }
     }
 

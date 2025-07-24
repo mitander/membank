@@ -19,6 +19,7 @@ const error_context = @import("error_context");
 
 const IngestionError = ingestion.IngestionError;
 const SourceContent = ingestion.SourceContent;
+const SourceIterator = ingestion.SourceIterator;
 const Source = ingestion.Source;
 const VFS = vfs.VFS;
 
@@ -120,6 +121,85 @@ pub const GitFileInfo = struct {
     }
 };
 
+/// Iterator over files from a Git repository
+pub const GitSourceIterator = struct {
+    /// Reference to parent GitSource for metadata
+    git_source: *GitSource,
+    /// Pre-discovered list of matching files
+    files: []GitFileInfo,
+    /// Current index in the files array
+    current_index: usize,
+    /// Base allocator for cleanup
+    allocator: std.mem.Allocator,
+
+    pub fn init(git_source: *GitSource, files: []GitFileInfo, allocator: std.mem.Allocator) GitSourceIterator {
+        return GitSourceIterator{
+            .git_source = git_source,
+            .files = files,
+            .current_index = 0,
+            .allocator = allocator,
+        };
+    }
+
+    /// Get the next SourceContent item, or null if finished
+    pub fn next(self: *GitSourceIterator, allocator: std.mem.Allocator) IngestionError!?SourceContent {
+        if (self.current_index >= self.files.len) {
+            return null; // Iterator exhausted
+        }
+
+        const file = &self.files[self.current_index];
+        self.current_index += 1;
+
+        // Create metadata for this specific file
+        var metadata_map = std.StringHashMap([]const u8).init(allocator);
+        try metadata_map.put("repository_path", try allocator.dupe(u8, self.git_source.config.repository_path));
+        try metadata_map.put("file_path", try allocator.dupe(u8, file.relative_path));
+        try metadata_map.put("file_size", try std.fmt.allocPrint(allocator, "{d}", .{file.size}));
+        
+        if (self.git_source.metadata) |meta| {
+            try metadata_map.put("commit_hash", try allocator.dupe(u8, meta.commit_hash));
+            try metadata_map.put("branch", try allocator.dupe(u8, meta.branch));
+        }
+
+        return SourceContent{
+            .data = try allocator.dupe(u8, file.content),
+            .content_type = try allocator.dupe(u8, file.content_type),
+            .metadata = metadata_map,
+            .timestamp_ns = file.modified_time_ns,
+        };
+    }
+
+    pub fn deinit(self: *GitSourceIterator, allocator: std.mem.Allocator) void {
+        _ = allocator; // Iterator doesn't own the allocator, files are owned by GitSource
+        for (self.files) |*file| {
+            file.deinit(self.allocator);
+        }
+        self.allocator.free(self.files);
+    }
+
+    // Iterator vtable implementations
+    fn next_impl(ptr: *anyopaque, allocator: std.mem.Allocator) IngestionError!?SourceContent {
+        const self = @as(*GitSourceIterator, @ptrCast(@alignCast(ptr)));
+        return self.next(allocator);
+    }
+
+    fn deinit_impl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
+        const self = @as(*GitSourceIterator, @ptrCast(@alignCast(ptr)));
+        self.deinit(allocator);
+        allocator.destroy(self); // Free the iterator instance itself
+    }
+
+    pub fn as_source_iterator(self: *GitSourceIterator) SourceIterator {
+        return SourceIterator{
+            .ptr = self,
+            .vtable = &.{
+                .next = next_impl,
+                .deinit = deinit_impl,
+            },
+        };
+    }
+};
+
 /// Git repository source implementation
 pub const GitSource = struct {
     /// Source configuration
@@ -157,7 +237,7 @@ pub const GitSource = struct {
     }
 
     /// Fetch content from the Git repository
-    fn fetch_content(self: *GitSource, allocator: std.mem.Allocator, file_system: *VFS) IngestionError!SourceContent {
+    fn fetch_iterator(self: *GitSource, allocator: std.mem.Allocator, file_system: *VFS) IngestionError!SourceIterator {
         concurrency.assert_main_thread();
 
         // Validate repository exists
@@ -171,62 +251,17 @@ pub const GitSource = struct {
         // Scan repository for Git metadata
         try self.scan_repository_metadata(allocator, file_system);
 
-        // Find all matching files
+        // Find all matching files (discovery phase)
         const files = try self.find_matching_files(allocator, file_system);
-        defer {
-            for (files) |*file| {
-                file.deinit(allocator);
-            }
-            allocator.free(files);
-        }
 
-        // For simplicity, concatenate all files into a single content block
-        // In a more sophisticated implementation, we might return multiple SourceContent instances
+        // Create iterator that owns the files array
+        // Note: We still do the file discovery up front, but yield files one by one
+        // This is a middle ground - we don't load ALL content at once, but we do
+        // discover file paths. Future optimization could make discovery lazy too.
+        var iterator = try allocator.create(GitSourceIterator);
+        iterator.* = GitSourceIterator.init(self, files, allocator);
 
-        var content_builder = std.ArrayList(u8).init(allocator);
-        defer content_builder.deinit();
-
-        var metadata_map = std.StringHashMap([]const u8).init(allocator);
-
-        try metadata_map.put("repository_path", try allocator.dupe(u8, self.config.repository_path));
-        if (self.metadata) |meta| {
-            try metadata_map.put("commit_hash", try allocator.dupe(u8, meta.commit_hash));
-            try metadata_map.put("branch", try allocator.dupe(u8, meta.branch));
-        }
-        try metadata_map.put("file_count", try std.fmt.allocPrint(allocator, "{d}", .{files.len}));
-
-        // Combine all file contents with separators
-        for (files, 0..) |file, i| {
-            if (i > 0) {
-                try content_builder.appendSlice("\n\n");
-            }
-
-            // Add file header
-            try content_builder.appendSlice("=== ");
-            try content_builder.appendSlice(file.relative_path);
-            try content_builder.appendSlice(" ===\n");
-
-            try content_builder.appendSlice(file.content);
-        }
-
-        const final_content = try content_builder.toOwnedSlice();
-
-        // Determine content type based on files found
-        // For simplicity, if we have any .zig files, treat as zig content
-        var content_type: []const u8 = "text/plain";
-        for (files) |file| {
-            if (std.mem.endsWith(u8, file.relative_path, ".zig")) {
-                content_type = "text/zig";
-                break;
-            }
-        }
-
-        return SourceContent{
-            .data = final_content,
-            .content_type = try allocator.dupe(u8, content_type),
-            .metadata = metadata_map,
-            .timestamp_ns = @intCast(std.time.nanoTimestamp()),
-        };
+        return iterator.as_source_iterator();
     }
 
     /// Scan repository for Git metadata
@@ -294,7 +329,17 @@ pub const GitSource = struct {
     fn find_matching_files(self: *GitSource, allocator: std.mem.Allocator, file_system: *VFS) ![]GitFileInfo {
         var files = std.ArrayList(GitFileInfo).init(allocator);
         try self.scan_directory_recursive(allocator, file_system, self.config.repository_path, "", &files);
-        return try files.toOwnedSlice();
+        
+        // Sort files by relative path to ensure consistent processing order
+        const file_slice = try files.toOwnedSlice();
+        std.sort.block(GitFileInfo, file_slice, {}, struct {
+            fn lessThan(context: void, a: GitFileInfo, b: GitFileInfo) bool {
+                _ = context;
+                return std.mem.lessThan(u8, a.relative_path, b.relative_path);
+            }
+        }.lessThan);
+        
+        return file_slice;
     }
 
     /// Recursively scan directory for matching files
@@ -389,9 +434,9 @@ pub const GitSource = struct {
     }
 
     // Source interface implementations
-    fn fetch_impl(ptr: *anyopaque, allocator: std.mem.Allocator, file_system: *VFS) IngestionError!SourceContent {
+    fn fetch_impl(ptr: *anyopaque, allocator: std.mem.Allocator, file_system: *VFS) IngestionError!SourceIterator {
         const self: *GitSource = @ptrCast(@alignCast(ptr));
-        return self.fetch_content(allocator, file_system);
+        return self.fetch_iterator(allocator, file_system);
     }
 
     fn describe_impl(ptr: *anyopaque) []const u8 {

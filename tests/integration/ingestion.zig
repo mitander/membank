@@ -65,7 +65,7 @@ test "complete ingestion pipeline - git to storage" {
     defer storage_arena.deinit();
 
     const vfs_for_storage = sim_vfs.vfs();
-    var storage_engine = try StorageEngine.init(storage_arena.allocator(), vfs_for_storage, "test_db");
+    var storage_engine = try StorageEngine.init_default(storage_arena.allocator(), vfs_for_storage, "test_db");
     defer storage_engine.deinit();
     try storage_engine.initialize_storage();
 
@@ -386,9 +386,11 @@ test "pipeline handles parsing errors gracefully" {
     // Should have no blocks due to unsupported content type
     try testing.expectEqual(@as(usize, 0), blocks.len);
 
-    // Check statistics show the error was handled
+    // Check statistics - with iterator approach, sources with only unsupported
+    // files are processed successfully (they just yield no blocks)
     const stats = pipeline.stats();
-    try testing.expectEqual(@as(u32, 1), stats.sources_failed);
+    try testing.expectEqual(@as(u32, 0), stats.sources_failed);
+    try testing.expectEqual(@as(u32, 1), stats.sources_processed);
 }
 
 /// Helper function to create a directory
