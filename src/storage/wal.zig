@@ -197,6 +197,7 @@ pub const WALEntry = struct {
 
         const payload = try allocator.alloc(u8, payload_size);
         errdefer allocator.free(payload);
+        @memset(payload, 0); // Zero-initialize to prevent garbage data
 
         const bytes_written = try block.serialize(payload);
 
@@ -251,6 +252,7 @@ pub const WALEntry = struct {
     pub fn create_put_edge(edge: GraphEdge, allocator: std.mem.Allocator) WALError!WALEntry {
         const payload = try allocator.alloc(u8, 40); // GraphEdge.SERIALIZED_SIZE
         errdefer allocator.free(payload);
+        @memset(payload, 0); // Zero-initialize to prevent garbage data
 
         _ = try edge.serialize(payload);
         const checksum = calculate_checksum(.put_edge, payload);
@@ -393,6 +395,7 @@ pub const WAL = struct {
 
         const buffer = try self.allocator.alloc(u8, serialized_size);
         defer self.allocator.free(buffer);
+        @memset(buffer, 0); // Zero-initialize to prevent garbage data
 
         const bytes_written = try entry.serialize(buffer);
         assert(bytes_written == serialized_size);
@@ -795,8 +798,8 @@ pub const WAL = struct {
 
                 // Only copy if we actually need to move data and have valid size
                 if (pos > 0 and leftover_size > 0) {
-                    // Use safe copy that handles overlapping ranges properly
-                    std.mem.copyForwards(u8, buffer[0..leftover_size], buffer[pos..available]);
+                    // Use stdx.copy_left for explicit left-to-right semantics
+                    stdx.copy_left(u8, buffer[0..leftover_size], buffer[pos..available]);
                 }
                 remaining = buffer[0..leftover_size];
             } else {

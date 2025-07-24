@@ -53,7 +53,7 @@ pub fn main() !void {
         };
 
         // Run all tidy checks
-        if (tidy_banned_patterns(source_file.text)) |err_msg| {
+        if (tidy_banned_patterns(source_file.path, source_file.text)) |err_msg| {
             std.debug.print("{s}: banned pattern: {s}\n", .{ file_path, err_msg });
             violations += 1;
         }
@@ -152,7 +152,7 @@ test "tidy" {
         }
 
         if (mem.endsWith(u8, source_file.path, ".zig")) {
-            if (tidy_banned_patterns(source_file.text)) |ban_reason| {
+            if (tidy_banned_patterns(source_file.path, source_file.text)) |ban_reason| {
                 try violations.append(.{
                     .path = source_file.path,
                     .line = null,
@@ -240,7 +240,11 @@ test "tidy" {
 const SourceFile = struct { path: []const u8, text: [:0]const u8 };
 
 /// Returns error message if source contains banned patterns.
-fn tidy_banned_patterns(source: []const u8) ?[]const u8 {
+fn tidy_banned_patterns(file_path: []const u8, source: []const u8) ?[]const u8 {
+    // stdx.zig is allowed to use std functions as it implements the approved wrappers
+    if (std.mem.endsWith(u8, file_path, "src/core/stdx.zig")) {
+        return null;
+    }
     // Prefer stdx alternatives to std library
     if (std.mem.indexOf(u8, source, "std." ++ "BoundedArray") != null) {
         return "use stdx.BoundedArrayType instead of std version";

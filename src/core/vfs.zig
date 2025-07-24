@@ -342,7 +342,12 @@ pub const VFile = struct {
 
                 // Extend content if writing past end
                 if (sim.position + actual_write_size > file_data.content.items.len) {
+                    const old_len = file_data.content.items.len;
                     try file_data.content.resize(sim.position + actual_write_size);
+                    // Zero-initialize only the gap between old end and write position
+                    if (sim.position > old_len) {
+                        @memset(file_data.content.items[old_len..sim.position], 0);
+                    }
                 }
 
                 @memcpy(file_data.content.items[sim.position .. sim.position + actual_write_size], data[0..actual_write_size]);

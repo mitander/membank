@@ -22,9 +22,12 @@ const EdgeType = context_block.EdgeType;
 const Simulation = simulation.Simulation;
 
 test "wal recovery: empty directory" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in empty directory test");
+    }
+    const allocator = gpa.allocator();
 
     var sim = try Simulation.init(allocator, 12345);
     defer sim.deinit();
@@ -52,9 +55,12 @@ test "wal recovery: empty directory" {
 }
 
 test "wal recovery: missing wal directory" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in missing directory test");
+    }
+    const allocator = gpa.allocator();
 
     var sim = try Simulation.init(allocator, 54321);
     defer sim.deinit();
@@ -82,9 +88,12 @@ test "wal recovery: missing wal directory" {
 }
 
 test "wal recovery: single block recovery" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in single block test");
+    }
+    const allocator = gpa.allocator();
 
     var sim = try Simulation.init(allocator, 98765);
     defer sim.deinit();
@@ -142,9 +151,12 @@ test "wal recovery: single block recovery" {
 }
 
 test "wal recovery: multiple blocks and types" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in multiple blocks test");
+    }
+    const allocator = gpa.allocator();
 
     var sim = try Simulation.init(allocator, 13579);
     defer sim.deinit();
@@ -441,10 +453,13 @@ test "wal recovery: corruption handling - incomplete entry" {
     try testing.expectEqual(@as(u32, 0), storage_engine.block_count());
 }
 
-test "wal recovery: deterministic behavior" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+test "wal recovery: deterministic replay" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in deterministic replay test");
+    }
+    const allocator = gpa.allocator();
 
     const seed = 55555;
     var results: [3]u32 = undefined;
@@ -511,9 +526,12 @@ test "wal recovery: deterministic behavior" {
 }
 
 test "wal recovery: large blocks" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in large blocks test");
+    }
+    const allocator = gpa.allocator();
 
     var sim = try Simulation.init(allocator, 77777);
     defer sim.deinit();
@@ -539,7 +557,7 @@ test "wal recovery: large blocks" {
     const data_dir = try allocator.dupe(u8, "wal_large_data");
     defer allocator.free(data_dir);
     var storage_engine1 = try StorageEngine.init_default(
-        testing.allocator,
+        allocator,
         node1_vfs,
         data_dir,
     );
@@ -553,7 +571,7 @@ test "wal recovery: large blocks" {
     const data_dir2 = try allocator.dupe(u8, "wal_large_data");
     defer allocator.free(data_dir2);
     var storage_engine2 = try StorageEngine.init_default(
-        testing.allocator,
+        allocator,
         node1_vfs,
         data_dir2,
     );
@@ -570,9 +588,12 @@ test "wal recovery: large blocks" {
 }
 
 test "wal recovery: stress test with many entries" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Memory leak detected in stress test");
+    }
+    const allocator = gpa.allocator();
 
     var sim = try Simulation.init(allocator, 99999);
     defer sim.deinit();
