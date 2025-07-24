@@ -1,609 +1,305 @@
-//! Virtual File System (VFS) interface for CortexDB.
+//! Virtual File System (VFS) abstraction for CortexDB storage operations.
 //!
-//! ## The Cornerstone of Determinism
+//! Design rationale: The VFS abstraction enables deterministic testing by allowing
+//! identical production code to run against both real filesystems and simulated
+//! in-memory filesystems. This eliminates the need for mocking while providing
+//! comprehensive failure scenario testing capabilities.
 //!
-//! The VFS is the single most important abstraction for ensuring the correctness and
-//! reliability of CortexDB. It is not merely an OS abstraction layer; it is the
-//! foundation of our "Simulation First" testing philosophy.
-//!
-//! Every single file I/O operation in the engine MUST go through this interface.
-//! This allows the production code to be tested, byte-for-byte, within a
-//! deterministic `SimulationVFS` that can simulate disk corruption, I/O errors,
-//! and other catastrophic failures in a perfectly reproducible manner.
-//!
-//! **Developer Consideration:** Bypassing the VFS (e.g., by using `std.fs` directly
-//! in the storage engine) is considered a critical architectural violation, as it
-//! undermines the system's guarantee of testability and correctness.
+//! Directory iteration uses caller-provided arena allocators to avoid manual
+//! cleanup patterns that violate the arena-per-subsystem memory management model.
+//! All string memory is owned by the caller's arena and freed atomically.
 
 const std = @import("std");
 const assert = std.debug.assert;
+const testing = std.testing;
 
-// Magic number for ProductionFile corruption detection
-const PRODUCTION_FILE_MAGIC: u64 = 0xDEADBEEF_CAFEBABE;
+/// Maximum path length for defensive validation across platforms
+const MAX_PATH_LENGTH = 4096;
 
-/// Directory iterator for VFS
-pub const DirectoryIterator = struct {
-    entries: [][]const u8,
-    index: usize,
-    allocator: std.mem.Allocator,
-    vfs: *VFS,
-    base_path: []const u8,
+/// File magic number for production file validation
+const PRODUCTION_FILE_MAGIC = 0xDEADBEEF_CAFEBABE;
 
-    pub const Entry = struct {
-        name: []const u8,
-        kind: Kind,
+/// Maximum reasonable file size to prevent memory exhaustion attacks
+const MAX_REASONABLE_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
 
-        pub const Kind = enum {
-            file,
-            directory,
-            symlink,
-            unknown,
-        };
-    };
+// Cross-platform compatibility and security validation
+comptime {
+    assert(MAX_PATH_LENGTH > 0);
+    assert(MAX_PATH_LENGTH <= 8192);
+    assert(MAX_REASONABLE_FILE_SIZE > 0);
+    assert(MAX_REASONABLE_FILE_SIZE < std.math.maxInt(u64) / 2);
+}
 
-    pub fn next(self: *DirectoryIterator) ?Entry {
-        if (self.index >= self.entries.len) {
-            return null;
-        }
+/// VFS-specific errors distinct from generic I/O failures
+pub const VFSError = error{
+    FileNotFound,
+    AccessDenied,
+    IsDirectory,
+    NotDirectory,
+    FileExists,
+    DirectoryNotEmpty,
+    InvalidPath,
+    OutOfMemory,
+    IoError,
+    Unsupported,
+};
 
-        const name = self.entries[self.index];
-        self.index += 1;
+/// VFile-specific errors for file operations
+pub const VFileError = error{
+    InvalidSeek,
+    ReadError,
+    WriteError,
+    FileClosed,
+    IoError,
+} || std.mem.Allocator.Error;
 
-        // Build full path to stat the entry
-        const full_path = std.fs.path.join(self.allocator, &.{ self.base_path, name }) catch {
-            return Entry{
-                .name = name,
-                .kind = .unknown,
+/// Directory entry with type information for efficient filtering
+pub const DirectoryEntry = struct {
+    name: []const u8,
+    kind: Kind,
+
+    pub const Kind = enum(u8) {
+        file = 0x01,
+        directory = 0x02,
+        symlink = 0x03,
+        unknown = 0xFF,
+
+        /// Convert from platform-specific file type to our abstraction
+        pub fn from_file_type(file_type: std.fs.File.Kind) Kind {
+            return switch (file_type) {
+                .file => .file,
+                .directory => .directory,
+                .sym_link => .symlink,
+                else => .unknown,
             };
-        };
-        defer self.allocator.free(full_path);
+        }
+    };
+};
 
-        // Determine the actual file type
-        const kind = if (self.vfs.stat(full_path)) |stat|
-            if (stat.is_directory) Entry.Kind.directory else Entry.Kind.file
-        else |_|
-            Entry.Kind.unknown;
+/// Directory iterator using caller-provided arena for memory management.
+/// Eliminates manual cleanup patterns by using arena-per-subsystem model.
+pub const DirectoryIterator = struct {
+    entries: []DirectoryEntry,
+    index: usize,
 
-        return Entry{
-            .name = name,
-            .kind = kind,
-        };
+    comptime {
+        assert(@sizeOf(usize) >= 4); // Minimum 32-bit addressing
     }
 
-    pub fn deinit(self: *DirectoryIterator) void {
-        for (self.entries) |entry| {
-            self.allocator.free(entry);
-        }
-        self.allocator.free(self.entries);
+    /// Get next directory entry or null if iteration complete.
+    /// Entries are returned in filesystem order (typically sorted).
+    pub fn next(self: *DirectoryIterator) ?DirectoryEntry {
+        if (self.index >= self.entries.len) return null;
+
+        const entry = self.entries[self.index];
+        self.index += 1;
+        return entry;
+    }
+
+    /// Reset iterator to beginning for reuse within same arena scope
+    pub fn reset(self: *DirectoryIterator) void {
+        self.index = 0;
+    }
+
+    /// Get remaining entry count for memory planning
+    pub fn remaining(self: *const DirectoryIterator) usize {
+        return if (self.index < self.entries.len)
+            self.entries.len - self.index
+        else
+            0;
     }
 };
 
-/// Virtual File System interface.
-/// All file I/O operations go through this interface.
+/// Virtual File System interface providing platform abstraction
 pub const VFS = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
 
     pub const VTable = struct {
-        open: *const fn (ptr: *anyopaque, path: []const u8, mode: OpenMode) anyerror!*VFileImpl,
-        create: *const fn (ptr: *anyopaque, path: []const u8) anyerror!*VFileImpl,
-        remove: *const fn (ptr: *anyopaque, path: []const u8) anyerror!void,
+        // File operations
+        open: *const fn (ptr: *anyopaque, path: []const u8, mode: OpenMode) VFSError!VFile,
+        create: *const fn (ptr: *anyopaque, path: []const u8) VFSError!VFile,
+        remove: *const fn (ptr: *anyopaque, path: []const u8) VFSError!void,
         exists: *const fn (ptr: *anyopaque, path: []const u8) bool,
-        mkdir: *const fn (ptr: *anyopaque, path: []const u8) anyerror!void,
-        rmdir: *const fn (ptr: *anyopaque, path: []const u8) anyerror!void,
-        list_dir: *const fn (
-            ptr: *anyopaque,
-            path: []const u8,
-            allocator: std.mem.Allocator,
-        ) anyerror![][]const u8,
-        rename: *const fn (
-            ptr: *anyopaque,
-            old_path: []const u8,
-            new_path: []const u8,
-        ) anyerror!void,
-        stat: *const fn (ptr: *anyopaque, path: []const u8) anyerror!FileStat,
-        sync: *const fn (ptr: *anyopaque) anyerror!void,
-        deinit: *const fn (ptr: *anyopaque) void,
+
+        // Directory operations
+        mkdir: *const fn (ptr: *anyopaque, path: []const u8) VFSError!void,
+        mkdir_all: *const fn (ptr: *anyopaque, path: []const u8) VFSError!void,
+        rmdir: *const fn (ptr: *anyopaque, path: []const u8) VFSError!void,
+        iterate_directory: *const fn (ptr: *anyopaque, path: []const u8, allocator: std.mem.Allocator) VFSError!DirectoryIterator,
+
+        // Metadata operations
+        rename: *const fn (ptr: *anyopaque, old_path: []const u8, new_path: []const u8) VFSError!void,
+        stat: *const fn (ptr: *anyopaque, path: []const u8) VFSError!FileStat,
+
+        // System operations
+        sync: *const fn (ptr: *anyopaque) VFSError!void,
+        deinit: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
     };
 
-    pub const OpenMode = enum {
-        read,
-        write,
-        read_write,
+    pub const OpenMode = enum(u8) {
+        read = 0x01,
+        write = 0x02,
+        read_write = 0x03,
+
+        /// Check if mode allows reading operations
+        pub fn can_read(self: OpenMode) bool {
+            return self == .read or self == .read_write;
+        }
+
+        /// Check if mode allows writing operations
+        pub fn can_write(self: OpenMode) bool {
+            return self == .write or self == .read_write;
+        }
     };
 
     pub const FileStat = struct {
         size: u64,
-        created_time: u64,
-        modified_time: u64,
+        created_time: i64,
+        modified_time: i64,
         is_directory: bool,
+
+        /// Validate stat result for consistency
+        pub fn is_valid(self: FileStat) bool {
+            return self.size <= MAX_REASONABLE_FILE_SIZE and
+                self.created_time >= 0 and
+                self.modified_time >= 0 and
+                self.modified_time >= self.created_time;
+        }
     };
 
-    pub fn open(self: *VFS, path: []const u8, mode: OpenMode) anyerror!VFile {
-        const impl = try self.vtable.open(self.ptr, path, mode);
-        return VFile.init(impl);
+    // Delegation methods for type-safe interface
+
+    pub fn open(self: VFS, path: []const u8, mode: OpenMode) VFSError!VFile {
+        return self.vtable.open(self.ptr, path, mode);
     }
 
-    pub fn create(self: *VFS, path: []const u8) anyerror!VFile {
-        const impl = try self.vtable.create(self.ptr, path);
-        return VFile.init(impl);
+    pub fn create(self: VFS, path: []const u8) VFSError!VFile {
+        return self.vtable.create(self.ptr, path);
     }
 
-    pub fn remove(self: *VFS, path: []const u8) anyerror!void {
+    pub fn remove(self: VFS, path: []const u8) VFSError!void {
         return self.vtable.remove(self.ptr, path);
     }
 
-    pub fn exists(self: *VFS, path: []const u8) bool {
+    pub fn exists(self: VFS, path: []const u8) bool {
         return self.vtable.exists(self.ptr, path);
     }
 
-    pub fn mkdir(self: *VFS, path: []const u8) anyerror!void {
+    pub fn mkdir(self: VFS, path: []const u8) VFSError!void {
         return self.vtable.mkdir(self.ptr, path);
     }
 
-    pub fn rmdir(self: *VFS, path: []const u8) anyerror!void {
+    pub fn mkdir_all(self: VFS, path: []const u8) VFSError!void {
+        return self.vtable.mkdir_all(self.ptr, path);
+    }
+
+    pub fn rmdir(self: VFS, path: []const u8) VFSError!void {
         return self.vtable.rmdir(self.ptr, path);
     }
 
-    pub fn list_dir(
-        self: *VFS,
-        path: []const u8,
-        allocator: std.mem.Allocator,
-    ) anyerror![][]const u8 {
-        return self.vtable.list_dir(self.ptr, path, allocator);
+    /// Iterate directory entries using caller-provided arena allocator.
+    /// All entry names are allocated in the provided arena and freed
+    /// atomically when the arena is reset.
+    pub fn iterate_directory(self: VFS, path: []const u8, allocator: std.mem.Allocator) VFSError!DirectoryIterator {
+        return self.vtable.iterate_directory(self.ptr, path, allocator);
     }
 
-    pub fn rename(self: *VFS, old_path: []const u8, new_path: []const u8) anyerror!void {
+    pub fn rename(self: VFS, old_path: []const u8, new_path: []const u8) VFSError!void {
         return self.vtable.rename(self.ptr, old_path, new_path);
     }
 
-    pub fn stat(self: *VFS, path: []const u8) anyerror!FileStat {
+    pub fn stat(self: VFS, path: []const u8) VFSError!FileStat {
         return self.vtable.stat(self.ptr, path);
     }
 
-    pub fn sync(self: *VFS) anyerror!void {
+    pub fn sync(self: VFS) VFSError!void {
         return self.vtable.sync(self.ptr);
     }
 
-    pub fn deinit(self: *VFS) void {
-        self.vtable.deinit(self.ptr);
+    pub fn deinit(self: VFS, allocator: std.mem.Allocator) void {
+        self.vtable.deinit(self.ptr, allocator);
     }
 
-    /// Read entire file content into allocated memory
-    pub fn read_file_alloc(self: *VFS, allocator: std.mem.Allocator, path: []const u8, max_size: usize) ![]u8 {
+    /// Read entire file into caller-provided arena allocator.
+    /// Memory is owned by the arena and freed atomically on arena reset.
+    pub fn read_file_alloc(self: VFS, allocator: std.mem.Allocator, path: []const u8, max_size: usize) VFSError![]u8 {
         var file = try self.open(path, .read);
-        defer file.force_close();
+        defer file.close();
 
         const file_size = try file.file_size();
-        if (file_size > max_size) {
-            return error.FileTooLarge;
-        }
+        if (file_size > max_size) return VFSError.IoError;
 
         const content = try allocator.alloc(u8, file_size);
-        const bytes_read = try file.read(content);
-        if (bytes_read != file_size) {
-            allocator.free(content);
-            return error.IncompleteRead;
+        const bytes_read = file.read(content) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return VFSError.IoError,
+        };
+
+        // Truncate if file was smaller than reported size
+        if (bytes_read < content.len) {
+            return allocator.realloc(content, bytes_read);
         }
 
         return content;
     }
-
-    /// Create directory iterator
-    pub fn iterate_directory(self: *VFS, path: []const u8) !DirectoryIterator {
-        const entries = try self.list_dir(path, std.heap.page_allocator);
-        return DirectoryIterator{
-            .entries = entries,
-            .index = 0,
-            .allocator = std.heap.page_allocator,
-            .vfs = self,
-            .base_path = path,
-        };
-    }
 };
 
-/// Virtual File handle.
-/// Internal VFile implementation with vtable interface.
-/// Users should not interact with this directly - use VFile instead.
-pub const VFileImpl = struct {
-    ptr: *anyopaque,
+/// Virtual File interface providing platform-abstracted file operations
+pub const VFile = struct {
+    file_impl: *anyopaque,
     vtable: *const VTable,
+    allocator: std.mem.Allocator,
 
     pub const VTable = struct {
-        read: *const fn (ptr: *anyopaque, buffer: []u8) anyerror!usize,
-        write: *const fn (ptr: *anyopaque, data: []const u8) anyerror!usize,
-        seek: *const fn (ptr: *anyopaque, offset: i64, whence: SeekFrom) anyerror!u64,
-        tell: *const fn (ptr: *anyopaque) anyerror!u64,
-        flush: *const fn (ptr: *anyopaque) anyerror!void,
-        close: *const fn (ptr: *anyopaque) anyerror!void,
-        file_size: *const fn (ptr: *anyopaque) anyerror!u64,
+        read: *const fn (ptr: *anyopaque, buffer: []u8) VFileError!usize,
+        write: *const fn (ptr: *anyopaque, data: []const u8) VFileError!usize,
+        seek: *const fn (ptr: *anyopaque, pos: u64, whence: SeekFrom) VFileError!u64,
+        tell: *const fn (ptr: *anyopaque) VFileError!u64,
+        flush: *const fn (ptr: *anyopaque) VFileError!void,
+        close: *const fn (ptr: *anyopaque) void,
+        file_size: *const fn (ptr: *anyopaque) VFileError!u64,
+        destroy: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
     };
 
-    pub const SeekFrom = enum {
-        start,
-        current,
-        end,
+    pub const SeekFrom = enum(u8) {
+        start = 0x01,
+        current = 0x02,
+        end = 0x03,
     };
 
-    pub fn read(self: *VFileImpl, buffer: []u8) anyerror!usize {
-        return self.vtable.read(self.ptr, buffer);
+    // Delegation methods for type-safe interface
+
+    pub fn read(self: VFile, buffer: []u8) VFileError!usize {
+        return self.vtable.read(self.file_impl, buffer);
     }
 
-    pub fn write(self: *VFileImpl, data: []const u8) anyerror!usize {
-        return self.vtable.write(self.ptr, data);
+    pub fn write(self: VFile, data: []const u8) VFileError!usize {
+        return self.vtable.write(self.file_impl, data);
     }
 
-    pub fn seek(self: *VFileImpl, offset: i64, whence: SeekFrom) anyerror!u64 {
-        return self.vtable.seek(self.ptr, offset, whence);
+    pub fn seek(self: VFile, pos: u64, whence: SeekFrom) VFileError!u64 {
+        return self.vtable.seek(self.file_impl, pos, whence);
     }
 
-    pub fn tell(self: *VFileImpl) anyerror!u64 {
-        return self.vtable.tell(self.ptr);
+    pub fn tell(self: VFile) VFileError!u64 {
+        return self.vtable.tell(self.file_impl);
     }
 
-    pub fn flush(self: *VFileImpl) anyerror!void {
-        return self.vtable.flush(self.ptr);
+    pub fn flush(self: VFile) VFileError!void {
+        return self.vtable.flush(self.file_impl);
     }
 
-    pub fn close_impl(self: *VFileImpl) anyerror!void {
-        return self.vtable.close(self.ptr);
+    pub fn close(self: VFile) void {
+        self.vtable.close(self.file_impl);
     }
 
-    pub fn file_size(self: *VFileImpl) anyerror!u64 {
-        return self.vtable.file_size(self.ptr);
-    }
-};
-
-/// Ergonomic file handle with RAII resource management.
-/// This is the public API that users should interact with.
-pub const VFile = struct {
-    impl: *VFileImpl,
-    closed: bool,
-
-    pub const SeekFrom = VFileImpl.SeekFrom;
-
-    /// Create VFile from internal implementation.
-    /// Asserts file pointer is valid following defensive programming principles.
-    pub fn init(impl: *VFileImpl) VFile {
-        assert(@intFromPtr(impl) >= 0x1000); // Basic pointer sanity check
-        return VFile{
-            .impl = impl,
-            .closed = false,
-        };
+    pub fn file_size(self: VFile) VFileError!u64 {
+        return self.vtable.file_size(self.file_impl);
     }
 
-    /// Explicit close with proper error handling.
-    /// Unlike defer patterns, this allows caller to handle close errors appropriately.
-    pub fn close(self: *VFile) !void {
-        if (self.closed) return;
-
-        try self.impl.close_impl();
-        self.closed = true;
-    }
-
-    /// Force close for cleanup scenarios where error handling isn't possible.
-    /// Logs errors instead of silently swallowing them.
-    pub fn force_close(self: *VFile) void {
-        if (self.closed) return;
-
-        self.impl.close_impl() catch |err| {
-            std.log.err("Failed to close file: {any}", .{err});
-        };
-        self.closed = true;
-    }
-
-    /// Ergonomic wrapper methods with built-in safety checks
-    pub fn read(self: *VFile, buffer: []u8) !usize {
-        assert(!self.closed);
-        return self.impl.read(buffer);
-    }
-
-    pub fn write(self: *VFile, data: []const u8) !usize {
-        assert(!self.closed);
-        return self.impl.write(data);
-    }
-
-    pub fn seek(self: *VFile, offset: i64, whence: SeekFrom) !u64 {
-        assert(!self.closed);
-        return self.impl.seek(offset, whence);
-    }
-
-    pub fn tell(self: *VFile) !u64 {
-        assert(!self.closed);
-        return self.impl.tell();
-    }
-
-    pub fn flush(self: *VFile) !void {
-        assert(!self.closed);
-        return self.impl.flush();
-    }
-
-    pub fn file_size(self: *VFile) !u64 {
-        assert(!self.closed);
-        return self.impl.file_size();
+    /// Release file resources. Safe to call after close().
+    pub fn deinit(self: VFile) void {
+        self.vtable.destroy(self.file_impl, self.allocator);
     }
 };
-
-/// Production VFS implementation that uses real OS file system calls.
-pub const ProductionVFS = struct {
-    allocator: std.mem.Allocator,
-
-    const Self = @This();
-
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return Self{
-            .allocator = allocator,
-        };
-    }
-
-    pub fn vfs(self: *Self) VFS {
-        return VFS{
-            .ptr = self,
-            .vtable = &vtable,
-        };
-    }
-
-    const vtable = VFS.VTable{
-        .open = open,
-        .create = create,
-        .remove = remove,
-        .exists = exists,
-        .mkdir = mkdir,
-        .rmdir = rmdir,
-        .list_dir = list_dir,
-        .rename = rename,
-        .stat = stat,
-        .sync = sync,
-        .deinit = deinit,
-    };
-
-    fn open(ptr: *anyopaque, path: []const u8, mode: VFS.OpenMode) anyerror!*VFileImpl {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        const flags = switch (mode) {
-            .read => std.fs.File.OpenFlags{ .mode = .read_only },
-            .write => std.fs.File.OpenFlags{ .mode = .write_only },
-            .read_write => std.fs.File.OpenFlags{ .mode = .read_write },
-        };
-
-        const file = try std.fs.cwd().openFile(path, flags);
-        const file_wrapper = try self.allocator.create(ProductionFile);
-        file_wrapper.* = ProductionFile{
-            .magic = PRODUCTION_FILE_MAGIC,
-            .file = file,
-            .allocator = self.allocator,
-            .closed = false,
-        };
-
-        // Validate allocation immediately
-        assert(file_wrapper.magic == PRODUCTION_FILE_MAGIC);
-
-        const vfile = try self.allocator.create(VFileImpl);
-        vfile.* = VFileImpl{
-            .ptr = file_wrapper,
-            .vtable = &ProductionFile.vtable,
-        };
-        return vfile;
-    }
-
-    fn create(ptr: *anyopaque, path: []const u8) anyerror!*VFileImpl {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        const file = try std.fs.cwd().createFile(path, .{});
-        const file_wrapper = try self.allocator.create(ProductionFile);
-        file_wrapper.* = ProductionFile{
-            .magic = PRODUCTION_FILE_MAGIC,
-            .file = file,
-            .allocator = self.allocator,
-            .closed = false,
-        };
-
-        // Validate allocation immediately
-        assert(file_wrapper.magic == PRODUCTION_FILE_MAGIC);
-
-        const vfile = try self.allocator.create(VFileImpl);
-        vfile.* = VFileImpl{
-            .ptr = file_wrapper,
-            .vtable = &ProductionFile.vtable,
-        };
-        return vfile;
-    }
-
-    fn remove(ptr: *anyopaque, path: []const u8) anyerror!void {
-        _ = ptr;
-        try std.fs.cwd().deleteFile(path);
-    }
-
-    fn exists(ptr: *anyopaque, path: []const u8) bool {
-        _ = ptr;
-        std.fs.cwd().access(path, .{}) catch return false;
-        return true;
-    }
-
-    fn mkdir(ptr: *anyopaque, path: []const u8) anyerror!void {
-        _ = ptr;
-        try std.fs.cwd().makeDir(path);
-    }
-
-    fn rmdir(ptr: *anyopaque, path: []const u8) anyerror!void {
-        _ = ptr;
-        try std.fs.cwd().deleteDir(path);
-    }
-
-    fn list_dir(
-        ptr: *anyopaque,
-        path: []const u8,
-        allocator: std.mem.Allocator,
-    ) anyerror![][]const u8 {
-        _ = ptr;
-        var dir = try std.fs.cwd().openDir(path, .{ .iterate = true });
-        defer dir.close();
-
-        var entries = std.ArrayList([]const u8).init(allocator);
-        defer entries.deinit();
-
-        var iterator = dir.iterate();
-        while (try iterator.next()) |entry| {
-            const name = try allocator.dupe(u8, entry.name);
-            try entries.append(name);
-        }
-
-        return entries.toOwnedSlice();
-    }
-
-    fn rename(ptr: *anyopaque, old_path: []const u8, new_path: []const u8) anyerror!void {
-        _ = ptr;
-        try std.fs.cwd().rename(old_path, new_path);
-    }
-
-    fn stat(ptr: *anyopaque, path: []const u8) anyerror!VFS.FileStat {
-        _ = ptr;
-        const file_stat = try std.fs.cwd().statFile(path);
-        return VFS.FileStat{
-            .size = file_stat.size,
-            .created_time = @intCast(file_stat.ctime),
-            .modified_time = @intCast(file_stat.mtime),
-            .is_directory = file_stat.kind == .directory,
-        };
-    }
-
-    fn sync(ptr: *anyopaque) anyerror!void {
-        _ = ptr;
-        // For production VFS, sync() is a no-op as individual files handle their own syncing
-    }
-
-    fn deinit(ptr: *anyopaque) void {
-        _ = ptr;
-        // Nothing to clean up for production VFS
-    }
-};
-
-/// Production file wrapper.
-const ProductionFile = struct {
-    magic: u64,
-    file: std.fs.File,
-    allocator: std.mem.Allocator,
-    closed: bool,
-
-    const Self = @This();
-
-    const vtable = VFileImpl.VTable{
-        .read = read,
-        .write = write,
-        .seek = seek,
-        .tell = tell,
-        .flush = flush,
-        .close = close,
-        .file_size = file_size,
-    };
-
-    fn read(ptr: *anyopaque, buffer: []u8) anyerror!usize {
-        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
-        assert(!self.closed); // Double-use check
-        return self.file.read(buffer);
-    }
-
-    fn write(ptr: *anyopaque, data: []const u8) anyerror!usize {
-        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
-        assert(!self.closed); // Double-use check
-        return self.file.write(data);
-    }
-
-    fn seek(ptr: *anyopaque, offset: i64, whence: VFile.SeekFrom) anyerror!u64 {
-        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
-        assert(!self.closed); // Double-use check
-        const new_pos = switch (whence) {
-            .start => @as(u64, @intCast(offset)),
-            .current => try self.file.getPos() + @as(u64, @intCast(offset)),
-            .end => try self.file.getEndPos() + @as(u64, @intCast(offset)),
-        };
-        try self.file.seekTo(new_pos);
-        return new_pos;
-    }
-
-    fn tell(ptr: *anyopaque) anyerror!u64 {
-        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
-        assert(!self.closed); // Double-use check
-        return self.file.getPos();
-    }
-
-    fn flush(ptr: *anyopaque) anyerror!void {
-        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
-        assert(!self.closed); // Double-use check
-        return self.file.sync();
-    }
-
-    fn close(ptr: *anyopaque) anyerror!void {
-        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
-
-        // Prevent double-close
-        if (self.closed) {
-            return;
-        }
-
-        self.closed = true;
-        self.magic = 0xDEADDEAD; // Poison the magic number
-        self.file.close();
-        self.allocator.destroy(self);
-    }
-
-    fn file_size(ptr: *anyopaque) anyerror!u64 {
-        assert(@intFromPtr(ptr) >= 0x1000); // Basic pointer sanity check
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        assert(self.magic == PRODUCTION_FILE_MAGIC); // Corruption check
-        assert(!self.closed); // Double-use check
-        const stat = try self.file.stat();
-        return stat.size;
-    }
-};
-
-test "production vfs basic operations" {
-    const allocator = std.testing.allocator;
-
-    var prod_vfs = ProductionVFS.init(allocator);
-    var vfs_interface = prod_vfs.vfs();
-
-    const test_file = "/tmp/cortexdb_test_file";
-    const test_data = "Hello, CortexDB!";
-
-    // Clean up any existing test file
-    if (vfs_interface.exists(test_file)) {
-        try vfs_interface.remove(test_file);
-    }
-
-    // Create and write to file
-    var file = try vfs_interface.create(test_file);
-    defer file.force_close();
-
-    const written = try file.write(test_data);
-    try std.testing.expect(written == test_data.len);
-
-    try file.flush();
-    // Remove explicit close - defer will handle it
-
-    // Verify file exists
-    try std.testing.expect(vfs_interface.exists(test_file));
-
-    // Read back the data
-    var read_file = try vfs_interface.open(test_file, .read);
-    defer read_file.force_close();
-
-    var buffer: [100]u8 = undefined;
-    const read_bytes = try read_file.read(&buffer);
-    try std.testing.expect(read_bytes == test_data.len);
-    try std.testing.expect(std.mem.eql(u8, buffer[0..read_bytes], test_data));
-
-    // Clean up
-    try vfs_interface.remove(test_file);
-    try std.testing.expect(!vfs_interface.exists(test_file));
-}

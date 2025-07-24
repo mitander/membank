@@ -32,6 +32,7 @@ fn create_core_modules(b: *std.Build) CoreModules {
     const vfs_module = b.createModule(.{
         .root_source_file = b.path("src/core/vfs.zig"),
     });
+    vfs_module.addImport("assert", assert_module);
 
     const context_block_module = b.createModule(.{
         .root_source_file = b.path("src/core/types.zig"),
