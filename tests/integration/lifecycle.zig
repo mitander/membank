@@ -3,16 +3,17 @@
 //! These tests validate the complete data lifecycle from ingestion through
 //! storage, querying, and compaction with realistic workloads and failure scenarios.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const context_block = @import("context_block");
-const storage = @import("storage");
-const query_engine = @import("query_engine");
-const simulation = @import("simulation");
-const vfs = @import("vfs");
-const simulation_vfs = @import("simulation_vfs");
+const context_block = cortexdb.types;
+const storage = cortexdb.storage;
+const query_engine = cortexdb.query_engine;
+const simulation = cortexdb.simulation;
+const vfs = cortexdb.vfs;
+const simulation_vfs = cortexdb.simulation_vfs;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;

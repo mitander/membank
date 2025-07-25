@@ -4,12 +4,13 @@
 //! entries one at a time instead of loading entire WAL files into memory.
 //! Validates memory efficiency and correctness under various scenarios.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 
-const context_block = @import("context_block");
-const storage = @import("storage");
-const simulation = @import("simulation");
+const context_block = cortexdb.types;
+const storage = cortexdb.storage;
+const simulation = cortexdb.simulation;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;

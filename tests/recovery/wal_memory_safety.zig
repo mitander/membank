@@ -4,12 +4,13 @@
 //! recovery scenarios. It tests edge cases and cumulative memory pressure
 //! that could lead to corruption in production environments.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 
-const simulation = @import("simulation");
-const context_block = @import("context_block");
-const storage = @import("storage");
+const simulation = cortexdb.simulation;
+const context_block = cortexdb.types;
+const storage = cortexdb.storage;
 
 const Simulation = simulation.Simulation;
 const ContextBlock = context_block.ContextBlock;

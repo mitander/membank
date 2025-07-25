@@ -4,12 +4,13 @@
 //! These tests isolate VFS operations from the broader system to catch corruption
 //! at the source and provide clear failure diagnostics.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const vfs = @import("vfs");
-const simulation_vfs = @import("simulation_vfs");
+const vfs = cortexdb.vfs;
+const simulation_vfs = cortexdb.simulation_vfs;
 
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;

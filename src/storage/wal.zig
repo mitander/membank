@@ -43,9 +43,9 @@ pub const recover_from_segments = recovery.recover_from_segments;
 
 // Tests from original implementation
 const testing = std.testing;
-const context_block = @import("context_block");
-const vfs = @import("vfs");
-const simulation_vfs = @import("simulation_vfs");
+const context_block = @import("../core/types.zig");
+const vfs = @import("../core/vfs.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;

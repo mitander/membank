@@ -8,7 +8,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const types = @import("types.zig");
-const context_block = @import("context_block");
+const context_block = @import("../../core/types.zig");
 const wal_entry_stream = @import("stream.zig");
 
 const WALError = types.WALError;

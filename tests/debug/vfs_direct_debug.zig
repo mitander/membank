@@ -1,11 +1,12 @@
 //! Direct VFS write/read test to isolate corruption
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const log = std.log.scoped(.debug_vfs);
 
-const vfs = @import("vfs");
-const sim = @import("simulation_vfs");
+const vfs = cortexdb.vfs;
+const sim = cortexdb.simulation_vfs;
 
 test "direct VFS large write corruption test" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);

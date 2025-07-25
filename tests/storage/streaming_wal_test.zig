@@ -3,14 +3,15 @@
 //! Tests the new streaming recovery implementation to ensure it correctly
 //! processes WAL entries without loading entire segments into memory.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const vfs = @import("vfs");
-const simulation_vfs = @import("simulation_vfs");
-const context_block = @import("context_block");
-const storage = @import("storage");
+const vfs = cortexdb.vfs;
+const simulation_vfs = cortexdb.simulation_vfs;
+const context_block = cortexdb.types;
+const storage = cortexdb.storage;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = context_block.ContextBlock;

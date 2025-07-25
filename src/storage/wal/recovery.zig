@@ -12,7 +12,7 @@ const log = std.log.scoped(.wal_recovery);
 const types = @import("types.zig");
 const entry_mod = @import("entry.zig");
 const wal_entry_stream = @import("stream.zig");
-const vfs = @import("vfs");
+const vfs = @import("../../core/vfs.zig");
 
 const WALError = types.WALError;
 const RecoveryCallback = types.RecoveryCallback;
@@ -187,10 +187,10 @@ fn list_segment_files(filesystem: VFS, allocator: std.mem.Allocator, directory: 
     // Sort files by name to ensure chronological processing
     // WAL files are named wal_NNNN.log where NNNN is sequential
     std.sort.insertion([]const u8, files, {}, struct {
-        fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+        fn less_than(_: void, lhs: []const u8, rhs: []const u8) bool {
             return std.mem.order(u8, lhs, rhs) == .lt;
         }
-    }.lessThan);
+    }.less_than);
 
     return files;
 }

@@ -11,7 +11,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
-const vfs = @import("vfs");
+const vfs = @import("vfs.zig");
 
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;

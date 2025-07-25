@@ -12,7 +12,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
-const vfs_types = @import("vfs");
+const vfs_types = @import("../core/vfs.zig");
 
 const VFS = vfs_types.VFS;
 const VFile = vfs_types.VFile;

@@ -5,20 +5,21 @@
 //! All I/O operations go through the VFS interface for deterministic testing.
 
 const std = @import("std");
-const custom_assert = @import("assert");
+const log = std.log.scoped(.storage);
+const vfs = @import("../core/vfs.zig");
+const context_block = @import("../core/types.zig");
+const sstable = @import("sstable.zig");
+const error_context = @import("../core/error_context.zig");
+const concurrency = @import("../core/concurrency.zig");
+const tiered_compaction = @import("tiered_compaction.zig");
+const wal = @import("wal.zig");
+const custom_assert = @import("../core/assert.zig");
+
 const assert = custom_assert.assert;
 const assert_not_null = custom_assert.assert_not_null;
 const assert_not_empty = custom_assert.assert_not_empty;
 const assert_state_valid = custom_assert.assert_state_valid;
 const comptime_assert = custom_assert.comptime_assert;
-const log = std.log.scoped(.storage);
-const vfs = @import("vfs");
-const context_block = @import("context_block");
-const sstable = @import("sstable");
-const error_context = @import("error_context");
-const concurrency = @import("concurrency");
-const tiered_compaction = @import("tiered_compaction");
-const wal = @import("wal.zig");
 
 const VFS = vfs.VFS;
 
@@ -1729,7 +1730,7 @@ test "BlockIndex basic operations" {
 
 test "StorageEngine basic operations" {
     const allocator = std.testing.allocator;
-    const simulation_vfs = @import("simulation_vfs");
+    const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
     // Create simulation VFS
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
@@ -1771,7 +1772,7 @@ test "StorageEngine basic operations" {
 
 test "StorageEngine graph edge operations" {
     const allocator = std.testing.allocator;
-    const simulation_vfs = @import("simulation_vfs");
+    const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -1800,7 +1801,7 @@ test "StorageEngine graph edge operations" {
 
 test "StorageEngine graph edge indexing" {
     const allocator = std.testing.allocator;
-    const simulation_vfs = @import("simulation_vfs");
+    const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -1926,7 +1927,7 @@ test "StorageEngine graph edge indexing" {
 
 test "StorageEngine graph edge WAL recovery" {
     const allocator = std.testing.allocator;
-    const simulation_vfs = @import("simulation_vfs");
+    const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -2046,7 +2047,7 @@ test "StorageMetrics formatting methods" {
 
 test "StorageEngine metrics and observability" {
     const allocator = std.testing.allocator;
-    const simulation_vfs = @import("simulation_vfs");
+    const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();

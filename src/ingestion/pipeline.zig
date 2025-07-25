@@ -14,10 +14,10 @@
 //! - Single-threaded execution model
 
 const std = @import("std");
-const context_block = @import("context_block");
-const vfs = @import("vfs");
-const assert = @import("assert");
-const concurrency = @import("concurrency");
+const context_block = @import("../core/types.zig");
+const vfs = @import("../core/vfs.zig");
+const assert = @import("../core/assert.zig");
+const concurrency = @import("../core/concurrency.zig");
 
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;

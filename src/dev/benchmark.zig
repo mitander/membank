@@ -7,10 +7,10 @@ const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log.scoped(.benchmark);
 
-const storage = @import("storage");
-const query_engine = @import("query_engine");
-const context_block = @import("context_block");
-const simulation_vfs = @import("simulation_vfs");
+const storage = @import("../storage/storage.zig");
+const query_engine = @import("../query/query_engine.zig");
+const context_block = @import("../core/types.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;

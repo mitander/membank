@@ -1,6 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const context_block = @import("context_block");
+const context_block = @import("../core/types.zig");
 const BlockId = context_block.BlockId;
 
 /// Bloom filter optimized for BlockId lookups in SSTables.

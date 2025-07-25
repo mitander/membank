@@ -6,9 +6,9 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const vfs = @import("vfs");
-const sstable = @import("sstable");
-const concurrency = @import("concurrency");
+const vfs = @import("../core/vfs.zig");
+const sstable = @import("sstable.zig");
+const concurrency = @import("../core/concurrency.zig");
 
 const VFS = vfs.VFS;
 const SSTable = sstable.SSTable;

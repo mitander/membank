@@ -3,14 +3,15 @@
 //! Minimal debug tests to isolate hanging WAL operations.
 //! Uses defensive programming patterns with timeouts and iteration limits.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const simulation = @import("simulation");
-const context_block = @import("context_block");
-const storage = @import("storage");
-const vfs = @import("vfs");
+const simulation = cortexdb.simulation;
+const context_block = cortexdb.types;
+const storage = cortexdb.storage;
+const vfs = cortexdb.vfs;
 
 const Simulation = simulation.Simulation;
 const ContextBlock = context_block.ContextBlock;

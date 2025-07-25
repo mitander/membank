@@ -4,11 +4,12 @@
 //! broader storage engine to identify if corruption occurs at the data
 //! structure level or in higher-level systems.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const context_block = @import("context_block");
+const context_block = cortexdb.types;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 

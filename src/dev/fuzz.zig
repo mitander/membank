@@ -5,12 +5,12 @@
 //! and other robustness problems.
 
 const std = @import("std");
-const simulation_vfs = @import("simulation_vfs");
-const storage = @import("storage");
-const query_engine = @import("query_engine");
-const context_block = @import("context_block");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const storage = @import("../storage/storage.zig");
+const query_engine = @import("../query/query_engine.zig");
+const context_block = @import("../core/types.zig");
 const zig_parser = @import("zig_parser");
-const concurrency = @import("concurrency");
+const concurrency = @import("../core/concurrency.zig");
 
 var global_shutdown_requested: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
 

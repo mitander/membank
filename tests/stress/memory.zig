@@ -5,12 +5,13 @@
 //! This test runs many storage operations within a single test to avoid the
 //! HashMap alignment corruption that occurs after ~15 separate tests.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 
-const storage = @import("storage");
-const context_block = @import("context_block");
-const simulation = @import("simulation");
+const storage = cortexdb.storage;
+const context_block = cortexdb.types;
+const simulation = cortexdb.simulation;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;

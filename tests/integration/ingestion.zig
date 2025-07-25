@@ -6,18 +6,19 @@
 //! These tests validate the end-to-end workflow of automatically
 //! populating the database from Git repositories.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 
-const concurrency = @import("concurrency");
-const simulation = @import("simulation");
-const simulation_vfs = @import("simulation_vfs");
-const storage = @import("storage");
-const context_block = @import("context_block");
-const ingestion = @import("ingestion");
-const git_source = @import("git_source");
-const zig_parser = @import("zig_parser");
-const semantic_chunker = @import("semantic_chunker");
+const concurrency = cortexdb.concurrency;
+const simulation = cortexdb.simulation;
+const simulation_vfs = cortexdb.simulation_vfs;
+const storage = cortexdb.storage;
+const context_block = cortexdb.types;
+const ingestion = cortexdb.pipeline;
+const git_source = cortexdb.git_source;
+const zig_parser = cortexdb.zig_parser;
+const semantic_chunker = cortexdb.semantic_chunker;
 
 const Simulation = simulation.Simulation;
 const StorageEngine = storage.StorageEngine;

@@ -1,13 +1,14 @@
 //! Test WAL write using WAL code but read using direct VFS to isolate write vs read corruption
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const log = std.log.scoped(.debug_wal_write_read);
 
-const vfs = @import("vfs");
-const sim = @import("simulation_vfs");
-const storage = @import("storage");
-const context_block = @import("context_block");
+const vfs = cortexdb.vfs;
+const sim = cortexdb.simulation_vfs;
+const storage = cortexdb.storage;
+const context_block = cortexdb.types;
 
 const VFS = vfs.VFS;
 const SimulationVFS = sim.SimulationVFS;

@@ -11,7 +11,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const custom_assert = @import("assert");
+const custom_assert = @import("assert.zig");
 const assert = custom_assert.assert;
 const assert_not_null = custom_assert.assert_not_null;
 const assert_not_empty = custom_assert.assert_not_empty;

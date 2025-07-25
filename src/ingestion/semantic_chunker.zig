@@ -13,11 +13,11 @@
 //! - Single-threaded execution model
 
 const std = @import("std");
-const ingestion = @import("ingestion");
-const context_block = @import("context_block");
-const assert = @import("assert");
-const concurrency = @import("concurrency");
-const error_context = @import("error_context");
+const ingestion = @import("pipeline.zig");
+const context_block = @import("../core/types.zig");
+const assert = @import("../core/assert.zig");
+const concurrency = @import("../core/concurrency.zig");
+const error_context = @import("../core/error_context.zig");
 
 const IngestionError = ingestion.IngestionError;
 const ParsedUnit = ingestion.ParsedUnit;

@@ -12,11 +12,11 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log.scoped(.server);
-const concurrency = @import("concurrency");
-const storage = @import("storage");
-const query_engine = @import("query_engine");
-const context_block = @import("context_block");
-const custom_assert = @import("assert");
+const concurrency = @import("../core/concurrency.zig");
+const storage = @import("../storage/storage.zig");
+const query_engine = @import("../query/query_engine.zig");
+const context_block = @import("../core/types.zig");
+const custom_assert = @import("../core/assert.zig");
 const comptime_assert = custom_assert.comptime_assert;
 const comptime_no_padding = custom_assert.comptime_no_padding;
 

@@ -15,9 +15,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log.scoped(.connection);
-const context_block = @import("context_block");
-const query_engine = @import("query_engine");
-const custom_assert = @import("assert");
+const context_block = @import("../core/types.zig");
+const query_engine = @import("../query/query_engine.zig");
+const custom_assert = @import("../core/assert.zig");
 const comptime_assert = custom_assert.comptime_assert;
 const comptime_no_padding = custom_assert.comptime_no_padding;
 

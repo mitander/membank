@@ -1,11 +1,12 @@
 //! Test VFS read behavior with exact WAL boundary conditions
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const log = std.log.scoped(.debug_vfs_read);
 
-const vfs = @import("vfs");
-const sim = @import("simulation_vfs");
+const vfs = cortexdb.vfs;
+const sim = cortexdb.simulation_vfs;
 
 test "VFS read boundary conditions that trigger WAL corruption" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);

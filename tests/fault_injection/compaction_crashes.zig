@@ -4,14 +4,15 @@
 //! Validates that the system can recover gracefully from intermediate states
 //! and maintain data integrity across crash boundaries.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 
-const vfs = @import("vfs");
-const simulation_vfs = @import("simulation_vfs");
-const storage = @import("storage");
-const context_block = @import("context_block");
-const concurrency = @import("concurrency");
+const vfs = cortexdb.vfs;
+const simulation_vfs = cortexdb.simulation_vfs;
+const storage = cortexdb.storage;
+const context_block = cortexdb.types;
+const concurrency = cortexdb.concurrency;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;

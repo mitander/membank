@@ -5,10 +5,11 @@
 //! This completes Priority 0 from CORTEX_TODO.md by proving the debug infrastructure
 //! can catch memory bugs at their source during hostile conditions.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
-const debug_allocator = @import("debug_allocator");
-const allocator_torture_test = @import("allocator_torture_test");
+const debug_allocator = cortexdb.debug_allocator;
+const allocator_torture_test = cortexdb.allocator_torture_test;
 
 const DebugAllocator = debug_allocator.DebugAllocator;
 const AllocatorTortureTester = allocator_torture_test.AllocatorTortureTester;

@@ -3,14 +3,15 @@
 //! This test creates the simplest possible WAL write/read cycle to identify
 //! where memory corruption occurs in the simulation filesystem.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const log = std.log.scoped(.debug_wal);
 
-const vfs = @import("vfs");
-const sim = @import("simulation_vfs");
-const storage = @import("storage");
-const context_block = @import("context_block");
+const vfs = cortexdb.vfs;
+const sim = cortexdb.simulation_vfs;
+const storage = cortexdb.storage;
+const context_block = cortexdb.types;
 
 const VFS = vfs.VFS;
 const SimulationVFS = sim.SimulationVFS;

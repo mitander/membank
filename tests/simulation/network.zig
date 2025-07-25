@@ -3,10 +3,11 @@
 //! These tests show how to write deterministic, byte-for-byte reproducible
 //! tests for complex distributed system scenarios.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
-const simulation = @import("simulation");
-const vfs = @import("vfs");
-const assert = @import("assert");
+const simulation = cortexdb.simulation;
+const vfs = cortexdb.vfs;
+const assert = cortexdb.assert;
 
 const Simulation = simulation.Simulation;
 const NodeId = simulation.NodeId;

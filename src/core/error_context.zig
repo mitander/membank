@@ -5,7 +5,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const context_block = @import("context_block");
+const context_block = @import("types.zig");
 const log = std.log.scoped(.error_context);
 
 const BlockId = context_block.BlockId;

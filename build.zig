@@ -1,309 +1,13 @@
 const std = @import("std");
 
-// Module collection for easy management
-const CoreModules = struct {
-    assert: *std.Build.Module,
-    stdx: *std.Build.Module,
-    vfs: *std.Build.Module,
-    production_vfs: *std.Build.Module,
-    context_block: *std.Build.Module,
-    error_context: *std.Build.Module,
-    concurrency: *std.Build.Module,
-    bloom_filter: *std.Build.Module,
-    simulation_vfs: *std.Build.Module,
-    simulation: *std.Build.Module,
-    sstable: *std.Build.Module,
-    tiered_compaction: *std.Build.Module,
-    storage: *std.Build.Module,
-    query_engine: *std.Build.Module,
-    ingestion: *std.Build.Module,
-    git_source: *std.Build.Module,
-    zig_parser: *std.Build.Module,
-    semantic_chunker: *std.Build.Module,
-    debug_allocator: *std.Build.Module,
-    allocator_torture_test: *std.Build.Module,
-    server: *std.Build.Module,
-};
-
-fn create_core_modules(b: *std.Build) CoreModules {
-    // Foundation modules (no dependencies)
-    const assert_module = b.createModule(.{
-        .root_source_file = b.path("src/core/assert.zig"),
-    });
-
-    const stdx_module = b.createModule(.{
-        .root_source_file = b.path("src/core/stdx.zig"),
-    });
-    stdx_module.addImport("assert", assert_module);
-
-    const vfs_module = b.createModule(.{
-        .root_source_file = b.path("src/core/vfs.zig"),
-    });
-    vfs_module.addImport("assert", assert_module);
-
-    const production_vfs_module = b.createModule(.{
-        .root_source_file = b.path("src/core/production_vfs.zig"),
-    });
-    production_vfs_module.addImport("assert", assert_module);
-    production_vfs_module.addImport("vfs", vfs_module);
-
-    const context_block_module = b.createModule(.{
-        .root_source_file = b.path("src/core/types.zig"),
-    });
-    context_block_module.addImport("assert", assert_module);
-
-    const concurrency_module = b.createModule(.{
-        .root_source_file = b.path("src/core/concurrency.zig"),
-    });
-
-    const bloom_filter_module = b.createModule(.{
-        .root_source_file = b.path("src/storage/bloom_filter.zig"),
-    });
-    bloom_filter_module.addImport("context_block", context_block_module);
-
-    // Modules with single dependencies
-    const error_context_module = b.createModule(.{
-        .root_source_file = b.path("src/core/error_context.zig"),
-    });
-    error_context_module.addImport("context_block", context_block_module);
-
-    const simulation_vfs_module = b.createModule(.{
-        .root_source_file = b.path("src/sim/simulation_vfs.zig"),
-    });
-    simulation_vfs_module.addImport("vfs", vfs_module);
-    simulation_vfs_module.addImport("assert", assert_module);
-
-    // Simulation framework
-    const simulation_module = b.createModule(.{
-        .root_source_file = b.path("src/sim/simulation.zig"),
-    });
-    simulation_module.addImport("assert", assert_module);
-    simulation_module.addImport("vfs", vfs_module);
-    simulation_module.addImport("simulation_vfs", simulation_vfs_module);
-
-    // Storage layer modules
-    const sstable_module = b.createModule(.{
-        .root_source_file = b.path("src/storage/sstable.zig"),
-    });
-    sstable_module.addImport("context_block", context_block_module);
-    sstable_module.addImport("vfs", vfs_module);
-    sstable_module.addImport("bloom_filter", bloom_filter_module);
-    sstable_module.addImport("simulation_vfs", simulation_vfs_module);
-    sstable_module.addImport("error_context", error_context_module);
-    sstable_module.addImport("assert", assert_module);
-
-    const tiered_compaction_module = b.createModule(.{
-        .root_source_file = b.path("src/storage/tiered_compaction.zig"),
-    });
-    tiered_compaction_module.addImport("vfs", vfs_module);
-    tiered_compaction_module.addImport("sstable", sstable_module);
-    tiered_compaction_module.addImport("concurrency", concurrency_module);
-
-    const storage_module = b.createModule(.{
-        .root_source_file = b.path("src/storage/storage.zig"),
-    });
-    storage_module.addImport("assert", assert_module);
-    storage_module.addImport("stdx", stdx_module);
-    storage_module.addImport("vfs", vfs_module);
-    storage_module.addImport("context_block", context_block_module);
-    storage_module.addImport("sstable", sstable_module);
-    storage_module.addImport("error_context", error_context_module);
-    storage_module.addImport("concurrency", concurrency_module);
-    storage_module.addImport("tiered_compaction", tiered_compaction_module);
-
-    // Query engine (top level)
-    const query_engine_module = b.createModule(.{
-        .root_source_file = b.path("src/query/query_engine.zig"),
-    });
-    query_engine_module.addImport("storage", storage_module);
-    query_engine_module.addImport("context_block", context_block_module);
-
-    // Ingestion pipeline
-    const ingestion_module = b.createModule(.{
-        .root_source_file = b.path("src/ingestion/pipeline.zig"),
-    });
-    ingestion_module.addImport("context_block", context_block_module);
-    ingestion_module.addImport("vfs", vfs_module);
-    ingestion_module.addImport("assert", assert_module);
-    ingestion_module.addImport("concurrency", concurrency_module);
-
-    // Git source connector
-    const git_source_module = b.createModule(.{
-        .root_source_file = b.path("src/ingestion/git_source.zig"),
-    });
-    git_source_module.addImport("ingestion", ingestion_module);
-    git_source_module.addImport("vfs", vfs_module);
-    git_source_module.addImport("assert", assert_module);
-    git_source_module.addImport("concurrency", concurrency_module);
-    git_source_module.addImport("error_context", error_context_module);
-
-    // Zig parser
-    const zig_parser_module = b.createModule(.{
-        .root_source_file = b.path("src/ingestion/zig_parser.zig"),
-    });
-    zig_parser_module.addImport("ingestion", ingestion_module);
-    zig_parser_module.addImport("context_block", context_block_module);
-    zig_parser_module.addImport("assert", assert_module);
-    zig_parser_module.addImport("concurrency", concurrency_module);
-    zig_parser_module.addImport("error_context", error_context_module);
-
-    // Semantic chunker
-    const semantic_chunker_module = b.createModule(.{
-        .root_source_file = b.path("src/ingestion/semantic_chunker.zig"),
-    });
-    semantic_chunker_module.addImport("ingestion", ingestion_module);
-    semantic_chunker_module.addImport("context_block", context_block_module);
-    semantic_chunker_module.addImport("assert", assert_module);
-    semantic_chunker_module.addImport("concurrency", concurrency_module);
-    semantic_chunker_module.addImport("error_context", error_context_module);
-
-    // Debug and testing modules
-    const debug_allocator_module = b.createModule(.{
-        .root_source_file = b.path("src/dev/debug_allocator.zig"),
-    });
-    debug_allocator_module.addImport("assert", assert_module);
-
-    const allocator_torture_test_module = b.createModule(.{
-        .root_source_file = b.path("src/dev/allocator_torture_test.zig"),
-    });
-    allocator_torture_test_module.addImport("assert", assert_module);
-
-    const server_module = b.createModule(.{
-        .root_source_file = b.path("src/server/handler.zig"),
-    });
-    server_module.addImport("concurrency", concurrency_module);
-    server_module.addImport("storage", storage_module);
-    server_module.addImport("query_engine", query_engine_module);
-    server_module.addImport("context_block", context_block_module);
-    server_module.addImport("assert", assert_module);
-
-    return CoreModules{
-        .assert = assert_module,
-        .stdx = stdx_module,
-        .vfs = vfs_module,
-        .production_vfs = production_vfs_module,
-        .context_block = context_block_module,
-        .error_context = error_context_module,
-        .concurrency = concurrency_module,
-        .bloom_filter = bloom_filter_module,
-        .simulation_vfs = simulation_vfs_module,
-        .simulation = simulation_module,
-        .sstable = sstable_module,
-        .tiered_compaction = tiered_compaction_module,
-        .storage = storage_module,
-        .query_engine = query_engine_module,
-        .ingestion = ingestion_module,
-        .git_source = git_source_module,
-        .zig_parser = zig_parser_module,
-        .semantic_chunker = semantic_chunker_module,
-        .debug_allocator = debug_allocator_module,
-        .allocator_torture_test = allocator_torture_test_module,
-        .server = server_module,
-    };
-}
-
-fn add_core_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    module.addImport("assert", core_modules.assert);
-    module.addImport("vfs", core_modules.vfs);
-    module.addImport("context_block", core_modules.context_block);
-    module.addImport("error_context", core_modules.error_context);
-    module.addImport("concurrency", core_modules.concurrency);
-}
-
-fn add_storage_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    add_core_imports(module, core_modules);
-    module.addImport("bloom_filter", core_modules.bloom_filter);
-    module.addImport("sstable", core_modules.sstable);
-    module.addImport("tiered_compaction", core_modules.tiered_compaction);
-    module.addImport("storage", core_modules.storage);
-}
-
-fn add_query_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    add_storage_imports(module, core_modules);
-    module.addImport("query_engine", core_modules.query_engine);
-}
-
-fn add_ingestion_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    add_core_imports(module, core_modules);
-    module.addImport("ingestion", core_modules.ingestion);
-    module.addImport("git_source", core_modules.git_source);
-    module.addImport("zig_parser", core_modules.zig_parser);
-    module.addImport("semantic_chunker", core_modules.semantic_chunker);
-}
-
-fn add_server_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    add_query_imports(module, core_modules);
-    module.addImport("server", core_modules.server);
-    module.addImport("production_vfs", core_modules.production_vfs);
-    module.addImport("concurrency", core_modules.concurrency);
-}
-
-fn add_simulation_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    add_core_imports(module, core_modules);
-    module.addImport("simulation_vfs", core_modules.simulation_vfs);
-    module.addImport("simulation", core_modules.simulation);
-    module.addImport("debug_allocator", core_modules.debug_allocator);
-    module.addImport("allocator_torture_test", core_modules.allocator_torture_test);
-}
-
-fn add_fuzz_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    add_storage_imports(module, core_modules);
-    add_query_imports(module, core_modules);
-    add_ingestion_imports(module, core_modules);
-    add_simulation_imports(module, core_modules);
-}
-
-fn add_storage_simulation_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    add_storage_imports(module, core_modules);
-    add_simulation_imports(module, core_modules);
-}
-
-fn add_ingestion_simulation_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    add_ingestion_imports(module, core_modules);
-    add_simulation_imports(module, core_modules);
-}
-
-fn add_integration_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    // Flat imports to avoid duplicate module registration
-    module.addImport("assert", core_modules.assert);
-    module.addImport("vfs", core_modules.vfs);
-    module.addImport("context_block", core_modules.context_block);
-    module.addImport("error_context", core_modules.error_context);
-    module.addImport("concurrency", core_modules.concurrency);
-    module.addImport("bloom_filter", core_modules.bloom_filter);
-    module.addImport("sstable", core_modules.sstable);
-    module.addImport("tiered_compaction", core_modules.tiered_compaction);
-    module.addImport("storage", core_modules.storage);
-    module.addImport("query_engine", core_modules.query_engine);
-    module.addImport("simulation_vfs", core_modules.simulation_vfs);
-    module.addImport("simulation", core_modules.simulation);
-}
-
-fn add_ingestion_integration_imports(module: *std.Build.Module, core_modules: CoreModules) void {
-    // Flat imports to avoid duplicate module registration
-    module.addImport("assert", core_modules.assert);
-    module.addImport("vfs", core_modules.vfs);
-    module.addImport("context_block", core_modules.context_block);
-    module.addImport("error_context", core_modules.error_context);
-    module.addImport("concurrency", core_modules.concurrency);
-    module.addImport("bloom_filter", core_modules.bloom_filter);
-    module.addImport("sstable", core_modules.sstable);
-    module.addImport("tiered_compaction", core_modules.tiered_compaction);
-    module.addImport("storage", core_modules.storage);
-    module.addImport("ingestion", core_modules.ingestion);
-    module.addImport("git_source", core_modules.git_source);
-    module.addImport("zig_parser", core_modules.zig_parser);
-    module.addImport("semantic_chunker", core_modules.semantic_chunker);
-    module.addImport("simulation_vfs", core_modules.simulation_vfs);
-    module.addImport("simulation", core_modules.simulation);
-}
-
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize_mode = b.standardOptimizeOption(.{});
 
-    // Create all core modules once
-    const core_modules = create_core_modules(b);
+    // Create the cortexdb library module
+    const cortexdb_module = b.createModule(.{
+        .root_source_file = b.path("src/cortexdb.zig"),
+    });
 
     // Main executable
     const exe = b.addExecutable(.{
@@ -314,7 +18,6 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize_mode,
         }),
     });
-    add_server_imports(exe.root_module, core_modules);
     b.installArtifact(exe);
 
     // Run command for main executable
@@ -445,29 +148,8 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize_mode,
             }),
         });
-        // Use granular imports based on test category to reduce coupling
-        if (std.mem.eql(u8, config.name, "unit")) {
-            add_core_imports(test_exe.root_module, core_modules);
-        } else if (std.mem.eql(u8, config.name, "simulation")) {
-            add_simulation_imports(test_exe.root_module, core_modules);
-        } else if (std.mem.eql(u8, config.name, "integration")) {
-            add_integration_imports(test_exe.root_module, core_modules);
-        } else if (std.mem.eql(u8, config.name, "ingestion")) {
-            add_ingestion_integration_imports(test_exe.root_module, core_modules);
-        } else if (std.mem.eql(u8, config.name, "fault_injection")) {
-            add_storage_simulation_imports(test_exe.root_module, core_modules);
-        } else if (std.mem.eql(u8, config.name, "server_protocol")) {
-            add_server_imports(test_exe.root_module, core_modules);
-            // Add simulation VFS for deterministic testing
-            test_exe.root_module.addImport("simulation_vfs", core_modules.simulation_vfs);
-        } else if (std.mem.eql(u8, config.name, "debug_allocator") or
-            std.mem.eql(u8, config.name, "allocator_torture"))
-        {
-            add_simulation_imports(test_exe.root_module, core_modules);
-        } else {
-            // Storage and recovery tests need storage + simulation
-            add_storage_simulation_imports(test_exe.root_module, core_modules);
-        }
+        // Add cortexdb module to all tests
+        test_exe.root_module.addImport("cortexdb", cortexdb_module);
         test_steps[i] = b.addRunArtifact(test_exe);
     }
 
@@ -486,6 +168,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize_mode,
         }),
     });
+    tidy_tests.root_module.addImport("cortexdb", cortexdb_module);
     const run_tidy_tests = b.addRunArtifact(tidy_tests);
 
     // Test step that runs all tests
@@ -537,9 +220,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
-    add_query_imports(benchmark.root_module, core_modules);
-    benchmark.root_module.addImport("simulation_vfs", core_modules.simulation_vfs);
-    benchmark.root_module.addImport("simulation", core_modules.simulation);
+    benchmark.root_module.addImport("cortexdb", cortexdb_module);
 
     const install_benchmark = b.addInstallArtifact(benchmark, .{});
     const benchmark_step = b.step("benchmark", "Build and install benchmark");
@@ -553,7 +234,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
-    add_fuzz_imports(fuzz.root_module, core_modules);
+    fuzz.root_module.addImport("cortexdb", cortexdb_module);
 
     const install_fuzz = b.addInstallArtifact(fuzz, .{});
     const fuzz_step = b.step("fuzz", "Build and install fuzz tester");
@@ -567,7 +248,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .Debug,
         }),
     });
-    add_fuzz_imports(fuzz_debug.root_module, core_modules);
+    fuzz_debug.root_module.addImport("cortexdb", cortexdb_module);
 
     const install_fuzz_debug = b.addInstallArtifact(fuzz_debug, .{});
     const fuzz_debug_step = b.step("fuzz-debug", "Build and install debug fuzz tester with AddressSanitizer");

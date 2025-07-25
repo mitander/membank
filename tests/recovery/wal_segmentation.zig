@@ -4,14 +4,15 @@
 //! Verifies segment size limits, rotation behavior, multi-segment recovery,
 //! and cleanup after SSTable flushes.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const context_block = @import("context_block");
-const storage = @import("storage");
-const simulation = @import("simulation");
-const vfs = @import("vfs");
+const context_block = cortexdb.types;
+const storage = cortexdb.storage;
+const simulation = cortexdb.simulation;
+const vfs = cortexdb.vfs;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;

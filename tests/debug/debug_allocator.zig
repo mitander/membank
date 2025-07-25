@@ -4,9 +4,10 @@
 //! of CORTEX_TODO.md. Validates memory debugging capabilities including
 //! allocation tracking, statistics collection, and error detection.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
-const debug_allocator = @import("debug_allocator");
+const debug_allocator = cortexdb.debug_allocator;
 
 const DebugAllocator = debug_allocator.DebugAllocator;
 

@@ -4,9 +4,9 @@
 //! in a controlled, deterministic environment for testing.
 
 const std = @import("std");
-const assert = @import("assert");
-const vfs = @import("vfs");
-const sim_vfs = @import("simulation_vfs");
+const assert = @import("../core/assert.zig");
+const vfs = @import("../core/vfs.zig");
+const sim_vfs = @import("simulation_vfs.zig");
 
 /// Deterministic simulation harness.
 pub const Simulation = struct {

@@ -3,17 +3,18 @@
 //! Simplified testing of the TCP server implementation and binary protocol.
 //! Tests cover basic functionality without complex networking scenarios.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const net = std.net;
 
-const vfs = @import("vfs");
-const simulation_vfs = @import("simulation_vfs");
-const storage = @import("storage");
-const query_engine = @import("query_engine");
-const context_block = @import("context_block");
-const server_handler = @import("server");
-const concurrency = @import("concurrency");
+const vfs = cortexdb.vfs;
+const simulation_vfs = cortexdb.simulation_vfs;
+const storage = cortexdb.storage;
+const query_engine = cortexdb.query_engine;
+const context_block = cortexdb.types;
+const server_handler = cortexdb.server;
+const concurrency = cortexdb.concurrency;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;

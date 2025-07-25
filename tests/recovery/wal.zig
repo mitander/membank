@@ -4,15 +4,16 @@
 //! Tests cover successful recovery, corruption handling, and edge cases
 //! using the deterministic simulation framework.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const context_block = @import("context_block");
-const storage = @import("storage");
-const simulation = @import("simulation");
-const vfs = @import("vfs");
-const simulation_vfs = @import("simulation_vfs");
+const context_block = cortexdb.types;
+const storage = cortexdb.storage;
+const simulation = cortexdb.simulation;
+const vfs = cortexdb.vfs;
+const simulation_vfs = cortexdb.simulation_vfs;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;

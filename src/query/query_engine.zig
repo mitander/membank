@@ -6,8 +6,8 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const storage = @import("storage");
-const context_block = @import("context_block");
+const storage = @import("../storage/storage.zig");
+const context_block = @import("../core/types.zig");
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;

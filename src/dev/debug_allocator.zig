@@ -12,7 +12,7 @@
 //! in release builds for zero overhead.
 
 const std = @import("std");
-const assert = @import("assert");
+const assert = @import("../core/assert.zig");
 const builtin = @import("builtin");
 
 /// Magic values for allocation validation

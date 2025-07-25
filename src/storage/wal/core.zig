@@ -12,9 +12,9 @@ const log = std.log.scoped(.wal);
 const types = @import("types.zig");
 const entry_mod = @import("entry.zig");
 const recovery = @import("recovery.zig");
-const vfs = @import("vfs");
-const concurrency = @import("concurrency");
-const error_context = @import("error_context");
+const vfs = @import("../../core/vfs.zig");
+const concurrency = @import("../../core/concurrency.zig");
+const error_context = @import("../../core/error_context.zig");
 
 const WALError = types.WALError;
 const WALStats = types.WALStats;
@@ -292,10 +292,10 @@ pub const WAL = struct {
         // Sort files by name to ensure chronological processing
         // WAL files are named wal_NNNN.log where NNNN is sequential
         std.sort.insertion([]const u8, files, {}, struct {
-            fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+            fn less_than(_: void, lhs: []const u8, rhs: []const u8) bool {
                 return std.mem.order(u8, lhs, rhs) == .lt;
             }
-        }.lessThan);
+        }.less_than);
 
         return files;
     }
@@ -412,7 +412,7 @@ pub const WAL = struct {
 
     /// Open existing segment file for append operations
     fn open_segment_file(self: *WAL) WALError!void {
-        const filename = try self.get_segment_filename();
+        const filename = try self.segment_filename();
         defer self.allocator.free(filename);
 
         // Try to open existing file first in read-write mode (needed for file_size calls)
@@ -433,7 +433,7 @@ pub const WAL = struct {
 
     /// Create a new segment file
     fn create_new_segment(self: *WAL) WALError!void {
-        const filename = try self.get_segment_filename();
+        const filename = try self.segment_filename();
         defer self.allocator.free(filename);
 
         self.active_file = self.vfs.create(filename) catch |err| switch (err) {
@@ -446,7 +446,7 @@ pub const WAL = struct {
     }
 
     /// Generate segment filename based on current segment number
-    fn get_segment_filename(self: *WAL) ![]u8 {
+    fn segment_filename(self: *WAL) ![]u8 {
         return std.fmt.allocPrint(
             self.allocator,
             "{s}/{s}{:0>4}{s}",

@@ -49,8 +49,12 @@ pub const SemanticChunkerConfig = @import("ingestion/semantic_chunker.zig").Sema
 pub const Server = @import("server/handler.zig").Server;
 
 // Simulation Framework (Public for Testing)
-pub const Simulation = @import("sim/simulation.zig").Simulation;
-pub const SimulationVFS = @import("sim/simulation.zig").SimulationVFS;
+pub const simulation = @import("sim/simulation.zig");
+pub const simulation_vfs = @import("sim/simulation_vfs.zig");
+
+// Convenient re-exports
+pub const Simulation = simulation.Simulation;
+pub const SimulationVFS = simulation_vfs.SimulationVFS;
 
 // Virtual File System
 pub const VFS = @import("core/vfs.zig").VFS;
@@ -60,6 +64,33 @@ pub const VFile = @import("core/vfs.zig").VFile;
 pub const assert = @import("core/assert.zig");
 pub const concurrency = @import("core/concurrency.zig");
 pub const error_context = @import("core/error_context.zig");
+pub const stdx = @import("core/stdx.zig");
+pub const production_vfs = @import("core/production_vfs.zig");
+
+// Storage Layer Components
+pub const bloom_filter = @import("storage/bloom_filter.zig");
+pub const sstable = @import("storage/sstable.zig");
+pub const tiered_compaction = @import("storage/tiered_compaction.zig");
+pub const storage = @import("storage/storage.zig");
+
+// Query Layer
+pub const query_engine = @import("query/query_engine.zig");
+
+// Ingestion Components
+pub const pipeline = @import("ingestion/pipeline.zig");
+pub const git_source = @import("ingestion/git_source.zig");
+pub const zig_parser = @import("ingestion/zig_parser.zig");
+pub const semantic_chunker = @import("ingestion/semantic_chunker.zig");
+
+// Development Tools
+pub const debug_allocator = @import("dev/debug_allocator.zig");
+
+// Server Components
+pub const server = @import("server/handler.zig");
+
+// Core type aliases for backward compatibility
+pub const types = @import("core/types.zig");
+pub const vfs = @import("core/vfs.zig");
 
 // Convenient type aliases
 pub const Allocator = std.mem.Allocator;

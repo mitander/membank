@@ -3,12 +3,13 @@
 //! Focused tests to debug VFS file content initialization issues.
 //! Tests the specific case where file content expansion should be zero-initialized.
 
+const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const vfs = @import("vfs");
-const simulation = @import("simulation");
+const vfs = cortexdb.vfs;
+const simulation = cortexdb.simulation;
 
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;

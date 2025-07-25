@@ -16,9 +16,9 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const log = std.log.scoped(.wal_stream);
 
-const vfs = @import("vfs");
-const custom_assert = @import("assert");
-const stdx = @import("stdx");
+const vfs = @import("../../core/vfs.zig");
+const custom_assert = @import("../../core/assert.zig");
+const stdx = @import("../../core/stdx.zig");
 
 const VFile = vfs.VFile;
 
