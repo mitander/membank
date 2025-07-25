@@ -217,6 +217,9 @@ pub const ContextBlock = struct {
         const required_size = self.serialized_size();
         if (buffer.len < required_size) return error.BufferTooSmall;
 
+        // Zero-initialize entire buffer to prevent garbage data
+        @memset(buffer[0..required_size], 0);
+
         // Create and serialize header
         const header = BlockHeader{
             .magic = MAGIC,
@@ -233,15 +236,22 @@ pub const ContextBlock = struct {
 
         var offset = try header.serialize(buffer);
 
-        // Serialize variable-length fields
+        // Serialize variable-length fields with bounds checking
+        if (offset + self.source_uri.len > buffer.len) return error.BufferTooSmall;
         @memcpy(buffer[offset .. offset + self.source_uri.len], self.source_uri);
         offset += self.source_uri.len;
 
+        if (offset + self.metadata_json.len > buffer.len) return error.BufferTooSmall;
         @memcpy(buffer[offset .. offset + self.metadata_json.len], self.metadata_json);
         offset += self.metadata_json.len;
 
+        if (offset + self.content.len > buffer.len) return error.BufferTooSmall;
         @memcpy(buffer[offset .. offset + self.content.len], self.content);
         offset += self.content.len;
+
+        // Validate serialization completed correctly
+        assert(offset == required_size, "Serialization size mismatch: expected {}, got {}", .{ required_size, offset });
+        if (offset != required_size) return error.SerializationSizeMismatch;
 
         return offset;
     }
@@ -253,17 +263,28 @@ pub const ContextBlock = struct {
         const header = try BlockHeader.deserialize(buffer);
         var offset = BlockHeader.SIZE;
 
+        // Validate header fields for reasonable values
+        if (header.source_uri_len > 1024 * 1024) return error.InvalidSourceUriLength;
+        if (header.metadata_json_len > 10 * 1024 * 1024) return error.InvalidMetadataLength;
+        if (header.content_len > 100 * 1024 * 1024) return error.InvalidContentLength;
+
         const total_size = offset + header.source_uri_len + header.metadata_json_len + header.content_len;
         if (buffer.len < total_size) return error.IncompleteData;
 
-        // Extract variable-length fields
+        // Extract variable-length fields with bounds validation
+        if (offset + header.source_uri_len > buffer.len) return error.IncompleteData;
         const source_uri = try allocator.dupe(u8, buffer[offset .. offset + header.source_uri_len]);
+        errdefer allocator.free(source_uri);
         offset += header.source_uri_len;
 
+        if (offset + header.metadata_json_len > buffer.len) return error.IncompleteData;
         const metadata_json = try allocator.dupe(u8, buffer[offset .. offset + header.metadata_json_len]);
+        errdefer allocator.free(metadata_json);
         offset += header.metadata_json_len;
 
+        if (offset + header.content_len > buffer.len) return error.IncompleteData;
         const content = try allocator.dupe(u8, buffer[offset .. offset + header.content_len]);
+        errdefer allocator.free(content);
 
         return ContextBlock{
             .id = BlockId{ .bytes = header.id },

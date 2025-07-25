@@ -306,6 +306,7 @@ pub const VFile = struct {
                 if (available == 0) break :blk 0;
 
                 @memcpy(buffer[0..available], data.content.items[sim.position .. sim.position + available]);
+
                 sim.position += available;
                 break :blk available;
             },
@@ -338,13 +339,33 @@ pub const VFile = struct {
                 };
 
                 // Get file data via stable handle
-                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                var file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
 
-                // Extend content if writing past end
+                // Extend content if writing past end with comprehensive memory safety
                 if (sim.position + actual_write_size > file_data.content.items.len) {
                     const old_len = file_data.content.items.len;
-                    try file_data.content.resize(sim.position + actual_write_size);
-                    // Zero-initialize only the gap between old end and write position
+                    const new_len = sim.position + actual_write_size;
+
+                    // ensureTotalCapacity preserves existing data automatically
+                    try file_data.content.ensureTotalCapacity(new_len);
+                    
+                    // CRITICAL: Refresh file_data pointer IMMEDIATELY after reallocation
+                    // to prevent use of stale pointer when ArrayList reallocates
+                    file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                    
+                    // Set length using refreshed pointer
+                    file_data.content.items.len = new_len;
+
+                    // Zero all newly allocated regions
+                    @memset(file_data.content.items[old_len..new_len], 0);
+
+                    // Zero any unused capacity beyond new_len to prevent garbage bleeding
+                    const allocated_slice = file_data.content.allocatedSlice();
+                    if (allocated_slice.len > new_len) {
+                        @memset(allocated_slice[new_len..], 0);
+                    }
+
+                    // Ensure the gap before write position is zeroed (sparse file behavior)
                     if (sim.position > old_len) {
                         @memset(file_data.content.items[old_len..sim.position], 0);
                     }
@@ -352,6 +373,44 @@ pub const VFile = struct {
 
                 @memcpy(file_data.content.items[sim.position .. sim.position + actual_write_size], data[0..actual_write_size]);
                 sim.position += actual_write_size;
+
+                // Immediate corruption detection: verify written data is readable
+                const write_start_pos = sim.position - actual_write_size;
+                const written_slice = file_data.content.items[write_start_pos..sim.position];
+                
+                // VFS write verification (disabled - proven to work correctly)
+                if (false) {
+                    std.debug.print("=== VFS WRITE VERIFICATION: pos={}, size={} ===\n", .{write_start_pos, actual_write_size});
+                    std.debug.print("Expected first 20 bytes: ", .{});
+                    for (data[0..@min(20, data.len)], 0..) |byte, i| {
+                        std.debug.print("{}:0x{X} ", .{i, byte});
+                    }
+                    std.debug.print("\n", .{});
+                    std.debug.print("Actual first 20 bytes:   ", .{});
+                    for (written_slice[0..@min(20, written_slice.len)], 0..) |byte, i| {
+                        std.debug.print("{}:0x{X} ", .{i, byte});
+                    }
+                    std.debug.print("\n", .{});
+                    
+                    // Also debug the entire file from the beginning
+                    std.debug.print("=== FULL FILE CONTENT (first 64 bytes) ===\n", .{});
+                    for (file_data.content.items[0..@min(64, file_data.content.items.len)], 0..) |byte, i| {
+                        std.debug.print("{}:0x{X} ", .{i, byte});
+                        if (i > 0 and (i + 1) % 16 == 0) std.debug.print("\n", .{});
+                    }
+                    if (file_data.content.items.len % 16 != 0) std.debug.print("\n", .{});
+                }
+                
+                if (!std.mem.eql(u8, written_slice, data[0..actual_write_size])) {
+                    std.debug.print("VFS write corruption detected: written data mismatch at pos {}\n", .{write_start_pos});
+                    if (actual_write_size >= 8) {
+                        const expected = std.mem.readInt(u64, data[0..8], .little);
+                        const actual = std.mem.readInt(u64, written_slice[0..8], .little);
+                        std.debug.print("VFS corruption: expected 0x{X}, got 0x{X}\n", .{ expected, actual });
+                    }
+                    return VFileError.IoError;
+                }
+
                 file_data.modified_time = sim.current_time_fn(sim.vfs_ptr);
                 break :blk actual_write_size;
             },

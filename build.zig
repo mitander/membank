@@ -387,6 +387,41 @@ pub fn build(b: *std.Build) void {
             .description = "WAL hang debug tests",
         },
         .{
+            .name = "wal_corruption_debug",
+            .source_file = "debug_wal_corruption_minimal.zig",
+            .description = "WAL corruption debug tests",
+        },
+        .{
+            .name = "vfs_direct_debug",
+            .source_file = "debug_vfs_direct.zig",
+            .description = "Direct VFS corruption debug tests",
+        },
+        .{
+            .name = "wal_write_read_debug",
+            .source_file = "debug_wal_write_read.zig",
+            .description = "WAL write then direct read debug tests",
+        },
+        .{
+            .name = "vfs_read_boundary_debug",
+            .source_file = "debug_vfs_read_boundary.zig",
+            .description = "VFS read boundary condition debug tests",
+        },
+        .{
+            .name = "file_position_debug",
+            .source_file = "debug_file_position.zig",
+            .description = "File position debugging during WAL operations",
+        },
+        .{
+            .name = "wal_minimal_debug",
+            .source_file = "debug_wal_minimal.zig",
+            .description = "Minimal WAL header processing test",
+        },
+        .{
+            .name = "vfs_memory_safety",
+            .source_file = "tests/debug/vfs_memory_safety.zig",
+            .description = "VFS memory safety unit tests",
+        },
+        .{
             .name = "allocator_torture",
             .source_file = "src/dev/allocator_torture_test.zig",
             .description = "allocator torture tests",

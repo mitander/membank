@@ -561,11 +561,14 @@ test "wal recovery: large blocks" {
         node1_vfs,
         data_dir,
     );
-    defer storage_engine1.deinit();
+    // Note: storage_engine1.deinit() is called explicitly before recovery
 
     try storage_engine1.initialize_storage();
     try storage_engine1.put_block(large_block);
     try storage_engine1.flush_wal();
+
+    // Explicitly close the first storage engine to ensure WAL files are properly closed
+    storage_engine1.deinit();
 
     // Recover large block
     const data_dir2 = try allocator.dupe(u8, "wal_large_data");
@@ -581,7 +584,6 @@ test "wal recovery: large blocks" {
     try storage_engine2.recover_from_wal();
 
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
-
     const recovered = try storage_engine2.find_block_by_id(large_block.id);
     try testing.expectEqual(large_content.len, recovered.content.len);
     try testing.expect(std.mem.eql(u8, large_content, recovered.content));

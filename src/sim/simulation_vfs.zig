@@ -197,7 +197,13 @@ pub const SimulationVFS = struct {
             .allocator = allocator,
             .arena = arena,
             .files = std.StringHashMap(FileHandle).init(allocator),
-            .file_storage = std.ArrayList(FileStorage).init(allocator),
+            .file_storage = blk: {
+                var storage = std.ArrayList(FileStorage).init(allocator);
+                // Pre-allocate capacity to prevent reallocation corruption
+                // Tests typically use fewer than 1000 files
+                storage.ensureTotalCapacity(1024) catch unreachable;
+                break :blk storage;
+            },
             .next_file_id = 1,
             .next_handle = 1,
             .current_time_ns = 1_700_000_000_000_000_000, // Fixed epoch for determinism
@@ -317,6 +323,11 @@ pub const SimulationVFS = struct {
         self.next_handle += 1;
 
         const path_copy = try self.allocator.dupe(u8, path);
+
+        // Ensure we don't exceed pre-allocated capacity to prevent reallocation
+        if (self.file_storage.items.len >= self.file_storage.capacity) {
+            return error.OutOfMemory;
+        }
 
         try self.file_storage.append(FileStorage{
             .data = data,

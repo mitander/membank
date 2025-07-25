@@ -1449,7 +1449,11 @@ pub const StorageEngine = struct {
             .{ blocks_to_flush.items.len, sstable_path, file_size },
         );
 
-        // WAL segment cleanup is now handled by the WAL module automatically
+        // Clean up old WAL segments since data is now persisted in SSTable
+        self.wal.cleanup_old_segments() catch |err| {
+            log.warn("Failed to cleanup old WAL segments: {}", .{err});
+            // Continue despite cleanup failure - data is safely in SSTable
+        };
 
         // Check for compaction opportunities
         try self.check_and_run_compaction();
