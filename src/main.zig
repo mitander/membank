@@ -8,7 +8,7 @@ const storage = @import("storage/storage.zig");
 const query_engine = @import("query/query_engine.zig");
 const context_block = @import("core/types.zig");
 const vfs = @import("core/vfs.zig");
-const production_vfs = @import("production_vfs");
+const production_vfs = @import("core/production_vfs.zig");
 const concurrency = @import("core/concurrency.zig");
 const server = @import("server/handler.zig");
 
