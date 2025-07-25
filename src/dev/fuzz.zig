@@ -287,7 +287,9 @@ fn fuzz_storage_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64)
 
 fn fuzz_storage_iteration(allocator: std.mem.Allocator, random: std.Random) !FuzzResult {
     // Create simulation VFS with random corruption potential
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator) catch {
+        return FuzzResult.expected_error;
+    };
     defer sim_vfs.deinit();
 
     const vfs_instance = sim_vfs.vfs();
@@ -405,7 +407,9 @@ fn fuzz_query_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64) !
 
 fn fuzz_query_iteration(allocator: std.mem.Allocator, random: std.Random) !FuzzResult {
     // Create storage backend for query engine
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator) catch {
+        return FuzzResult.expected_error;
+    };
     defer sim_vfs.deinit();
 
     const vfs_instance = sim_vfs.vfs();
