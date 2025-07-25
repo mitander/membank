@@ -12,42 +12,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-// Core Data Structures
-pub const ContextBlock = @import("core/types.zig").ContextBlock;
-pub const BlockId = @import("core/types.zig").BlockId;
-pub const GraphEdge = @import("core/types.zig").GraphEdge;
-pub const EdgeType = @import("core/types.zig").EdgeType;
-
-// Core Engines
-pub const StorageEngine = @import("storage/storage.zig").StorageEngine;
-pub const QueryEngine = @import("query/engine.zig").QueryEngine;
-pub const QueryResult = @import("query/engine.zig").QueryResult;
-pub const FindBlocksQuery = @import("query/engine.zig").FindBlocksQuery;
-
-// Ingestion Framework (Public Interfaces)
-pub const IngestionPipeline = @import("ingestion/pipeline.zig").IngestionPipeline;
-pub const PipelineConfig = @import("ingestion/pipeline.zig").PipelineConfig;
-pub const Source = @import("ingestion/pipeline.zig").Source;
-pub const Parser = @import("ingestion/pipeline.zig").Parser;
-pub const Chunker = @import("ingestion/pipeline.zig").Chunker;
-pub const SourceContent = @import("ingestion/pipeline.zig").SourceContent;
-pub const ParsedUnit = @import("ingestion/pipeline.zig").ParsedUnit;
-
-// Source Connectors
-pub const GitSource = @import("ingestion/git_source.zig").GitSource;
-pub const GitSourceConfig = @import("ingestion/git_source.zig").GitSourceConfig;
-
-// Content Parsers
-pub const ZigParser = @import("ingestion/zig_parser.zig").ZigParser;
-pub const ZigParserConfig = @import("ingestion/zig_parser.zig").ZigParserConfig;
-
-// Content Chunkers
-pub const SemanticChunker = @import("ingestion/semantic_chunker.zig").SemanticChunker;
-pub const SemanticChunkerConfig = @import("ingestion/semantic_chunker.zig").SemanticChunkerConfig;
-
-// Server Components
-pub const Server = @import("server/handler.zig").Server;
-
 // Simulation Framework (Public for Testing)
 pub const simulation = @import("sim/simulation.zig");
 pub const simulation_vfs = @import("sim/simulation_vfs.zig");
@@ -89,11 +53,62 @@ pub const semantic_chunker = @import("ingestion/semantic_chunker.zig");
 pub const debug_allocator = @import("dev/debug_allocator.zig");
 
 // Server Components
-pub const server = @import("server/handler.zig");
+pub const handler = @import("server/handler.zig");
 
 // Core type aliases for backward compatibility
 pub const types = @import("core/types.zig");
 pub const vfs = @import("core/vfs.zig");
+
+// Core Data Structures
+pub const ContextBlock = types.ContextBlock;
+pub const BlockId = types.BlockId;
+pub const GraphEdge = types.GraphEdge;
+pub const EdgeType = types.EdgeType;
+
+// Core Engines
+pub const StorageEngine = storage.StorageEngine;
+pub const QueryEngine = query_engine.QueryEngine;
+pub const QueryResult = query_engine.QueryResult;
+pub const FindBlocksQuery = query_engine.FindBlocksQuery;
+
+// Query Engine (Public Interfaces)
+pub const TraversalQuery = query_engine.TraversalQuery;
+pub const TraversalResult = query_engine.TraversalResult;
+pub const TraversalDirection = query_engine.TraversalDirection;
+pub const TraversalAlgorithm = query_engine.TraversalAlgorithm;
+pub const SemanticQuery = query_engine.SemanticQuery;
+pub const SemanticQueryResult = query_engine.SemanticQueryResult;
+pub const SemanticResult = query_engine.SemanticResult;
+pub const FilteredQuery = query_engine.FilteredQuery;
+pub const FilteredQueryResult = query_engine.FilteredQueryResult;
+pub const FilterCondition = query_engine.FilterCondition;
+pub const FilterExpression = query_engine.FilterExpression;
+pub const FilterOperator = query_engine.FilterOperator;
+pub const FilterTarget = query_engine.FilterTarget;
+
+// Ingestion Framework (Public Interfaces)
+pub const IngestionPipeline = pipeline.IngestionPipeline;
+pub const PipelineConfig = pipeline.PipelineConfig;
+pub const Source = pipeline.Source;
+pub const Parser = pipeline.Parser;
+pub const Chunker = pipeline.Chunker;
+pub const SourceContent = pipeline.SourceContent;
+pub const ParsedUnit = pipeline.ParsedUnit;
+
+// Source Connectors
+pub const GitSource = git_source.GitSource;
+pub const GitSourceConfig = git_source.GitSourceConfig;
+
+// Content Parsers
+pub const ZigParser = zig_parser.ZigParser;
+pub const ZigParserConfig = zig_parser.ZigParserConfig;
+
+// Content Chunkers
+pub const SemanticChunker = semantic_chunker.SemanticChunker;
+pub const SemanticChunkerConfig = semantic_chunker.SemanticChunkerConfig;
+
+// Server Components
+pub const Server = handler.Server;
 
 // Convenient type aliases
 pub const Allocator = std.mem.Allocator;

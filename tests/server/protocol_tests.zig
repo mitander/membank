@@ -13,7 +13,7 @@ const simulation_vfs = cortexdb.simulation_vfs;
 const storage = cortexdb.storage;
 const query_engine = cortexdb.query_engine;
 const context_block = cortexdb.types;
-const server_handler = cortexdb.server;
+const server_handler = cortexdb.handler;
 const concurrency = cortexdb.concurrency;
 
 const StorageEngine = storage.StorageEngine;

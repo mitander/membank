@@ -6,12 +6,33 @@
 
 const std = @import("std");
 const cortexdb = @import("cortexdb");
-const simulation_vfs = cortexdb.simulation_vfs;
-const storage = cortexdb.storage;
-const query_engine = cortexdb.query_engine;
-const context_block = cortexdb.types;
-const zig_parser = @import("zig_parser");
-const concurrency = cortexdb.concurrency;
+
+const SimulationVFS = cortexdb.SimulationVFS;
+const BlockId = cortexdb.BlockId;
+const ContextBlock = cortexdb.ContextBlock;
+const StorageEngine = cortexdb.StorageEngine;
+const QueryEngine = cortexdb.QueryEngine;
+const TraversalQuery = cortexdb.TraversalQuery;
+const FilteredQuery = cortexdb.FilteredQuery;
+const TraversalDirection = cortexdb.TraversalDirection;
+const TraversalAlgorithm = cortexdb.TraversalAlgorithm;
+const FilterCondition = cortexdb.FilterCondition;
+const FilterExpression = cortexdb.FilterExpression;
+const ZigParser = cortexdb.ZigParser;
+const ZigParserConfig = cortexdb.ZigParserConfig;
+const SourceContent = cortexdb.SourceContent;
+
+const FUZZ_ITERATIONS_DEFAULT = 100_000;
+const FUZZ_ITERATIONS_CONTINUOUS = std.math.maxInt(u64);
+const FUZZ_SEED_DEFAULT = 42;
+const CRASH_REPORT_DIR = "fuzz_reports";
+const PROGRESS_INTERVAL_SEC = 60;
+const GIT_CHECK_INTERVAL_SEC = 600; // 10 minutes
+
+// Exit codes for coordination with shell script
+const EXIT_GIT_UPDATE_NEEDED = 0; // Shell should rebuild and restart
+const EXIT_NORMAL = 0;
+const EXIT_ERROR = 1;
 
 var global_shutdown_requested: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
 
@@ -36,31 +57,13 @@ fn check_shutdown_request() bool {
     return true;
 }
 
-const BlockId = context_block.BlockId;
-const ContextBlock = context_block.ContextBlock;
-const StorageEngine = storage.StorageEngine;
-const QueryEngine = query_engine.QueryEngine;
-const ZigParser = zig_parser.ZigParser;
-
-const FUZZ_ITERATIONS_DEFAULT = 100_000;
-const FUZZ_ITERATIONS_CONTINUOUS = std.math.maxInt(u64);
-const FUZZ_SEED_DEFAULT = 42;
-const CRASH_REPORT_DIR = "fuzz_reports";
-const PROGRESS_INTERVAL_SEC = 60;
-const GIT_CHECK_INTERVAL_SEC = 600; // 10 minutes
-
-// Exit codes for coordination with shell script
-const EXIT_GIT_UPDATE_NEEDED = 0; // Shell should rebuild and restart
-const EXIT_NORMAL = 0;
-const EXIT_ERROR = 1;
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
     // Initialize concurrency model
-    concurrency.init();
+    cortexdb.concurrency.init();
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -288,7 +291,7 @@ fn fuzz_storage_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64)
 
 fn fuzz_storage_iteration(allocator: std.mem.Allocator, random: std.Random) !FuzzResult {
     // Create simulation VFS with random corruption potential
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator) catch {
+    var sim_vfs = SimulationVFS.init(allocator) catch {
         return FuzzResult.expected_error;
     };
     defer sim_vfs.deinit();
@@ -408,7 +411,7 @@ fn fuzz_query_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64) !
 
 fn fuzz_query_iteration(allocator: std.mem.Allocator, random: std.Random) !FuzzResult {
     // Create storage backend for query engine
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator) catch {
+    var sim_vfs = SimulationVFS.init(allocator) catch {
         return FuzzResult.expected_error;
     };
     defer sim_vfs.deinit();
@@ -511,7 +514,7 @@ fn fuzz_zig_parser(allocator: std.mem.Allocator, iterations: u64, seed: u64) !vo
 }
 
 fn fuzz_parser_iteration(allocator: std.mem.Allocator, random: std.Random) !FuzzResult {
-    const config = zig_parser.ZigParserConfig{
+    const config = ZigParserConfig{
         .include_function_bodies = random.boolean(),
         .include_private = random.boolean(),
         .include_inline_comments = random.boolean(),
@@ -530,7 +533,7 @@ fn fuzz_parser_iteration(allocator: std.mem.Allocator, random: std.Random) !Fuzz
     var metadata = std.StringHashMap([]const u8).init(allocator);
     try metadata.put("file_path", "fuzz_test.zig");
 
-    const source_content = @import("ingestion").SourceContent{
+    const source_content = SourceContent{
         .data = source_code,
         .content_type = "text/zig",
         .metadata = metadata,
@@ -819,34 +822,34 @@ fn generate_malformed_zig_source(allocator: std.mem.Allocator, random: std.Rando
     return result.toOwnedSlice();
 }
 
-fn generate_random_filtered_query(allocator: std.mem.Allocator, random: std.Random) !query_engine.FilteredQuery {
+fn generate_random_filtered_query(allocator: std.mem.Allocator, random: std.Random) !FilteredQuery {
     const field_name = try generate_random_string(allocator, random, 1, 50);
     const search_value = try generate_random_string(allocator, random, 0, 100);
 
-    const condition = query_engine.FilterCondition{
+    const condition = FilterCondition{
         .target = .metadata_field,
         .operator = .contains,
         .value = search_value,
         .metadata_field = field_name,
     };
 
-    const expression = query_engine.FilterExpression{
+    const expression = FilterExpression{
         .condition = condition,
     };
 
-    return query_engine.FilteredQuery{
+    return FilteredQuery{
         .expression = expression,
         .max_results = random.intRangeAtMost(u32, 1, 1000),
         .offset = 0,
     };
 }
 
-fn generate_random_traversal_query(allocator: std.mem.Allocator, random: std.Random) !query_engine.TraversalQuery {
+fn generate_random_traversal_query(allocator: std.mem.Allocator, random: std.Random) !TraversalQuery {
     _ = allocator;
-    const directions = [_]query_engine.TraversalDirection{ .incoming, .outgoing, .bidirectional };
-    const algorithms = [_]query_engine.TraversalAlgorithm{ .breadth_first, .depth_first };
+    const directions = [_]TraversalDirection{ .incoming, .outgoing, .bidirectional };
+    const algorithms = [_]TraversalAlgorithm{ .breadth_first, .depth_first };
 
-    return query_engine.TraversalQuery{
+    return TraversalQuery{
         .start_block_id = generate_random_block_id(random),
         .direction = directions[random.intRangeAtMost(usize, 0, directions.len - 1)],
         .algorithm = algorithms[random.intRangeAtMost(usize, 0, algorithms.len - 1)],
@@ -859,7 +862,7 @@ fn generate_random_traversal_query(allocator: std.mem.Allocator, random: std.Ran
 // Tests
 
 test "fuzz: basic functionality" {
-    concurrency.init();
+    cortexdb.concurrency.init();
 
     var prng = std.Random.DefaultPrng.init(12345);
     const random = prng.random();

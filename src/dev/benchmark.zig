@@ -543,13 +543,13 @@ fn benchmark_batch_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator
     defer allocator.free(test_ids);
 
     const batch_size = 10;
-    const batch_query = query_engine.GetBlocksQuery{
+    const batch_query = query_engine.FindBlocksQuery{
         .block_ids = test_ids[0..batch_size],
     };
 
     // Warmup
     for (0..WARMUP_ITERATIONS) |_| {
-        const result = try query_eng.execute_get_blocks(batch_query);
+        const result = try query_eng.execute_find_blocks(batch_query);
         defer result.deinit();
     }
 
@@ -558,7 +558,7 @@ fn benchmark_batch_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator
         const start_time = std.time.nanoTimestamp();
 
         for (0..LARGE_BENCHMARK_ITERATIONS) |_| {
-            const result = try query_eng.execute_get_blocks(batch_query);
+            const result = try query_eng.execute_find_blocks(batch_query);
             defer result.deinit();
         }
 
