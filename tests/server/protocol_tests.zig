@@ -180,20 +180,20 @@ test "protocol - ping message" {
     try testing.expectEqual(@as(u32, 0), decoded.payload_length);
 }
 
-test "protocol - get_blocks message" {
-    const get_blocks_header = MessageHeader{
-        .msg_type = MessageType.get_blocks,
+test "protocol - find_blocks message" {
+    const find_blocks_header = MessageHeader{
+        .msg_type = MessageType.find_blocks,
         .version = 1,
         .reserved = 0,
         .payload_length = 16, // Size of BlockId
     };
 
     var buffer: [8]u8 = undefined;
-    get_blocks_header.encode(&buffer);
+    find_blocks_header.encode(&buffer);
 
     const decoded = try MessageHeader.decode(&buffer);
 
-    try testing.expectEqual(MessageType.get_blocks, decoded.msg_type);
+    try testing.expectEqual(MessageType.find_blocks, decoded.msg_type);
     try testing.expectEqual(@as(u32, 16), decoded.payload_length);
 }
 
@@ -259,7 +259,7 @@ test "server stats - initial values" {
 test "protocol - all message types" {
     // Verify all expected message types exist and have correct values
     try testing.expectEqual(@as(u8, 0x01), @intFromEnum(MessageType.ping));
-    try testing.expectEqual(@as(u8, 0x02), @intFromEnum(MessageType.get_blocks));
+    try testing.expectEqual(@as(u8, 0x02), @intFromEnum(MessageType.find_blocks));
     try testing.expectEqual(@as(u8, 0x03), @intFromEnum(MessageType.filtered_query));
     try testing.expectEqual(@as(u8, 0x04), @intFromEnum(MessageType.traversal_query));
 
@@ -417,7 +417,7 @@ test "connection state machine - payload reading with flow control" {
 
     // Write complete header for get_blocks with 20-byte payload
     const header = MessageHeader{
-        .msg_type = MessageType.get_blocks,
+        .msg_type = MessageType.find_blocks,
         .version = 1,
         .reserved = 0,
         .payload_length = 20,
@@ -535,7 +535,7 @@ test "connection state machine - request size limits" {
 
     // Write header with oversized payload
     const header = MessageHeader{
-        .msg_type = MessageType.get_blocks,
+        .msg_type = MessageType.find_blocks,
         .version = 1,
         .reserved = 0,
         .payload_length = 1000, // Exceeds limit
@@ -609,7 +609,7 @@ test "connection state machine - arena memory isolation" {
 
     // Process a complete request with payload
     const header = MessageHeader{
-        .msg_type = MessageType.get_blocks,
+        .msg_type = MessageType.find_blocks,
         .version = 1,
         .reserved = 0,
         .payload_length = 20,

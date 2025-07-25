@@ -5,12 +5,13 @@
 //! and other robustness problems.
 
 const std = @import("std");
-const simulation_vfs = @import("../sim/simulation_vfs.zig");
-const storage = @import("../storage/storage.zig");
-const query_engine = @import("../query/query_engine.zig");
-const context_block = @import("../core/types.zig");
+const cortexdb = @import("cortexdb");
+const simulation_vfs = cortexdb.simulation_vfs;
+const storage = cortexdb.storage;
+const query_engine = cortexdb.query_engine;
+const context_block = cortexdb.types;
 const zig_parser = @import("zig_parser");
-const concurrency = @import("../core/concurrency.zig");
+const concurrency = cortexdb.concurrency;
 
 var global_shutdown_requested: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
 
@@ -822,16 +823,21 @@ fn generate_random_filtered_query(allocator: std.mem.Allocator, random: std.Rand
     const field_name = try generate_random_string(allocator, random, 1, 50);
     const search_value = try generate_random_string(allocator, random, 0, 100);
 
+    const condition = query_engine.FilterCondition{
+        .target = .metadata_field,
+        .operator = .contains,
+        .value = search_value,
+        .metadata_field = field_name,
+    };
+
+    const expression = query_engine.FilterExpression{
+        .condition = condition,
+    };
+
     return query_engine.FilteredQuery{
-        .filter = query_engine.FilterCondition{
-            .metadata_contains = .{
-                .field = field_name,
-                .substring = search_value,
-            },
-        },
+        .expression = expression,
         .max_results = random.intRangeAtMost(u32, 1, 1000),
-        .sort_by_version = if (random.boolean()) .ascending else null,
-        .include_metadata_analysis = random.boolean(),
+        .offset = 0,
     };
 }
 

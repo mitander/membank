@@ -5,7 +5,7 @@ const custom_assert = @import("core/assert.zig");
 const assert = custom_assert.assert;
 const log = std.log.scoped(.main);
 const storage = @import("storage/storage.zig");
-const query_engine = @import("query/query_engine.zig");
+const query_engine = @import("query/engine.zig");
 const context_block = @import("core/types.zig");
 const vfs = @import("core/vfs.zig");
 const production_vfs = @import("core/production_vfs.zig");
@@ -187,11 +187,11 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 
     // Query multiple blocks
     std.debug.print("\nQuerying multiple blocks...\n", .{});
-    const query = query_engine.GetBlocksQuery{
+    const query = query_engine.FindBlocksQuery{
         .block_ids = &[_]BlockId{ block1_id, block2_id },
     };
 
-    const multi_result = try query_eng.execute_get_blocks(query);
+    const multi_result = try query_eng.execute_find_blocks(query);
     defer multi_result.deinit();
 
     std.debug.print("✓ Found {} blocks\n\n", .{multi_result.count});
@@ -227,9 +227,9 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     const query_stats = query_eng.statistics();
     std.debug.print("\n=== Query Engine Metrics ===\n", .{});
     std.debug.print("Storage: {} blocks available\n", .{query_stats.total_blocks_stored});
-    std.debug.print("Queries: {} total ({} get_blocks, {} traversal)\n", .{
+    std.debug.print("Queries: {} total ({} find_blocks, {} traversal)\n", .{
         query_stats.queries_executed,
-        query_stats.get_blocks_queries,
+        query_stats.find_blocks_queries,
         query_stats.traversal_queries,
     });
 

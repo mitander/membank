@@ -19,7 +19,7 @@ const comptime_assert = custom_assert.comptime_assert;
 const comptime_no_padding = custom_assert.comptime_no_padding;
 const log = std.log.scoped(.connection);
 const context_block = @import("../core/types.zig");
-const query_engine = @import("../query/query_engine.zig");
+const query_engine = @import("../query/engine.zig");
 
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
@@ -28,7 +28,7 @@ const BlockId = context_block.BlockId;
 pub const MessageType = enum(u8) {
     // Client requests
     ping = 0x01,
-    get_blocks = 0x02,
+    find_blocks = 0x02,
     filtered_query = 0x03,
     traversal_query = 0x04,
 

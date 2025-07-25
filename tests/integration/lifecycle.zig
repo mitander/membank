@@ -124,11 +124,11 @@ test "integration: full data lifecycle with compaction" {
         try query_block_ids.append(try BlockId.from_hex(block_id_hex));
     }
 
-    const batch_query = query_engine.GetBlocksQuery{
+    const batch_query = query_engine.FindBlocksQuery{
         .block_ids = query_block_ids.items,
     };
 
-    const batch_result = try query_eng.execute_get_blocks(batch_query);
+    const batch_result = try query_eng.execute_find_blocks(batch_query);
     defer batch_result.deinit();
 
     try testing.expectEqual(@as(u32, 100), batch_result.count);
@@ -377,11 +377,11 @@ test "integration: concurrent storage and query operations" {
                 try batch_ids.append(try BlockId.from_hex(batch_id_hex));
             }
 
-            const batch_query = query_engine.GetBlocksQuery{
+            const batch_query = query_engine.FindBlocksQuery{
                 .block_ids = batch_ids.items,
             };
 
-            const batch_result = try query_eng.execute_get_blocks(batch_query);
+            const batch_result = try query_eng.execute_find_blocks(batch_query);
             defer batch_result.deinit();
 
             try testing.expectEqual(@as(u32, 5), batch_result.count);
@@ -520,11 +520,11 @@ test "integration: storage recovery and query consistency" {
             try BlockId.from_hex("cccccccccccccccccccccccccccccccc"),
         };
 
-        const batch_query = query_engine.GetBlocksQuery{
+        const batch_query = query_engine.FindBlocksQuery{
             .block_ids = &all_ids,
         };
 
-        const batch_result = try query_eng.execute_get_blocks(batch_query);
+        const batch_result = try query_eng.execute_find_blocks(batch_query);
         defer batch_result.deinit();
 
         try testing.expectEqual(@as(u32, 3), batch_result.count);

@@ -20,9 +20,9 @@ pub const EdgeType = @import("core/types.zig").EdgeType;
 
 // Core Engines
 pub const StorageEngine = @import("storage/storage.zig").StorageEngine;
-pub const QueryEngine = @import("query/query_engine.zig").QueryEngine;
-pub const QueryResult = @import("query/query_engine.zig").QueryResult;
-pub const GetBlocksQuery = @import("query/query_engine.zig").GetBlocksQuery;
+pub const QueryEngine = @import("query/engine.zig").QueryEngine;
+pub const QueryResult = @import("query/engine.zig").QueryResult;
+pub const FindBlocksQuery = @import("query/engine.zig").FindBlocksQuery;
 
 // Ingestion Framework (Public Interfaces)
 pub const IngestionPipeline = @import("ingestion/pipeline.zig").IngestionPipeline;
@@ -74,7 +74,10 @@ pub const tiered_compaction = @import("storage/tiered_compaction.zig");
 pub const storage = @import("storage/storage.zig");
 
 // Query Layer
-pub const query_engine = @import("query/query_engine.zig");
+pub const query_engine = @import("query/engine.zig");
+pub const query_operations = @import("query/operations.zig");
+pub const query_traversal = @import("query/traversal.zig");
+pub const query_filtering = @import("query/filtering.zig");
 
 // Ingestion Components
 pub const pipeline = @import("ingestion/pipeline.zig");

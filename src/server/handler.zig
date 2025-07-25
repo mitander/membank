@@ -17,7 +17,7 @@ const comptime_no_padding = custom_assert.comptime_no_padding;
 const log = std.log.scoped(.server);
 const concurrency = @import("../core/concurrency.zig");
 const storage = @import("../storage/storage.zig");
-const query_engine = @import("../query/query_engine.zig");
+const query_engine = @import("../query/engine.zig");
 const context_block = @import("../core/types.zig");
 
 // Import connection state machine module
@@ -28,6 +28,7 @@ pub const MessageHeader = conn.MessageHeader;
 pub const ConnectionState = conn.ConnectionState;
 
 const StorageEngine = storage.StorageEngine;
+const QueryResult = query_engine.QueryResult;
 const QueryEngine = query_engine.QueryEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
@@ -318,8 +319,8 @@ pub const CortexServer = struct {
                 }
             },
 
-            .get_blocks => {
-                try self.handle_get_blocks_request_async(connection, payload);
+            .find_blocks => {
+                try self.handle_find_blocks_request_async(connection, payload);
             },
 
             .filtered_query => {
@@ -384,13 +385,13 @@ pub const CortexServer = struct {
         log.info("CortexDB server stopped", .{});
     }
 
-    /// Handle get_blocks request asynchronously
-    fn handle_get_blocks_request_async(self: *CortexServer, connection: *ClientConnection, payload: []const u8) !void {
+    /// Handle find_blocks request asynchronously
+    fn handle_find_blocks_request_async(self: *CortexServer, connection: *ClientConnection, payload: []const u8) !void {
         const allocator = connection.arena.allocator();
 
         // Parse block IDs from payload (simple format: count + list of 16-byte block IDs)
         if (payload.len < 4) {
-            const error_msg = "Invalid get_blocks request: missing block count";
+            const error_msg = "Invalid find_blocks request: missing block count";
             connection.send_response(error_msg);
             self.stats.errors_encountered += 1;
             return;
@@ -398,14 +399,14 @@ pub const CortexServer = struct {
 
         const block_count = std.mem.readInt(u32, payload[0..4], .little);
         if (block_count == 0) {
-            const error_msg = "Invalid get_blocks request: zero blocks requested";
+            const error_msg = "Invalid find_blocks request: zero blocks requested";
             connection.send_response(error_msg);
             self.stats.errors_encountered += 1;
             return;
         }
 
         if (payload.len < 4 + (block_count * 16)) {
-            const error_msg = "Invalid get_blocks request: insufficient payload for block IDs";
+            const error_msg = "Invalid find_blocks request: insufficient payload for block IDs";
             connection.send_response(error_msg);
             self.stats.errors_encountered += 1;
             return;
@@ -420,8 +421,8 @@ pub const CortexServer = struct {
         }
 
         // Build query and execute
-        const query = query_engine.GetBlocksQuery{ .block_ids = block_ids };
-        const result = self.query_engine.execute_get_blocks(query) catch |err| {
+        const query = query_engine.FindBlocksQuery{ .block_ids = block_ids };
+        const result = self.query_engine.execute_find_blocks(query) catch |err| {
             const error_msg = try std.fmt.allocPrint(allocator, "Query execution failed: {any}", .{err});
             connection.send_response(error_msg);
             self.stats.errors_encountered += 1;
@@ -435,7 +436,7 @@ pub const CortexServer = struct {
         self.stats.bytes_sent += response_data.len + MessageHeader.HEADER_SIZE;
 
         if (self.config.enable_logging) {
-            log.debug("Connection {d}: handled get_blocks request, returned {d} blocks", .{ connection.connection_id, result.count });
+            log.debug("Connection {d}: handled find_blocks request, returned {d} blocks", .{ connection.connection_id, result.count });
         }
     }
 
@@ -445,7 +446,7 @@ pub const CortexServer = struct {
         const allocator = connection.arena.allocator();
 
         const empty_blocks: []const ContextBlock = &[_]ContextBlock{};
-        const common_result = query_engine.QueryResult.init(allocator, empty_blocks);
+        const common_result = try QueryResult.init(allocator, empty_blocks);
         const response_data = try self.serialize_blocks_response(allocator, common_result);
         connection.send_response(response_data);
         self.stats.bytes_sent += response_data.len + MessageHeader.HEADER_SIZE;
@@ -489,7 +490,7 @@ pub const CortexServer = struct {
         };
 
         try result_blocks.append(start_block.*);
-        const common_result = query_engine.QueryResult.init(allocator, result_blocks.items);
+        const common_result = try QueryResult.init(allocator, result_blocks.items);
         const response_data = try self.serialize_blocks_response(allocator, common_result);
         connection.send_response(response_data);
         self.stats.bytes_sent += response_data.len + MessageHeader.HEADER_SIZE;
@@ -500,7 +501,7 @@ pub const CortexServer = struct {
     }
 
     /// Serialize query results into binary format for network transmission
-    fn serialize_blocks_response(self: *CortexServer, allocator: std.mem.Allocator, result: query_engine.QueryResult) ![]u8 {
+    fn serialize_blocks_response(self: *CortexServer, allocator: std.mem.Allocator, result: QueryResult) ![]u8 {
         _ = self; // Suppress unused parameter warning
 
         // Calculate total size needed
