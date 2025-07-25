@@ -812,6 +812,7 @@ pub const WAL = struct {
         var process_buffer: [16384]u8 = std.mem.zeroes([16384]u8);
         var remaining_buffer: [16384]u8 = std.mem.zeroes([16384]u8);
         var remaining_len: usize = 0;
+        var buffer_start_file_pos: u64 = 0;
 
         // Buffers must accommodate multiple headers to prevent thrashing
         comptime assert(@sizeOf(@TypeOf(read_buffer)) >= WALEntry.HEADER_SIZE * 4);
@@ -827,6 +828,13 @@ pub const WAL = struct {
 
             // Track file position BEFORE the read for progress monitoring and corruption detection
             const position_before_read = file.tell() catch return WALError.IoError;
+
+            // Update buffer start position tracking
+            if (remaining_len == 0) {
+                // No remaining data - buffer starts at current read position
+                buffer_start_file_pos = position_before_read;
+            }
+            // If we have remaining data, buffer_start_file_pos stays the same
 
             // Early corruption detection: if we're repeatedly hitting the same file position
             // with the 'xxxx' pattern, we're likely reading corrupted data
@@ -862,7 +870,7 @@ pub const WAL = struct {
             // Clear the process buffer first to ensure clean state
             @memset(&process_buffer, 0);
 
-            const available = remaining_len + bytes_read;
+            var available = remaining_len + bytes_read;
             if (available > process_buffer.len) {
                 log.err("WAL recovery buffer overflow: remaining_len ({}) + bytes_read ({}) = {} > process_buffer.len ({})", .{ remaining_len, bytes_read, available, process_buffer.len });
                 return WALError.IoError;
@@ -952,52 +960,75 @@ pub const WAL = struct {
                 assert(entry_size >= WALEntry.HEADER_SIZE);
 
                 if (pos + entry_size > available) {
-                    // For large entries that exceed buffer capacity, read directly from file
+                    // Entry spans buffer boundary
+                    if (entry_size > process_buffer.len) {
+                        // Entry is larger than buffer - use file seeking approach
+                        const entry_file_position = buffer_start_file_pos + pos;
 
-                    // Calculate the file position where this entry starts
-                    // The buffer contains data from [position_before_read] to [position_before_read + bytes_read]
-                    const buffer_start_in_file = position_before_read;
-                    const entry_file_position = buffer_start_in_file + pos;
+                        // Seek to entry start and read the complete entry
+                        _ = file.seek(entry_file_position, .start) catch return WALError.IoError;
 
-                    // Seek to entry start and read the complete entry
-                    _ = file.seek(entry_file_position, .start) catch return WALError.IoError;
+                        const large_entry_buffer = self.allocator.alloc(u8, entry_size) catch return WALError.OutOfMemory;
+                        defer self.allocator.free(large_entry_buffer);
 
-                    const large_entry_buffer = self.allocator.alloc(u8, entry_size) catch return WALError.OutOfMemory;
-                    defer self.allocator.free(large_entry_buffer);
+                        const large_bytes_read = file.read(large_entry_buffer) catch return WALError.IoError;
+                        if (large_bytes_read != entry_size) {
+                            log.err("Failed to read complete large entry: expected {}, got {}", .{ entry_size, large_bytes_read });
+                            return WALError.IoError;
+                        }
 
-                    const large_bytes_read = file.read(large_entry_buffer) catch return WALError.IoError;
-                    if (large_bytes_read != entry_size) {
-                        log.err("Failed to read complete large entry: expected {}, got {}", .{ entry_size, large_bytes_read });
-                        return WALError.IoError;
-                    }
+                        // Deserialize and process the large entry
+                        var large_entry = WALEntry.deserialize(large_entry_buffer, self.allocator) catch |err| switch (err) {
+                            WALError.InvalidChecksum, WALError.InvalidEntryType => {
+                                log.warn("Large WAL entry deserialization failed: {}", .{err});
+                                // Skip this entry and continue
+                                pos = available; // Mark buffer as fully processed
+                                break;
+                            },
+                            else => return err,
+                        };
 
-                    // Deserialize and process the large entry
-                    var large_entry = WALEntry.deserialize(large_entry_buffer, self.allocator) catch |err| switch (err) {
-                        WALError.InvalidChecksum, WALError.InvalidEntryType => {
-                            log.warn("Large WAL entry deserialization failed: {}", .{err});
-                            // Skip this entry and continue
-                            pos = available; // Mark buffer as fully processed
-                            break;
-                        },
-                        else => return err,
-                    };
+                        callback(large_entry, context) catch |err| {
+                            large_entry.deinit(self.allocator);
+                            return err;
+                        };
 
-                    callback(large_entry, context) catch |err| {
                         large_entry.deinit(self.allocator);
-                        return err;
-                    };
+                        entries_recovered += 1;
+                        entries_processed += 1;
 
-                    large_entry.deinit(self.allocator);
-                    entries_recovered += 1;
-                    entries_processed += 1;
+                        // Seek to the position after the large entry for next reads
+                        const next_position = entry_file_position + entry_size;
+                        _ = file.seek(next_position, .start) catch return WALError.IoError;
 
-                    // Seek to the position after the large entry for next reads
-                    const next_position = entry_file_position + entry_size;
-                    _ = file.seek(next_position, .start) catch return WALError.IoError;
+                        // Mark buffer as fully processed since we handled the large entry
+                        pos = available;
+                        break;
+                    } else {
+                        // Entry fits in buffer but spans boundary - use buffer expansion
+                        const remaining_data = available - pos;
 
-                    // Mark buffer as fully processed since we handled the large entry
-                    pos = available;
-                    break;
+                        if (remaining_data > 0) {
+                            // Move partial entry data to start of buffer
+                            std.mem.copyForwards(u8, process_buffer[0..remaining_data], process_buffer[pos .. pos + remaining_data]);
+                        }
+
+                        // Read more data to complete the entry
+                        const bytes_to_read = entry_size - remaining_data;
+                        const additional_bytes = file.read(process_buffer[remaining_data .. remaining_data + bytes_to_read]) catch return WALError.IoError;
+
+                        if (additional_bytes < bytes_to_read) {
+                            // End of file reached before completing entry
+                            log.warn("Incomplete entry at end of WAL segment: need {}, have {}", .{ entry_size, remaining_data + additional_bytes });
+                            break;
+                        }
+
+                        // Update buffer state
+                        available = remaining_data + additional_bytes;
+                        pos = 0; // Entry now starts at beginning of buffer
+
+                        // Continue processing with entry now available in buffer
+                    }
                 }
 
                 const entry_buffer = process_buffer[pos .. pos + entry_size];
@@ -1032,6 +1063,7 @@ pub const WAL = struct {
                     log.err("WAL segment exceeded maximum entries limit: {d}", .{MAX_ENTRIES_PER_SEGMENT});
                     return WALError.IoError;
                 }
+                entries_processed += 1;
 
                 // Defensive check: ensure we're making progress
                 const old_pos = pos;
@@ -1084,8 +1116,14 @@ pub const WAL = struct {
                 // Copy leftover data to remaining buffer for next iteration
                 @memcpy(remaining_buffer[0..leftover_size], process_buffer[pos..available]);
                 remaining_len = leftover_size;
+
+                // Update buffer start position for next iteration
+                buffer_start_file_pos += pos;
             } else {
                 remaining_len = 0;
+
+                // Update buffer start position for next iteration
+                buffer_start_file_pos += pos;
             }
         }
 

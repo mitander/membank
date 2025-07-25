@@ -348,11 +348,11 @@ pub const VFile = struct {
 
                     // ensureTotalCapacity preserves existing data automatically
                     try file_data.content.ensureTotalCapacity(new_len);
-                    
+
                     // CRITICAL: Refresh file_data pointer IMMEDIATELY after reallocation
                     // to prevent use of stale pointer when ArrayList reallocates
                     file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
-                    
+
                     // Set length using refreshed pointer
                     file_data.content.items.len = new_len;
 
@@ -377,30 +377,30 @@ pub const VFile = struct {
                 // Immediate corruption detection: verify written data is readable
                 const write_start_pos = sim.position - actual_write_size;
                 const written_slice = file_data.content.items[write_start_pos..sim.position];
-                
+
                 // VFS write verification (disabled - proven to work correctly)
                 if (false) {
-                    std.debug.print("=== VFS WRITE VERIFICATION: pos={}, size={} ===\n", .{write_start_pos, actual_write_size});
+                    std.debug.print("=== VFS WRITE VERIFICATION: pos={}, size={} ===\n", .{ write_start_pos, actual_write_size });
                     std.debug.print("Expected first 20 bytes: ", .{});
                     for (data[0..@min(20, data.len)], 0..) |byte, i| {
-                        std.debug.print("{}:0x{X} ", .{i, byte});
+                        std.debug.print("{}:0x{X} ", .{ i, byte });
                     }
                     std.debug.print("\n", .{});
                     std.debug.print("Actual first 20 bytes:   ", .{});
                     for (written_slice[0..@min(20, written_slice.len)], 0..) |byte, i| {
-                        std.debug.print("{}:0x{X} ", .{i, byte});
+                        std.debug.print("{}:0x{X} ", .{ i, byte });
                     }
                     std.debug.print("\n", .{});
-                    
+
                     // Also debug the entire file from the beginning
                     std.debug.print("=== FULL FILE CONTENT (first 64 bytes) ===\n", .{});
                     for (file_data.content.items[0..@min(64, file_data.content.items.len)], 0..) |byte, i| {
-                        std.debug.print("{}:0x{X} ", .{i, byte});
+                        std.debug.print("{}:0x{X} ", .{ i, byte });
                         if (i > 0 and (i + 1) % 16 == 0) std.debug.print("\n", .{});
                     }
                     if (file_data.content.items.len % 16 != 0) std.debug.print("\n", .{});
                 }
-                
+
                 if (!std.mem.eql(u8, written_slice, data[0..actual_write_size])) {
                     std.debug.print("VFS write corruption detected: written data mismatch at pos {}\n", .{write_start_pos});
                     if (actual_write_size >= 8) {
