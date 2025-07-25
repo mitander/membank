@@ -5,7 +5,8 @@
 //! with optimizations for CortexDB's workload characteristics.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("../core/assert.zig");
+const assert = custom_assert.assert;
 const vfs = @import("../core/vfs.zig");
 const sstable = @import("sstable.zig");
 const concurrency = @import("../core/concurrency.zig");

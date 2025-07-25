@@ -5,7 +5,8 @@
 //! This module encapsulates the core entry format and validation logic.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("../../core/assert.zig");
+const assert = custom_assert.assert;
 
 const types = @import("types.zig");
 const context_block = @import("../../core/types.zig");

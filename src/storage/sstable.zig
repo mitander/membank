@@ -17,13 +17,13 @@
 //!     breaking the format for older clients.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("../core/assert.zig");
+const assert = custom_assert.assert;
+const comptime_assert = custom_assert.comptime_assert;
 const log = std.log.scoped(.sstable);
 const context_block = @import("../core/types.zig");
 const vfs = @import("../core/vfs.zig");
 const bloom_filter = @import("bloom_filter.zig");
-const custom_assert = @import("../core/assert.zig");
-const comptime_assert = custom_assert.comptime_assert;
 
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;

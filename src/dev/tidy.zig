@@ -4,7 +4,9 @@
 //! and catches common issues before they reach main branch.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const cortexdb = @import("cortexdb");
+const assert = cortexdb.assert.assert;
+const assert_fmt = cortexdb.assert.assert_fmt;
 const fs = std.fs;
 const mem = std.mem;
 
@@ -299,6 +301,13 @@ fn tidy_banned_patterns(file_path: []const u8, source: []const u8) ?[]const u8 {
 
     if (std.mem.indexOf(u8, source, "!" ++ "comptime") != null) {
         return "use ! inside comptime blocks";
+    }
+
+    // tidy.zig is allowed to search for std.debug.assert patterns
+    if (!std.mem.endsWith(u8, file_path, "src/dev/tidy.zig")) {
+        if (std.mem.indexOf(u8, source, "std.debug." ++ "assert") != null) {
+            return "use custom assert module instead of std.debug.assert";
+        }
     }
 
     if (std.mem.indexOf(u8, source, "debug." ++ "assert(") != null) {
@@ -864,7 +873,7 @@ fn tidy_generic_functions(
                 const end = std.mem.indexOf(u8, line[begin..], "(") orelse continue;
                 if (end == 0) continue;
 
-                assert(begin + end < line.len);
+                assert_fmt(begin + end < line.len, "bounds violation: {} + {} >= {}", .{ begin, end, line.len });
                 break :function_name line[begin..][0..end];
             }
             continue;
@@ -911,7 +920,7 @@ fn tidy_markdown_standards(text: []const u8) !void {
         // Line length check removed for markdown files
     }
 
-    assert(!fenced_block);
+    assert_fmt(!fenced_block, "unclosed fenced block", .{});
 
     switch (heading_count) {
         0 => if (line_count > 2) return error.MissingTitle,
@@ -974,10 +983,10 @@ const DeadFilesDetector = struct {
     }
 
     fn path_to_name(path: []const u8) FileName {
-        assert(std.mem.endsWith(u8, path, ".zig"));
+        assert_fmt(std.mem.endsWith(u8, path, ".zig"), "non-zig path: {s}", .{path});
         const basename = std.fs.path.basename(path);
         var file_name: FileName = @splat(0);
-        assert(basename.len <= file_name.len);
+        assert_fmt(basename.len <= file_name.len, "basename too long: {} > {}", .{ basename.len, file_name.len });
         @memcpy(file_name[0..basename.len], basename);
         return file_name;
     }
@@ -1024,10 +1033,10 @@ fn list_file_paths(shell: *Shell) ![]const []const u8 {
     var result = std.ArrayList([]const u8).init(shell.arena.allocator());
 
     const files = try shell.exec_stdout("git ls-files -z", .{});
-    assert(files[files.len - 1] == 0);
+    assert_fmt(files[files.len - 1] == 0, "missing null terminator", .{});
     var lines = std.mem.splitScalar(u8, files[0 .. files.len - 1], 0);
     while (lines.next()) |line| {
-        assert(line.len > 0);
+        assert_fmt(line.len > 0, "empty file path", .{});
         try result.append(line);
     }
 

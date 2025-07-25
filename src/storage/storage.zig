@@ -16,6 +16,7 @@ const wal = @import("wal.zig");
 const custom_assert = @import("../core/assert.zig");
 
 const assert = custom_assert.assert;
+const assert_fmt = custom_assert.assert_fmt;
 const assert_not_null = custom_assert.assert_not_null;
 const assert_not_empty = custom_assert.assert_not_empty;
 const assert_state_valid = custom_assert.assert_state_valid;
@@ -355,25 +356,25 @@ pub const BlockIndex = struct {
     }
 
     pub fn put_block(self: *BlockIndex, block: ContextBlock) !void {
-        assert(@intFromPtr(self) != 0, "BlockIndex self pointer cannot be null", .{});
-        assert(@intFromPtr(&self.arena) != 0, "BlockIndex arena pointer cannot be null", .{});
+        assert_fmt(@intFromPtr(self) != 0, "BlockIndex self pointer cannot be null", .{});
+        assert_fmt(@intFromPtr(&self.arena) != 0, "BlockIndex arena pointer cannot be null", .{});
 
         const arena_allocator = self.arena.allocator();
 
         // Validate string lengths to prevent allocation of corrupted sizes
-        assert(block.source_uri.len < 1024 * 1024, "source_uri too large: {} bytes", .{block.source_uri.len});
-        assert(block.metadata_json.len < 1024 * 1024, "metadata_json too large: {} bytes", .{block.metadata_json.len});
-        assert(block.content.len < 100 * 1024 * 1024, "content too large: {} bytes", .{block.content.len});
+        assert_fmt(block.source_uri.len < 1024 * 1024, "source_uri too large: {} bytes", .{block.source_uri.len});
+        assert_fmt(block.metadata_json.len < 1024 * 1024, "metadata_json too large: {} bytes", .{block.metadata_json.len});
+        assert_fmt(block.content.len < 100 * 1024 * 1024, "content too large: {} bytes", .{block.content.len});
 
         // Catch null pointers masquerading as slices
         if (block.source_uri.len > 0) {
-            assert(@intFromPtr(block.source_uri.ptr) != 0, "source_uri has null pointer with non-zero length", .{});
+            assert_fmt(@intFromPtr(block.source_uri.ptr) != 0, "source_uri has null pointer with non-zero length", .{});
         }
         if (block.metadata_json.len > 0) {
-            assert(@intFromPtr(block.metadata_json.ptr) != 0, "metadata_json has null pointer with non-zero length", .{});
+            assert_fmt(@intFromPtr(block.metadata_json.ptr) != 0, "metadata_json has null pointer with non-zero length", .{});
         }
         if (block.content.len > 0) {
-            assert(@intFromPtr(block.content.ptr) != 0, "content has null pointer with non-zero length", .{});
+            assert_fmt(@intFromPtr(block.content.ptr) != 0, "content has null pointer with non-zero length", .{});
         }
 
         const cloned_block = ContextBlock{
@@ -385,20 +386,20 @@ pub const BlockIndex = struct {
         };
 
         if (block.source_uri.len > 0) {
-            assert(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "source_uri was not properly duped by arena allocator", .{});
+            assert_fmt(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "source_uri was not properly duped by arena allocator", .{});
         }
         if (block.metadata_json.len > 0) {
-            assert(@intFromPtr(cloned_block.metadata_json.ptr) != @intFromPtr(block.metadata_json.ptr), "metadata_json was not properly duped by arena allocator", .{});
+            assert_fmt(@intFromPtr(cloned_block.metadata_json.ptr) != @intFromPtr(block.metadata_json.ptr), "metadata_json was not properly duped by arena allocator", .{});
         }
         if (block.content.len > 0) {
-            assert(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "content was not properly duped by arena allocator", .{});
+            assert_fmt(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "content was not properly duped by arena allocator", .{});
         }
 
         // Check if we're replacing an existing block to adjust memory accounting
         if (self.blocks.get(block.id)) |existing_block| {
             // Subtract old block's memory usage
             const old_memory = existing_block.source_uri.len + existing_block.metadata_json.len + existing_block.content.len;
-            assert(self.memory_used >= old_memory, "Memory accounting corruption: {} < {}", .{ self.memory_used, old_memory });
+            assert_fmt(self.memory_used >= old_memory, "Memory accounting corruption: {} < {}", .{ self.memory_used, old_memory });
             self.memory_used -= old_memory;
         }
 
@@ -417,7 +418,7 @@ pub const BlockIndex = struct {
         // Subtract removed block's memory usage
         if (self.blocks.get(block_id)) |existing_block| {
             const old_memory = existing_block.source_uri.len + existing_block.metadata_json.len + existing_block.content.len;
-            assert(self.memory_used >= old_memory, "Memory accounting corruption: {} < {}", .{ self.memory_used, old_memory });
+            assert_fmt(self.memory_used >= old_memory, "Memory accounting corruption: {} < {}", .{ self.memory_used, old_memory });
             self.memory_used -= old_memory;
         }
         _ = self.blocks.remove(block_id);
@@ -433,14 +434,14 @@ pub const BlockIndex = struct {
     }
 
     pub fn clear(self: *BlockIndex) void {
-        assert(@intFromPtr(self) != 0, "BlockIndex self pointer cannot be null during clear", .{});
-        assert(@intFromPtr(&self.arena) != 0, "BlockIndex arena pointer cannot be null during clear", .{});
+        assert_fmt(@intFromPtr(self) != 0, "BlockIndex self pointer cannot be null during clear", .{});
+        assert_fmt(@intFromPtr(&self.arena) != 0, "BlockIndex arena pointer cannot be null during clear", .{});
 
         self.blocks.clearRetainingCapacity();
         _ = self.arena.reset(.retain_capacity);
         self.memory_used = 0;
 
-        assert(self.blocks.count() == 0, "HashMap not properly cleared", .{});
+        assert_fmt(self.blocks.count() == 0, "HashMap not properly cleared", .{});
     }
 };
 
@@ -989,7 +990,7 @@ pub const StorageEngine = struct {
     /// Initialize storage engine by creating necessary directories and files.
     pub fn initialize_storage(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
-        assert(!self.initialized, "StorageEngine is already initialized", .{});
+        assert_fmt(!self.initialized, "StorageEngine is already initialized", .{});
         if (self.initialized) return StorageError.AlreadyInitialized;
 
         // Create data directory structure
@@ -1052,10 +1053,10 @@ pub const StorageEngine = struct {
     pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
         concurrency.assert_main_thread();
 
-        assert(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
         assert_state_valid(self.initialized, "StorageEngine must be initialized before put_block", .{});
 
-        assert(block.version > 0, "ContextBlock version must be positive, got {}", .{block.version});
+        assert_fmt(block.version > 0, "ContextBlock version must be positive, got {}", .{block.version});
 
         if (!self.initialized) return StorageError.NotInitialized;
 
@@ -1064,8 +1065,8 @@ pub const StorageEngine = struct {
         // Track the operation attempt
         _ = self.storage_metrics.wal_writes.fetchAdd(1, .monotonic);
 
-        assert(@intFromPtr(&self.index) != 0, "Storage index pointer cannot be null", .{});
-        assert(@intFromPtr(&self.index.arena) != 0, "Storage index arena pointer cannot be null", .{});
+        assert_fmt(@intFromPtr(&self.index) != 0, "Storage index pointer cannot be null", .{});
+        assert_fmt(@intFromPtr(&self.index.arena) != 0, "Storage index arena pointer cannot be null", .{});
 
         block.validate(self.backing_allocator) catch |err| {
             _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
@@ -1079,8 +1080,8 @@ pub const StorageEngine = struct {
         };
         defer wal_entry.deinit(self.backing_allocator);
 
-        assert(wal_entry.entry_type == .put_block, "WAL entry type mismatch: expected put_block, got {}", .{wal_entry.entry_type});
-        assert(wal_entry.entry_type == .put_block, "WAL entry type mismatch: expected put_block, got {}", .{wal_entry.entry_type});
+        assert_fmt(wal_entry.entry_type == .put_block, "WAL entry type mismatch: expected put_block, got {}", .{wal_entry.entry_type});
+        assert_fmt(wal_entry.entry_type == .put_block, "WAL entry type mismatch: expected put_block, got {}", .{wal_entry.entry_type});
 
         // Debug: Check payload before writing
         if (wal_entry.payload.len == 0) {
@@ -1097,8 +1098,8 @@ pub const StorageEngine = struct {
         const index_size_before = self.index.block_count();
 
         // Catch corruption between WAL write and index insertion
-        assert(block.version > 0, "Block version became invalid before index insertion", .{});
-        assert(block.source_uri.len < 1024 * 1024, "Block source_uri became corrupted before index insertion", .{});
+        assert_fmt(block.version > 0, "Block version became invalid before index insertion", .{});
+        assert_fmt(block.source_uri.len < 1024 * 1024, "Block source_uri became corrupted before index insertion", .{});
 
         self.index.put_block(block) catch |err| {
             _ = self.storage_metrics.write_errors.fetchAdd(1, .monotonic);
@@ -1106,7 +1107,7 @@ pub const StorageEngine = struct {
         };
 
         const index_size_after = self.index.block_count();
-        assert(index_size_after >= index_size_before, "Index size decreased after put: {} -> {}", .{ index_size_before, index_size_after });
+        assert_fmt(index_size_after >= index_size_before, "Index size decreased after put: {} -> {}", .{ index_size_before, index_size_after });
 
         // Track successful operation
         _ = self.storage_metrics.blocks_written.fetchAdd(1, .monotonic);
@@ -1134,7 +1135,7 @@ pub const StorageEngine = struct {
     ) StorageError!*const ContextBlock {
         concurrency.assert_main_thread();
 
-        assert(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
         assert_state_valid(self.initialized, "StorageEngine must be initialized before find_block_by_id", .{});
 
         if (!self.initialized) return StorageError.NotInitialized;
@@ -1143,8 +1144,8 @@ pub const StorageEngine = struct {
 
         // Check memory first as it contains most recent writes
         if (self.index.find_block(block_id)) |block| {
-            assert(@intFromPtr(block) != 0, "Index returned null block pointer", .{});
-            assert(std.mem.eql(u8, &block.id.bytes, &block_id.bytes), "Found block ID mismatch: expected {} got {}", .{ block_id, block.id });
+            assert_fmt(@intFromPtr(block) != 0, "Index returned null block pointer", .{});
+            assert_fmt(std.mem.eql(u8, &block.id.bytes, &block_id.bytes), "Found block ID mismatch: expected {} got {}", .{ block_id, block.id });
 
             _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
 
@@ -1173,7 +1174,7 @@ pub const StorageEngine = struct {
             table.read_index() catch continue;
 
             if (table.find_block(block_id) catch null) |block| {
-                assert(std.mem.eql(u8, &block.id.bytes, &block_id.bytes), "SSTable block ID mismatch: expected {} got {}", .{ block_id, block.id });
+                assert_fmt(std.mem.eql(u8, &block.id.bytes, &block_id.bytes), "SSTable block ID mismatch: expected {} got {}", .{ block_id, block.id });
 
                 defer block.deinit(self.backing_allocator);
 
@@ -1195,7 +1196,7 @@ pub const StorageEngine = struct {
                     error_context.block_context("find_block_after_sstable_transfer", block_id),
                 );
 
-                assert(std.mem.eql(u8, &cached_block.id.bytes, &block_id.bytes), "Cached block ID mismatch after SSTable transfer", .{});
+                assert_fmt(std.mem.eql(u8, &cached_block.id.bytes, &block_id.bytes), "Cached block ID mismatch after SSTable transfer", .{});
                 return cached_block;
             }
         }
@@ -1207,7 +1208,7 @@ pub const StorageEngine = struct {
     /// Delete a Context Block by ID.
     pub fn delete_block(self: *StorageEngine, block_id: BlockId) !void {
         concurrency.assert_main_thread();
-        assert(self.initialized, "StorageEngine must be initialized before delete_block", .{});
+        assert_fmt(self.initialized, "StorageEngine must be initialized before delete_block", .{});
         if (!self.initialized) return StorageError.NotInitialized;
 
         // Create WAL entry
@@ -1241,7 +1242,7 @@ pub const StorageEngine = struct {
     /// Put a Graph Edge into storage.
     pub fn put_edge(self: *StorageEngine, edge: GraphEdge) !void {
         concurrency.assert_main_thread();
-        assert(self.initialized, "StorageEngine must be initialized before put_edge", .{});
+        assert_fmt(self.initialized, "StorageEngine must be initialized before put_edge", .{});
         if (!self.initialized) return StorageError.NotInitialized;
 
         // Create WAL entry
@@ -1393,7 +1394,7 @@ pub const StorageEngine = struct {
     ///    data it contained is now durable in both the WAL and the new SSTable.
     pub fn flush_memtable_to_sstable(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
-        assert(self.initialized, "StorageEngine must be initialized before flush_memtable_to_sstable", .{});
+        assert_fmt(self.initialized, "StorageEngine must be initialized before flush_memtable_to_sstable", .{});
         if (!self.initialized) return StorageError.NotInitialized;
 
         if (self.index.block_count() == 0) {

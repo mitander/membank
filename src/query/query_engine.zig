@@ -5,7 +5,8 @@
 //! retrieval by ID with future support for graph traversal and metadata filtering.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("../core/assert.zig");
+const assert = custom_assert.assert;
 const storage = @import("../storage/storage.zig");
 const context_block = @import("../core/types.zig");
 

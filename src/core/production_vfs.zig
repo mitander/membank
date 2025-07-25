@@ -9,7 +9,8 @@
 //! arena is reset. This prevents memory leaks from incomplete iteration.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("assert.zig");
+const assert = custom_assert.assert;
 const testing = std.testing;
 const vfs = @import("vfs.zig");
 

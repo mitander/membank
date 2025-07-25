@@ -7,7 +7,7 @@
 const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
-const assert = std.debug.assert;
+const assert = cortexdb.assert.assert;
 
 const cortexdb = @import("cortexdb");
 const wal_entry_stream = @import("../../src/storage/wal_entry_stream.zig");

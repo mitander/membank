@@ -6,7 +6,8 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const custom_assert = @import("../../core/assert.zig");
+const assert = custom_assert.assert;
 const log = std.log.scoped(.wal_recovery);
 
 const types = @import("types.zig");

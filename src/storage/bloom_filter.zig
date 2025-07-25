@@ -1,5 +1,6 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("../core/assert.zig");
+const assert = custom_assert.assert;
 const context_block = @import("../core/types.zig");
 const BlockId = context_block.BlockId;
 

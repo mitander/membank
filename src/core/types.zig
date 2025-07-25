@@ -13,6 +13,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const custom_assert = @import("assert.zig");
 const assert = custom_assert.assert;
+const assert_fmt = custom_assert.assert_fmt;
 const assert_not_null = custom_assert.assert_not_null;
 const assert_not_empty = custom_assert.assert_not_empty;
 const assert_range = custom_assert.assert_range;
@@ -250,7 +251,7 @@ pub const ContextBlock = struct {
         offset += self.content.len;
 
         // Validate serialization completed correctly
-        assert(offset == required_size, "Serialization size mismatch: expected {}, got {}", .{ required_size, offset });
+        assert_fmt(offset == required_size, "Serialization size mismatch: expected {}, got {}", .{ required_size, offset });
         if (offset != required_size) return error.SerializationSizeMismatch;
 
         return offset;
@@ -315,7 +316,7 @@ pub const ContextBlock = struct {
     /// For business logic validation (non-empty constraints, semantic rules),
     /// use validate_for_ingestion() or implement domain-specific checks.
     pub fn validate(self: ContextBlock, allocator: std.mem.Allocator) !void {
-        assert(@intFromPtr(&allocator) != 0, "Allocator pointer cannot be null", .{});
+        assert_fmt(@intFromPtr(allocator.ptr) != 0, "Allocator cannot be null", .{});
 
         // Size validation - return errors instead of asserting
         if (self.metadata_json.len >= 10 * 1024 * 1024) {

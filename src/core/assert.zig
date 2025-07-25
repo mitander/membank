@@ -6,20 +6,31 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// Assert that a condition is true with a descriptive message.
+/// Assert that a condition is true.
 /// This assertion is active in debug builds and compiled out in release builds.
-/// Use this for programming invariants that should never be false.
+/// Use this for simple programming invariants that should never be false.
+pub fn assert(condition: bool) void {
+    if (!condition) {
+        if (builtin.mode == .Debug) {
+            std.debug.panic("Assertion failed", .{});
+        } else {
+            std.debug.panic("Release assertion failed", .{});
+        }
+    }
+}
+
+/// Assert with rich formatting for detailed debugging context.
+/// Use when specific values are critical for debugging.
 /// # Examples
 /// ```zig
-/// assert(index < array.len, "Index out of bounds: {} >= {}", .{ index, array.len });
-/// assert(context.is_valid(), "Context is invalid: {}", .{context});
+/// assert_fmt(index < array.len, "Index out of bounds: {} >= {}", .{ index, array.len });
+/// assert_fmt(context.is_valid(), "Context is invalid: {}", .{context});
 /// ```
-pub fn assert(condition: bool, comptime format: []const u8, args: anytype) void {
+pub fn assert_fmt(condition: bool, comptime format: []const u8, args: anytype) void {
     if (!condition) {
         if (builtin.mode == .Debug) {
             std.debug.panic("Assertion failed: " ++ format, args);
         } else {
-            // In release builds, still panic for safety but with different message
             std.debug.panic("Release assertion failed: " ++ format, args);
         }
     }
@@ -52,7 +63,7 @@ pub fn assert_range(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    assert(value >= min and value <= max, format, args);
+    assert_fmt(value >= min and value <= max, format, args);
 }
 
 /// Assert that a buffer write operation will not overflow.
@@ -68,7 +79,7 @@ pub fn assert_buffer_bounds(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    assert(pos + write_len <= buffer_len, format, args);
+    assert_fmt(pos + write_len <= buffer_len, format, args);
 }
 
 /// Assert that a counter will not overflow.
@@ -83,7 +94,7 @@ pub fn assert_counter_bounds(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    assert(current <= max, format, args);
+    assert_fmt(current <= max, format, args);
 }
 
 /// Assert that a state transition is valid.
@@ -93,7 +104,7 @@ pub fn assert_counter_bounds(
 ///                   "Invalid state transition from {}", .{old_state});
 /// ```
 pub fn assert_state_valid(condition: bool, comptime format: []const u8, args: anytype) void {
-    assert(condition, "State violation: " ++ format, args);
+    assert_fmt(condition, "State violation: " ++ format, args);
 }
 
 /// Assert that a stride value is positive.
@@ -106,7 +117,7 @@ pub fn assert_stride_positive(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    assert(stride > 0, format, args);
+    assert_fmt(stride > 0, format, args);
 }
 
 /// Compile-time assertion for constant conditions.
@@ -156,7 +167,7 @@ pub fn comptime_no_padding(comptime T: type) void {
 /// assert_not_null(maybe_ptr, "Pointer cannot be null");
 /// ```
 pub fn assert_not_null(ptr: anytype, comptime format: []const u8, args: anytype) void {
-    assert(ptr != null, format, args);
+    assert_fmt(ptr != null, format, args);
 }
 
 /// Assert that two values are equal.
@@ -170,7 +181,7 @@ pub fn assert_equal(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    assert(actual == expected, format, args);
+    assert_fmt(actual == expected, format, args);
 }
 
 /// Assert that a slice is not empty.
@@ -179,7 +190,7 @@ pub fn assert_equal(
 /// assert_not_empty(slice, "Slice cannot be empty");
 /// ```
 pub fn assert_not_empty(slice: anytype, comptime format: []const u8, args: anytype) void {
-    assert(slice.len > 0, format, args);
+    assert_fmt(slice.len > 0, format, args);
 }
 
 /// Assert that an index is within bounds.
@@ -194,7 +205,7 @@ pub fn assert_index_valid(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    assert(index < length, format, args);
+    assert_fmt(index < length, format, args);
 }
 
 /// Assert that memory regions do not overlap.
@@ -213,7 +224,7 @@ pub fn assert_no_overlap(
     const src_end = src_ptr + src_len;
     const dst_end = dst_ptr + dst_len;
     const no_overlap = (src_end <= dst_ptr) or (dst_end <= src_ptr);
-    assert(no_overlap, format, args);
+    assert_fmt(no_overlap, format, args);
 }
 
 /// Utility to check if assertions are enabled.
@@ -234,12 +245,15 @@ pub fn expensive_check_enabled() bool {
 }
 
 test "assert basic functionality" {
-    // This should not panic
-    assert(true, "This should not fail", .{});
+    // Simple assert should not panic
+    assert(true);
+
+    // Rich assert should not panic
+    assert_fmt(true, "This should not fail", .{});
 
     // Test with formatting
     const value = 42;
-    assert(value == 42, "Expected 42, got {}", .{value});
+    assert_fmt(value == 42, "Expected 42, got {}", .{value});
 }
 
 test "assert_range functionality" {

@@ -13,7 +13,9 @@
 //! immediately rather than waiting for crashes or corruption to manifest.
 
 const std = @import("std");
-const assert = @import("assert.zig");
+const cortexdb = @import("cortexdb");
+const assert = cortexdb.assert;
+const assert_fmt = cortexdb.assert.assert_fmt;
 const builtin = @import("builtin");
 
 /// Magic canary values for guard region validation
@@ -300,7 +302,7 @@ pub const MemorySentinel = struct {
         self.operation_counter += 1;
         if (self.operation_counter % INTEGRITY_CHECK_FREQUENCY == 0) {
             self.check_all_sentinels_integrity() catch |err| {
-                assert.assert(false, "Automatic integrity check failed: {}", .{err});
+                assert_fmt(false, "Automatic integrity check failed: {}", .{err});
             };
             self.stats.automatic_checks_triggered += 1;
         }
@@ -349,7 +351,7 @@ pub const MemorySentinel = struct {
         self.operation_counter += 1;
         if (self.operation_counter % INTEGRITY_CHECK_FREQUENCY == 0) {
             self.check_all_sentinels_integrity() catch |err| {
-                assert.assert(false, "Automatic integrity check failed: {}", .{err});
+                assert_fmt(false, "Automatic integrity check failed: {}", .{err});
             };
             self.stats.automatic_checks_triggered += 1;
         }
@@ -389,7 +391,7 @@ pub const MemorySentinel = struct {
         const access_end = access_start + access_size;
 
         if (access_start < user_start or access_end > user_end) {
-            assert.assert(false, "Out of bounds access detected: access=[0x{X}-0x{X}], user=[0x{X}-0x{X}]", .{ access_start, access_end, user_start, user_end });
+            assert_fmt(false, "Out of bounds access detected: access=[0x{X}-0x{X}], user=[0x{X}-0x{X}]", .{ access_start, access_end, user_start, user_end });
         }
 
         // Record access
@@ -409,11 +411,11 @@ pub const MemorySentinel = struct {
                         switch (err) {
                             MemorySentinelError.PrefixGuardCorrupted => {
                                 self.stats.prefix_corruptions_detected += 1;
-                                assert.assert(false, "Prefix guard corruption in sentinel {}: underrun detected", .{sentinel_info.sentinel_id});
+                                assert_fmt(false, "Prefix guard corruption in sentinel {}: underrun detected", .{sentinel_info.sentinel_id});
                             },
                             MemorySentinelError.SuffixGuardCorrupted => {
                                 self.stats.suffix_corruptions_detected += 1;
-                                assert.assert(false, "Suffix guard corruption in sentinel {}: overrun detected", .{sentinel_info.sentinel_id});
+                                assert_fmt(false, "Suffix guard corruption in sentinel {}: overrun detected", .{sentinel_info.sentinel_id});
                             },
                             else => return err,
                         }
@@ -425,7 +427,7 @@ pub const MemorySentinel = struct {
         self.stats.integrity_checks_performed += 1;
 
         if (corruption_count > 0) {
-            assert.assert(false, "Integrity check found {} corrupted sentinels", .{corruption_count});
+            assert_fmt(false, "Integrity check found {} corrupted sentinels", .{corruption_count});
         }
     }
 

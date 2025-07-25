@@ -5,7 +5,8 @@
 //! memory safety issues by enforcing explicit buffer validation.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("assert.zig");
+const assert = custom_assert.assert;
 
 /// Copy memory from source to destination with left-to-right ordering
 ///

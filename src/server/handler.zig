@@ -10,15 +10,15 @@
 //! - Deterministic testing support via abstracted networking
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("../core/assert.zig");
+const assert = custom_assert.assert;
+const comptime_assert = custom_assert.comptime_assert;
+const comptime_no_padding = custom_assert.comptime_no_padding;
 const log = std.log.scoped(.server);
 const concurrency = @import("../core/concurrency.zig");
 const storage = @import("../storage/storage.zig");
 const query_engine = @import("../query/query_engine.zig");
 const context_block = @import("../core/types.zig");
-const custom_assert = @import("../core/assert.zig");
-const comptime_assert = custom_assert.comptime_assert;
-const comptime_no_padding = custom_assert.comptime_no_padding;
 
 // Import connection state machine module
 const conn = @import("connection.zig");

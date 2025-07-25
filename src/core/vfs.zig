@@ -10,7 +10,8 @@
 //! All string memory is owned by the caller's arena and freed atomically.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("assert.zig");
+const assert = custom_assert.assert;
 const testing = std.testing;
 
 /// Maximum path length for defensive validation across platforms

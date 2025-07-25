@@ -10,7 +10,8 @@
 //! deterministic based on operation count and seeded PRNG state.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("../core/assert.zig");
+const assert = custom_assert.assert;
 const testing = std.testing;
 const vfs_types = @import("../core/vfs.zig");
 

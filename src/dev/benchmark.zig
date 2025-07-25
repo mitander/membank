@@ -4,13 +4,14 @@
 //! as features are added. Benchmarks core operations with statistical analysis.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const cortexdb = @import("cortexdb");
+const assert = cortexdb.assert.assert;
 const log = std.log.scoped(.benchmark);
 
-const storage = @import("../storage/storage.zig");
-const query_engine = @import("../query/query_engine.zig");
-const context_block = @import("../core/types.zig");
-const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const storage = cortexdb.storage;
+const query_engine = cortexdb.query_engine;
+const context_block = cortexdb.types;
+const simulation_vfs = cortexdb.simulation_vfs;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;

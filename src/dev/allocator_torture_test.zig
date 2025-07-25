@@ -13,6 +13,7 @@
 const std = @import("std");
 const cortexdb = @import("cortexdb");
 const assert = cortexdb.assert;
+const assert_fmt = cortexdb.assert.assert_fmt;
 
 /// Configuration for torture test parameters
 pub const TortureTestConfig = struct {
@@ -291,7 +292,7 @@ pub const AllocatorTortureTester = struct {
             if (!tracked.verify_alignment()) {
                 self.current_stats.alignment_violations += 1;
                 const required_alignment = @as(usize, 1) << alignment_exp;
-                assert.assert(
+                assert_fmt(
                     false,
                     "Allocator returned misaligned memory: address=0x{X}, required_alignment={}",
                     .{ @intFromPtr(tracked.ptr), required_alignment },
@@ -303,7 +304,7 @@ pub const AllocatorTortureTester = struct {
                 tracked.write_pattern();
                 if (!tracked.verify_pattern()) {
                     self.current_stats.pattern_violations += 1;
-                    assert.assert(false, "Pattern write verification failed immediately after allocation", .{});
+                    assert_fmt(false, "Pattern write verification failed immediately after allocation", .{});
                 }
             }
 
@@ -336,7 +337,7 @@ pub const AllocatorTortureTester = struct {
         if (self.config.enable_pattern_validation) {
             if (!tracked.verify_pattern()) {
                 self.current_stats.pattern_violations += 1;
-                assert.assert(
+                assert_fmt(
                     false,
                     "Pattern corruption detected in allocation {} before free",
                     .{tracked.allocation_id},
@@ -372,7 +373,7 @@ pub const AllocatorTortureTester = struct {
         for (self.tracked_allocations.items) |*tracked| {
             if (!tracked.verify_pattern()) {
                 self.current_stats.pattern_violations += 1;
-                assert.assert(
+                assert_fmt(
                     false,
                     "Pattern corruption detected in allocation {} (size: {}, pattern: 0x{X})",
                     .{ tracked.allocation_id, tracked.size, tracked.pattern },
@@ -403,7 +404,7 @@ pub const AllocatorTortureTester = struct {
                 for (memory) |byte| {
                     if (byte != 0xBC) {
                         self.current_stats.pattern_violations += 1;
-                        assert.assert(false, "Boundary test pattern corruption at size {}", .{size});
+                        assert_fmt(false, "Boundary test pattern corruption at size {}", .{size});
                     }
                 }
 

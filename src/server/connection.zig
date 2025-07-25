@@ -13,13 +13,13 @@
 //! - Non-blocking I/O with proper state transitions
 
 const std = @import("std");
-const assert = std.debug.assert;
+const custom_assert = @import("../core/assert.zig");
+const assert = custom_assert.assert;
+const comptime_assert = custom_assert.comptime_assert;
+const comptime_no_padding = custom_assert.comptime_no_padding;
 const log = std.log.scoped(.connection);
 const context_block = @import("../core/types.zig");
 const query_engine = @import("../query/query_engine.zig");
-const custom_assert = @import("../core/assert.zig");
-const comptime_assert = custom_assert.comptime_assert;
-const comptime_no_padding = custom_assert.comptime_no_padding;
 
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;

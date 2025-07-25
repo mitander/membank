@@ -8,7 +8,7 @@
 const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
-const assert = std.debug.assert;
+const assert = cortexdb.assert.assert;
 
 const cortexdb = @import("cortexdb");
 const vfs = @import("../../src/core/vfs.zig");
