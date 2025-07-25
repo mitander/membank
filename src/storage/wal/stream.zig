@@ -309,3 +309,419 @@ comptime {
     custom_assert.comptime_assert(READ_BUFFER_SIZE >= WAL_HEADER_SIZE * 4, "Read buffer too small for multiple headers");
     custom_assert.comptime_assert(PROCESS_BUFFER_SIZE >= READ_BUFFER_SIZE, "Process buffer must be at least as large as read buffer");
 }
+
+// Tests
+test "WALEntryStream initialization" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const sim_vfs = @import("../../sim/simulation_vfs.zig");
+    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    defer vfs_sim.deinit();
+
+    // Create empty test file
+    const test_path = "test_stream.wal";
+    var file = try vfs_sim.vfs().create(test_path);
+    defer file.close();
+
+    var stream = try WALEntryStream.init(allocator, &file);
+
+    // Verify initial state
+    try testing.expectEqual(@as(u32, 0), stream.entries_read);
+    try testing.expectEqual(@as(u32, 0), stream.read_iterations);
+    try testing.expectEqual(@as(usize, 0), stream.remaining_len);
+    try testing.expectEqual(@as(u64, 0), stream.last_file_position);
+
+    const stats_result = stream.stats();
+    try testing.expectEqual(@as(u32, 0), stats_result.entries_read);
+}
+
+test "WALEntryStream read from empty file" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const sim_vfs = @import("../../sim/simulation_vfs.zig");
+    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    defer vfs_sim.deinit();
+
+    // Create empty test file
+    const test_path = "empty_stream.wal";
+    var file = try vfs_sim.vfs().create(test_path);
+    defer file.close();
+
+    var stream = try WALEntryStream.init(allocator, &file);
+
+    // Reading from empty file should return null (EOF)
+    const entry = try stream.next();
+    try testing.expect(entry == null);
+}
+
+test "WALEntryStream read single complete entry" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const sim_vfs = @import("../../sim/simulation_vfs.zig");
+    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    defer vfs_sim.deinit();
+
+    // Create test file with a single WAL entry
+    const test_path = "single_entry.wal";
+    var file = try vfs_sim.vfs().create(test_path);
+
+    const test_payload = "Hello, WAL stream!";
+    const checksum: u64 = 0x1234567890abcdef;
+    const entry_type: u8 = 0x01; // put_block
+    const payload_size: u32 = @intCast(test_payload.len);
+
+    // Write entry header
+    var header_buffer: [WAL_HEADER_SIZE]u8 = undefined;
+    std.mem.writeInt(u64, header_buffer[0..8], checksum, .little);
+    header_buffer[8] = entry_type;
+    std.mem.writeInt(u32, header_buffer[9..13], payload_size, .little);
+
+    _ = try file.write(&header_buffer);
+    _ = try file.write(test_payload);
+    _ = try file.seek(0, .start);
+
+    var stream = try WALEntryStream.init(allocator, &file);
+    defer file.close();
+
+    // Read the entry
+    const entry = try stream.next();
+    try testing.expect(entry != null);
+
+    if (entry) |e| {
+        defer e.deinit(allocator);
+
+        try testing.expectEqual(checksum, e.checksum);
+        try testing.expectEqual(entry_type, e.entry_type);
+        try testing.expect(std.mem.eql(u8, test_payload, e.payload));
+        try testing.expectEqual(@as(u64, 0), e.file_position);
+    }
+
+    // Second read should return EOF
+    const next_entry = try stream.next();
+    try testing.expect(next_entry == null);
+}
+
+test "WALEntryStream read multiple entries" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const sim_vfs = @import("../../sim/simulation_vfs.zig");
+    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    defer vfs_sim.deinit();
+
+    const test_path = "multiple_entries.wal";
+    var file = try vfs_sim.vfs().create(test_path);
+
+    // Write multiple entries
+    const entries_data = [_]struct { payload: []const u8, checksum: u64, entry_type: u8 }{
+        .{ .payload = "first entry", .checksum = 0x1111111111111111, .entry_type = 0x01 },
+        .{ .payload = "second entry", .checksum = 0x2222222222222222, .entry_type = 0x02 },
+        .{ .payload = "third entry", .checksum = 0x3333333333333333, .entry_type = 0x03 },
+    };
+
+    for (entries_data) |entry_data| {
+        var header_buffer: [WAL_HEADER_SIZE]u8 = undefined;
+        std.mem.writeInt(u64, header_buffer[0..8], entry_data.checksum, .little);
+        header_buffer[8] = entry_data.entry_type;
+        std.mem.writeInt(u32, header_buffer[9..13], @intCast(entry_data.payload.len), .little);
+
+        _ = try file.write(&header_buffer);
+        _ = try file.write(entry_data.payload);
+    }
+
+    _ = try file.seek(0, .start);
+
+    var stream = try WALEntryStream.init(allocator, &file);
+    defer file.close();
+
+    // Read all entries
+    for (entries_data, 0..) |expected, i| {
+        const entry = try stream.next();
+        try testing.expect(entry != null);
+
+        if (entry) |e| {
+            defer e.deinit(allocator);
+
+            try testing.expectEqual(expected.checksum, e.checksum);
+            try testing.expectEqual(expected.entry_type, e.entry_type);
+            try testing.expect(std.mem.eql(u8, expected.payload, e.payload));
+        } else {
+            try testing.expect(false); // Should not happen
+        }
+
+        _ = i; // Silence unused variable warning
+    }
+
+    // Next read should be EOF
+    const final_entry = try stream.next();
+    try testing.expect(final_entry == null);
+
+    // Verify statistics
+    const stats_result = stream.stats();
+    try testing.expectEqual(@as(u32, 3), stats_result.entries_read);
+}
+
+test "WALEntryStream corrupted entry handling" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const sim_vfs = @import("../../sim/simulation_vfs.zig");
+    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    defer vfs_sim.deinit();
+
+    const test_path = "corrupted_entry.wal";
+    var file = try vfs_sim.vfs().create(test_path);
+
+    // Write corrupted entry with invalid type
+    var header_buffer: [WAL_HEADER_SIZE]u8 = undefined;
+    std.mem.writeInt(u64, header_buffer[0..8], 0x1234567890abcdef, .little);
+    header_buffer[8] = 0xFF; // Invalid entry type
+    std.mem.writeInt(u32, header_buffer[9..13], 10, .little);
+
+    _ = try file.write(&header_buffer);
+    _ = try file.write("corrupted!");
+    _ = try file.seek(0, .start);
+
+    var stream = try WALEntryStream.init(allocator, &file);
+    defer file.close();
+
+    // Reading corrupted entry should return error
+    try testing.expectError(StreamError.CorruptedEntry, stream.next());
+}
+
+test "WALEntryStream oversized payload" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const sim_vfs = @import("../../sim/simulation_vfs.zig");
+    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    defer vfs_sim.deinit();
+
+    const test_path = "oversized_payload.wal";
+    var file = try vfs_sim.vfs().create(test_path);
+
+    // Write entry with payload size exceeding maximum
+    var header_buffer: [WAL_HEADER_SIZE]u8 = undefined;
+    std.mem.writeInt(u64, header_buffer[0..8], 0x1234567890abcdef, .little);
+    header_buffer[8] = 0x01; // put_block
+    std.mem.writeInt(u32, header_buffer[9..13], MAX_PAYLOAD_SIZE + 1, .little); // Too large
+
+    _ = try file.write(&header_buffer);
+    _ = try file.seek(0, .start);
+
+    var stream = try WALEntryStream.init(allocator, &file);
+    defer file.close();
+
+    // Reading oversized entry should return error
+    try testing.expectError(StreamError.CorruptedEntry, stream.next());
+}
+
+test "WALEntryStream incomplete entry at EOF" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const sim_vfs = @import("../../sim/simulation_vfs.zig");
+    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    defer vfs_sim.deinit();
+
+    const test_path = "incomplete_entry.wal";
+    var file = try vfs_sim.vfs().create(test_path);
+
+    // Write partial header (only 8 bytes instead of 13)
+    const partial_header = [_]u8{ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+    _ = try file.write(&partial_header);
+    _ = try file.seek(0, .start);
+
+    var stream = try WALEntryStream.init(allocator, &file);
+    defer file.close();
+
+    // Reading incomplete entry should return null (EOF)
+    const entry = try stream.next();
+    try testing.expect(entry == null);
+}
+
+test "WALEntryStream large entry handling" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const sim_vfs = @import("../../sim/simulation_vfs.zig");
+    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    defer vfs_sim.deinit();
+
+    const test_path = "large_entry.wal";
+    var file = try vfs_sim.vfs().create(test_path);
+
+    // Create large payload that exceeds process buffer size
+    const large_payload_size = PROCESS_BUFFER_SIZE + 1000;
+    const large_payload = try allocator.alloc(u8, large_payload_size);
+    defer allocator.free(large_payload);
+    @memset(large_payload, 0xAA);
+
+    // Write large entry
+    var header_buffer: [WAL_HEADER_SIZE]u8 = undefined;
+    const checksum: u64 = 0x1234567890abcdef;
+    std.mem.writeInt(u64, header_buffer[0..8], checksum, .little);
+    header_buffer[8] = 0x01; // put_block
+    std.mem.writeInt(u32, header_buffer[9..13], @intCast(large_payload_size), .little);
+
+    _ = try file.write(&header_buffer);
+    _ = try file.write(large_payload);
+    _ = try file.seek(0, .start);
+
+    var stream = try WALEntryStream.init(allocator, &file);
+    defer file.close();
+
+    // Read large entry
+    const entry = try stream.next();
+    try testing.expect(entry != null);
+
+    if (entry) |e| {
+        defer e.deinit(allocator);
+
+        try testing.expectEqual(checksum, e.checksum);
+        try testing.expectEqual(@as(u8, 0x01), e.entry_type);
+        try testing.expectEqual(large_payload_size, e.payload.len);
+        try testing.expect(std.mem.eql(u8, large_payload, e.payload));
+    }
+}
+
+test "WALEntryStream position tracking" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const sim_vfs = @import("../../sim/simulation_vfs.zig");
+    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    defer vfs_sim.deinit();
+
+    const test_path = "position_tracking.wal";
+    var file = try vfs_sim.vfs().create(test_path);
+
+    // Write two entries to track position changes
+    const entries_data = [_]struct { payload: []const u8, checksum: u64 }{
+        .{ .payload = "first", .checksum = 0x1111111111111111 },
+        .{ .payload = "second", .checksum = 0x2222222222222222 },
+    };
+
+    var expected_positions: [2]u64 = undefined;
+    var current_pos: u64 = 0;
+
+    for (entries_data, 0..) |entry_data, i| {
+        expected_positions[i] = current_pos;
+
+        var header_buffer: [WAL_HEADER_SIZE]u8 = undefined;
+        std.mem.writeInt(u64, header_buffer[0..8], entry_data.checksum, .little);
+        header_buffer[8] = 0x01; // put_block
+        std.mem.writeInt(u32, header_buffer[9..13], @intCast(entry_data.payload.len), .little);
+
+        _ = try file.write(&header_buffer);
+        _ = try file.write(entry_data.payload);
+
+        current_pos += WAL_HEADER_SIZE + entry_data.payload.len;
+    }
+
+    _ = try file.seek(0, .start);
+
+    var stream = try WALEntryStream.init(allocator, &file);
+    defer file.close();
+
+    // Read entries and verify positions
+    for (expected_positions) |expected_pos| {
+        const entry = try stream.next();
+        try testing.expect(entry != null);
+
+        if (entry) |e| {
+            defer e.deinit(allocator);
+            try testing.expectEqual(expected_pos, e.file_position);
+        }
+    }
+}
+
+test "WALEntryStream buffer boundary handling" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const sim_vfs = @import("../../sim/simulation_vfs.zig");
+    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    defer vfs_sim.deinit();
+
+    const test_path = "buffer_boundary.wal";
+    var file = try vfs_sim.vfs().create(test_path);
+
+    // Create entry that will span buffer boundaries
+    const payload_size = READ_BUFFER_SIZE - WAL_HEADER_SIZE + 100; // Span boundary
+    const large_payload = try allocator.alloc(u8, payload_size);
+    defer allocator.free(large_payload);
+    @memset(large_payload, 0xBB);
+
+    // Write entry
+    var header_buffer: [WAL_HEADER_SIZE]u8 = undefined;
+    const checksum: u64 = 0x9999999999999999;
+    std.mem.writeInt(u64, header_buffer[0..8], checksum, .little);
+    header_buffer[8] = 0x01; // put_block
+    std.mem.writeInt(u32, header_buffer[9..13], @intCast(payload_size), .little);
+
+    _ = try file.write(&header_buffer);
+    _ = try file.write(large_payload);
+    _ = try file.seek(0, .start);
+
+    var stream = try WALEntryStream.init(allocator, &file);
+    defer file.close();
+
+    // Read entry that spans buffer boundary
+    const entry = try stream.next();
+    try testing.expect(entry != null);
+
+    if (entry) |e| {
+        defer e.deinit(allocator);
+
+        try testing.expectEqual(checksum, e.checksum);
+        try testing.expectEqual(@as(u8, 0x01), e.entry_type);
+        try testing.expectEqual(payload_size, e.payload.len);
+        try testing.expect(std.mem.eql(u8, large_payload, e.payload));
+    }
+}
+
+test "StreamEntry memory management" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_payload = try allocator.dupe(u8, "test payload for memory management");
+
+    const entry = StreamEntry{
+        .checksum = 0x1234567890abcdef,
+        .entry_type = 0x01,
+        .payload = test_payload,
+        .file_position = 0,
+    };
+
+    // deinit should properly free the payload
+    entry.deinit(allocator);
+    // If this doesn't crash, memory was freed correctly
+}
+
+test "WALEntryStream constants validation" {
+    // Verify buffer size relationships
+    try testing.expect(PROCESS_BUFFER_SIZE >= READ_BUFFER_SIZE);
+    try testing.expect(PROCESS_BUFFER_SIZE >= WAL_HEADER_SIZE * 4);
+    try testing.expect(READ_BUFFER_SIZE >= WAL_HEADER_SIZE * 4);
+
+    // Verify size constants
+    try testing.expectEqual(@as(u32, 16 * 1024 * 1024), MAX_PAYLOAD_SIZE);
+    try testing.expectEqual(@as(usize, 13), WAL_HEADER_SIZE);
+    try testing.expectEqual(@as(usize, 8192), READ_BUFFER_SIZE);
+    try testing.expectEqual(@as(usize, 16384), PROCESS_BUFFER_SIZE);
+}

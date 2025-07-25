@@ -88,3 +88,99 @@ pub const WALStats = struct {
         };
     }
 };
+
+// Tests
+const testing = @import("std").testing;
+
+test "WALEntryType from_u8 valid values" {
+    try testing.expectEqual(WALEntryType.put_block, try WALEntryType.from_u8(0x01));
+    try testing.expectEqual(WALEntryType.delete_block, try WALEntryType.from_u8(0x02));
+    try testing.expectEqual(WALEntryType.put_edge, try WALEntryType.from_u8(0x03));
+}
+
+test "WALEntryType from_u8 invalid values" {
+    try testing.expectError(WALError.InvalidEntryType, WALEntryType.from_u8(0x00));
+    try testing.expectError(WALError.InvalidEntryType, WALEntryType.from_u8(0x04));
+    try testing.expectError(WALError.InvalidEntryType, WALEntryType.from_u8(0xFF));
+    try testing.expectError(WALError.InvalidEntryType, WALEntryType.from_u8(255));
+}
+
+test "WALStats initialization" {
+    const stats = WALStats.init();
+
+    try testing.expectEqual(@as(u64, 0), stats.entries_written);
+    try testing.expectEqual(@as(u64, 0), stats.entries_recovered);
+    try testing.expectEqual(@as(u32, 0), stats.segments_rotated);
+    try testing.expectEqual(@as(u32, 0), stats.recovery_failures);
+    try testing.expectEqual(@as(u64, 0), stats.bytes_written);
+}
+
+test "WALStats field manipulation" {
+    var stats = WALStats.init();
+
+    // Test field updates
+    stats.entries_written = 100;
+    stats.entries_recovered = 95;
+    stats.segments_rotated = 3;
+    stats.recovery_failures = 2;
+    stats.bytes_written = 1024;
+
+    try testing.expectEqual(@as(u64, 100), stats.entries_written);
+    try testing.expectEqual(@as(u64, 95), stats.entries_recovered);
+    try testing.expectEqual(@as(u32, 3), stats.segments_rotated);
+    try testing.expectEqual(@as(u32, 2), stats.recovery_failures);
+    try testing.expectEqual(@as(u64, 1024), stats.bytes_written);
+}
+
+test "WAL constants validation" {
+    // Test that constants have expected values
+    try testing.expectEqual(@as(u64, 64 * 1024 * 1024), MAX_SEGMENT_SIZE);
+    try testing.expectEqual(@as(u32, 16 * 1024 * 1024), MAX_PAYLOAD_SIZE);
+    try testing.expectEqual(@as(usize, 4096), MAX_PATH_LENGTH);
+
+    // Test string constants
+    try testing.expect(std.mem.eql(u8, WAL_FILE_PREFIX, "wal_"));
+    try testing.expect(std.mem.eql(u8, WAL_FILE_SUFFIX, ".log"));
+    try testing.expectEqual(@as(usize, 4), WAL_FILE_NUMBER_DIGITS);
+
+    // Test relationships between constants
+    try testing.expect(MAX_PAYLOAD_SIZE <= MAX_SEGMENT_SIZE);
+    try testing.expect(MAX_SEGMENT_SIZE & (MAX_SEGMENT_SIZE - 1) == 0); // Power of 2
+}
+
+test "WALEntryType enum values" {
+    // Test that enum values match expected constants
+    try testing.expectEqual(@as(u8, 0x01), @intFromEnum(WALEntryType.put_block));
+    try testing.expectEqual(@as(u8, 0x02), @intFromEnum(WALEntryType.delete_block));
+    try testing.expectEqual(@as(u8, 0x03), @intFromEnum(WALEntryType.put_edge));
+}
+
+test "WALError enum contains expected errors" {
+    // Verify critical error types exist (compilation test)
+    const test_errors = [_]WALError{
+        WALError.NotInitialized,
+        WALError.InvalidChecksum,
+        WALError.InvalidEntryType,
+        WALError.BufferTooSmall,
+        WALError.CorruptedEntry,
+        WALError.SerializationSizeMismatch,
+        WALError.SegmentFull,
+        WALError.FileNotFound,
+        WALError.AccessDenied,
+        WALError.OutOfMemory,
+        WALError.IoError,
+        WALError.CallbackFailed,
+    };
+
+    // Test that we can create error values
+    for (test_errors) |err| {
+        _ = err; // Verify error type exists
+    }
+}
+
+test "file naming constants are non-empty" {
+    try testing.expect(WAL_FILE_PREFIX.len > 0);
+    try testing.expect(WAL_FILE_SUFFIX.len > 0);
+    try testing.expect(WAL_FILE_NUMBER_DIGITS > 0);
+    try testing.expect(WAL_FILE_NUMBER_DIGITS <= 8);
+}

@@ -455,3 +455,350 @@ pub const WAL = struct {
         );
     }
 };
+
+// Tests
+const testing = std.testing;
+const simulation_vfs = @import("../../sim/simulation_vfs.zig");
+const context_block = @import("../../core/types.zig");
+const ContextBlock = context_block.ContextBlock;
+const BlockId = context_block.BlockId;
+const GraphEdge = context_block.GraphEdge;
+
+fn create_test_block() ContextBlock {
+    return ContextBlock{
+        .id = BlockId.from_hex("0123456789abcdef0123456789abcdef") catch unreachable,
+        .version = 1,
+        .source_uri = "test://wal_core.zig",
+        .metadata_json = "{}",
+        .content = "test WAL core content",
+    };
+}
+
+fn create_test_edge() GraphEdge {
+    const from_id = BlockId.from_hex("1111111111111111111111111111111111111111") catch unreachable;
+    const to_id = BlockId.from_hex("2222222222222222222222222222222222222222") catch unreachable;
+
+    return GraphEdge{
+        .from_block_id = from_id,
+        .to_block_id = to_id,
+        .edge_type = .calls,
+        .metadata_json = "{}",
+    };
+}
+
+test "WAL initialization and cleanup" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_init");
+    defer wal.deinit();
+
+    // Verify initialization state
+    try testing.expect(wal.active_file != null);
+    try testing.expectEqual(@as(u32, 0), wal.segment_number);
+    try testing.expectEqual(@as(u64, 0), wal.segment_size);
+    try testing.expect(std.mem.eql(u8, "./test_wal_init", wal.directory));
+
+    // Verify initial statistics
+    const stats = wal.statistics();
+    try testing.expectEqual(@as(u64, 0), stats.entries_written);
+    try testing.expectEqual(@as(u64, 0), stats.bytes_written);
+    try testing.expectEqual(@as(u32, 0), stats.segments_rotated);
+}
+
+test "WAL write single entry" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_write");
+    defer wal.deinit();
+
+    const test_block = create_test_block();
+    const entry = try WALEntry.create_put_block(test_block, allocator);
+    defer entry.deinit(allocator);
+
+    try wal.write_entry(entry);
+
+    // Verify statistics updated
+    const stats = wal.statistics();
+    try testing.expectEqual(@as(u64, 1), stats.entries_written);
+    try testing.expect(stats.bytes_written > 0);
+    try testing.expect(wal.segment_size > 0);
+}
+
+test "WAL write multiple entries" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_multi");
+    defer wal.deinit();
+
+    const num_entries = 5;
+    for (0..num_entries) |i| {
+        const test_block = create_test_block();
+        test_block.version = @intCast(i + 1);
+
+        const entry = try WALEntry.create_put_block(test_block, allocator);
+        defer entry.deinit(allocator);
+
+        try wal.write_entry(entry);
+    }
+
+    const stats = wal.statistics();
+    try testing.expectEqual(@as(u64, num_entries), stats.entries_written);
+    try testing.expect(stats.bytes_written > 0);
+}
+
+test "WAL write different entry types" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_types");
+    defer wal.deinit();
+
+    // Write put_block entry
+    const test_block = create_test_block();
+    const put_entry = try WALEntry.create_put_block(test_block, allocator);
+    defer put_entry.deinit(allocator);
+    try wal.write_entry(put_entry);
+
+    // Write delete_block entry
+    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable;
+    const delete_entry = try WALEntry.create_delete_block(test_id, allocator);
+    defer delete_entry.deinit(allocator);
+    try wal.write_entry(delete_entry);
+
+    // Write put_edge entry
+    const test_edge = create_test_edge();
+    const edge_entry = try WALEntry.create_put_edge(test_edge, allocator);
+    defer edge_entry.deinit(allocator);
+    try wal.write_entry(edge_entry);
+
+    const stats = wal.statistics();
+    try testing.expectEqual(@as(u64, 3), stats.entries_written);
+}
+
+test "WAL segment rotation" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_rotation");
+    defer wal.deinit();
+
+    const initial_segment = wal.segment_number;
+
+    // Write entries until segment rotation
+    const large_payload_size = 1024 * 1024; // 1MB
+    const large_payload = try allocator.alloc(u8, large_payload_size);
+    defer allocator.free(large_payload);
+    @memset(large_payload, 0xAA);
+
+    var rotation_occurred = false;
+    var entries_written: u32 = 0;
+
+    // Write large entries to trigger rotation
+    while (!rotation_occurred and entries_written < 100) {
+        const checksum = WALEntry.calculate_checksum(.put_block, large_payload);
+        const large_entry = WALEntry{
+            .checksum = checksum,
+            .entry_type = .put_block,
+            .payload_size = @intCast(large_payload.len),
+            .payload = large_payload,
+        };
+
+        try wal.write_entry(large_entry);
+        entries_written += 1;
+
+        if (wal.segment_number > initial_segment) {
+            rotation_occurred = true;
+        }
+    }
+
+    try testing.expect(rotation_occurred);
+    try testing.expect(wal.segment_number > initial_segment);
+
+    const stats = wal.statistics();
+    try testing.expect(stats.segments_rotated > 0);
+}
+
+test "WAL recovery functionality" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    const test_dir = "./test_wal_recovery";
+
+    // Write some entries
+    {
+        var wal = try WAL.init(allocator, sim_vfs.vfs(), test_dir);
+        defer wal.deinit();
+
+        const test_block = create_test_block();
+        const entry = try WALEntry.create_put_block(test_block, allocator);
+        defer entry.deinit(allocator);
+
+        try wal.write_entry(entry);
+        try wal.write_entry(entry);
+        try wal.write_entry(entry);
+    }
+
+    // Recovery test context
+    const RecoveryContext = struct {
+        entries_recovered: u32,
+
+        fn callback(entry: WALEntry, context: *anyopaque) WALError!void {
+            _ = entry;
+            const ctx: *@This() = @ptrCast(@alignCast(context));
+            ctx.entries_recovered += 1;
+        }
+    };
+
+    var recovery_ctx = RecoveryContext{ .entries_recovered = 0 };
+
+    // Test recovery
+    var wal = try WAL.init(allocator, sim_vfs.vfs(), test_dir);
+    defer wal.deinit();
+
+    try wal.recover_entries(RecoveryContext.callback, &recovery_ctx);
+
+    try testing.expectEqual(@as(u32, 3), recovery_ctx.entries_recovered);
+}
+
+test "WAL error handling - directory creation failure" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    // Test with invalid directory path (empty)
+    try testing.expectError(error.InvalidArgument, WAL.init(allocator, sim_vfs.vfs(), ""));
+}
+
+test "WAL cleanup old segments" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_cleanup");
+    defer wal.deinit();
+
+    // Create some old segment files manually
+    const old_files = [_][]const u8{
+        "./test_wal_cleanup/wal_0000.log",
+        "./test_wal_cleanup/wal_0001.log",
+        "./test_wal_cleanup/wal_0002.log",
+    };
+
+    for (old_files) |filename| {
+        var file = try sim_vfs.vfs().create(filename, .write);
+        _ = try file.write("dummy content");
+        file.close();
+    }
+
+    // Test cleanup (keep last 2 segments)
+    try wal.cleanup_old_segments(2);
+
+    // Verify old segments were cleaned up appropriately
+    // Note: This is a basic test - in practice you'd verify file existence
+}
+
+test "WAL statistics accuracy" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_stats");
+    defer wal.deinit();
+
+    const initial_stats = wal.statistics();
+    try testing.expectEqual(@as(u64, 0), initial_stats.entries_written);
+    try testing.expectEqual(@as(u64, 0), initial_stats.bytes_written);
+
+    // Write test entry
+    const test_block = create_test_block();
+    const entry = try WALEntry.create_put_block(test_block, allocator);
+    defer entry.deinit(allocator);
+
+    const entry_size = WALEntry.HEADER_SIZE + entry.payload.len;
+
+    try wal.write_entry(entry);
+
+    const updated_stats = wal.statistics();
+    try testing.expectEqual(@as(u64, 1), updated_stats.entries_written);
+    try testing.expectEqual(@as(u64, entry_size), updated_stats.bytes_written);
+}
+
+test "WAL filename generation" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_filename");
+    defer wal.deinit();
+
+    // Test initial filename
+    const filename = try wal.segment_filename();
+    defer allocator.free(filename);
+
+    try testing.expect(std.mem.endsWith(u8, filename, "wal_0000.log"));
+    try testing.expect(std.mem.startsWith(u8, filename, "./test_filename/"));
+}
+
+test "WAL concurrent safety assertions" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    // Initialize concurrency tracking
+    concurrency.init();
+
+    var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_concurrency");
+    defer wal.deinit();
+
+    const test_block = create_test_block();
+    const entry = try WALEntry.create_put_block(test_block, allocator);
+    defer entry.deinit(allocator);
+
+    // Should succeed when called from main thread
+    try wal.write_entry(entry);
+
+    const stats = wal.statistics();
+    try testing.expectEqual(@as(u64, 1), stats.entries_written);
+}

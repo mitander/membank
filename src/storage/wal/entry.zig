@@ -268,3 +268,339 @@ pub const WALEntry = struct {
         }
     }
 };
+
+// Tests
+const testing = std.testing;
+
+fn create_test_block() ContextBlock {
+    return ContextBlock{
+        .id = BlockId.from_hex("0123456789abcdef0123456789abcdef") catch unreachable,
+        .version = 1,
+        .source_uri = "test://wal_entry.zig",
+        .metadata_json = "{}",
+        .content = "test content for WAL entry",
+    };
+}
+
+fn create_test_edge() GraphEdge {
+    const from_id = BlockId.from_hex("1111111111111111111111111111111111111111") catch unreachable;
+    const to_id = BlockId.from_hex("2222222222222222222222222222222222222222") catch unreachable;
+
+    return GraphEdge{
+        .from_block_id = from_id,
+        .to_block_id = to_id,
+        .edge_type = .calls,
+        .metadata_json = "{}",
+    };
+}
+
+test "WALEntry checksum calculation consistency" {
+    const payload1 = "test payload";
+    const payload2 = "test payload";
+    const different_payload = "different payload";
+
+    const checksum1 = WALEntry.calculate_checksum(.put_block, payload1);
+    const checksum2 = WALEntry.calculate_checksum(.put_block, payload2);
+    const checksum3 = WALEntry.calculate_checksum(.put_block, different_payload);
+    const checksum4 = WALEntry.calculate_checksum(.delete_block, payload1);
+
+    // Same type and payload should produce same checksum
+    try testing.expectEqual(checksum1, checksum2);
+
+    // Different payload should produce different checksum
+    try testing.expect(checksum1 != checksum3);
+
+    // Different type should produce different checksum
+    try testing.expect(checksum1 != checksum4);
+}
+
+test "WALEntry serialization roundtrip" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_payload = "Hello, WAL entry serialization!";
+    const checksum = WALEntry.calculate_checksum(.put_block, test_payload);
+
+    const original_entry = WALEntry{
+        .checksum = checksum,
+        .entry_type = .put_block,
+        .payload_size = @intCast(test_payload.len),
+        .payload = test_payload,
+    };
+
+    // Serialize entry
+    var buffer: [1024]u8 = undefined;
+    const serialized_size = try original_entry.serialize(&buffer);
+
+    // Deserialize entry
+    const deserialized_entry = try WALEntry.deserialize(buffer[0..serialized_size], allocator);
+    defer deserialized_entry.deinit(allocator);
+
+    // Verify all fields match
+    try testing.expectEqual(original_entry.checksum, deserialized_entry.checksum);
+    try testing.expectEqual(original_entry.entry_type, deserialized_entry.entry_type);
+    try testing.expectEqual(original_entry.payload_size, deserialized_entry.payload_size);
+    try testing.expect(std.mem.eql(u8, original_entry.payload, deserialized_entry.payload));
+}
+
+test "WALEntry serialization buffer too small" {
+    const test_payload = "test payload";
+    const checksum = WALEntry.calculate_checksum(.put_block, test_payload);
+
+    const entry = WALEntry{
+        .checksum = checksum,
+        .entry_type = .put_block,
+        .payload_size = @intCast(test_payload.len),
+        .payload = test_payload,
+    };
+
+    // Try to serialize into buffer that's too small
+    var small_buffer: [10]u8 = undefined;
+    try testing.expectError(WALError.BufferTooSmall, entry.serialize(&small_buffer));
+}
+
+test "WALEntry deserialization buffer too small" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Buffer smaller than header
+    var small_buffer: [5]u8 = undefined;
+    try testing.expectError(WALError.BufferTooSmall, WALEntry.deserialize(&small_buffer, allocator));
+
+    // Buffer with valid header but insufficient payload space
+    var partial_buffer: [WALEntry.HEADER_SIZE + 5]u8 = undefined;
+    std.mem.writeInt(u64, partial_buffer[0..8], 0x1234567890abcdef, .little);
+    partial_buffer[8] = 0x01; // put_block
+    std.mem.writeInt(u32, partial_buffer[9..13], 100, .little); // payload size > available space
+
+    try testing.expectError(WALError.BufferTooSmall, WALEntry.deserialize(&partial_buffer, allocator));
+}
+
+test "WALEntry deserialization invalid checksum" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_payload = "test payload";
+    var buffer: [1024]u8 = undefined;
+
+    // Create valid entry structure with invalid checksum
+    std.mem.writeInt(u64, buffer[0..8], 0xdeadbeef, .little); // Wrong checksum
+    buffer[8] = 0x01; // put_block
+    std.mem.writeInt(u32, buffer[9..13], @intCast(test_payload.len), .little);
+    @memcpy(buffer[13 .. 13 + test_payload.len], test_payload);
+
+    const buffer_size = WALEntry.HEADER_SIZE + test_payload.len;
+    try testing.expectError(WALError.InvalidChecksum, WALEntry.deserialize(buffer[0..buffer_size], allocator));
+}
+
+test "WALEntry deserialization invalid entry type" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var buffer: [WALEntry.HEADER_SIZE]u8 = undefined;
+    std.mem.writeInt(u64, buffer[0..8], 0, .little);
+    buffer[8] = 0xFF; // Invalid entry type
+    std.mem.writeInt(u32, buffer[9..13], 0, .little);
+
+    try testing.expectError(WALError.InvalidEntryType, WALEntry.deserialize(&buffer, allocator));
+}
+
+test "WALEntry deserialization oversized payload" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var buffer: [WALEntry.HEADER_SIZE]u8 = undefined;
+    std.mem.writeInt(u64, buffer[0..8], 0, .little);
+    buffer[8] = 0x01; // put_block
+    std.mem.writeInt(u32, buffer[9..13], MAX_PAYLOAD_SIZE + 1, .little); // Too large
+
+    try testing.expectError(WALError.CorruptedEntry, WALEntry.deserialize(&buffer, allocator));
+}
+
+test "WALEntry create_put_block" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_block = create_test_block();
+    const entry = try WALEntry.create_put_block(test_block, allocator);
+    defer entry.deinit(allocator);
+
+    try testing.expectEqual(WALEntryType.put_block, entry.entry_type);
+    try testing.expectEqual(@as(u32, @intCast(test_block.serialized_size())), entry.payload_size);
+    try testing.expect(entry.payload.len > 0);
+
+    // Verify checksum is calculated correctly
+    const expected_checksum = WALEntry.calculate_checksum(.put_block, entry.payload);
+    try testing.expectEqual(expected_checksum, entry.checksum);
+}
+
+test "WALEntry create_delete_block" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable;
+    const entry = try WALEntry.create_delete_block(test_id, allocator);
+    defer entry.deinit(allocator);
+
+    try testing.expectEqual(WALEntryType.delete_block, entry.entry_type);
+    try testing.expectEqual(@as(u32, 16), entry.payload_size); // BlockId size
+    try testing.expectEqual(@as(usize, 16), entry.payload.len);
+
+    // Verify payload contains the block ID
+    try testing.expect(std.mem.eql(u8, &test_id.bytes, entry.payload));
+
+    // Verify checksum
+    const expected_checksum = WALEntry.calculate_checksum(.delete_block, entry.payload);
+    try testing.expectEqual(expected_checksum, entry.checksum);
+}
+
+test "WALEntry create_put_edge" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_edge = create_test_edge();
+    const entry = try WALEntry.create_put_edge(test_edge, allocator);
+    defer entry.deinit(allocator);
+
+    try testing.expectEqual(WALEntryType.put_edge, entry.entry_type);
+    try testing.expectEqual(@as(u32, 40), entry.payload_size); // GraphEdge.SERIALIZED_SIZE
+    try testing.expectEqual(@as(usize, 40), entry.payload.len);
+
+    // Verify checksum
+    const expected_checksum = WALEntry.calculate_checksum(.put_edge, entry.payload);
+    try testing.expectEqual(expected_checksum, entry.checksum);
+}
+
+test "WALEntry deserialize_from_stream" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_payload = "stream test payload";
+    const checksum = WALEntry.calculate_checksum(.put_block, test_payload);
+
+    const entry = try WALEntry.deserialize_from_stream(checksum, 0x01, test_payload, allocator);
+    defer entry.deinit(allocator);
+
+    try testing.expectEqual(checksum, entry.checksum);
+    try testing.expectEqual(WALEntryType.put_block, entry.entry_type);
+    try testing.expectEqual(@as(u32, @intCast(test_payload.len)), entry.payload_size);
+    try testing.expect(std.mem.eql(u8, test_payload, entry.payload));
+}
+
+test "WALEntry deserialize_from_stream invalid type" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_payload = "test payload";
+    const checksum = WALEntry.calculate_checksum(.put_block, test_payload);
+
+    // Invalid entry type
+    try testing.expectError(WALError.InvalidEntryType, WALEntry.deserialize_from_stream(checksum, 0xFF, test_payload, allocator));
+}
+
+test "WALEntry deserialize_from_stream invalid checksum" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_payload = "test payload";
+    const wrong_checksum: u64 = 0xdeadbeef;
+
+    try testing.expectError(WALError.InvalidChecksum, WALEntry.deserialize_from_stream(wrong_checksum, 0x01, test_payload, allocator));
+}
+
+test "WALEntry header size constant" {
+    // Verify header size calculation
+    const expected_size = @sizeOf(u64) + @sizeOf(u8) + @sizeOf(u32);
+    try testing.expectEqual(@as(usize, expected_size), WALEntry.HEADER_SIZE);
+    try testing.expectEqual(@as(usize, 13), WALEntry.HEADER_SIZE);
+}
+
+test "WALEntry memory management" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Test that deinit properly releases memory
+    const test_block = create_test_block();
+    const entry = try WALEntry.create_put_block(test_block, allocator);
+
+    // Verify entry has allocated payload
+    try testing.expect(entry.payload.len > 0);
+    try testing.expectEqual(entry.payload.len, entry.payload_size);
+
+    // deinit should not crash
+    entry.deinit(allocator);
+}
+
+test "WALEntry edge cases" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Test empty payload
+    const empty_checksum = WALEntry.calculate_checksum(.put_block, "");
+    const empty_entry = WALEntry{
+        .checksum = empty_checksum,
+        .entry_type = .put_block,
+        .payload_size = 0,
+        .payload = "",
+    };
+
+    var buffer: [WALEntry.HEADER_SIZE]u8 = undefined;
+    const serialized_size = try empty_entry.serialize(&buffer);
+    try testing.expectEqual(@as(usize, WALEntry.HEADER_SIZE), serialized_size);
+
+    const deserialized = try WALEntry.deserialize(&buffer, allocator);
+    defer deserialized.deinit(allocator);
+
+    try testing.expectEqual(empty_entry.checksum, deserialized.checksum);
+    try testing.expectEqual(empty_entry.entry_type, deserialized.entry_type);
+    try testing.expectEqual(empty_entry.payload_size, deserialized.payload_size);
+    try testing.expectEqual(@as(usize, 0), deserialized.payload.len);
+}
+
+test "WALEntry large payload handling" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Create large payload (within limits)
+    const large_payload_size = 1024 * 1024; // 1MB
+    const large_payload = try allocator.alloc(u8, large_payload_size);
+    defer allocator.free(large_payload);
+    @memset(large_payload, 0xAA);
+
+    const checksum = WALEntry.calculate_checksum(.put_block, large_payload);
+    const entry = WALEntry{
+        .checksum = checksum,
+        .entry_type = .put_block,
+        .payload_size = @intCast(large_payload.len),
+        .payload = large_payload,
+    };
+
+    // Serialize and deserialize
+    const buffer = try allocator.alloc(u8, WALEntry.HEADER_SIZE + large_payload_size);
+    defer allocator.free(buffer);
+
+    const serialized_size = try entry.serialize(buffer);
+    try testing.expectEqual(@as(usize, WALEntry.HEADER_SIZE + large_payload_size), serialized_size);
+
+    const deserialized = try WALEntry.deserialize(buffer, allocator);
+    defer deserialized.deinit(allocator);
+
+    try testing.expectEqual(entry.checksum, deserialized.checksum);
+    try testing.expectEqual(entry.entry_type, deserialized.entry_type);
+    try testing.expectEqual(entry.payload_size, deserialized.payload_size);
+    try testing.expect(std.mem.eql(u8, large_payload, deserialized.payload));
+}
