@@ -98,6 +98,17 @@ pub const DirectoryIterator = struct {
         return entry;
     }
 
+    /// Clean up allocated memory for directory entries.
+    /// Must be called with the same allocator used for iterate_directory().
+    pub fn deinit(self: *DirectoryIterator, allocator: std.mem.Allocator) void {
+        // Free each entry name
+        for (self.entries) |entry| {
+            allocator.free(entry.name);
+        }
+        // Free the entries array
+        allocator.free(self.entries);
+    }
+
     /// Reset iterator to beginning for reuse within same arena scope
     pub fn reset(self: *DirectoryIterator) void {
         self.index = 0;

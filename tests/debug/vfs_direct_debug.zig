@@ -33,11 +33,7 @@ test "direct VFS large write corruption test" {
     defer allocator.free(large_content);
     @memset(large_content, 'x');
 
-    log.info("Header pattern: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{
-        wal_header[0], wal_header[1], wal_header[2], wal_header[3], wal_header[4],
-        wal_header[5], wal_header[6], wal_header[7], wal_header[8], wal_header[9],
-        wal_header[10], wal_header[11], wal_header[12]
-    });
+    log.info("Header pattern: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ wal_header[0], wal_header[1], wal_header[2], wal_header[3], wal_header[4], wal_header[5], wal_header[6], wal_header[7], wal_header[8], wal_header[9], wal_header[10], wal_header[11], wal_header[12] });
 
     // Test 1: Write header + content as separate operations
     {
@@ -76,11 +72,7 @@ test "direct VFS large write corruption test" {
         const header_read = try file.read(&read_header);
         try testing.expectEqual(@as(usize, 13), header_read);
 
-        log.info("Read header: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{
-            read_header[0], read_header[1], read_header[2], read_header[3], read_header[4],
-            read_header[5], read_header[6], read_header[7], read_header[8], read_header[9],
-            read_header[10], read_header[11], read_header[12]
-        });
+        log.info("Read header: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ read_header[0], read_header[1], read_header[2], read_header[3], read_header[4], read_header[5], read_header[6], read_header[7], read_header[8], read_header[9], read_header[10], read_header[11], read_header[12] });
 
         // Check if header was corrupted
         if (!std.mem.eql(u8, &wal_header, &read_header)) {

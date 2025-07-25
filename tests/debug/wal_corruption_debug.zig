@@ -504,84 +504,78 @@ test "trace WAL corruption step by step" {
     // Test 1: ContextBlock serialization in isolation
     {
         log.info("--- Step 2: Testing ContextBlock serialization in isolation ---", .{});
-        
+
         const block_serialized_size = test_block.serialized_size();
         log.info("Block serialized size: {}", .{block_serialized_size});
-        
+
         const block_buffer = try allocator.alloc(u8, block_serialized_size);
         defer allocator.free(block_buffer);
-        
+
         // Fill with sentinel pattern to detect overwrites
         @memset(block_buffer, 0xAA);
-        
+
         const block_bytes_written = try test_block.serialize(block_buffer);
         log.info("Block serialization wrote {} bytes", .{block_bytes_written});
-        
+
         // Check header integrity after block serialization
         if (block_buffer.len >= 64) {
             const magic = std.mem.readInt(u32, block_buffer[0..4], .little);
             const version = std.mem.readInt(u16, block_buffer[4..6], .little);
-            log.info("Block header after serialization: magic=0x{X}, version={}", .{magic, version});
+            log.info("Block header after serialization: magic=0x{X}, version={}", .{ magic, version });
         }
-        
+
         log.info("✓ ContextBlock serialization completed successfully", .{});
     }
 
     // Test 2: WALEntry creation in isolation
     {
         log.info("--- Step 3: Testing WALEntry creation in isolation ---", .{});
-        
+
         var entry = try WALEntry.create_put_block(test_block, allocator);
         defer entry.deinit(allocator);
-        
-        log.info("WAL entry created: type={}, payload_size={}, checksum=0x{X}", .{
-            entry.entry_type, entry.payload_size, entry.checksum
-        });
-        
+
+        log.info("WAL entry created: type={}, payload_size={}, checksum=0x{X}", .{ entry.entry_type, entry.payload_size, entry.checksum });
+
         // Verify entry payload integrity
         if (entry.payload.len >= 64) {
             const magic = std.mem.readInt(u32, entry.payload[0..4], .little);
             const version = std.mem.readInt(u16, entry.payload[4..6], .little);
-            log.info("Entry payload header: magic=0x{X}, version={}", .{magic, version});
+            log.info("Entry payload header: magic=0x{X}, version={}", .{ magic, version });
         }
-        
+
         // Test 3: WALEntry serialization in isolation
         log.info("--- Step 4: Testing WALEntry serialization in isolation ---", .{});
-        
+
         const entry_serialized_size = WALEntry.HEADER_SIZE + entry.payload.len;
         log.info("Entry serialization size: {}", .{entry_serialized_size});
-        
+
         const entry_buffer = try allocator.alloc(u8, entry_serialized_size);
         defer allocator.free(entry_buffer);
-        
+
         // Fill with different sentinel pattern
         @memset(entry_buffer, 0xBB);
-        
+
         const entry_bytes_written = try entry.serialize(entry_buffer);
         log.info("Entry serialization wrote {} bytes", .{entry_bytes_written});
-        
+
         // Check WAL header after serialization
         const wal_checksum = std.mem.readInt(u64, entry_buffer[0..8], .little);
         const wal_type = entry_buffer[8];
         const wal_payload_size = std.mem.readInt(u32, entry_buffer[9..13], .little);
-        
-        log.info("WAL header after serialization: checksum=0x{X}, type={}, payload_size={}", .{
-            wal_checksum, wal_type, wal_payload_size
-        });
-        
+
+        log.info("WAL header after serialization: checksum=0x{X}, type={}, payload_size={}", .{ wal_checksum, wal_type, wal_payload_size });
+
         // Check for corruption pattern
         if (wal_payload_size == 0x78787878) {
             log.err("CORRUPTION DETECTED: WAL payload_size corrupted to 0x78787878 ('xxxx') during serialization!", .{});
             return error.CorruptionDetected;
         }
-        
+
         if (wal_payload_size != entry.payload_size) {
-            log.err("CORRUPTION DETECTED: WAL payload_size mismatch - expected {}, got {}", .{
-                entry.payload_size, wal_payload_size
-            });
+            log.err("CORRUPTION DETECTED: WAL payload_size mismatch - expected {}, got {}", .{ entry.payload_size, wal_payload_size });
             return error.CorruptionDetected;
         }
-        
+
         log.info("✓ WALEntry serialization completed successfully", .{});
     }
 

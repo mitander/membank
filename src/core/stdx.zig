@@ -19,6 +19,17 @@ pub fn copy_left(comptime T: type, dest: []T, source: []const T) void {
     std.mem.copyForwards(T, dest, source);
 }
 
+/// Copy memory with overlapping source and destination buffers
+///
+/// Use this for buffer compaction where source and destination overlap.
+/// Specifically handles the case where destination starts before source,
+/// which is safe with left-to-right copying semantics.
+pub fn copy_overlapping(comptime T: type, dest: []T, source: []const T) void {
+    assert(dest.len >= source.len);
+    // Allow overlapping buffers - this is the key difference from copy_left
+    std.mem.copyForwards(T, dest, source);
+}
+
 /// Copy memory from source to destination with right-to-left ordering
 ///
 /// Use this instead of std.mem.copyBackwards for explicit directional semantics.

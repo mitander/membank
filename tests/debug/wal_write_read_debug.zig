@@ -44,20 +44,18 @@ test "WAL write then direct VFS read corruption test" {
 
     log.info("Created test block with {} bytes of content", .{large_content.len});
 
-    // Create WAL entry  
+    // Create WAL entry
     var entry = try WALEntry.create_put_block(test_block, allocator);
     defer entry.deinit(allocator);
 
-    log.info("Created WAL entry: type={}, payload_size={}, checksum=0x{X}", .{
-        entry.entry_type, entry.payload_size, entry.checksum
-    });
+    log.info("Created WAL entry: type={}, payload_size={}, checksum=0x{X}", .{ entry.entry_type, entry.payload_size, entry.checksum });
 
     const wal_dir = "/wal_write_read_test";
 
     // Step 1: Write using WAL infrastructure
     {
         log.info("--- Step 1: Writing using WAL infrastructure ---", .{});
-        
+
         var test_wal = try WAL.init(allocator, vfs_interface, wal_dir);
         defer test_wal.deinit();
 
@@ -68,9 +66,9 @@ test "WAL write then direct VFS read corruption test" {
     // Step 2: Read back using direct VFS to check if corruption happened during write
     {
         log.info("--- Step 2: Reading back using direct VFS ---", .{});
-        
+
         const wal_file_path = "/wal_write_read_test/wal_0000.log";
-        
+
         var file = try vfs_interface.open(wal_file_path, .read);
         defer file.close();
         defer file.deinit();
@@ -83,20 +81,14 @@ test "WAL write then direct VFS read corruption test" {
         const header_read = try file.read(&wal_header);
         try testing.expectEqual(@as(usize, 13), header_read);
 
-        log.info("WAL header bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{
-            wal_header[0], wal_header[1], wal_header[2], wal_header[3], wal_header[4],
-            wal_header[5], wal_header[6], wal_header[7], wal_header[8], wal_header[9],
-            wal_header[10], wal_header[11], wal_header[12]
-        });
+        log.info("WAL header bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ wal_header[0], wal_header[1], wal_header[2], wal_header[3], wal_header[4], wal_header[5], wal_header[6], wal_header[7], wal_header[8], wal_header[9], wal_header[10], wal_header[11], wal_header[12] });
 
         // Parse header fields
         const checksum = std.mem.readInt(u64, wal_header[0..8], .little);
         const entry_type = wal_header[8];
         const payload_size = std.mem.readInt(u32, wal_header[9..13], .little);
 
-        log.info("Parsed header: checksum=0x{X}, type={}, payload_size={}", .{
-            checksum, entry_type, payload_size
-        });
+        log.info("Parsed header: checksum=0x{X}, type={}, payload_size={}", .{ checksum, entry_type, payload_size });
 
         // Check for corruption patterns
         if (checksum == 0x7878787878787878) {
@@ -121,23 +113,17 @@ test "WAL write then direct VFS read corruption test" {
 
         // Verify the values match what we expect
         if (checksum != entry.checksum) {
-            log.err("CORRUPTION: Checksum mismatch - expected 0x{X}, got 0x{X}", .{
-                entry.checksum, checksum
-            });
+            log.err("CORRUPTION: Checksum mismatch - expected 0x{X}, got 0x{X}", .{ entry.checksum, checksum });
             return error.CorruptionDetected;
         }
 
         if (entry_type != @intFromEnum(entry.entry_type)) {
-            log.err("CORRUPTION: Entry type mismatch - expected {}, got {}", .{
-                @intFromEnum(entry.entry_type), entry_type
-            });
+            log.err("CORRUPTION: Entry type mismatch - expected {}, got {}", .{ @intFromEnum(entry.entry_type), entry_type });
             return error.CorruptionDetected;
         }
 
         if (payload_size != entry.payload_size) {
-            log.err("CORRUPTION: Payload size mismatch - expected {}, got {}", .{
-                entry.payload_size, payload_size
-            });
+            log.err("CORRUPTION: Payload size mismatch - expected {}, got {}", .{ entry.payload_size, payload_size });
             return error.CorruptionDetected;
         }
 
@@ -151,11 +137,9 @@ test "WAL write then direct VFS read corruption test" {
         // The payload should start with the ContextBlock header
         const block_magic = std.mem.readInt(u32, payload_sample[0..4], .little);
         const expected_magic = 0x42444358; // "XDBC" in little endian
-        
+
         if (block_magic != expected_magic) {
-            log.err("CORRUPTION: Payload header corrupted - expected magic 0x{X}, got 0x{X}", .{
-                expected_magic, block_magic
-            });
+            log.err("CORRUPTION: Payload header corrupted - expected magic 0x{X}, got 0x{X}", .{ expected_magic, block_magic });
             return error.CorruptionDetected;
         }
 

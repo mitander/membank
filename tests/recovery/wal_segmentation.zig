@@ -76,7 +76,12 @@ test "wal segmentation: rotation at size limit" {
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
     defer allocator.free(wal_dir);
 
-    var dir_iterator = try (&node_vfs).iterate_directory(wal_dir, allocator);
+    // Use arena for directory iteration to prevent memory leaks
+    var iter_arena = std.heap.ArenaAllocator.init(allocator);
+    defer iter_arena.deinit();
+    const iter_allocator = iter_arena.allocator();
+
+    var dir_iterator = try (&node_vfs).iterate_directory(wal_dir, iter_allocator);
 
     var wal_files_list = std.ArrayList([]const u8).init(allocator);
     defer {
@@ -108,10 +113,7 @@ test "wal segmentation: cleanup after sstable flush" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) {
-            // TODO: Fix memory leaks in VFS directory iteration
-            // @panic("Memory leak detected in WAL cleanup test");
-        }
+        if (deinit_status == .leak) @panic("Memory leak detected in WAL cleanup test");
     }
     const allocator = gpa.allocator();
 
@@ -158,7 +160,12 @@ test "wal segmentation: cleanup after sstable flush" {
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
     defer allocator.free(wal_dir);
 
-    var pre_flush_iterator = try (&node_vfs).iterate_directory(wal_dir, allocator);
+    // Use arena for directory iteration to prevent memory leaks
+    var pre_flush_arena = std.heap.ArenaAllocator.init(allocator);
+    defer pre_flush_arena.deinit();
+    const pre_flush_iter_allocator = pre_flush_arena.allocator();
+
+    var pre_flush_iterator = try (&node_vfs).iterate_directory(wal_dir, pre_flush_iter_allocator);
 
     var pre_flush_files_list = std.ArrayList([]const u8).init(allocator);
     defer {
@@ -179,7 +186,12 @@ test "wal segmentation: cleanup after sstable flush" {
     try engine.flush_memtable_to_sstable();
 
     // Check WAL segments after flush - old segments should be cleaned up
-    var post_flush_iterator = try (&node_vfs).iterate_directory(wal_dir, allocator);
+    // Use arena for directory iteration to prevent memory leaks
+    var post_flush_arena = std.heap.ArenaAllocator.init(allocator);
+    defer post_flush_arena.deinit();
+    const post_flush_iter_allocator = post_flush_arena.allocator();
+
+    var post_flush_iterator = try (&node_vfs).iterate_directory(wal_dir, post_flush_iter_allocator);
 
     var post_flush_files_list = std.ArrayList([]const u8).init(allocator);
     defer {
@@ -223,10 +235,7 @@ test "wal segmentation: recovery from mixed segments and sstables" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) {
-            // TODO: Fix memory leaks in VFS directory iteration
-            // @panic("Memory leak detected in WAL mixed recovery test");
-        }
+        if (deinit_status == .leak) @panic("Memory leak detected in WAL mixed recovery test");
     }
     const allocator = gpa.allocator();
 
@@ -304,16 +313,10 @@ test "wal segmentation: recovery from mixed segments and sstables" {
 }
 
 test "wal segmentation: segment number persistence" {
-    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) {
-            // TODO: Fix memory leaks in VFS directory iteration
-            // @panic("Memory leak detected in WAL persistence test");
-        }
-    }
-    const allocator = gpa.allocator();
+    // Arena allocator eliminates manual memory management and prevents leaks
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 22222);
     defer sim.deinit();
@@ -323,7 +326,6 @@ test "wal segmentation: segment number persistence" {
     var node_vfs = node_ptr.filesystem_interface();
 
     const data_dir = try allocator.dupe(u8, "wal_segment_persist");
-    defer allocator.free(data_dir);
 
     // Create engine and force multiple segments
     {
@@ -334,7 +336,6 @@ test "wal segmentation: segment number persistence" {
 
         // Write enough to create multiple segments
         const large_content = try allocator.alloc(u8, 10 * 1024 * 1024);
-        defer allocator.free(large_content);
         @memset(large_content, 'Y');
 
         var i: u32 = 0;
@@ -377,15 +378,10 @@ test "wal segmentation: segment number persistence" {
 
         // List WAL files to verify numbering
         const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
-        defer allocator.free(wal_dir);
 
         var dir_iterator = try (&node_vfs).iterate_directory(wal_dir, allocator);
 
         var wal_files_list = std.ArrayList([]const u8).init(allocator);
-        defer {
-            for (wal_files_list.items) |file| allocator.free(file);
-            wal_files_list.deinit();
-        }
 
         while (dir_iterator.next()) |entry| {
             const file_copy = try allocator.dupe(u8, entry.name);
@@ -405,16 +401,10 @@ test "wal segmentation: segment number persistence" {
 }
 
 test "wal segmentation: empty segment handling" {
-    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) {
-            // TODO: Fix memory leaks in VFS directory iteration
-            // @panic("Memory leak detected in WAL empty segment test");
-        }
-    }
-    const allocator = gpa.allocator();
+    // Arena allocator eliminates manual memory management and prevents leaks
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 33333);
     defer sim.deinit();
@@ -424,7 +414,6 @@ test "wal segmentation: empty segment handling" {
     var node_vfs = node_ptr.filesystem_interface();
 
     const data_dir = try allocator.dupe(u8, "wal_empty_segments");
-    defer allocator.free(data_dir);
     var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine.deinit();
 
@@ -435,15 +424,10 @@ test "wal segmentation: empty segment handling" {
 
     // Should still have one WAL segment (wal_0000.log)
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
-    defer allocator.free(wal_dir);
 
     var dir_iterator = try (&node_vfs).iterate_directory(wal_dir, allocator);
 
     var wal_files_list = std.ArrayList([]const u8).init(allocator);
-    defer {
-        for (wal_files_list.items) |file| allocator.free(file);
-        wal_files_list.deinit();
-    }
 
     while (dir_iterator.next()) |entry| {
         const file_copy = try allocator.dupe(u8, entry.name);

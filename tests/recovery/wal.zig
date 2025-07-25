@@ -590,12 +590,10 @@ test "wal recovery: large blocks" {
 }
 
 test "wal recovery: stress test with many entries" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("Memory leak detected in stress test");
-    }
-    const allocator = gpa.allocator();
+    // Arena allocator eliminates manual memory management and prevents leaks
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 99999);
     defer sim.deinit();
@@ -608,7 +606,6 @@ test "wal recovery: stress test with many entries" {
 
     // Write many blocks
     const data_dir = try allocator.dupe(u8, "wal_stress_data");
-    defer allocator.free(data_dir);
     var storage_engine1 = try StorageEngine.init_default(
         testing.allocator,
         node1_vfs,

@@ -388,34 +388,25 @@ pub fn build(b: *std.Build) void {
         },
         .{
             .name = "wal_corruption_debug",
-            .source_file = "debug_wal_corruption_minimal.zig",
+            .source_file = "tests/debug/wal_corruption_debug.zig",
             .description = "WAL corruption debug tests",
         },
         .{
             .name = "vfs_direct_debug",
-            .source_file = "debug_vfs_direct.zig",
+            .source_file = "tests/debug/vfs_direct_debug.zig",
             .description = "Direct VFS corruption debug tests",
         },
         .{
             .name = "wal_write_read_debug",
-            .source_file = "debug_wal_write_read.zig",
+            .source_file = "tests/debug/wal_write_read_debug.zig",
             .description = "WAL write then direct read debug tests",
         },
         .{
             .name = "vfs_read_boundary_debug",
-            .source_file = "debug_vfs_read_boundary.zig",
+            .source_file = "tests/debug/vfs_read_boundary_debug.zig",
             .description = "VFS read boundary condition debug tests",
         },
-        .{
-            .name = "file_position_debug",
-            .source_file = "debug_file_position.zig",
-            .description = "File position debugging during WAL operations",
-        },
-        .{
-            .name = "wal_minimal_debug",
-            .source_file = "debug_wal_minimal.zig",
-            .description = "Minimal WAL header processing test",
-        },
+
         .{
             .name = "vfs_memory_safety",
             .source_file = "tests/debug/vfs_memory_safety.zig",

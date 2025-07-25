@@ -60,8 +60,12 @@ test "wal hang debug: minimal directory iteration" {
         try file.flush();
     }
 
-    // Test directory iteration with defensive patterns
-    var dir_iterator = try sim_vfs.iterate_directory(wal_dir, allocator);
+    // Test directory iteration with defensive patterns using arena
+    var iter_arena = std.heap.ArenaAllocator.init(allocator);
+    defer iter_arena.deinit();
+    const iter_allocator = iter_arena.allocator();
+
+    var dir_iterator = try sim_vfs.iterate_directory(wal_dir, iter_allocator);
 
     var entry_count: u32 = 0;
     var iteration_count: u32 = 0;
@@ -146,10 +150,7 @@ test "wal hang debug: single block write and recovery" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) {
-            // TODO: Fix memory leaks in VFS directory iteration
-            // @panic("Memory leak detected");
-        }
+        if (deinit_status == .leak) @panic("Memory leak detected");
     }
     const allocator = gpa.allocator();
 
@@ -246,8 +247,12 @@ test "wal hang debug: empty directory iteration" {
     const empty_dir = "debug_empty_wal";
     try sim_vfs.mkdir_all(empty_dir);
 
-    // Test iteration over empty directory
-    var dir_iterator = try sim_vfs.iterate_directory(empty_dir, allocator);
+    // Test iteration over empty directory using arena
+    var iter_arena = std.heap.ArenaAllocator.init(allocator);
+    defer iter_arena.deinit();
+    const iter_allocator = iter_arena.allocator();
+
+    var dir_iterator = try sim_vfs.iterate_directory(empty_dir, iter_allocator);
 
     var iteration_count: u32 = 0;
     const start_time = std.time.milliTimestamp();
@@ -275,10 +280,7 @@ test "wal hang debug: wal recovery with large blocks" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) {
-            // TODO: Fix memory leaks in VFS directory iteration
-            // @panic("Memory leak detected in WAL recovery test");
-        }
+        if (deinit_status == .leak) @panic("Memory leak detected in WAL recovery test");
     }
     const allocator = gpa.allocator();
 
@@ -349,7 +351,12 @@ test "wal hang debug: wal recovery with large blocks" {
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
     defer allocator.free(wal_dir);
 
-    var dir_iterator = try node_vfs.iterate_directory(wal_dir, allocator);
+    // Use arena for directory iteration to prevent memory leaks
+    var iter_arena = std.heap.ArenaAllocator.init(allocator);
+    defer iter_arena.deinit();
+    const iter_allocator = iter_arena.allocator();
+
+    var dir_iterator = try node_vfs.iterate_directory(wal_dir, iter_allocator);
     var wal_file_count: u32 = 0;
     var iteration_count: u32 = 0;
 
@@ -536,8 +543,12 @@ test "wal hang debug: WAL file initialization check" {
     const wal_exists = node_vfs.exists(wal_dir);
     try testing.expect(wal_exists);
 
-    // Check initial WAL file state
-    var dir_iterator = try node_vfs.iterate_directory(wal_dir, allocator);
+    // Check initial WAL file state using arena
+    var iter_arena = std.heap.ArenaAllocator.init(allocator);
+    defer iter_arena.deinit();
+    const iter_allocator = iter_arena.allocator();
+
+    var dir_iterator = try node_vfs.iterate_directory(wal_dir, iter_allocator);
     var wal_file_count: u32 = 0;
     var first_wal_file: ?[]const u8 = null;
 
@@ -575,10 +586,7 @@ test "wal hang debug: investigate data corruption source" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) {
-            // TODO: Fix memory leaks in VFS directory iteration
-            // @panic("Memory leak detected in corruption debug test");
-        }
+        if (deinit_status == .leak) @panic("Memory leak detected in corruption debug test");
     }
     const allocator = gpa.allocator();
 
@@ -664,7 +672,12 @@ test "wal hang debug: investigate data corruption source" {
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
     defer allocator.free(wal_dir);
 
-    var dir_iterator = try sim_vfs.iterate_directory(wal_dir, allocator);
+    // Use arena for directory iteration to prevent memory leaks
+    var iter_arena = std.heap.ArenaAllocator.init(allocator);
+    defer iter_arena.deinit();
+    const iter_allocator = iter_arena.allocator();
+
+    var dir_iterator = try sim_vfs.iterate_directory(wal_dir, iter_allocator);
     var wal_filename: ?[]const u8 = null;
 
     while (dir_iterator.next()) |entry| {
@@ -836,7 +849,12 @@ test "wal corruption debug: isolated single block write-read" {
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
     defer allocator.free(wal_dir);
 
-    var dir_iterator = try node1_vfs.iterate_directory(wal_dir, allocator);
+    // Use arena for directory iteration to prevent memory leaks
+    var iter_arena = std.heap.ArenaAllocator.init(allocator);
+    defer iter_arena.deinit();
+    const iter_allocator = iter_arena.allocator();
+
+    var dir_iterator = try node1_vfs.iterate_directory(wal_dir, iter_allocator);
 
     var wal_file_found = false;
     while (dir_iterator.next()) |entry| {
