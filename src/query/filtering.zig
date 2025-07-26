@@ -6,7 +6,7 @@
 
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
-const storage = @import("../storage/storage.zig");
+const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
 
 const StorageEngine = storage.StorageEngine;

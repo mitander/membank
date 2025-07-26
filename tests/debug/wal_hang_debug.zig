@@ -223,7 +223,7 @@ test "wal hang debug: single block write and recovery" {
         // Verify recovery worked
         try testing.expectEqual(@as(u32, 1), storage_engine.block_count());
 
-        const recovered = try storage_engine.find_block_by_id(try BlockId.from_hex("00000000000000000000000000000001"));
+        const recovered = (try storage_engine.find_block(try BlockId.from_hex("00000000000000000000000000000001"))).?;
         try testing.expectEqualStrings("debug test content", recovered.content);
     }
 
@@ -933,7 +933,7 @@ test "wal corruption debug: isolated single block write-read" {
         std.debug.print("SUCCESS: Block recovery successful\n", .{});
 
         // Verify the recovered block
-        const recovered_block = try recovery_engine.find_block_by_id(test_block.id);
+        const recovered_block = (try recovery_engine.find_block(test_block.id)).?;
         try testing.expect(test_block.id.eql(recovered_block.id));
         try testing.expectEqual(test_block.version, recovered_block.version);
         try testing.expectEqualStrings(test_block.source_uri, recovered_block.source_uri);

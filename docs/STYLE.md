@@ -88,10 +88,10 @@ const StorageError = error{
     CorruptedWALEntry,
 } || std.fs.File.ReadError;
 
-pub fn find_block_by_id(self: *StorageEngine, id: BlockId) StorageError!ContextBlock { ... }
+pub fn find_block(self: *StorageEngine, id: BlockId) StorageError!ContextBlock { ... }
 
 // BAD: The caller has no idea what errors to handle.
-pub fn find_block_by_id(self: *StorageEngine, id: BlockId) !ContextBlock { ... }
+pub fn find_block(self: *StorageEngine, id: BlockId) !ContextBlock { ... }
 ```
 
 ### Use `error_context` for Rich Debugging
@@ -132,7 +132,7 @@ We strictly forbid `get_` and `set_` prefixes for function names. This enforces 
   - `fn update_id(self: *Block, id: u64)`
   - `fn clear(self: *BlockIndex)`
 - **For operations:** Use a verb that describes the work being done.
-  - `fn find_block_by_id(...)`
+  - `fn find_block(...)`
   - `fn recover_from_wal(...)`
 
 ## 5. Commenting Philosophy: The WHY, Not the WHAT

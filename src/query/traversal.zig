@@ -6,7 +6,7 @@
 
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
-const storage = @import("../storage/storage.zig");
+const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
 
 const StorageEngine = storage.StorageEngine;
@@ -189,13 +189,9 @@ pub fn execute_traversal(
 ) !TraversalResult {
     try query.validate();
 
-    const start_block_ptr = storage_engine.find_block_by_id(
+    const start_block = (try storage_engine.find_block(
         query.start_block_id,
-    ) catch |err| switch (err) {
-        storage.StorageError.BlockNotFound => return TraversalError.BlockNotFound,
-        else => return err,
-    };
-    const start_block = start_block_ptr.*;
+    )) orelse return TraversalError.BlockNotFound;
 
     switch (query.algorithm) {
         .breadth_first => return traverse_breadth_first(allocator, storage_engine, query, start_block),
@@ -260,11 +256,11 @@ fn traverse_breadth_first(
         blocks_traversed += 1;
         max_depth_reached = @max(max_depth_reached, current.depth);
 
-        const current_block = storage_engine.find_block_by_id(
+        const current_block = (try storage_engine.find_block(
             current.block_id,
-        ) catch continue;
+        )) orelse continue;
 
-        const cloned_block = try clone_block(allocator, current_block.*);
+        const cloned_block = try clone_block(allocator, current_block);
         try result_blocks.append(cloned_block);
 
         const cloned_path = try allocator.dupe(BlockId, current.path);
@@ -363,11 +359,11 @@ fn traverse_depth_first(
         blocks_traversed += 1;
         max_depth_reached = @max(max_depth_reached, current.depth);
 
-        const current_block = storage_engine.find_block_by_id(
+        const current_block = (try storage_engine.find_block(
             current.block_id,
-        ) catch continue;
+        )) orelse continue;
 
-        const cloned_block = try clone_block(allocator, current_block.*);
+        const cloned_block = try clone_block(allocator, current_block);
         try result_blocks.append(cloned_block);
 
         const cloned_path = try allocator.dupe(BlockId, current.path);

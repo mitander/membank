@@ -213,7 +213,10 @@ test "integration: full data lifecycle with compaction" {
         const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
         defer allocator.free(block_id_hex);
 
-        const retrieved = try storage_engine.find_block_by_id(try BlockId.from_hex(block_id_hex));
+        const retrieved = (try storage_engine.find_block(try BlockId.from_hex(block_id_hex))) orelse {
+            try testing.expect(false); // Block should exist
+            return;
+        };
         try testing.expectEqual(@as(u64, 2), retrieved.version);
         try testing.expect(std.mem.indexOf(u8, retrieved.content, "updated") != null);
     }
@@ -358,7 +361,10 @@ test "integration: concurrent storage and query operations" {
         const read_id_hex = try std.fmt.allocPrint(allocator, "ba5e{x:0>28}", .{read_idx});
         defer allocator.free(read_id_hex);
 
-        const read_result = try storage_engine.find_block_by_id(try BlockId.from_hex(read_id_hex));
+        const read_result = (try storage_engine.find_block(try BlockId.from_hex(read_id_hex))) orelse {
+            try testing.expect(false); // Block should exist
+            return;
+        };
         try testing.expect(std.mem.indexOf(u8, read_result.content, "Base block") != null);
 
         // Query multiple blocks
@@ -503,7 +509,10 @@ test "integration: storage recovery and query consistency" {
         };
 
         for (block_ids, 0..) |id_hex, i| {
-            const block = try storage_engine2.find_block_by_id(try BlockId.from_hex(id_hex));
+            const block = (try storage_engine2.find_block(try BlockId.from_hex(id_hex))) orelse {
+                try testing.expect(false); // Block should exist
+                continue;
+            };
             const expected_content = try std.fmt.allocPrint(
                 allocator,
                 "Content for block {}",
@@ -648,7 +657,10 @@ test "integration: large scale performance characteristics" {
         const block_id_hex = try std.fmt.allocPrint(allocator, "1a{x:0>30}", .{random_idx});
         defer allocator.free(block_id_hex);
 
-        const result = try storage_engine.find_block_by_id(try BlockId.from_hex(block_id_hex));
+        const result = (try storage_engine.find_block(try BlockId.from_hex(block_id_hex))) orelse {
+            try testing.expect(false); // Block should exist
+            continue;
+        };
         try testing.expect(result.content.len >= 512);
     }
 

@@ -6,7 +6,7 @@
 
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
-const storage = @import("../storage/storage.zig");
+const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
 const operations = @import("operations.zig");
 const traversal = @import("traversal.zig");
@@ -133,7 +133,7 @@ pub const QueryEngine = struct {
     }
 
     /// Find a single block by ID - convenience method for single block queries
-    pub fn find_block_by_id(self: *QueryEngine, block_id: BlockId) !QueryResult {
+    pub fn find_block(self: *QueryEngine, block_id: BlockId) !QueryResult {
         const query = FindBlocksQuery{
             .block_ids = &[_]BlockId{block_id},
         };
@@ -455,7 +455,7 @@ test "query engine find_blocks execution" {
     try testing.expect(!result.is_empty());
 }
 
-test "query engine find_block_by_id convenience method" {
+test "query engine find_block convenience method" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -472,7 +472,7 @@ test "query engine find_block_by_id convenience method" {
     try storage_engine.put_block(test_block);
 
     // Use convenience method
-    const result = try query_engine.find_block_by_id(test_id);
+    const result = try query_engine.find_block(test_id);
     defer result.deinit();
 
     try testing.expectEqual(@as(u32, 1), result.count);

@@ -97,7 +97,10 @@ test "wal memory safety: sequential recovery cycles" {
                 );
                 defer allocator.free(block_id_str);
 
-                const recovered = try engine.find_block_by_id(try BlockId.from_hex(block_id_str));
+                const recovered = (try engine.find_block(try BlockId.from_hex(block_id_str))) orelse {
+                    try testing.expect(false); // Block should exist
+                    return;
+                };
                 try testing.expectEqual(@as(u32, @intCast(cycle + 1)), recovered.version);
 
                 const expected_size = (block_idx + 1) * 256;
@@ -186,7 +189,10 @@ test "wal memory safety: allocator stress testing" {
         const block_id_str = try std.fmt.allocPrint(allocator, "{:0>31}{}", .{ 0, idx });
         defer allocator.free(block_id_str);
 
-        const recovered = try recovery_engine.find_block_by_id(try BlockId.from_hex(block_id_str));
+        const recovered = (try recovery_engine.find_block(try BlockId.from_hex(block_id_str))) orelse {
+            try testing.expect(false); // Block should exist
+            return;
+        };
         try testing.expectEqual(size, recovered.content.len);
 
         // Verify pattern integrity
@@ -278,7 +284,10 @@ test "wal memory safety: edge case robustness" {
         try engine.flush_wal();
 
         try engine.recover_from_wal();
-        const recovered = try engine.find_block_by_id(block.id);
+        const recovered = (try engine.find_block(block.id)) orelse {
+            try testing.expect(false); // Block should exist
+            return;
+        };
         try testing.expectEqualStrings("", recovered.source_uri);
         try testing.expectEqualStrings("", recovered.content);
     }
@@ -310,7 +319,7 @@ test "wal memory safety: edge case robustness" {
         try engine.flush_wal();
 
         try engine.recover_from_wal();
-        const recovered = try engine.find_block_by_id(block.id);
+        const recovered = (try engine.find_block(block.id)).?;
         try testing.expectEqual(long_content.len, recovered.content.len);
         try testing.expectEqual(long_uri.len, recovered.source_uri.len);
     }
@@ -337,7 +346,7 @@ test "wal memory safety: edge case robustness" {
         try engine.flush_wal();
 
         try engine.recover_from_wal();
-        const recovered = try engine.find_block_by_id(block.id);
+        const recovered = (try engine.find_block(block.id)).?;
         try testing.expectEqualStrings(special_content, recovered.content);
         try testing.expectEqualStrings(special_metadata, recovered.metadata_json);
     }
@@ -413,7 +422,10 @@ test "wal memory safety: rapid sequential operations" {
         const block_id_str = try std.fmt.allocPrint(allocator, "{:0>30}{:02}", .{ 0, i });
         defer allocator.free(block_id_str);
 
-        const recovered = try recovery_engine.find_block_by_id(try BlockId.from_hex(block_id_str));
+        const recovered = (try recovery_engine.find_block(try BlockId.from_hex(block_id_str))) orelse {
+            try testing.expect(false); // Block should exist
+            return;
+        };
 
         const expected_content = try std.fmt.allocPrint(allocator, "operation {} content", .{i});
         defer allocator.free(expected_content);

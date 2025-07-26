@@ -16,7 +16,7 @@ const comptime_assert = custom_assert.comptime_assert;
 const comptime_no_padding = custom_assert.comptime_no_padding;
 const log = std.log.scoped(.server);
 const concurrency = @import("../core/concurrency.zig");
-const storage = @import("../storage/storage.zig");
+const storage = @import("../storage/engine.zig");
 const query_engine = @import("../query/engine.zig");
 const context_block = @import("../core/types.zig");
 
@@ -482,14 +482,14 @@ pub const CortexServer = struct {
         var result_blocks = std.ArrayList(ContextBlock).init(allocator);
         defer result_blocks.deinit();
 
-        const start_block = self.storage_engine.find_block_by_id(start_id) catch |err| {
-            const error_msg = try std.fmt.allocPrint(allocator, "Starting block not found: {any}", .{err});
+        const start_block = (try self.storage_engine.find_block(start_id)) orelse {
+            const error_msg = try std.fmt.allocPrint(allocator, "Starting block not found", .{});
             connection.send_response(error_msg);
             self.stats.errors_encountered += 1;
             return;
         };
 
-        try result_blocks.append(start_block.*);
+        try result_blocks.append(start_block);
         const common_result = try QueryResult.init(allocator, result_blocks.items);
         const response_data = try self.serialize_blocks_response(allocator, common_result);
         connection.send_response(response_data);

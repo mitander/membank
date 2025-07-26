@@ -225,7 +225,6 @@ pub const SSTable = struct {
         if (self.bloom_filter) |*filter| {
             filter.deinit();
         }
-        self.allocator.free(self.file_path);
     }
 
     /// Write blocks to SSTable file in sorted order

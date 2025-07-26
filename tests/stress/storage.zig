@@ -5,6 +5,7 @@
 
 const cortexdb = @import("cortexdb");
 const std = @import("std");
+const testing = std.testing;
 const simulation = cortexdb.simulation;
 const vfs = cortexdb.vfs;
 const assert = cortexdb.assert;
@@ -91,7 +92,10 @@ test "storage stress: high volume writes during network partition" {
         defer allocator.free(block_id_hex);
 
         const block_id = try BlockId.from_hex(block_id_hex);
-        const retrieved = try storage_engine.find_block_by_id(block_id);
+        const retrieved = (try storage_engine.find_block(block_id)) orelse {
+            try testing.expect(false); // Block should exist
+            return;
+        };
         try std.testing.expect(retrieved.id.eql(block_id));
     }
 }
@@ -166,7 +170,10 @@ test "storage recovery: WAL corruption simulation" {
         const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{j});
         defer allocator.free(block_id_hex);
         const block_id = try BlockId.from_hex(block_id_hex);
-        const recovered_block = try storage_engine2.find_block_by_id(block_id);
+        const recovered_block = (try storage_engine2.find_block(block_id)) orelse {
+            try testing.expect(false); // Block should exist
+            return;
+        };
         try std.testing.expect(block_id.eql(recovered_block.id));
         try std.testing.expectEqual(@as(u64, 1), recovered_block.version);
         try std.testing.expectEqualStrings("recovery://test", recovered_block.source_uri);
@@ -221,7 +228,10 @@ test "storage limits: large block handling" {
     try std.testing.expectEqual(@as(u32, 1), storage_engine.block_count());
 
     // Test retrieving large block
-    const retrieved = try storage_engine.find_block_by_id(block_id);
+    const retrieved = (try storage_engine.find_block(block_id)) orelse {
+        try testing.expect(false); // Block should exist
+        return;
+    };
     try std.testing.expectEqual(@as(usize, 1024 * 1024), retrieved.content.len);
     try std.testing.expectEqualSlices(u8, large_content, retrieved.content);
 }
@@ -266,14 +276,17 @@ test "storage concurrency: rapid block updates" {
         try storage_engine.put_block(block);
 
         // Verify the latest version is stored
-        const retrieved = try storage_engine.find_block_by_id(block_id);
+        const retrieved = (try storage_engine.find_block(block_id)) orelse {
+            try testing.expect(false); // Block should exist
+            return;
+        };
         try std.testing.expectEqual(version, retrieved.version);
 
         sim.tick_multiple(1);
     }
 
     // Final verification
-    const final_block = try storage_engine.find_block_by_id(block_id);
+    const final_block = (try storage_engine.find_block(block_id)).?;
     try std.testing.expectEqual(@as(u64, 50), final_block.version);
     try std.testing.expect(std.mem.indexOf(u8, final_block.content, "Version 50") != null);
 }
@@ -325,7 +338,10 @@ test "storage integrity: duplicate block handling" {
     try std.testing.expectEqual(@as(u32, 1), storage_engine.block_count());
 
     // Verify the updated version is stored
-    const retrieved = try storage_engine.find_block_by_id(block_id);
+    const retrieved = (try storage_engine.find_block(block_id)) orelse {
+        try testing.expect(false); // Block should exist
+        return;
+    };
     try std.testing.expectEqual(@as(u64, 2), retrieved.version);
     try std.testing.expectEqualStrings("Updated content", retrieved.content);
     try std.testing.expectEqualStrings("dup://test/updated", retrieved.source_uri);
@@ -413,7 +429,10 @@ test "storage edges: graph relationship persistence" {
     // Verify blocks are still accessible
     try std.testing.expectEqual(@as(u32, 3), storage_engine.block_count());
 
-    const retrieved_main = try storage_engine.find_block_by_id(main_id);
+    const retrieved_main = (try storage_engine.find_block(main_id)) orelse {
+        try testing.expect(false); // Block should exist
+        return;
+    };
     try std.testing.expect(std.mem.indexOf(u8, retrieved_main.content, "utils.helper()") != null);
 }
 
@@ -488,10 +507,16 @@ test "storage performance: batch operations under load" {
     const first_block_id = try BlockId.from_hex("00000000000000000000000000000000");
     const last_block_id = try BlockId.from_hex("00000000000000000000000000000063"); // 99 in hex
 
-    const first_block = try storage_engine.find_block_by_id(first_block_id);
+    const first_block = (try storage_engine.find_block(first_block_id)) orelse {
+        try testing.expect(false); // Block should exist
+        return;
+    };
     try std.testing.expect(std.mem.indexOf(u8, first_block.content, "Batch 0 item 0") != null);
 
-    const last_block = try storage_engine.find_block_by_id(last_block_id);
+    const last_block = (try storage_engine.find_block(last_block_id)) orelse {
+        try testing.expect(false); // Block should exist
+        return;
+    };
     try std.testing.expect(std.mem.indexOf(u8, last_block.content, "Batch 4 item 19") != null);
 }
 

@@ -405,7 +405,7 @@ fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allo
     // Warmup
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = test_ids[i % test_ids.len];
-        _ = try storage_engine.find_block_by_id(block_id);
+        _ = try storage_engine.find_block(block_id);
     }
 
     // Benchmark
@@ -414,7 +414,7 @@ fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allo
 
         for (0..LARGE_BENCHMARK_ITERATIONS) |i| {
             const block_id = test_ids[i % test_ids.len];
-            _ = try storage_engine.find_block_by_id(block_id);
+            _ = try storage_engine.find_block(block_id);
         }
 
         const end_time = std.time.nanoTimestamp();
@@ -510,7 +510,7 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
     // Warmup
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = test_ids[i % test_ids.len];
-        const result = try query_eng.find_block_by_id(block_id);
+        const result = try query_eng.find_block(block_id);
         defer result.deinit();
     }
 
@@ -520,7 +520,7 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
 
         for (0..LARGE_BENCHMARK_ITERATIONS) |i| {
             const block_id = test_ids[i % test_ids.len];
-            const result = try query_eng.find_block_by_id(block_id);
+            const result = try query_eng.find_block(block_id);
             defer result.deinit();
         }
 

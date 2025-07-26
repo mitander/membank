@@ -143,7 +143,10 @@ test "wal recovery: single block recovery" {
     // Verify block was recovered
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
 
-    const recovered_block = try storage_engine2.find_block_by_id(test_block.id);
+    const recovered_block = (try storage_engine2.find_block(test_block.id)) orelse {
+        try testing.expect(false); // Block should exist
+        return;
+    };
     try testing.expect(test_block.id.eql(recovered_block.id));
     try testing.expectEqual(test_block.version, recovered_block.version);
     try testing.expectEqualStrings(test_block.source_uri, recovered_block.source_uri);
@@ -228,13 +231,10 @@ test "wal recovery: multiple blocks and types" {
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
 
     // Block1 should not exist
-    try testing.expectError(
-        storage.StorageError.BlockNotFound,
-        storage_engine2.find_block_by_id(block1.id),
-    );
+    try testing.expect((try storage_engine2.find_block(block1.id)) == null);
 
     // Block2 should exist
-    const recovered_block2 = try storage_engine2.find_block_by_id(block2.id);
+    const recovered_block2 = (try storage_engine2.find_block(block2.id)).?;
     try testing.expect(block2.id.eql(recovered_block2.id));
     try testing.expectEqual(block2.version, recovered_block2.version);
 }
@@ -329,7 +329,10 @@ test "wal recovery: multiple wal files" {
     try testing.expectEqual(@as(u32, 3), storage_engine.block_count());
 
     for (blocks) |expected_block| {
-        const recovered = try storage_engine.find_block_by_id(expected_block.id);
+        const recovered = (try storage_engine.find_block(expected_block.id)) orelse {
+            try testing.expect(false); // Block should exist
+            continue;
+        };
         try testing.expect(expected_block.id.eql(recovered.id));
         try testing.expectEqualStrings(expected_block.content, recovered.content);
     }
@@ -585,7 +588,7 @@ test "wal recovery: large blocks" {
     try storage_engine2.recover_from_wal();
 
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
-    const recovered = try storage_engine2.find_block_by_id(large_block.id);
+    const recovered = (try storage_engine2.find_block(large_block.id)).?;
     try testing.expectEqual(large_content.len, recovered.content.len);
     try testing.expect(std.mem.eql(u8, large_content, recovered.content));
 }
@@ -666,7 +669,7 @@ test "wal recovery: stress test with many entries" {
 
     // Verify all blocks were recovered correctly
     for (expected_blocks.items) |expected| {
-        const recovered = try storage_engine2.find_block_by_id(expected.id);
+        const recovered = (try storage_engine2.find_block(expected.id)).?;
         try testing.expect(expected.id.eql(recovered.id));
         try testing.expectEqual(expected.version, recovered.version);
         try testing.expectEqualStrings(expected.source_uri, recovered.source_uri);

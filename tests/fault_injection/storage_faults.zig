@@ -152,9 +152,9 @@ test "fault injection - read corruption during query" {
     try storage_engine.flush_memtable_to_sstable();
 
     // Verify normal read operations work
-    if (storage_engine.find_block_by_id(test_id)) |found_block| {
+    if (try storage_engine.find_block(test_id)) |found_block| {
         try testing.expect(std.mem.eql(u8, found_block.content, original_block.content));
-    } else |_| {
+    } else {
         // Block not found - this is an error in normal operation
         try testing.expect(false);
     }

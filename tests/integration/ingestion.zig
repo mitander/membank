@@ -139,7 +139,10 @@ test "complete ingestion pipeline - git to storage" {
 
     // Verify blocks can be retrieved
     for (blocks) |block| {
-        const retrieved = try storage_engine.find_block_by_id(block.id);
+        const retrieved = (try storage_engine.find_block(block.id)) orelse {
+            try testing.expect(false); // Block should exist
+            continue;
+        };
         try testing.expectEqualStrings(block.content, retrieved.content);
         try testing.expectEqualStrings(block.source_uri, retrieved.source_uri);
         try testing.expectEqual(block.version, retrieved.version);

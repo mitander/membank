@@ -4,7 +4,7 @@ const std = @import("std");
 const custom_assert = @import("core/assert.zig");
 const assert = custom_assert.assert;
 const log = std.log.scoped(.main);
-const storage = @import("storage/storage.zig");
+const storage_mod = @import("storage/engine.zig");
 const query_engine = @import("query/engine.zig");
 const context_block = @import("core/types.zig");
 const vfs = @import("core/vfs.zig");
@@ -12,7 +12,7 @@ const production_vfs = @import("core/production_vfs.zig");
 const concurrency = @import("core/concurrency.zig");
 const server = @import("server/handler.zig");
 
-const StorageEngine = storage.StorageEngine;
+const StorageEngine = storage_mod.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
@@ -178,7 +178,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 
     // Query single block
     std.debug.print("Querying single block by ID...\n", .{});
-    const single_result = try query_eng.find_block_by_id(block1_id);
+    const single_result = try query_eng.find_block(block1_id);
     defer single_result.deinit();
 
     if (single_result.count > 0) {

@@ -6,7 +6,7 @@
 
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
-const storage = @import("../storage/storage.zig");
+const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
 
 const StorageEngine = storage.StorageEngine;
@@ -216,12 +216,10 @@ pub fn execute_find_blocks(
     defer found_blocks.deinit();
 
     for (query.block_ids) |block_id| {
-        if (storage_engine.find_block_by_id(block_id)) |block| {
-            try found_blocks.append(block.*);
-        } else |err| switch (err) {
-            storage.StorageError.BlockNotFound => continue,
-            else => return err,
+        if (try storage_engine.find_block(block_id)) |block| {
+            try found_blocks.append(block);
         }
+        // If null, block not found - continue to next block
     }
 
     return QueryResult.init(allocator, found_blocks.items);
@@ -263,12 +261,12 @@ pub fn execute_semantic_query(
 
 /// Check if a block exists in storage
 pub fn block_exists(storage_engine: *StorageEngine, block_id: BlockId) bool {
-    _ = storage_engine.find_block_by_id(block_id) catch return false;
-    return true;
+    const result = storage_engine.find_block(block_id) catch return false;
+    return result != null;
 }
 
 /// Find a single block by ID - convenience method for single block queries
-pub fn find_block_by_id(
+pub fn find_block(
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
     block_id: BlockId,
@@ -690,7 +688,7 @@ test "block existence checking" {
     try testing.expectEqual(@as(usize, 1), count);
 }
 
-test "find_block_by_id convenience function" {
+test "find_block convenience function" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -715,7 +713,7 @@ test "find_block_by_id convenience function" {
     try storage_engine.put_block(test_block);
 
     // Test finding the block
-    const result = try find_block_by_id(allocator, &storage_engine, test_id);
+    const result = try find_block(allocator, &storage_engine, test_id);
     defer result.deinit();
 
     try testing.expectEqual(@as(u32, 1), result.count);

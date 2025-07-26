@@ -323,7 +323,7 @@ fn fuzz_storage_iteration(allocator: std.mem.Allocator, random: std.Random) !Fuz
             1 => {
                 // Random block lookup
                 const random_id = generate_random_block_id(random);
-                _ = engine.find_block_by_id(random_id) catch {
+                _ = engine.find_block(random_id) catch {
                     // Expected errors are fine
                     continue;
                 };
@@ -445,7 +445,7 @@ fn fuzz_query_iteration(allocator: std.mem.Allocator, random: std.Random) !FuzzR
             0 => {
                 // Random block ID query
                 const random_id = generate_random_block_id(random);
-                _ = query_eng.find_block_by_id(random_id) catch continue;
+                _ = query_eng.storage_engine.find_block(random_id) catch continue;
             },
             1 => {
                 // Random filtered query

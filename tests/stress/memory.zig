@@ -74,7 +74,10 @@ test "memory isolation: single test with 25 storage cycles" {
             try engine.put_block(block);
 
             // Verify block can be retrieved
-            const retrieved = try engine.find_block_by_id(block.id);
+            const retrieved = (try engine.find_block(block.id)) orelse {
+                try testing.expect(false); // Block should exist
+                continue;
+            };
             try testing.expect(retrieved.id.eql(block.id));
         }
 
@@ -132,7 +135,10 @@ test "memory isolation: HashMap operations under stress" {
 
         // Periodically retrieve and verify blocks
         if (i % 10 == 0) {
-            const retrieved = try engine.find_block_by_id(block.id);
+            const retrieved = (try engine.find_block(block.id)) orelse {
+                try testing.expect(false); // Block should exist
+                continue;
+            };
             try testing.expect(retrieved.id.eql(block.id));
         }
     }

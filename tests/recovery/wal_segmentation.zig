@@ -227,8 +227,14 @@ test "wal segmentation: cleanup after sstable flush" {
     const last_block_id = BlockId{ .bytes = test_id_bytes };
 
     // These blocks should be findable (from either SSTable or remaining WAL)
-    _ = try engine2.find_block_by_id(first_block_id);
-    _ = try engine2.find_block_by_id(last_block_id);
+    _ = (try engine2.find_block(first_block_id)) orelse {
+        try testing.expect(false); // Block should exist
+        return;
+    };
+    _ = (try engine2.find_block(last_block_id)) orelse {
+        try testing.expect(false); // Block should exist
+        return;
+    };
 }
 
 test "wal segmentation: recovery from mixed segments and sstables" {
@@ -303,13 +309,16 @@ test "wal segmentation: recovery from mixed segments and sstables" {
 
     // Verify specific blocks from each phase
     const phase1_id = BlockId{ .bytes = .{0} ** 16 };
-    const phase1_block = try engine2.find_block_by_id(phase1_id);
+    const phase1_block = (try engine2.find_block(phase1_id)) orelse {
+        try testing.expect(false); // Block should exist
+        return;
+    };
     try testing.expectEqualStrings("phase 1 content", phase1_block.content);
 
     var phase2_id_bytes: [16]u8 = undefined;
     std.mem.writeInt(u128, &phase2_id_bytes, 60, .big);
     const phase2_id = BlockId{ .bytes = phase2_id_bytes };
-    const phase2_block = try engine2.find_block_by_id(phase2_id);
+    const phase2_block = (try engine2.find_block(phase2_id)).?;
     try testing.expectEqualStrings("phase 2 content", phase2_block.content);
 }
 

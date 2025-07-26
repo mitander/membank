@@ -10,7 +10,7 @@ const assert = custom_assert.assert;
 
 const types = @import("types.zig");
 const context_block = @import("../../core/types.zig");
-const wal_entry_stream = @import("stream.zig");
+const stream = @import("stream.zig");
 
 const WALError = types.WALError;
 const WALEntryType = types.WALEntryType;
@@ -248,13 +248,33 @@ pub const WALEntry = struct {
 
     /// Convert WALEntryStream.StreamEntry to WALEntry
     /// Transfers ownership of payload from StreamEntry to WALEntry
-    pub fn from_stream_entry(stream_entry: wal_entry_stream.StreamEntry, allocator: std.mem.Allocator) WALError!WALEntry {
+    pub fn from_stream_entry(stream_entry: stream.StreamEntry, allocator: std.mem.Allocator) WALError!WALEntry {
         return deserialize_from_stream(
             stream_entry.checksum,
             stream_entry.entry_type,
             stream_entry.payload,
             allocator,
         );
+    }
+
+    /// Extract ContextBlock from put_block entry payload
+    pub fn extract_block(self: WALEntry, allocator: std.mem.Allocator) WALError!ContextBlock {
+        if (self.entry_type != .put_block) return WALError.InvalidEntryType;
+        return ContextBlock.deserialize(self.payload, allocator) catch WALError.CorruptedEntry;
+    }
+
+    /// Extract BlockId from delete_block entry payload
+    pub fn extract_block_id(self: WALEntry) WALError!BlockId {
+        if (self.entry_type != .delete_block) return WALError.InvalidEntryType;
+        if (self.payload.len != 16) return WALError.CorruptedEntry;
+        return BlockId{ .bytes = self.payload[0..16].* };
+    }
+
+    /// Extract GraphEdge from put_edge entry payload
+    pub fn extract_edge(self: WALEntry) WALError!GraphEdge {
+        if (self.entry_type != .put_edge) return WALError.InvalidEntryType;
+        if (self.payload.len != 40) return WALError.CorruptedEntry;
+        return GraphEdge.deserialize(self.payload) catch WALError.CorruptedEntry;
     }
 
     /// Free allocated payload memory.
@@ -603,4 +623,133 @@ test "WALEntry large payload handling" {
     try testing.expectEqual(entry.entry_type, deserialized.entry_type);
     try testing.expectEqual(entry.payload_size, deserialized.payload_size);
     try testing.expect(std.mem.eql(u8, large_payload, deserialized.payload));
+}
+
+test "WALEntry extract_block success" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_block = create_test_block();
+    const entry = try WALEntry.create_put_block(test_block, allocator);
+    defer entry.deinit(allocator);
+
+    // Extract the block
+    const extracted_block = try entry.extract_block(allocator);
+    defer allocator.free(extracted_block.source_uri);
+    defer allocator.free(extracted_block.metadata_json);
+    defer allocator.free(extracted_block.content);
+
+    // Verify extracted block matches original
+    try testing.expect(test_block.id.eql(extracted_block.id));
+    try testing.expectEqual(test_block.version, extracted_block.version);
+    try testing.expectEqualStrings(test_block.source_uri, extracted_block.source_uri);
+    try testing.expectEqualStrings(test_block.metadata_json, extracted_block.metadata_json);
+    try testing.expectEqualStrings(test_block.content, extracted_block.content);
+}
+
+test "WALEntry extract_block invalid entry type" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable;
+    const entry = try WALEntry.create_delete_block(test_id, allocator);
+    defer entry.deinit(allocator);
+
+    // Should fail when trying to extract block from delete_block entry
+    try testing.expectError(WALError.InvalidEntryType, entry.extract_block(allocator));
+}
+
+test "WALEntry extract_block_id success" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_id = BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") catch unreachable;
+    const entry = try WALEntry.create_delete_block(test_id, allocator);
+    defer entry.deinit(allocator);
+
+    // Extract the block ID
+    const extracted_id = try entry.extract_block_id();
+
+    // Verify extracted ID matches original
+    try testing.expect(test_id.eql(extracted_id));
+}
+
+test "WALEntry extract_block_id invalid entry type" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_block = create_test_block();
+    const entry = try WALEntry.create_put_block(test_block, allocator);
+    defer entry.deinit(allocator);
+
+    // Should fail when trying to extract block ID from put_block entry
+    try testing.expectError(WALError.InvalidEntryType, entry.extract_block_id());
+}
+
+test "WALEntry extract_block_id corrupted payload" {
+    // Create entry with wrong payload size for delete_block
+    const corrupted_payload = "short";
+    const checksum = WALEntry.calculate_checksum(.delete_block, corrupted_payload);
+
+    const entry = WALEntry{
+        .checksum = checksum,
+        .entry_type = .delete_block,
+        .payload_size = @intCast(corrupted_payload.len),
+        .payload = corrupted_payload,
+    };
+
+    // Should fail due to incorrect payload size
+    try testing.expectError(WALError.CorruptedEntry, entry.extract_block_id());
+}
+
+test "WALEntry extract_edge success" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_edge = create_test_edge();
+    const entry = try WALEntry.create_put_edge(test_edge, allocator);
+    defer entry.deinit(allocator);
+
+    // Extract the edge
+    const extracted_edge = try entry.extract_edge();
+
+    // Verify extracted edge matches original
+    try testing.expect(test_edge.from_block_id.eql(extracted_edge.from_block_id));
+    try testing.expect(test_edge.to_block_id.eql(extracted_edge.to_block_id));
+    try testing.expectEqual(test_edge.edge_type, extracted_edge.edge_type);
+    try testing.expectEqualStrings(test_edge.metadata_json, extracted_edge.metadata_json);
+}
+
+test "WALEntry extract_edge invalid entry type" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const test_block = create_test_block();
+    const entry = try WALEntry.create_put_block(test_block, allocator);
+    defer entry.deinit(allocator);
+
+    // Should fail when trying to extract edge from put_block entry
+    try testing.expectError(WALError.InvalidEntryType, entry.extract_edge());
+}
+
+test "WALEntry extract_edge corrupted payload" {
+    // Create entry with wrong payload size for put_edge
+    const corrupted_payload = "wrong_size_payload";
+    const checksum = WALEntry.calculate_checksum(.put_edge, corrupted_payload);
+
+    const entry = WALEntry{
+        .checksum = checksum,
+        .entry_type = .put_edge,
+        .payload_size = @intCast(corrupted_payload.len),
+        .payload = corrupted_payload,
+    };
+
+    // Should fail due to incorrect payload size (should be 40 bytes)
+    try testing.expectError(WALError.CorruptedEntry, entry.extract_edge());
 }

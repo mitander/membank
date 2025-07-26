@@ -76,7 +76,10 @@ test "streaming WAL recovery - basic correctness" {
 
     // Verify all blocks were recovered correctly
     for (expected_blocks.items) |expected_block| {
-        const recovered_block = try recovery_engine.find_block_by_id(expected_block.id);
+        const recovered_block = (try recovery_engine.find_block(expected_block.id)) orelse {
+            try testing.expect(false); // Block should exist
+            continue;
+        };
         try testing.expectEqualSlices(u8, expected_block.source_uri, recovered_block.source_uri);
         try testing.expectEqualSlices(u8, expected_block.metadata_json, recovered_block.metadata_json);
         try testing.expectEqualSlices(u8, expected_block.content, recovered_block.content);
@@ -132,9 +135,9 @@ test "streaming WAL recovery - large WAL file efficiency" {
         std.mem.writeInt(u64, id_bytes[0..8], i, .little);
         const block_id = BlockId{ .bytes = id_bytes };
 
-        if (recovery_engine.find_block_by_id(block_id)) |_| {
+        if (try recovery_engine.find_block(block_id)) |_| {
             recovered_count += 1;
-        } else |_| {
+        } else {
             // Expected for some blocks that might not exist
         }
     }
@@ -166,7 +169,10 @@ test "streaming WAL recovery - empty WAL file handling" {
     const test_block = try create_test_block(allocator, 42);
     try storage_engine.put_block(test_block);
 
-    const retrieved_block = try storage_engine.find_block_by_id(test_block.id);
+    const retrieved_block = (try storage_engine.find_block(test_block.id)) orelse {
+        try testing.expect(false); // Block should exist
+        return;
+    };
     try testing.expectEqualSlices(u8, test_block.content, retrieved_block.content);
 }
 
@@ -218,9 +224,9 @@ test "streaming WAL recovery - arena memory reset validation" {
         std.mem.writeInt(u64, id_bytes[0..8], i, .little);
         const block_id = BlockId{ .bytes = id_bytes };
 
-        if (recovery_engine.find_block_by_id(block_id)) |_| {
+        if (try recovery_engine.find_block(block_id)) |_| {
             found_blocks += 1;
-        } else |_| {
+        } else {
             // Expected for blocks that might not exist
         }
     }

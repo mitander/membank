@@ -35,7 +35,7 @@ pub const production_vfs = @import("core/production_vfs.zig");
 pub const bloom_filter = @import("storage/bloom_filter.zig");
 pub const sstable = @import("storage/sstable.zig");
 pub const tiered_compaction = @import("storage/tiered_compaction.zig");
-pub const storage = @import("storage/storage.zig");
+pub const storage = @import("storage/engine.zig");
 
 // Query Layer
 pub const query_engine = @import("query/engine.zig");
