@@ -174,68 +174,65 @@ pub const SemanticChunker = struct {
         );
     }
 
-    /// Serialize unit metadata to JSON
+    /// Serialize unit metadata to JSON using simple string building
     fn serialize_metadata(self: *SemanticChunker, allocator: std.mem.Allocator, unit: ParsedUnit) ![]const u8 {
-        var metadata = std.json.ObjectMap.init(allocator);
-        defer metadata.deinit();
+        var json = std.ArrayList(u8).init(allocator);
+        defer json.deinit();
 
-        // Add unit type
-        try metadata.put("unit_type", std.json.Value{ .string = unit.unit_type });
+        try json.appendSlice("{");
 
-        // Add unit ID
-        try metadata.put("unit_id", std.json.Value{ .string = unit.id });
+        // Add unit type and ID
+        try json.writer().print("\"unit_type\":\"{s}\",\"unit_id\":\"{s}\"", .{ unit.unit_type, unit.id });
 
         // Add source location if configured
         if (self.config.include_source_location) {
-            var location_obj = std.json.ObjectMap.init(allocator);
-            try location_obj.put("file_path", std.json.Value{ .string = unit.location.file_path });
-            try location_obj.put("line_start", std.json.Value{ .integer = @intCast(unit.location.line_start) });
-            try location_obj.put("line_end", std.json.Value{ .integer = @intCast(unit.location.line_end) });
-            try location_obj.put("col_start", std.json.Value{ .integer = @intCast(unit.location.col_start) });
-            try location_obj.put("col_end", std.json.Value{ .integer = @intCast(unit.location.col_end) });
-
-            try metadata.put("location", std.json.Value{ .object = location_obj });
+            try json.writer().print(",\"location\":{{\"file_path\":\"{s}\",\"line_start\":{d},\"line_end\":{d},\"col_start\":{d},\"col_end\":{d}}}", .{
+                unit.location.file_path,
+                unit.location.line_start,
+                unit.location.line_end,
+                unit.location.col_start,
+                unit.location.col_end,
+            });
         }
 
         // Add original unit metadata if configured
-        if (self.config.preserve_unit_metadata) {
-            var unit_metadata_obj = std.json.ObjectMap.init(allocator);
-
+        if (self.config.preserve_unit_metadata and unit.metadata.count() > 0) {
+            try json.appendSlice(",\"original_metadata\":{");
+            var first = true;
             var iter = unit.metadata.iterator();
             while (iter.next()) |entry| {
-                try unit_metadata_obj.put(entry.key_ptr.*, std.json.Value{ .string = entry.value_ptr.* });
+                if (!first) try json.appendSlice(",");
+                try json.writer().print("\"{s}\":\"{s}\"", .{ entry.key_ptr.*, entry.value_ptr.* });
+                first = false;
             }
-
-            try metadata.put("original_metadata", std.json.Value{ .object = unit_metadata_obj });
+            try json.appendSlice("}");
         }
 
         // Add edge information
         if (unit.edges.items.len > 0) {
-            var edges_array = std.json.Array.init(allocator);
+            try json.appendSlice(",\"edges\":[");
+            for (unit.edges.items, 0..) |edge, i| {
+                if (i > 0) try json.appendSlice(",");
+                try json.writer().print("{{\"target_id\":\"{s}\",\"edge_type\":\"{s}\"", .{ edge.target_id, @tagName(edge.edge_type) });
 
-            for (unit.edges.items) |edge| {
-                var edge_obj = std.json.ObjectMap.init(allocator);
-                try edge_obj.put("target_id", std.json.Value{ .string = edge.target_id });
-                try edge_obj.put("edge_type", std.json.Value{ .string = @tagName(edge.edge_type) });
-
-                // Add edge metadata
-                var edge_metadata_obj = std.json.ObjectMap.init(allocator);
-                var edge_iter = edge.metadata.iterator();
-                while (edge_iter.next()) |entry| {
-                    try edge_metadata_obj.put(entry.key_ptr.*, std.json.Value{ .string = entry.value_ptr.* });
+                if (edge.metadata.count() > 0) {
+                    try json.appendSlice(",\"metadata\":{");
+                    var first = true;
+                    var edge_iter = edge.metadata.iterator();
+                    while (edge_iter.next()) |entry| {
+                        if (!first) try json.appendSlice(",");
+                        try json.writer().print("\"{s}\":\"{s}\"", .{ entry.key_ptr.*, entry.value_ptr.* });
+                        first = false;
+                    }
+                    try json.appendSlice("}");
                 }
-                try edge_obj.put("metadata", std.json.Value{ .object = edge_metadata_obj });
-
-                try edges_array.append(std.json.Value{ .object = edge_obj });
+                try json.appendSlice("}");
             }
-
-            try metadata.put("edges", std.json.Value{ .array = edges_array });
+            try json.appendSlice("]");
         }
 
-        // Serialize to JSON string
-        var json_string = std.ArrayList(u8).init(allocator);
-        try std.json.stringify(std.json.Value{ .object = metadata }, .{}, json_string.writer());
-        return json_string.toOwnedSlice();
+        try json.appendSlice("}");
+        return json.toOwnedSlice();
     }
 
     // Chunker interface implementations

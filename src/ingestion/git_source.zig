@@ -270,7 +270,7 @@ pub const GitSource = struct {
         }
 
         // Scan repository for Git metadata
-        try self.scan_repository_metadata(allocator, file_system);
+        try self.scan_repository_metadata(self.allocator, file_system);
 
         // Find all matching files (discovery phase)
         const files = try self.find_matching_files(allocator, file_system);

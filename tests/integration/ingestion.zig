@@ -114,6 +114,11 @@ test "complete ingestion pipeline - git to storage" {
             .content = try allocator.dupe(u8, block.content),
         };
         try storage_engine.put_block(storage_block);
+
+        // Clean up the duplicated strings since storage engine makes its own copies
+        allocator.free(storage_block.source_uri);
+        allocator.free(storage_block.metadata_json);
+        allocator.free(storage_block.content);
     }
 
     // Sort blocks by source URI for deterministic comparison order
@@ -227,6 +232,9 @@ test "zig parser extracts semantic units correctly" {
             unit.deinit(allocator);
         }
         allocator.free(units);
+        allocator.free(source_content.data);
+        allocator.free(source_content.content_type);
+        metadata.deinit();
     }
 
     // Verify we extracted some units - be flexible about exact count
@@ -296,6 +304,20 @@ test "semantic chunker preserves metadata" {
 
     // Convert to blocks
     const blocks = try sem_chunker.chunker().chunk(allocator, &[_]ingestion.ParsedUnit{unit});
+    defer {
+        // Clean up test resources
+        allocator.free(unit.id);
+        allocator.free(unit.unit_type);
+        allocator.free(unit.content);
+        unit.edges.deinit();
+        unit_metadata.deinit();
+        for (blocks) |block| {
+            allocator.free(block.source_uri);
+            allocator.free(block.metadata_json);
+            allocator.free(block.content);
+        }
+        allocator.free(blocks);
+    }
 
     try testing.expectEqual(@as(usize, 1), blocks.len);
 
@@ -478,11 +500,8 @@ fn create_test_repository(sim_vfs: *simulation_vfs.SimulationVFS) !void {
         \\
         \\test "storage manager basic operations" {
         \\    const testing = std.testing;
-        \\    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-        \\    defer arena.deinit();
-        \\    const allocator = arena.allocator();
         \\
-        \\    var manager = try StorageManager.init(allocator);
+        \\    var manager = try StorageManager.init(testing.allocator);
         \\    defer manager.deinit();
         \\
         \\    try manager.put("test_key", "test_value");

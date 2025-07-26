@@ -54,55 +54,57 @@ pub fn main() !void {
             .text = content,
         };
 
-        // Run all tidy checks
-        if (tidy_banned_patterns(source_file.path, source_file.text)) |err_msg| {
-            std.debug.print("{s}: banned pattern: {s}\n", .{ file_path, err_msg });
-            violations += 1;
-        }
+        // Run all tidy checks (only for .zig files)
+        if (mem.endsWith(u8, source_file.path, ".zig")) {
+            if (tidy_banned_patterns(source_file.path, source_file.text)) |err_msg| {
+                std.debug.print("{s}: banned pattern: {s}\n", .{ file_path, err_msg });
+                violations += 1;
+            }
 
-        if (tidy_control_characters(source_file)) |char| {
-            std.debug.print("{s}: invalid control character: {c}\n", .{ file_path, char });
-            violations += 1;
-        }
+            if (tidy_control_characters(source_file)) |char| {
+                std.debug.print("{s}: invalid control character: {c}\n", .{ file_path, char });
+                violations += 1;
+            }
 
-        if (tidy_naming_conventions(source_file)) |violation| {
-            std.debug.print(
-                "{s}: line {}: {s}\n",
-                .{ file_path, violation.line, violation.message },
-            );
-            violations += 1;
-        }
+            if (tidy_naming_conventions(source_file)) |violation| {
+                std.debug.print(
+                    "{s}: line {}: {s}\n",
+                    .{ file_path, violation.line, violation.message },
+                );
+                violations += 1;
+            }
 
-        if (tidy_documentation_standards(source_file)) |doc_error| {
-            std.debug.print(
-                "{s}: line {}: {s}\n",
-                .{ file_path, doc_error.line, doc_error.message },
-            );
-            violations += 1;
-        }
+            if (tidy_documentation_standards(source_file)) |doc_error| {
+                std.debug.print(
+                    "{s}: line {}: {s}\n",
+                    .{ file_path, doc_error.line, doc_error.message },
+                );
+                violations += 1;
+            }
 
-        if (tidy_generic_functions(source_file)) |generic_fn| {
-            std.debug.print(
-                "{s}: line {}: generic function detected: {s}\n",
-                .{ file_path, generic_fn.line, generic_fn.name },
-            );
-            violations += 1;
-        }
+            if (tidy_generic_functions(source_file)) |generic_fn| {
+                std.debug.print(
+                    "{s}: line {}: generic function detected: {s}\n",
+                    .{ file_path, generic_fn.line, generic_fn.name },
+                );
+                violations += 1;
+            }
 
-        if (tidy_function_length(source_file)) |long_fn| {
-            std.debug.print(
-                "{s}: line {}: function '{s}' is {} lines (max {})\n",
-                .{ file_path, long_fn.line, long_fn.name, long_fn.length, function_line_count_max },
-            );
-            violations += 1;
-        }
+            if (tidy_function_length(source_file)) |long_fn| {
+                std.debug.print(
+                    "{s}: line {}: function '{s}' is {} lines (max {})\n",
+                    .{ file_path, long_fn.line, long_fn.name, long_fn.length, function_line_count_max },
+                );
+                violations += 1;
+            }
 
-        if (tidy_test_allocator_pattern(source_file)) |allocator_error| {
-            std.debug.print(
-                "{s}: line {}: {s}\n",
-                .{ file_path, allocator_error.line, allocator_error.message },
-            );
-            violations += 1;
+            if (tidy_test_allocator_pattern(source_file)) |allocator_error| {
+                std.debug.print(
+                    "{s}: line {}: {s}\n",
+                    .{ file_path, allocator_error.line, allocator_error.message },
+                );
+                violations += 1;
+            }
         }
 
         // Dead declaration detection disabled due to AST API changes in Zig 0.15+
@@ -942,7 +944,9 @@ fn tidy_test_allocator_pattern(file: SourceFile) ?struct {
     }
 
     // If it's a test file with allocator usage but no standard pattern, flag it
-    if (!has_standard_pattern and std.mem.indexOf(u8, file.text, "testing.allocator") != null) {
+    const has_testing_allocator = std.mem.indexOf(u8, file.text, "testing.allocator") != null;
+
+    if (!has_standard_pattern and has_testing_allocator) {
         return .{
             .line = 1,
             .message = "test files should use 'const allocator = testing.allocator;' pattern",
