@@ -38,7 +38,7 @@ pub const FindBlocksQuery = struct {
     pub const MAX_BLOCKS = 1000;
 
     /// Validate query parameters before execution
-    pub fn validate(self: FindBlocksQuery) !void {
+    pub fn validate(self: FindBlocksQuery) QueryError!void {
         if (self.block_ids.len == 0) return QueryError.EmptyQuery;
         if (self.block_ids.len > MAX_BLOCKS) return QueryError.TooManyResults;
     }
@@ -51,7 +51,7 @@ pub const QueryResult = struct {
     count: u32,
 
     /// Initialize query result with owned block data
-    pub fn init(allocator: std.mem.Allocator, blocks: []const ContextBlock) !QueryResult {
+    pub fn init(allocator: std.mem.Allocator, blocks: []const ContextBlock) QueryError!QueryResult {
         const owned_blocks = try allocator.alloc(ContextBlock, blocks.len);
         for (blocks, 0..) |block, i| {
             owned_blocks[i] = try clone_block(allocator, block);
@@ -80,7 +80,7 @@ pub const QueryResult = struct {
     }
 
     /// Format results for LLM consumption with block count
-    pub fn format_for_llm(self: QueryResult, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn format_for_llm(self: QueryResult, allocator: std.mem.Allocator) QueryError![]const u8 {
         var result = std.ArrayList(u8).init(allocator);
         defer result.deinit();
 
@@ -114,7 +114,7 @@ pub const SemanticQuery = struct {
         return SemanticQuery{ .query_text = query_text };
     }
 
-    pub fn validate(self: SemanticQuery) !void {
+    pub fn validate(self: SemanticQuery) QueryError!void {
         if (self.query_text.len == 0) return QueryError.InvalidSemanticQuery;
         if (self.max_results == 0) return QueryError.EmptyQuery;
         if (self.max_results > MAX_RESULTS) return QueryError.TooManyResults;
@@ -136,7 +136,7 @@ pub const SemanticQueryResult = struct {
     results: []SemanticResult,
     total_matches: u32,
 
-    pub fn init(allocator: std.mem.Allocator, results: []const SemanticResult, total_matches: u32) !SemanticQueryResult {
+    pub fn init(allocator: std.mem.Allocator, results: []const SemanticResult, total_matches: u32) QueryError!SemanticQueryResult {
         const owned_results = try allocator.alloc(SemanticResult, results.len);
         for (results, 0..) |result, i| {
             owned_results[i] = SemanticResult{
@@ -162,7 +162,7 @@ pub const SemanticQueryResult = struct {
     }
 
     /// Format semantic results for LLM consumption with similarity scores
-    pub fn format_for_llm(self: SemanticQueryResult, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn format_for_llm(self: SemanticQueryResult, allocator: std.mem.Allocator) QueryError![]const u8 {
         var result = std.ArrayList(u8).init(allocator);
         defer result.deinit();
 
@@ -187,7 +187,7 @@ pub const SemanticQueryResult = struct {
     }
 
     /// Get blocks sorted by similarity score (highest first)
-    pub fn sorted_blocks(self: SemanticQueryResult, allocator: std.mem.Allocator) ![]ContextBlock {
+    pub fn sorted_blocks(self: SemanticQueryResult, allocator: std.mem.Allocator) QueryError![]ContextBlock {
         var blocks = try allocator.alloc(ContextBlock, self.results.len);
 
         // Sort results by similarity score in descending order
