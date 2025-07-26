@@ -8,6 +8,7 @@
 const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
+const log = std.log.scoped(.stress_memory);
 
 const storage = cortexdb.storage;
 const context_block = cortexdb.types;
@@ -28,7 +29,7 @@ test "memory isolation: single test with 25 storage cycles" {
             if (deinit_status == .leak) @panic("Memory leak detected in memory isolation test");
         }
         const allocator = gpa.allocator();
-        std.log.debug("Starting storage cycle {}", .{cycle});
+        log.debug("Starting storage cycle {}", .{cycle});
 
         var sim = try Simulation.init(allocator, 0xDEADBEEF + cycle);
         defer sim.deinit();
@@ -86,10 +87,10 @@ test "memory isolation: single test with 25 storage cycles" {
             try engine.flush_wal();
         }
 
-        std.log.debug("Completed storage cycle {} successfully", .{cycle});
+        log.debug("Completed storage cycle {} successfully", .{cycle});
     }
 
-    std.log.info("Completed all 25 storage cycles without corruption", .{});
+    log.info("Completed all 25 storage cycles without corruption", .{});
 }
 
 test "memory isolation: HashMap operations under stress" {
@@ -143,5 +144,5 @@ test "memory isolation: HashMap operations under stress" {
         }
     }
 
-    std.log.info("HashMap stress test completed successfully", .{});
+    log.info("HashMap stress test completed successfully", .{});
 }

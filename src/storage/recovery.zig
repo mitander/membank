@@ -9,6 +9,7 @@
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const assert_fmt = @import("../core/assert.zig").assert_fmt;
+const log = std.log.scoped(.storage_recovery);
 const context_block = @import("../core/types.zig");
 const concurrency = @import("../core/concurrency.zig");
 
@@ -139,13 +140,13 @@ pub fn apply_wal_entry_to_storage(context: ?*anyopaque, entry: WALEntry) !void {
     switch (entry.entry_type) {
         .put_block => {
             const block = entry.extract_block(recovery_ctx.block_index.arena.allocator()) catch |err| {
-                std.log.warn("Failed to extract block from WAL entry: {}", .{err});
+                log.warn("Failed to extract block from WAL entry: {}", .{err});
                 recovery_ctx.stats.corrupted_entries_skipped += 1;
                 return;
             };
             recovery_ctx.block_index.put_block(block) catch |err| {
                 // Log corruption but continue recovery to maximize data salvage
-                std.log.warn("Failed to recover block {}: {}", .{ block.id, err });
+                log.warn("Failed to recover block {}: {}", .{ block.id, err });
                 recovery_ctx.stats.corrupted_entries_skipped += 1;
                 return;
             };
@@ -153,7 +154,7 @@ pub fn apply_wal_entry_to_storage(context: ?*anyopaque, entry: WALEntry) !void {
         },
         .delete_block => {
             const block_id = entry.extract_block_id() catch |err| {
-                std.log.warn("Failed to extract block_id from WAL entry: {}", .{err});
+                log.warn("Failed to extract block_id from WAL entry: {}", .{err});
                 recovery_ctx.stats.corrupted_entries_skipped += 1;
                 return;
             };
@@ -163,13 +164,13 @@ pub fn apply_wal_entry_to_storage(context: ?*anyopaque, entry: WALEntry) !void {
         },
         .put_edge => {
             const edge = entry.extract_edge() catch |err| {
-                std.log.warn("Failed to extract edge from WAL entry: {}", .{err});
+                log.warn("Failed to extract edge from WAL entry: {}", .{err});
                 recovery_ctx.stats.corrupted_entries_skipped += 1;
                 return;
             };
             recovery_ctx.graph_index.put_edge(edge) catch |err| {
                 // Log corruption but continue recovery
-                std.log.warn("Failed to recover edge {} -> {}: {}", .{ edge.source_id, edge.target_id, err });
+                log.warn("Failed to recover edge {} -> {}: {}", .{ edge.source_id, edge.target_id, err });
                 recovery_ctx.stats.corrupted_entries_skipped += 1;
                 return;
             };
@@ -201,7 +202,7 @@ pub fn recover_storage_from_wal(
     recovery_context.finalize();
     try recovery_context.validate_recovery_state();
 
-    std.log.info("Recovery completed: {} blocks, {} edges, {} corrupted entries in {}ms", .{
+    log.info("Recovery completed: {} blocks, {} edges, {} corrupted entries in {}ms", .{
         recovery_context.stats.blocks_recovered,
         recovery_context.stats.edges_recovered,
         recovery_context.stats.corrupted_entries_skipped,

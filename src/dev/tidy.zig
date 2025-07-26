@@ -105,6 +105,14 @@ pub fn main() !void {
                 );
                 violations += 1;
             }
+
+            if (tidy_scoped_logging(source_file)) |logging_error| {
+                std.debug.print(
+                    "{s}: line {}: {s}\n",
+                    .{ file_path, logging_error.line, logging_error.message },
+                );
+                violations += 1;
+            }
         }
 
         // Dead declaration detection disabled due to AST API changes in Zig 0.15+
@@ -206,6 +214,15 @@ test "tidy" {
                     .line = @intCast(function.line),
                     .violation_type = "generic_function_naming",
                     .message = try std.fmt.allocPrint(allocator, "'{s}' should end with the 'Type' suffix", .{function.name}),
+                });
+            }
+
+            if (tidy_scoped_logging(source_file)) |logging_error| {
+                try violations.append(.{
+                    .path = source_file.path,
+                    .line = @intCast(logging_error.line),
+                    .violation_type = "scoped_logging",
+                    .message = logging_error.message,
                 });
             }
 
@@ -956,7 +973,48 @@ fn tidy_test_allocator_pattern(file: SourceFile) ?struct {
     return null;
 }
 
-/// Validates markdown formatting and structure.
+fn tidy_scoped_logging(file: SourceFile) ?struct {
+    line: u32,
+    message: []const u8,
+} {
+    var line_count: u32 = 0;
+    var it = std.mem.splitScalar(u8, file.text, '\n');
+
+    while (it.next()) |line| {
+        line_count += 1;
+        const trimmed = std.mem.trim(u8, line, " \t");
+
+        // Skip comments and documentation
+        if (std.mem.startsWith(u8, trimmed, "//")) continue;
+
+        // Check for direct std.log usage (actual function calls, not string literals)
+        const patterns = [_][]const u8{ "std.log.debug(", "std.log.info(", "std.log.warn(", "std.log.err(" };
+
+        for (patterns) |pattern| {
+            if (std.mem.indexOf(u8, trimmed, pattern)) |pos| {
+                // Check if this pattern is within a string literal
+                var in_string = false;
+                var i: usize = 0;
+                while (i < pos) : (i += 1) {
+                    if (trimmed[i] == '"' and (i == 0 or trimmed[i - 1] != '\\')) {
+                        in_string = !in_string;
+                    }
+                }
+
+                // Only flag if not within a string literal
+                if (!in_string) {
+                    return .{
+                        .line = line_count,
+                        .message = "use scoped logger (const log = std.log.scoped(.module_name)) instead of direct std.log calls",
+                    };
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
 fn tidy_markdown_standards(text: []const u8) !void {
     var fenced_block = false;
     var heading_count: u32 = 0;

@@ -7,6 +7,7 @@ const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 const assert = cortexdb.assert.assert;
+const log = std.log.scoped(.integration_lifecycle);
 
 const context_block = cortexdb.types;
 const storage = cortexdb.storage;
@@ -267,7 +268,7 @@ test "integration: full data lifecycle with compaction" {
     try testing.expectEqual(@as(u64, 0), final_metrics.read_errors.load(.monotonic));
     try testing.expectEqual(@as(u64, 0), final_metrics.wal_errors.load(.monotonic));
 
-    std.log.info(
+    log.info(
         "Integration test completed: {} blocks, {} edges, {}ns avg write, {}ns avg read",
         .{
             final_block_count,
@@ -406,7 +407,7 @@ test "integration: concurrent storage and query operations" {
         metrics.total_read_time_ns.load(.monotonic);
     const avg_latency_ns = total_time_ns / total_operations;
 
-    std.log.info(
+    log.info(
         "Concurrent test: {} operations, {}ns avg latency",
         .{ total_operations, avg_latency_ns },
     );
@@ -549,7 +550,7 @@ test "integration: storage recovery and query consistency" {
         try testing.expectEqual(@as(u64, 1), metrics.wal_recoveries.load(.monotonic));
     }
 
-    std.log.info("Recovery consistency test completed successfully", .{});
+    log.info("Recovery consistency test completed successfully", .{});
 }
 
 test "integration: large scale performance characteristics" {
@@ -661,32 +662,32 @@ test "integration: large scale performance characteristics" {
         @as(f64, @floatFromInt(query_time));
 
     // Debug: Log actual query performance
-    std.log.info(
+    log.info(
         "Query performance: {d:.1} queries/second, query_time={}ns",
         .{ query_rate, query_time },
     );
 
     // Validate query performance (relaxed constraint for debugging)
-    std.log.info("Actual query rate: {d:.1} queries/second", .{query_rate});
+    log.info("Actual query rate: {d:.1} queries/second", .{query_rate});
     try testing.expect(query_rate > 10.0); // > 10 queries/second (temporarily relaxed)
-    std.log.info(
+    log.info(
         "Query performance: {d:.1} queries/second",
         .{query_rate},
     );
 
     const final_metrics = storage_engine.metrics();
     const avg_read_latency = final_metrics.average_read_latency_ns();
-    std.log.info(
+    log.info(
         "Actual read latency: {}ns ({}μs)",
         .{ avg_read_latency, avg_read_latency / 1000 },
     );
     try testing.expect(avg_read_latency < 50_000_000); // < 50ms average (relaxed for simulation)
-    std.log.info("Read latency: {}ns", .{avg_read_latency});
+    log.info("Read latency: {}ns", .{avg_read_latency});
 
     // Phase 4: SSTable validation
     try testing.expect(final_metrics.sstable_writes.load(.monotonic) >= 2); // Multiple flushes
 
-    std.log.info(
+    log.info(
         "Large scale test: {} blocks, {d:.1} writes/s, {d:.1} queries/s, {}ns write latency",
         .{ large_block_count, ingestion_rate, query_rate, avg_write_latency },
     );
