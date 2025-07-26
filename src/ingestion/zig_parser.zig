@@ -14,6 +14,7 @@ const std = @import("std");
 const ingestion = @import("pipeline.zig");
 const assert = @import("../core/assert.zig");
 const concurrency = @import("../core/concurrency.zig");
+const error_context = @import("../core/error_context.zig");
 
 const IngestionError = ingestion.IngestionError;
 const SourceContent = ingestion.SourceContent;

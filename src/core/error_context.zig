@@ -198,37 +198,32 @@ pub const IngestionContext = struct {
     }
 };
 
-/// Log an error with context in debug builds only.
-/// Returns the original error for easy chaining.
-pub fn storage_error(err: anyerror, context: StorageContext) anyerror {
+/// Log a buffer error with context in debug builds only.
+pub fn log_buffer_error(err: anyerror, context: BufferContext) void {
     if (builtin.mode == .Debug) {
-        log.err("Storage operation failed: {any} - {any}", .{ err, context });
+        log.warn("Buffer operation failed: {any} - {any}", .{ err, context });
     }
-    return err;
+}
+
+/// Log a storage error with context in debug builds only.
+pub fn log_storage_error(err: anyerror, context: StorageContext) void {
+    if (builtin.mode == .Debug) {
+        log.warn("Storage operation failed: {any} - {any}", .{ err, context });
+    }
 }
 
 /// Log a WAL error with context in debug builds only.
-pub fn wal_error(err: anyerror, context: WALContext) anyerror {
+pub fn log_wal_error(err: anyerror, context: WALContext) void {
     if (builtin.mode == .Debug) {
-        log.err("WAL operation failed: {any} - {any}", .{ err, context });
+        log.warn("WAL operation failed: {any} - {any}", .{ err, context });
     }
-    return err;
-}
-
-/// Log a buffer error with context in debug builds only.
-pub fn buffer_error(err: anyerror, context: BufferContext) anyerror {
-    if (builtin.mode == .Debug) {
-        log.err("Buffer operation failed: {any} - {any}", .{ err, context });
-    }
-    return err;
 }
 
 /// Log an ingestion error with context in debug builds only.
-pub fn ingestion_error(err: anyerror, context: IngestionContext) anyerror {
+pub fn log_ingestion_error(err: anyerror, context: IngestionContext) void {
     if (builtin.mode == .Debug) {
-        log.err("Ingestion operation failed: {any} - {any}", .{ err, context });
+        log.warn("Ingestion operation failed: {any} - {any}", .{ err, context });
     }
-    return err;
 }
 
 /// Helper to create storage context for block operations.
@@ -410,24 +405,20 @@ test "error context helpers in debug mode" {
     try std.testing.expectEqual(@as(u32, 0x87654321), checksum_ctx.actual_value.?);
 }
 
-test "error logging functions return original error" {
+test "error logging functions work correctly" {
     const original_error = error.TestError;
 
     const storage_ctx = StorageContext{ .operation = "test" };
-    const returned_error = storage_error(original_error, storage_ctx);
-    try std.testing.expectEqual(original_error, returned_error);
+    log_storage_error(original_error, storage_ctx);
 
     const wal_ctx = WALContext{ .operation = "test" };
-    const wal_returned = wal_error(original_error, wal_ctx);
-    try std.testing.expectEqual(original_error, wal_returned);
+    log_wal_error(original_error, wal_ctx);
 
     const buffer_ctx = BufferContext{ .operation = "test" };
-    const buffer_returned = buffer_error(original_error, buffer_ctx);
-    try std.testing.expectEqual(original_error, buffer_returned);
+    log_buffer_error(original_error, buffer_ctx);
 
     const ingestion_ctx = IngestionContext{ .operation = "test" };
-    const ingestion_returned = ingestion_error(original_error, ingestion_ctx);
-    try std.testing.expectEqual(original_error, ingestion_returned);
+    log_ingestion_error(original_error, ingestion_ctx);
 }
 
 test "IngestionContext formatting" {

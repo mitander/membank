@@ -262,10 +262,18 @@ pub const GitSource = struct {
         concurrency.assert_main_thread();
 
         // Validate repository exists
-        const repo_stat = file_system.stat(self.config.repository_path) catch {
+        const repo_stat = file_system.stat(self.config.repository_path) catch |err| {
+            error_context.log_ingestion_error(err, error_context.repository_context(
+                "stat_repository",
+                self.config.repository_path,
+            ));
             return IngestionError.SourceFetchFailed;
         };
         if (!repo_stat.is_directory) {
+            error_context.log_ingestion_error(IngestionError.SourceFetchFailed, error_context.repository_context(
+                "validate_repository_directory",
+                self.config.repository_path,
+            ));
             return IngestionError.SourceFetchFailed;
         }
 
@@ -412,7 +420,13 @@ pub const GitSource = struct {
                 },
                 .file => {
                     if (self.is_included(entry_relative)) {
-                        const file_info = self.load_file_info(allocator, file_system, base_path, entry_relative) catch {
+                        const file_info = self.load_file_info(allocator, file_system, base_path, entry_relative) catch |err| {
+                            error_context.log_ingestion_error(err, error_context.ingestion_file_context(
+                                "load_file_info",
+                                self.config.repository_path,
+                                entry_relative,
+                                null,
+                            ));
                             continue;
                         };
                         try files.append(file_info);
@@ -450,6 +464,12 @@ pub const GitSource = struct {
 
         const stat = try file_system.stat(full_path);
         if (stat.size > self.config.max_file_size) {
+            error_context.log_ingestion_error(IngestionError.SourceFetchFailed, error_context.file_size_context(
+                "validate_file_size",
+                full_path,
+                stat.size,
+                self.config.max_file_size,
+            ));
             return IngestionError.SourceFetchFailed;
         }
 
