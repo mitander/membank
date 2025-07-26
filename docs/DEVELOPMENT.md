@@ -66,10 +66,10 @@ test "crashing test" {
 }
 ```
 
-**Tier 2**: AddressSanitizer (detailed memory error reports)
+**Tier 2**: Thread Sanitizer and C UBSan (detailed memory error reports)
 
 ```bash
-./zig/zig build test -fsanitize-address
+./zig/zig build test-sanitizer
 ```
 
 **Tier 3**: LLDB (only if sanitizers don't catch it)

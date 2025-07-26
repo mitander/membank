@@ -1,7 +1,19 @@
 //! Comprehensive performance benchmarking framework for CortexDB.
 //!
-//! Provides automated regression testing to ensure performance doesn't degrade
-//! as features are added. Benchmarks core operations with statistical analysis.
+//! Provides automated regression testing with both performance and memory profiling.
+//! Benchmarks core operations with statistical analysis to detect regressions early.
+//!
+//! Target Performance Goals (1.0 Release):
+//! - Block Write: <50µs (20K+ ops/sec)
+//! - Block Read: <10µs (100K+ ops/sec)
+//! - Single Query: <10µs (100K+ ops/sec)
+//! - Batch Query (10 blocks): <100µs (10K+ ops/sec)
+//! - WAL Flush: <1ms (1K+ ops/sec)
+//!
+//! Memory Efficiency Goals:
+//! - Peak memory usage <100MB for 10K block operations
+//! - Memory growth linear with dataset size
+//! - Zero memory leaks in sustained operations
 
 const std = @import("std");
 const cortexdb = @import("cortexdb");
@@ -27,12 +39,16 @@ const LARGE_BENCHMARK_ITERATIONS = 100;
 const STATISTICAL_SAMPLES = 10;
 
 // Performance thresholds (nanoseconds)
-const BLOCK_WRITE_THRESHOLD_NS = 50_000; // 50µs
-const BLOCK_READ_THRESHOLD_NS = 10_000; // 10µs
-const QUERY_BATCH_THRESHOLD_NS = 100_000; // 100µs
-const WAL_FLUSH_THRESHOLD_NS = 1_000_000; // 1ms
+const BLOCK_WRITE_THRESHOLD_NS = 50_000; // 50µs - Target: 20K+ ops/sec
+const BLOCK_READ_THRESHOLD_NS = 10_000; // 10µs - Target: 100K+ ops/sec
+const QUERY_BATCH_THRESHOLD_NS = 100_000; // 100µs - Target: 10K+ ops/sec
+const WAL_FLUSH_THRESHOLD_NS = 1_000_000; // 1ms - Target: 1K+ ops/sec
 
-/// Benchmark results with statistical analysis
+// Memory usage thresholds (bytes)
+const MAX_PEAK_MEMORY_BYTES = 100 * 1024 * 1024; // 100MB for 10K operations
+const MAX_MEMORY_GROWTH_PER_OP = 1024; // 1KB average growth per operation
+
+/// Benchmark results with statistical analysis and memory profiling
 const BenchmarkResult = struct {
     operation_name: []const u8,
     iterations: u64,
@@ -45,6 +61,10 @@ const BenchmarkResult = struct {
     throughput_ops_per_sec: f64,
     passed_threshold: bool,
     threshold_ns: u64,
+    // Memory profiling metrics
+    peak_memory_bytes: u64,
+    memory_growth_bytes: u64,
+    memory_efficient: bool,
 
     pub fn print_results(self: BenchmarkResult) void {
         const status = if (self.passed_threshold) "PASS" else "FAIL";
@@ -82,7 +102,10 @@ const BenchmarkResult = struct {
         std.debug.print("\"stddev_ns\":{},", .{self.stddev_ns});
         std.debug.print("\"throughput_ops_per_sec\":{d:.1},", .{self.throughput_ops_per_sec});
         std.debug.print("\"passed_threshold\":{},", .{self.passed_threshold});
-        std.debug.print("\"threshold_ns\":{}", .{self.threshold_ns});
+        std.debug.print("\"threshold_ns\":{},", .{self.threshold_ns});
+        std.debug.print("\"peak_memory_bytes\":{},", .{self.peak_memory_bytes});
+        std.debug.print("\"memory_growth_bytes\":{},", .{self.memory_growth_bytes});
+        std.debug.print("\"memory_efficient\":{}", .{self.memory_efficient});
         std.debug.print("}}", .{});
     }
 };

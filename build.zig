@@ -251,6 +251,43 @@ pub fn build(b: *std.Build) void {
     fuzz_debug.root_module.addImport("cortexdb", cortexdb_module);
 
     const install_fuzz_debug = b.addInstallArtifact(fuzz_debug, .{});
-    const fuzz_debug_step = b.step("fuzz-debug", "Build and install debug fuzz tester with AddressSanitizer");
+    const fuzz_debug_step = b.step("fuzz-debug", "Build and install debug fuzz tester with enhanced debugging");
     fuzz_debug_step.dependOn(&install_fuzz_debug.step);
+
+    // Sanitizer test target for enhanced memory safety
+    const sanitizer_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/cortexdb.zig"),
+            .target = target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    sanitizer_tests.root_module.addImport("cortexdb", cortexdb_module);
+
+    // Enable Thread Sanitizer for race condition detection
+    sanitizer_tests.root_module.sanitize_thread = true;
+    // Enable C undefined behavior detection
+    sanitizer_tests.root_module.sanitize_c = .full;
+
+    const run_sanitizer_tests = b.addRunArtifact(sanitizer_tests);
+    const sanitizer_test_step = b.step("test-sanitizer", "Run tests with Thread Sanitizer and C UBSan");
+    sanitizer_test_step.dependOn(&run_sanitizer_tests.step);
+
+    // Memory stress test target
+    const memory_stress = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/stress/memory.zig"),
+            .target = target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    memory_stress.root_module.addImport("cortexdb", cortexdb_module);
+
+    const run_memory_stress = b.addRunArtifact(memory_stress);
+    const memory_stress_step = b.step("test-memory-stress", "Run comprehensive memory safety stress tests");
+    memory_stress_step.dependOn(&run_memory_stress.step);
+
+    // Note: Sanitizer and stress tests available as separate targets:
+    // ./zig/zig build test-sanitizer
+    // ./zig/zig build test-memory-stress
 }
