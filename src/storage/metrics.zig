@@ -207,9 +207,6 @@ pub const StorageMetrics = struct {
 const testing = std.testing;
 
 test "metrics initialization sets all counters to zero" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const metrics = StorageMetrics.init();
 
     try testing.expectEqual(@as(u64, 0), metrics.blocks_written.load(.monotonic));
@@ -219,9 +216,6 @@ test "metrics initialization sets all counters to zero" {
 }
 
 test "average calculations handle zero operations gracefully" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const metrics = StorageMetrics.init();
 
     try testing.expectEqual(@as(u64, 0), metrics.average_write_latency_ns());
@@ -233,9 +227,6 @@ test "average calculations handle zero operations gracefully" {
 }
 
 test "average write latency calculation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var metrics = StorageMetrics.init();
 
     // Simulate 2 writes taking 1000ns and 2000ns respectively
@@ -246,9 +237,6 @@ test "average write latency calculation" {
 }
 
 test "write throughput calculation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var metrics = StorageMetrics.init();
 
     // Simulate 1MB written in 1 second (1_000_000_000 ns)
@@ -260,9 +248,6 @@ test "write throughput calculation" {
 }
 
 test "average block size calculation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var metrics = StorageMetrics.init();
 
     // Simulate 4 blocks totaling 8KB
@@ -273,9 +258,7 @@ test "average block size calculation" {
 }
 
 test "human readable format contains key metrics" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var metrics = StorageMetrics.init();
     metrics.blocks_written.store(100, .monotonic);
@@ -293,9 +276,7 @@ test "human readable format contains key metrics" {
 }
 
 test "json format produces valid json structure" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var metrics = StorageMetrics.init();
     metrics.blocks_written.store(50, .monotonic);
@@ -314,9 +295,6 @@ test "json format produces valid json structure" {
 }
 
 test "atomic operations work correctly under concurrent access simulation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var metrics = StorageMetrics.init();
 
     // Simulate concurrent increments

@@ -335,9 +335,7 @@ test "WALEntry checksum calculation consistency" {
 }
 
 test "WALEntry serialization roundtrip" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_payload = "Hello, WAL entry serialization!";
     const checksum = WALEntry.calculate_checksum(.put_block, test_payload);
@@ -381,9 +379,7 @@ test "WALEntry serialization buffer too small" {
 }
 
 test "WALEntry deserialization buffer too small" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Buffer smaller than header
     var small_buffer: [5]u8 = undefined;
@@ -399,9 +395,7 @@ test "WALEntry deserialization buffer too small" {
 }
 
 test "WALEntry deserialization invalid checksum" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_payload = "test payload";
     var buffer: [1024]u8 = undefined;
@@ -417,9 +411,7 @@ test "WALEntry deserialization invalid checksum" {
 }
 
 test "WALEntry deserialization invalid entry type" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var buffer: [WALEntry.HEADER_SIZE]u8 = undefined;
     std.mem.writeInt(u64, buffer[0..8], 0, .little);
@@ -430,9 +422,7 @@ test "WALEntry deserialization invalid entry type" {
 }
 
 test "WALEntry deserialization oversized payload" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var buffer: [WALEntry.HEADER_SIZE]u8 = undefined;
     std.mem.writeInt(u64, buffer[0..8], 0, .little);
@@ -443,9 +433,7 @@ test "WALEntry deserialization oversized payload" {
 }
 
 test "WALEntry create_put_block" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_block = create_test_block();
     const entry = try WALEntry.create_put_block(test_block, allocator);
@@ -461,9 +449,7 @@ test "WALEntry create_put_block" {
 }
 
 test "WALEntry create_delete_block" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable;
     const entry = try WALEntry.create_delete_block(test_id, allocator);
@@ -482,9 +468,7 @@ test "WALEntry create_delete_block" {
 }
 
 test "WALEntry create_put_edge" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_edge = create_test_edge();
     const entry = try WALEntry.create_put_edge(test_edge, allocator);
@@ -500,9 +484,7 @@ test "WALEntry create_put_edge" {
 }
 
 test "WALEntry deserialize_from_stream" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_payload = "stream test payload";
     const checksum = WALEntry.calculate_checksum(.put_block, test_payload);
@@ -517,9 +499,7 @@ test "WALEntry deserialize_from_stream" {
 }
 
 test "WALEntry deserialize_from_stream invalid type" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_payload = "test payload";
     const checksum = WALEntry.calculate_checksum(.put_block, test_payload);
@@ -529,9 +509,7 @@ test "WALEntry deserialize_from_stream invalid type" {
 }
 
 test "WALEntry deserialize_from_stream invalid checksum" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_payload = "test payload";
     const wrong_checksum: u64 = 0xdeadbeef;
@@ -547,9 +525,7 @@ test "WALEntry header size constant" {
 }
 
 test "WALEntry memory management" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Test that deinit properly releases memory
     const test_block = create_test_block();
@@ -564,9 +540,7 @@ test "WALEntry memory management" {
 }
 
 test "WALEntry edge cases" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Test empty payload
     const empty_checksum = WALEntry.calculate_checksum(.put_block, "");
@@ -591,9 +565,7 @@ test "WALEntry edge cases" {
 }
 
 test "WALEntry large payload handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create large payload (within limits)
     const large_payload_size = 1024 * 1024; // 1MB
@@ -626,9 +598,7 @@ test "WALEntry large payload handling" {
 }
 
 test "WALEntry extract_block success" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_block = create_test_block();
     const entry = try WALEntry.create_put_block(test_block, allocator);
@@ -649,9 +619,7 @@ test "WALEntry extract_block success" {
 }
 
 test "WALEntry extract_block invalid entry type" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable;
     const entry = try WALEntry.create_delete_block(test_id, allocator);
@@ -662,9 +630,7 @@ test "WALEntry extract_block invalid entry type" {
 }
 
 test "WALEntry extract_block_id success" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_id = BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") catch unreachable;
     const entry = try WALEntry.create_delete_block(test_id, allocator);
@@ -678,9 +644,7 @@ test "WALEntry extract_block_id success" {
 }
 
 test "WALEntry extract_block_id invalid entry type" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_block = create_test_block();
     const entry = try WALEntry.create_put_block(test_block, allocator);
@@ -707,9 +671,7 @@ test "WALEntry extract_block_id corrupted payload" {
 }
 
 test "WALEntry extract_edge success" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_edge = create_test_edge();
     const entry = try WALEntry.create_put_edge(test_edge, allocator);
@@ -726,9 +688,7 @@ test "WALEntry extract_edge success" {
 }
 
 test "WALEntry extract_edge invalid entry type" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_block = create_test_block();
     const entry = try WALEntry.create_put_block(test_block, allocator);

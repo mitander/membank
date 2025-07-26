@@ -37,16 +37,7 @@ test "complete ingestion pipeline - git to storage" {
     // Initialize concurrency module
     concurrency.init();
 
-    // Create a safety-enabled GPA for memory corruption detection
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer _ = gpa.deinit();
-
-    const backing_allocator = gpa.allocator();
-
-    // Use a single arena for the entire test to eliminate cross-allocator issues
-    var arena = std.heap.ArenaAllocator.init(backing_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Setup simulation VFS
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
@@ -67,12 +58,9 @@ test "complete ingestion pipeline - git to storage" {
         allocator.free(file_state);
     }
 
-    // Setup storage engine with separate arena to avoid cross-contamination
-    var storage_arena = std.heap.ArenaAllocator.init(backing_allocator);
-    defer storage_arena.deinit();
-
+    // Setup storage engine
     const vfs_for_storage = sim_vfs.vfs();
-    var storage_engine = try StorageEngine.init_default(storage_arena.allocator(), vfs_for_storage, "test_db");
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_for_storage, "test_db");
     defer storage_engine.deinit();
     try storage_engine.initialize_storage();
 
@@ -86,8 +74,7 @@ test "complete ingestion pipeline - git to storage" {
     defer pipeline.deinit();
 
     // Setup Git source with pipeline's allocator to avoid cross-allocator issues
-    var git_config = try GitSourceConfig.init(allocator, "/test_repo");
-    defer git_config.deinit(allocator);
+    const git_config = try GitSourceConfig.init(allocator, "/test_repo");
 
     var git_src = GitSource.init(allocator, git_config);
     defer git_src.deinit(allocator);
@@ -122,9 +109,9 @@ test "complete ingestion pipeline - git to storage" {
         const storage_block = ContextBlock{
             .id = block.id,
             .version = block.version,
-            .source_uri = try storage_arena.allocator().dupe(u8, block.source_uri),
-            .metadata_json = try storage_arena.allocator().dupe(u8, block.metadata_json),
-            .content = try storage_arena.allocator().dupe(u8, block.content),
+            .source_uri = try allocator.dupe(u8, block.source_uri),
+            .metadata_json = try allocator.dupe(u8, block.metadata_json),
+            .content = try allocator.dupe(u8, block.content),
         };
         try storage_engine.put_block(storage_block);
     }
@@ -161,9 +148,7 @@ test "zig parser extracts semantic units correctly" {
     // Initialize concurrency module with clean state
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Setup simulation VFS
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
@@ -237,6 +222,12 @@ test "zig parser extracts semantic units correctly" {
 
     // Parse content with isolated parser instance
     const units = try zig_psr.parser().parse(allocator, source_content);
+    defer {
+        for (units) |*unit| {
+            unit.deinit(allocator);
+        }
+        allocator.free(units);
+    }
 
     // Verify we extracted some units - be flexible about exact count
     try testing.expect(units.len > 0);
@@ -273,9 +264,7 @@ test "semantic chunker preserves metadata" {
     // Initialize concurrency module with clean state
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create test parsed unit
     var unit_metadata = std.StringHashMap([]const u8).init(allocator);
@@ -332,17 +321,14 @@ test "git source handles missing repository gracefully" {
     // Initialize concurrency module with clean state
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Setup simulation VFS
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     // Setup Git source pointing to non-existent repository
-    var git_config = try GitSourceConfig.init(allocator, "/nonexistent_repo");
-    defer git_config.deinit(allocator);
+    const git_config = try GitSourceConfig.init(allocator, "/nonexistent_repo");
 
     var git_src = GitSource.init(allocator, git_config);
     defer git_src.deinit(allocator);
@@ -357,9 +343,7 @@ test "pipeline handles parsing errors gracefully" {
     // Initialize concurrency module with clean state
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Setup simulation VFS
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
@@ -379,8 +363,7 @@ test "pipeline handles parsing errors gracefully" {
     defer pipeline.deinit();
 
     // Setup Git source
-    var git_config = try GitSourceConfig.init(allocator, "/test_repo");
-    defer git_config.deinit(allocator);
+    const git_config = try GitSourceConfig.init(allocator, "/test_repo");
 
     var git_src = GitSource.init(allocator, git_config);
     defer git_src.deinit(allocator);

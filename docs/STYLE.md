@@ -141,6 +141,7 @@ pub const StorageEngine = struct {
 ```
 
 **When to use:** When initialization involves:
+
 - File system operations that can fail
 - Network operations
 - Resource discovery
@@ -261,19 +262,22 @@ for (self.index.items) |entry| { ... }
 
 The default for any new feature or bug fix is a deterministic simulation test. Unit tests are for simple, pure functions. System behavior must be validated in the simulation framework.
 
-### Arena-per-Test for Guaranteed Isolation
+### Test Memory Management
 
-Every `test` block must create its own `ArenaAllocator`. This is a non-negotiable rule to prevent the cumulative memory corruption issues we have previously faced.
+Tests should use `std.testing.allocator` directly for memory allocations. This allocator automatically detects and reports memory leaks, helping maintain code quality.
 
 ```zig
 test "storage engine can write and read a block" {
-    // GOOD: This test is perfectly isolated from all others.
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    // Standard pattern: declare allocator const for cleaner usage
+    const allocator = std.testing.allocator;
 
     var sim = try Simulation.init(allocator, 1234);
     var storage = try StorageEngine.init_default(allocator, ...);
+
+    // Use allocator throughout the test
+    const test_data = try allocator.dupe(u8, "test content");
+    defer allocator.free(test_data);
+
     // ... rest of test logic ...
 }
 ```

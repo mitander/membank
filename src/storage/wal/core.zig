@@ -487,9 +487,7 @@ fn create_test_edge() GraphEdge {
 }
 
 test "WAL initialization and cleanup" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -511,9 +509,7 @@ test "WAL initialization and cleanup" {
 }
 
 test "WAL write single entry" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -535,9 +531,7 @@ test "WAL write single entry" {
 }
 
 test "WAL write multiple entries" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -562,9 +556,7 @@ test "WAL write multiple entries" {
 }
 
 test "WAL write different entry types" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -595,9 +587,7 @@ test "WAL write different entry types" {
 }
 
 test "WAL segment rotation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -642,9 +632,7 @@ test "WAL segment rotation" {
 }
 
 test "WAL recovery functionality" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -688,9 +676,7 @@ test "WAL recovery functionality" {
 }
 
 test "WAL error handling - directory creation failure" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -700,9 +686,7 @@ test "WAL error handling - directory creation failure" {
 }
 
 test "WAL cleanup old segments" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -731,9 +715,7 @@ test "WAL cleanup old segments" {
 }
 
 test "WAL statistics accuracy" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -760,9 +742,7 @@ test "WAL statistics accuracy" {
 }
 
 test "WAL filename generation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -779,9 +759,7 @@ test "WAL filename generation" {
 }
 
 test "WAL concurrent safety assertions" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();

@@ -677,9 +677,7 @@ test "filter target enum parsing" {
 }
 
 test "filtered query result operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_blocks = [_]ContextBlock{
         .{
@@ -716,9 +714,7 @@ test "filtered query result operations" {
 }
 
 test "execute filtered query with storage engine" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create test storage engine
     const simulation_vfs = @import("../sim/simulation_vfs.zig");
@@ -785,9 +781,7 @@ test "execute filtered query with storage engine" {
 }
 
 test "filtered query with pagination" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create test storage engine
     const simulation_vfs = @import("../sim/simulation_vfs.zig");

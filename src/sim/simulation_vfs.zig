@@ -750,9 +750,7 @@ pub const SimulationVFS = struct {
 };
 
 test "SimulationVFS basic file operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -782,9 +780,7 @@ test "SimulationVFS basic file operations" {
 }
 
 test "SimulationVFS directory operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -811,9 +807,7 @@ test "SimulationVFS directory operations" {
 }
 
 test "SimulationVFS fault injection - torn writes" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 12345);
     defer sim_vfs.deinit();
@@ -849,9 +843,7 @@ test "SimulationVFS fault injection - torn writes" {
 }
 
 test "SimulationVFS fault injection - read corruption" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 54321);
     defer sim_vfs.deinit();
@@ -891,9 +883,7 @@ test "SimulationVFS fault injection - read corruption" {
 }
 
 test "SimulationVFS fault injection - disk full" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -918,9 +908,7 @@ test "SimulationVFS fault injection - disk full" {
 }
 
 test "SimulationVFS fault injection - io failures" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 99999);
     defer sim_vfs.deinit();
@@ -936,9 +924,7 @@ test "SimulationVFS fault injection - io failures" {
 }
 
 test "SimulationVFS deterministic behavior" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Same seed should produce identical behavior
     const seed: u64 = 12345;

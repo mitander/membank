@@ -97,7 +97,15 @@ pub const ParsedUnit = struct {
 
     pub fn deinit(self: *ParsedUnit, allocator: std.mem.Allocator) void {
         self.edges.deinit();
+
+        // Free all values in metadata HashMap
+        // Note: HashMap keys are string literals and should not be freed
+        var iterator = self.metadata.iterator();
+        while (iterator.next()) |entry| {
+            allocator.free(entry.value_ptr.*);
+        }
         self.metadata.deinit();
+
         allocator.free(self.id);
         allocator.free(self.unit_type);
         allocator.free(self.content);
@@ -419,9 +427,7 @@ pub const IngestionPipeline = struct {
 
 test "pipeline creation and cleanup" {
     const testing = std.testing;
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Use simulation VFS for testing
     const simulation_vfs = @import("simulation_vfs");
@@ -442,9 +448,7 @@ test "pipeline creation and cleanup" {
 
 test "source content lifecycle" {
     const testing = std.testing;
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var metadata = std.StringHashMap([]const u8).init(allocator);
     defer metadata.deinit();

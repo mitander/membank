@@ -389,8 +389,6 @@ test "text similarity calculation" {
 }
 
 test "query result formatting" {
-    const allocator = testing.allocator;
-
     const test_block = ContextBlock{
         .id = 42,
         .version = 1,
@@ -399,11 +397,11 @@ test "query result formatting" {
         .content = "pub fn test() void {}",
     };
 
-    var result = try QueryResult.init(allocator, &[_]ContextBlock{test_block});
+    var result = try QueryResult.init(testing.allocator, &[_]ContextBlock{test_block});
     defer result.deinit();
 
-    const formatted = try result.format_for_llm(allocator);
-    defer allocator.free(formatted);
+    const formatted = try result.format_for_llm(testing.allocator);
+    defer testing.allocator.free(formatted);
 
     try testing.expect(std.mem.indexOf(u8, formatted, "Retrieved 1 blocks") != null);
     try testing.expect(std.mem.indexOf(u8, formatted, "test.zig") != null);
@@ -411,8 +409,6 @@ test "query result formatting" {
 }
 
 test "semantic result sorting" {
-    const allocator = testing.allocator;
-
     const block1 = ContextBlock{
         .id = 1,
         .version = 1,
@@ -434,11 +430,11 @@ test "semantic result sorting" {
         .{ .block = block2, .similarity_score = 0.9 },
     };
 
-    var semantic_result = try SemanticQueryResult.init(allocator, &results, 2);
+    var semantic_result = try SemanticQueryResult.init(testing.allocator, &results, 2);
     defer semantic_result.deinit();
 
-    const sorted_blocks = try semantic_result.sorted_blocks(allocator);
-    defer allocator.free(sorted_blocks);
+    const sorted_blocks = try semantic_result.sorted_blocks(testing.allocator);
+    defer testing.allocator.free(sorted_blocks);
 
     // Higher similarity should come first
     try testing.expect(sorted_blocks[0].id == 2);
@@ -446,9 +442,7 @@ test "semantic result sorting" {
 }
 
 test "execute_find_blocks with storage engine" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create test storage engine
     const simulation_vfs = @import("../sim/simulation_vfs.zig");
@@ -506,9 +500,7 @@ test "execute_find_blocks with storage engine" {
 }
 
 test "execute_semantic_query with mock similarity" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create test storage engine
     const simulation_vfs = @import("../sim/simulation_vfs.zig");
@@ -571,9 +563,7 @@ test "execute_semantic_query with mock similarity" {
 }
 
 test "query result memory management" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_blocks = [_]ContextBlock{
         .{
@@ -605,9 +595,7 @@ test "query result memory management" {
 }
 
 test "semantic query result operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_results = [_]SemanticResult{
         .{
@@ -648,9 +636,7 @@ test "semantic query result operations" {
 }
 
 test "block existence checking" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create test storage engine
     const simulation_vfs = @import("../sim/simulation_vfs.zig");
@@ -689,9 +675,7 @@ test "block existence checking" {
 }
 
 test "find_block convenience function" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create test storage engine
     const simulation_vfs = @import("../sim/simulation_vfs.zig");
@@ -722,9 +706,7 @@ test "find_block convenience function" {
 }
 
 test "large dataset query performance" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create test storage engine
     const simulation_vfs = @import("../sim/simulation_vfs.zig");
@@ -808,9 +790,7 @@ test "query error handling" {
 }
 
 test "query result formatting edge cases" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Test empty result formatting
     const empty_result = try QueryResult.init(allocator, &[_]ContextBlock{});

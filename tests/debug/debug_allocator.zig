@@ -13,9 +13,7 @@ const DebugAllocator = debug_allocator.DebugAllocator;
 
 test "DebugAllocator basic allocation tracking" {
     // Arena per test for perfect isolation as per STYLE.md
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Layer DebugAllocator over arena for enhanced debugging
     var debug_alloc = DebugAllocator.init(allocator);
@@ -34,9 +32,7 @@ test "DebugAllocator basic allocation tracking" {
 }
 
 test "DebugAllocator zero allocation handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var debug_alloc = DebugAllocator.init(allocator);
     const debug_allocator_instance = debug_alloc.allocator();
@@ -51,9 +47,7 @@ test "DebugAllocator zero allocation handling" {
 }
 
 test "DebugAllocator comprehensive statistics tracking" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var debug_alloc = DebugAllocator.init(allocator);
     const debug_allocator_instance = debug_alloc.allocator();
@@ -83,9 +77,7 @@ test "DebugAllocator comprehensive statistics tracking" {
 }
 
 test "DebugAllocator allocation validation and error detection" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var debug_alloc = DebugAllocator.init(allocator);
     const debug_allocator_instance = debug_alloc.allocator();
@@ -110,9 +102,7 @@ test "DebugAllocator allocation validation and error detection" {
 }
 
 test "DebugAllocator mixed allocation sizes and alignments" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var debug_alloc = DebugAllocator.init(allocator);
     const debug_allocator_instance = debug_alloc.allocator();
@@ -138,9 +128,7 @@ test "DebugAllocator mixed allocation sizes and alignments" {
 }
 
 test "DebugAllocator stress test with multiple allocation cycles" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var debug_alloc = DebugAllocator.init(allocator);
     const debug_allocator_instance = debug_alloc.allocator();
@@ -168,9 +156,7 @@ test "DebugAllocator stress test with multiple allocation cycles" {
 }
 
 test "DebugAllocator configuration and feature control" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var debug_alloc = DebugAllocator.init(allocator);
 
@@ -196,9 +182,7 @@ test "DebugAllocator configuration and feature control" {
 
 test "DebugAllocator integration with arena pattern" {
     // Test the recommended pattern from docs/STYLE.md and docs/DEBUG_ALLOCATOR.md
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Layer DebugAllocator over ArenaAllocator for enhanced debugging
     var debug_alloc = DebugAllocator.init(allocator);

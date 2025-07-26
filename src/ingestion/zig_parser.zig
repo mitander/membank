@@ -381,7 +381,7 @@ pub const ZigParser = struct {
 
         var metadata = std.StringHashMap([]const u8).init(context.allocator);
         try metadata.put("function_name", try context.allocator.dupe(u8, fn_name));
-        try metadata.put("is_public", if (std.mem.startsWith(u8, signature_line, "pub ")) "true" else "false");
+        try metadata.put("is_public", if (std.mem.startsWith(u8, signature_line, "pub ")) try context.allocator.dupe(u8, "true") else try context.allocator.dupe(u8, "false"));
 
         const unit = ParsedUnit{
             .id = unit_id,
@@ -414,7 +414,7 @@ pub const ZigParser = struct {
 
         var metadata = std.StringHashMap([]const u8).init(context.allocator);
         try metadata.put("constant_name", try context.allocator.dupe(u8, const_name));
-        try metadata.put("is_public", if (std.mem.startsWith(u8, line, "pub ")) "true" else "false");
+        try metadata.put("is_public", if (std.mem.startsWith(u8, line, "pub ")) try context.allocator.dupe(u8, "true") else try context.allocator.dupe(u8, "false"));
 
         const unit = ParsedUnit{
             .id = unit_id,
@@ -447,7 +447,7 @@ pub const ZigParser = struct {
 
         var metadata = std.StringHashMap([]const u8).init(context.allocator);
         try metadata.put("variable_name", try context.allocator.dupe(u8, var_name));
-        try metadata.put("is_public", if (std.mem.startsWith(u8, line, "pub ")) "true" else "false");
+        try metadata.put("is_public", if (std.mem.startsWith(u8, line, "pub ")) try context.allocator.dupe(u8, "true") else try context.allocator.dupe(u8, "false"));
 
         const unit = ParsedUnit{
             .id = unit_id,
@@ -519,7 +519,7 @@ pub const ZigParser = struct {
 
         var metadata = std.StringHashMap([]const u8).init(context.allocator);
         try metadata.put("struct_name", try context.allocator.dupe(u8, struct_name));
-        try metadata.put("is_public", if (std.mem.startsWith(u8, signature_line, "pub ")) "true" else "false");
+        try metadata.put("is_public", if (std.mem.startsWith(u8, signature_line, "pub ")) try context.allocator.dupe(u8, "true") else try context.allocator.dupe(u8, "false"));
 
         const unit = ParsedUnit{
             .id = unit_id,
@@ -552,7 +552,7 @@ pub const ZigParser = struct {
 
         var metadata = std.StringHashMap([]const u8).init(context.allocator);
         try metadata.put("enum_name", try context.allocator.dupe(u8, enum_name));
-        try metadata.put("is_public", if (std.mem.startsWith(u8, line, "pub ")) "true" else "false");
+        try metadata.put("is_public", if (std.mem.startsWith(u8, line, "pub ")) try context.allocator.dupe(u8, "true") else try context.allocator.dupe(u8, "false"));
 
         const unit = ParsedUnit{
             .id = unit_id,
@@ -820,9 +820,7 @@ fn extract_test_name(line: []const u8) ?[]const u8 {
 
 test "zig parser creation and cleanup" {
     const testing = std.testing;
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const config = ZigParserConfig{};
     var zig_parser = ZigParser.init(allocator, config);

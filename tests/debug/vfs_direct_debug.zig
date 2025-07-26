@@ -9,9 +9,7 @@ const vfs = cortexdb.vfs;
 const sim = cortexdb.simulation_vfs;
 
 test "direct VFS large write corruption test" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     log.info("=== Direct VFS Large Write Corruption Test ===", .{});
 

@@ -16,9 +16,7 @@ const VFile = vfs.VFile;
 const Simulation = simulation.Simulation;
 
 test "vfs debug: file content expansion zero initialization" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 12345);
     defer sim.deinit();
@@ -68,9 +66,7 @@ test "vfs debug: file content expansion zero initialization" {
 }
 
 test "vfs debug: write past end without seek" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 54321);
     defer sim.deinit();
@@ -104,9 +100,7 @@ test "vfs debug: write past end without seek" {
 }
 
 test "vfs debug: multiple resize operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 98765);
     defer sim.deinit();
@@ -160,9 +154,7 @@ test "vfs debug: multiple resize operations" {
 }
 
 test "vfs debug: raw buffer inspection" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 11111);
     defer sim.deinit();

@@ -17,9 +17,7 @@ const TortureTestConfig = allocator_torture_test.TortureTestConfig;
 
 test "DebugAllocator torture test integration" {
     // Arena per test for perfect isolation as mandated by STYLE.md
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Layer DebugAllocator over arena for enhanced debugging capability
     var debug_alloc = DebugAllocator.init(allocator);
@@ -63,9 +61,7 @@ test "DebugAllocator torture test integration" {
 }
 
 test "DebugAllocator under alignment stress conditions" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var debug_alloc = DebugAllocator.init(allocator);
     const debug_allocator_instance = debug_alloc.allocator();
@@ -97,9 +93,7 @@ test "DebugAllocator under alignment stress conditions" {
 }
 
 test "DebugAllocator pattern validation stress test" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var debug_alloc = DebugAllocator.init(allocator);
     const debug_allocator_instance = debug_alloc.allocator();
@@ -131,9 +125,7 @@ test "DebugAllocator pattern validation stress test" {
 }
 
 test "DebugAllocator comprehensive stress validation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var debug_alloc = DebugAllocator.init(allocator);
     const debug_allocator_instance = debug_alloc.allocator();

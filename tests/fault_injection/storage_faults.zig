@@ -30,9 +30,7 @@ fn random_block_id() BlockId {
 
 test "fault injection - simulation vfs infrastructure" {
     // Test basic fault injection infrastructure without full storage engine
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 12345);
     defer sim_vfs.deinit();
@@ -68,9 +66,7 @@ test "fault injection - simulation vfs infrastructure" {
 test "fault injection - disk full during compaction" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -123,9 +119,7 @@ test "fault injection - disk full during compaction" {
 test "fault injection - read corruption during query" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 0xDEADBEEF);
     defer sim_vfs.deinit();

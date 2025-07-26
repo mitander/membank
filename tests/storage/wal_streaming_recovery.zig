@@ -81,9 +81,7 @@ fn create_test_block(allocator: std.mem.Allocator, id_suffix: u8) !ContextBlock 
 }
 
 test "streaming recovery basic functionality" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -153,9 +151,7 @@ test "streaming recovery basic functionality" {
 }
 
 test "streaming recovery large entries" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -218,9 +214,7 @@ test "streaming recovery large entries" {
 }
 
 test "streaming recovery corruption resilience" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -283,9 +277,7 @@ test "streaming recovery corruption resilience" {
 }
 
 test "streaming recovery memory efficiency" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -336,9 +328,7 @@ test "streaming recovery memory efficiency" {
 }
 
 test "streaming recovery empty segment" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -369,9 +359,7 @@ test "streaming recovery empty segment" {
 }
 
 test "streaming recovery callback error propagation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -412,9 +400,7 @@ test "streaming recovery callback error propagation" {
 }
 
 test "streaming vs buffered recovery equivalence" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();

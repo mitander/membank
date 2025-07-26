@@ -24,10 +24,7 @@ const MAX_DIRECTORY_ENTRIES = 1000;
 const MAX_ITERATIONS = 100;
 
 test "wal hang debug: minimal directory iteration" {
-    // Arena-per-test for perfect isolation
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Test timeout mechanism
     const start_time = std.time.milliTimestamp();
@@ -44,6 +41,7 @@ test "wal hang debug: minimal directory iteration" {
     try sim_vfs.mkdir_all(test_dir);
 
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{test_dir});
+    defer allocator.free(wal_dir);
     try sim_vfs.mkdir_all(wal_dir);
 
     // Create a few test WAL files to iterate over
@@ -55,6 +53,7 @@ test "wal hang debug: minimal directory iteration" {
 
     for (test_files) |filename| {
         const filepath = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ wal_dir, filename });
+        defer allocator.free(filepath);
         var file = try sim_vfs.create(filepath);
         defer file.close();
         _ = try file.write("test content");
@@ -110,10 +109,7 @@ test "wal hang debug: minimal directory iteration" {
 }
 
 test "wal hang debug: storage engine initialization" {
-    // Arena-per-test for perfect isolation
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const start_time = std.time.milliTimestamp();
 
@@ -232,10 +228,7 @@ test "wal hang debug: single block write and recovery" {
 }
 
 test "wal hang debug: empty directory iteration" {
-    // Arena-per-test for perfect isolation
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 11111);
     defer sim.deinit();
@@ -411,10 +404,7 @@ test "wal hang debug: wal recovery with large blocks" {
 }
 
 test "wal hang debug: minimal recovery simulation" {
-    // Arena-per-test for perfect isolation
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const start_time = std.time.milliTimestamp();
 
@@ -480,10 +470,7 @@ test "wal hang debug: minimal recovery simulation" {
 }
 
 test "wal hang debug: empty WAL file recovery" {
-    // Arena-per-test for perfect isolation
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 77777);
     defer sim.deinit();
@@ -517,10 +504,7 @@ test "wal hang debug: empty WAL file recovery" {
 }
 
 test "wal hang debug: WAL file initialization check" {
-    // Arena-per-test for perfect isolation
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 88888);
     defer sim.deinit();
@@ -737,9 +721,7 @@ test "wal hang debug: investigate data corruption source" {
 }
 
 test "vfs debug: file expansion zero initialization" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try simulation.Simulation.init(allocator, 12345);
     defer sim.deinit();
@@ -771,6 +753,7 @@ test "vfs debug: file expansion zero initialization" {
     // Read entire file content
     const expected_size = 100 + second_data.len;
     var buffer = try allocator.alloc(u8, expected_size);
+    defer allocator.free(buffer);
     const bytes_read = try file.read(buffer);
     try testing.expectEqual(expected_size, bytes_read);
 
@@ -807,9 +790,7 @@ test "vfs debug: file expansion zero initialization" {
 }
 
 test "wal corruption debug: isolated single block write-read" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try simulation.Simulation.init(allocator, 99999);
     defer sim.deinit();

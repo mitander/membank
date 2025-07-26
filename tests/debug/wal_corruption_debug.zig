@@ -21,9 +21,7 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 
 test "minimal WAL corruption isolation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     log.info("=== Starting minimal WAL corruption test ===", .{});
 
@@ -229,9 +227,7 @@ test "minimal WAL corruption isolation" {
 }
 
 test "VFS large write corruption isolation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     log.info("=== Starting VFS large write corruption test ===", .{});
 
@@ -375,9 +371,7 @@ test "VFS large write corruption isolation" {
 }
 
 test "small block WAL corruption test" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     log.info("=== Starting small block WAL corruption test ===", .{});
 
@@ -480,9 +474,7 @@ test "small block WAL corruption test" {
 }
 
 test "trace WAL corruption step by step" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     log.info("=== WAL Corruption Step-by-Step Trace ===", .{});
 
@@ -584,9 +576,7 @@ test "trace WAL corruption step by step" {
 }
 
 test "medium block WAL corruption test" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     log.info("=== Starting medium block WAL corruption test ===", .{});
 

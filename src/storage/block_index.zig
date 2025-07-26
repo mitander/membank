@@ -181,9 +181,6 @@ pub const BlockIndex = struct {
 const testing = std.testing;
 
 test "block index initialization creates empty index" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = BlockIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -192,9 +189,7 @@ test "block index initialization creates empty index" {
 }
 
 test "put and find block operations work correctly" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var index = BlockIndex.init(allocator);
     defer index.deinit();
@@ -220,9 +215,7 @@ test "put and find block operations work correctly" {
 }
 
 test "put block clones strings into arena" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var index = BlockIndex.init(allocator);
     defer index.deinit();
@@ -248,9 +241,6 @@ test "put block clones strings into arena" {
 }
 
 test "remove block updates count and memory accounting" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = BlockIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -275,9 +265,6 @@ test "remove block updates count and memory accounting" {
 }
 
 test "block replacement updates memory accounting correctly" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = BlockIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -315,9 +302,6 @@ test "block replacement updates memory accounting correctly" {
 }
 
 test "clear operation resets index to empty state efficiently" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = BlockIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -345,9 +329,6 @@ test "clear operation resets index to empty state efficiently" {
 }
 
 test "memory accounting tracks string content accurately" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = BlockIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -371,9 +352,6 @@ test "memory accounting tracks string content accurately" {
 }
 
 test "block id hash context provides good distribution" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const ctx = BlockIndex.BlockIdContext{};
 
     // Generate different block IDs and verify they hash to different values
@@ -394,9 +372,7 @@ test "block id hash context provides good distribution" {
 }
 
 test "large block content handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var index = BlockIndex.init(allocator);
     defer index.deinit();

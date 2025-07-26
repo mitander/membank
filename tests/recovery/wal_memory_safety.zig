@@ -19,9 +19,7 @@ const StorageEngine = storage.StorageEngine;
 
 // Test WAL recovery robustness under memory pressure scenarios
 test "wal memory safety: sequential recovery cycles" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xDEADBEEF);
     defer sim.deinit();
@@ -112,9 +110,7 @@ test "wal memory safety: sequential recovery cycles" {
 
 // Test WAL recovery with different allocator patterns
 test "wal memory safety: allocator stress testing" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xFEEDFACE);
     defer sim.deinit();
@@ -125,7 +121,7 @@ test "wal memory safety: allocator stress testing" {
 
     // Test with large blocks that stress memory allocation patterns
     var engine = try StorageEngine.init_default(
-        testing.allocator,
+        allocator,
         vfs,
         "allocator_stress",
     );
@@ -173,7 +169,7 @@ test "wal memory safety: allocator stress testing" {
 
     // Recovery with same allocator
     var recovery_engine = try StorageEngine.init_default(
-        testing.allocator,
+        allocator,
         vfs,
         "allocator_stress",
     );
@@ -205,9 +201,7 @@ test "wal memory safety: allocator stress testing" {
 
 // Test WAL recovery robustness with rapid allocation/deallocation cycles
 test "wal memory safety: rapid cycle stress test" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xCAFEBABE);
     defer sim.deinit();
@@ -254,9 +248,7 @@ test "wal memory safety: rapid cycle stress test" {
 
 // Test edge cases that might expose memory corruption vulnerabilities
 test "wal memory safety: edge case robustness" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xBEEFFEED);
     defer sim.deinit();
@@ -354,9 +346,7 @@ test "wal memory safety: edge case robustness" {
 
 // Test memory safety during concurrent-like operations (sequential but rapid)
 test "wal memory safety: rapid sequential operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xABCDEF01);
     defer sim.deinit();

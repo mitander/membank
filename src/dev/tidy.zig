@@ -97,6 +97,14 @@ pub fn main() !void {
             violations += 1;
         }
 
+        if (tidy_test_allocator_pattern(source_file)) |allocator_error| {
+            std.debug.print(
+                "{s}: line {}: {s}\n",
+                .{ file_path, allocator_error.line, allocator_error.message },
+            );
+            violations += 1;
+        }
+
         // Dead declaration detection disabled due to AST API changes in Zig 0.15+
     }
 
@@ -890,6 +898,55 @@ fn tidy_generic_functions(
                 };
             }
         }
+    }
+
+    return null;
+}
+
+/// Enforces standardized allocator pattern in tests
+fn tidy_test_allocator_pattern(file: SourceFile) ?struct {
+    line: u32,
+    message: []const u8,
+} {
+    // Only check test files
+    const is_test_file = std.mem.endsWith(u8, file.path, "test.zig") or
+        std.mem.indexOf(u8, file.path, "/tests/") != null or
+        std.mem.indexOf(u8, file.text, "test \"") != null;
+
+    if (!is_test_file) return null;
+
+    var line_count: u32 = 0;
+    var it = std.mem.splitScalar(u8, file.text, '\n');
+    var has_standard_pattern = false;
+
+    while (it.next()) |line| {
+        line_count += 1;
+        const trimmed = std.mem.trim(u8, line, " \t");
+
+        // Check for the approved pattern
+        if (std.mem.eql(u8, trimmed, "const allocator = testing.allocator;")) {
+            has_standard_pattern = true;
+            continue;
+        }
+
+        // Check for direct usage of testing.allocator (not allowed)
+        if (std.mem.indexOf(u8, line, "testing.allocator") != null and
+            std.mem.indexOf(u8, line, "const allocator = testing.allocator;") == null and
+            std.mem.indexOf(u8, line, "//") == null)
+        { // Skip comments
+            return .{
+                .line = line_count,
+                .message = "use 'const allocator = testing.allocator;' pattern instead of direct testing.allocator calls",
+            };
+        }
+    }
+
+    // If it's a test file with allocator usage but no standard pattern, flag it
+    if (!has_standard_pattern and std.mem.indexOf(u8, file.text, "testing.allocator") != null) {
+        return .{
+            .line = 1,
+            .message = "test files should use 'const allocator = testing.allocator;' pattern",
+        };
     }
 
     return null;

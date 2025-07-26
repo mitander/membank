@@ -292,9 +292,7 @@ pub const ProductionVFS = struct {
 // ProductionFile struct removed - VFile is now a value type
 
 test "ProductionVFS basic file operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var prod_vfs = ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
@@ -333,9 +331,7 @@ test "ProductionVFS basic file operations" {
 }
 
 test "ProductionVFS directory operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var prod_vfs = ProductionVFS.init(allocator);
     defer prod_vfs.deinit();

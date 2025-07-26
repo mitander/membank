@@ -59,17 +59,11 @@ pub const Config = struct {
 const testing = std.testing;
 
 test "config validation accepts default configuration" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const config = Config{};
     try config.validate();
 }
 
 test "config validation accepts minimum size for testing" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const config = Config{
         .memtable_max_size = 1024 * 1024, // 1MB - minimum allowed
     };
@@ -77,9 +71,6 @@ test "config validation accepts minimum size for testing" {
 }
 
 test "config validation accepts maximum size" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const config = Config{
         .memtable_max_size = 1024 * 1024 * 1024, // 1GB - maximum allowed
     };
@@ -87,9 +78,6 @@ test "config validation accepts maximum size" {
 }
 
 test "config validation rejects undersized memtable" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const config = Config{
         .memtable_max_size = 512 * 1024, // 512KB - too small
     };
@@ -98,9 +86,6 @@ test "config validation rejects undersized memtable" {
 }
 
 test "config validation rejects oversized memtable" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const config = Config{
         .memtable_max_size = 2 * 1024 * 1024 * 1024, // 2GB - too large
     };
@@ -109,26 +94,18 @@ test "config validation rejects oversized memtable" {
 }
 
 test "minimal testing config is valid and optimized for fast iteration" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const config = Config.minimal_for_testing();
     try config.validate();
     try testing.expectEqual(@as(u64, 1024 * 1024), config.memtable_max_size);
 }
 
 test "production config is valid and optimized for throughput" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const config = Config.production_optimized();
     try config.validate();
     try testing.expectEqual(@as(u64, 256 * 1024 * 1024), config.memtable_max_size);
 }
 
 test "config validation boundary conditions" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
 
     // Test just below minimum (should fail)
     {

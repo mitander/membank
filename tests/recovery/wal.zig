@@ -240,9 +240,7 @@ test "wal recovery: multiple blocks and types" {
 }
 
 test "wal recovery: multiple wal files" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 24680);
     defer sim.deinit();
@@ -339,9 +337,7 @@ test "wal recovery: multiple wal files" {
 }
 
 test "wal recovery: corruption handling - invalid checksum" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 11111);
     defer sim.deinit();
@@ -410,9 +406,7 @@ test "wal recovery: corruption handling - invalid checksum" {
 }
 
 test "wal recovery: corruption handling - incomplete entry" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 22222);
     defer sim.deinit();
@@ -594,10 +588,7 @@ test "wal recovery: large blocks" {
 }
 
 test "wal recovery: stress test with many entries" {
-    // Arena allocator eliminates manual memory management and prevents leaks
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 99999);
     defer sim.deinit();
@@ -610,8 +601,9 @@ test "wal recovery: stress test with many entries" {
 
     // Write many blocks
     const data_dir = try allocator.dupe(u8, "wal_stress_data");
+    defer allocator.free(data_dir);
     var storage_engine1 = try StorageEngine.init_default(
-        testing.allocator,
+        allocator,
         node1_vfs,
         data_dir,
     );
@@ -656,7 +648,7 @@ test "wal recovery: stress test with many entries" {
     const data_dir2 = try allocator.dupe(u8, "wal_stress_data");
     defer allocator.free(data_dir2);
     var storage_engine2 = try StorageEngine.init_default(
-        testing.allocator,
+        allocator,
         node1_vfs,
         data_dir2,
     );

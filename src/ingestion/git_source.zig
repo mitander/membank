@@ -85,18 +85,38 @@ pub const GitSourceConfig = struct {
 
 /// Git repository metadata
 pub const GitMetadata = struct {
-    /// Current HEAD commit hash
-    commit_hash: []const u8,
-    /// Branch name
-    branch: []const u8,
-    /// Repository root path
+    /// Fixed buffer for commit hash (40 chars + null terminator + padding)
+    commit_hash_buf: [64]u8,
+    commit_hash_len: usize,
+    /// Fixed buffer for branch name (most branch names are short)
+    branch_buf: [256]u8,
+    branch_len: usize,
+    /// Repository root path (allocated since it can be long)
     repository_root: []const u8,
     /// When the repository was last scanned
     scan_timestamp_ns: u64,
 
+    pub fn commit_hash(self: *const GitMetadata) []const u8 {
+        return self.commit_hash_buf[0..self.commit_hash_len];
+    }
+
+    pub fn branch(self: *const GitMetadata) []const u8 {
+        return self.branch_buf[0..self.branch_len];
+    }
+
+    fn update_commit_hash(self: *GitMetadata, hash: []const u8) void {
+        const len = @min(hash.len, self.commit_hash_buf.len - 1);
+        @memcpy(self.commit_hash_buf[0..len], hash[0..len]);
+        self.commit_hash_len = len;
+    }
+
+    fn update_branch(self: *GitMetadata, branch_name: []const u8) void {
+        const len = @min(branch_name.len, self.branch_buf.len - 1);
+        @memcpy(self.branch_buf[0..len], branch_name[0..len]);
+        self.branch_len = len;
+    }
+
     pub fn deinit(self: *GitMetadata, allocator: std.mem.Allocator) void {
-        allocator.free(self.commit_hash);
-        allocator.free(self.branch);
         allocator.free(self.repository_root);
     }
 };
@@ -157,8 +177,8 @@ pub const GitSourceIterator = struct {
         try metadata_map.put("file_size", try std.fmt.allocPrint(allocator, "{d}", .{file.size}));
 
         if (self.git_source.metadata) |meta| {
-            try metadata_map.put("commit_hash", try allocator.dupe(u8, meta.commit_hash));
-            try metadata_map.put("branch", try allocator.dupe(u8, meta.branch));
+            try metadata_map.put("commit_hash", try allocator.dupe(u8, meta.commit_hash()));
+            try metadata_map.put("branch", try allocator.dupe(u8, meta.branch()));
         }
 
         return SourceContent{
@@ -222,6 +242,7 @@ pub const GitSource = struct {
         if (self.metadata) |*metadata| {
             metadata.deinit(allocator);
         }
+        self.config.deinit(allocator);
     }
 
     /// Create Source interface wrapper
@@ -274,12 +295,17 @@ pub const GitSource = struct {
         const git_exists = if (git_stat) |stat| stat.is_directory else false;
         if (!git_exists) {
             // Not a Git repository, use fallback metadata
-            self.metadata = GitMetadata{
-                .commit_hash = try allocator.dupe(u8, "unknown"),
-                .branch = try allocator.dupe(u8, "unknown"),
+            var metadata = GitMetadata{
+                .commit_hash_buf = undefined,
+                .commit_hash_len = 0,
+                .branch_buf = undefined,
+                .branch_len = 0,
                 .repository_root = try allocator.dupe(u8, self.config.repository_path),
                 .scan_timestamp_ns = @intCast(std.time.nanoTimestamp()),
             };
+            metadata.update_commit_hash("unknown");
+            metadata.update_branch("unknown");
+            self.metadata = metadata;
             return;
         }
 
@@ -287,8 +313,17 @@ pub const GitSource = struct {
         const head_path = try std.fs.path.join(allocator, &.{ git_dir, "HEAD" });
         defer allocator.free(head_path);
 
-        var commit_hash: []const u8 = "unknown";
-        var branch: []const u8 = "unknown";
+        // Initialize metadata with fallback values
+        var metadata = GitMetadata{
+            .commit_hash_buf = undefined,
+            .commit_hash_len = 0,
+            .branch_buf = undefined,
+            .branch_len = 0,
+            .repository_root = try allocator.dupe(u8, self.config.repository_path),
+            .scan_timestamp_ns = @intCast(std.time.nanoTimestamp()),
+        };
+        metadata.update_commit_hash("unknown");
+        metadata.update_branch("unknown");
 
         if (file_system.read_file_alloc(allocator, head_path, 1024)) |head_content| {
             defer allocator.free(head_content);
@@ -296,33 +331,28 @@ pub const GitSource = struct {
             const trimmed = std.mem.trim(u8, head_content, " \t\n\r");
             if (std.mem.startsWith(u8, trimmed, "ref: refs/heads/")) {
                 // Branch reference
-                branch = try allocator.dupe(u8, trimmed[16..]);
+                metadata.update_branch(trimmed[16..]);
 
                 // Try to read the commit hash from the branch ref
-                const branch_ref_path = try std.fs.path.join(allocator, &.{ git_dir, "refs", "heads", branch });
+                const branch_ref_path = try std.fs.path.join(allocator, &.{ git_dir, "refs", "heads", metadata.branch() });
                 defer allocator.free(branch_ref_path);
 
                 if (file_system.read_file_alloc(allocator, branch_ref_path, 64)) |ref_content| {
                     defer allocator.free(ref_content);
-                    commit_hash = try allocator.dupe(u8, std.mem.trim(u8, ref_content, " \t\n\r"));
+                    metadata.update_commit_hash(std.mem.trim(u8, ref_content, " \t\n\r"));
                 } else |_| {
-                    commit_hash = try allocator.dupe(u8, "unknown");
+                    metadata.update_commit_hash("unknown");
                 }
             } else if (trimmed.len >= 40) {
                 // Direct commit hash
-                commit_hash = try allocator.dupe(u8, trimmed[0..40]);
-                branch = try allocator.dupe(u8, "detached");
+                metadata.update_commit_hash(trimmed[0..40]);
+                metadata.update_branch("detached");
             }
         } else |_| {
-            // Can't read HEAD file
+            // Can't read HEAD file, keep fallback values
         }
 
-        self.metadata = GitMetadata{
-            .commit_hash = commit_hash,
-            .branch = branch,
-            .repository_root = try allocator.dupe(u8, self.config.repository_path),
-            .scan_timestamp_ns = @intCast(std.time.nanoTimestamp()),
-        };
+        self.metadata = metadata;
     }
 
     /// Find all files matching the configured patterns
@@ -503,9 +533,7 @@ fn detect_content_type(file_path: []const u8) []const u8 {
 
 test "git source creation and cleanup" {
     const testing = std.testing;
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var config = try GitSourceConfig.init(allocator, "/test/repo");
     defer config.deinit(allocator);

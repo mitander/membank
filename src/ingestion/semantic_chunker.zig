@@ -257,9 +257,7 @@ pub const SemanticChunker = struct {
 
 test "semantic chunker creation and cleanup" {
     const testing = std.testing;
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const config = SemanticChunkerConfig{};
     var semantic_chunker = SemanticChunker.init(allocator, config);
@@ -271,9 +269,7 @@ test "semantic chunker creation and cleanup" {
 
 test "convert unit to block" {
     const testing = std.testing;
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const config = SemanticChunkerConfig{};
     var semantic_chunker = SemanticChunker.init(allocator, config);
@@ -314,9 +310,7 @@ test "convert unit to block" {
 
 test "generate deterministic block ID" {
     const testing = std.testing;
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const config = SemanticChunkerConfig{};
     var semantic_chunker = SemanticChunker.init(allocator, config);
@@ -346,9 +340,7 @@ test "generate deterministic block ID" {
 
 test "chunk multiple units" {
     const testing = std.testing;
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const config = SemanticChunkerConfig{};
     var semantic_chunker = SemanticChunker.init(allocator, config);

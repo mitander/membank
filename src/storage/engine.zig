@@ -594,9 +594,7 @@ const testing = std.testing;
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
 test "storage engine initialization and cleanup" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -609,9 +607,7 @@ test "storage engine initialization and cleanup" {
 }
 
 test "storage engine startup and basic operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -644,9 +640,7 @@ test "storage engine startup and basic operations" {
 }
 
 test "memtable flush triggers at size threshold" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -686,9 +680,7 @@ test "memtable flush triggers at size threshold" {
 }
 
 test "WAL recovery restores storage state" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -727,9 +719,7 @@ test "WAL recovery restores storage state" {
 }
 
 test "graph edge operations work correctly" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -760,9 +750,7 @@ test "graph edge operations work correctly" {
 }
 
 test "storage metrics track operations accurately" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -792,9 +780,7 @@ test "storage metrics track operations accurately" {
 }
 
 test "block iterator with empty storage" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -812,9 +798,7 @@ test "block iterator with empty storage" {
 }
 
 test "block iterator with memtable blocks only" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -873,9 +857,7 @@ test "block iterator with memtable blocks only" {
 }
 
 test "block iterator with SSTable blocks" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -927,9 +909,7 @@ test "block iterator with SSTable blocks" {
 }
 
 test "block iterator with mixed memtable and SSTable blocks" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -994,9 +974,7 @@ test "block iterator with mixed memtable and SSTable blocks" {
 }
 
 test "block iterator handles multiple calls to next after exhaustion" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();

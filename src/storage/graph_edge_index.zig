@@ -229,9 +229,6 @@ pub const GraphEdgeIndex = struct {
 const testing = std.testing;
 
 test "graph edge index initialization creates empty index" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -241,9 +238,6 @@ test "graph edge index initialization creates empty index" {
 }
 
 test "put and find edge operations work correctly" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -275,9 +269,6 @@ test "put and find edge operations work correctly" {
 }
 
 test "multiple edges from same source are stored correctly" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -308,9 +299,6 @@ test "multiple edges from same source are stored correctly" {
 }
 
 test "remove specific edge works correctly" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -349,9 +337,6 @@ test "remove specific edge works correctly" {
 }
 
 test "remove block edges cleans up all references" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -379,9 +364,6 @@ test "remove block edges cleans up all references" {
 }
 
 test "clear operation resets index to empty state" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -406,9 +388,6 @@ test "clear operation resets index to empty state" {
 }
 
 test "bidirectional index consistency" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -436,9 +415,6 @@ test "bidirectional index consistency" {
 }
 
 test "hash context provides good distribution for block ids" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const ctx = GraphEdgeIndex.BlockIdContext{};
 
     const id1 = BlockId.generate();
@@ -459,9 +435,6 @@ test "hash context provides good distribution for block ids" {
 }
 
 test "edge count accuracy with complex graph" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 

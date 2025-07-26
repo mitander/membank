@@ -274,9 +274,7 @@ fn error_recovery_callback(entry: entry_mod.WALEntry, context: *anyopaque) WALEr
 }
 
 test "recover_from_segment - empty file" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -296,9 +294,7 @@ test "recover_from_segment - empty file" {
 }
 
 test "recover_from_segment - single valid entry" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -331,9 +327,7 @@ test "recover_from_segment - single valid entry" {
 }
 
 test "recover_from_segment - multiple valid entries" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -366,9 +360,7 @@ test "recover_from_segment - multiple valid entries" {
 }
 
 test "recover_from_segment - corrupted entry handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -408,9 +400,7 @@ test "recover_from_segment - corrupted entry handling" {
 }
 
 test "recover_from_segment - file not found" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -423,9 +413,7 @@ test "recover_from_segment - file not found" {
 }
 
 test "recover_from_segment - callback error handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -448,9 +436,7 @@ test "recover_from_segment - callback error handling" {
 }
 
 test "recover_from_segments - multiple segment files" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -489,9 +475,7 @@ test "recover_from_segments - multiple segment files" {
 }
 
 test "recover_from_segments - corrupted segment skipping" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -532,9 +516,7 @@ test "recover_from_segments - corrupted segment skipping" {
 }
 
 test "recover_from_segments - directory not found" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -547,9 +529,7 @@ test "recover_from_segments - directory not found" {
 }
 
 test "list_segment_files - empty directory" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -569,9 +549,7 @@ test "list_segment_files - empty directory" {
 }
 
 test "list_segment_files - mixed files" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -611,9 +589,7 @@ test "list_segment_files - mixed files" {
 }
 
 test "list_segment_files - sorting verification" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();

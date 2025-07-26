@@ -234,9 +234,6 @@ const testing = std.testing;
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
 test "recovery context initialization and finalization" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var setup = try create_test_recovery_setup(testing.allocator);
     defer setup.deinit();
 
@@ -254,9 +251,6 @@ test "recovery context initialization and finalization" {
 }
 
 test "recovery statistics calculations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var stats = RecoveryStats.init();
     stats.total_entries_processed = 100;
     stats.corrupted_entries_skipped = 5;
@@ -274,9 +268,6 @@ test "recovery statistics calculations" {
 }
 
 test "apply wal entry to storage with block operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var setup = try create_test_recovery_setup(testing.allocator);
     defer setup.deinit();
 
@@ -317,9 +308,6 @@ test "apply wal entry to storage with block operations" {
 }
 
 test "apply wal entry to storage with edge operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var setup = try create_test_recovery_setup(testing.allocator);
     defer setup.deinit();
 
@@ -346,9 +334,6 @@ test "apply wal entry to storage with edge operations" {
 }
 
 test "recovery state validation detects corruption" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var setup = try create_test_recovery_setup(testing.allocator);
     defer setup.deinit();
 
@@ -376,9 +361,6 @@ test "recovery state validation detects corruption" {
 }
 
 test "recovery handles invalid context gracefully" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     const block = ContextBlock{
         .id = BlockId.generate(),
         .version = 1,
@@ -398,9 +380,6 @@ test "recovery handles invalid context gracefully" {
 }
 
 test "recovery callback handles corrupted blocks gracefully" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var setup = try create_test_recovery_setup(testing.allocator);
     defer setup.deinit();
 
@@ -431,9 +410,7 @@ test "recovery callback handles corrupted blocks gracefully" {
 }
 
 test "complete recovery workflow with mixed operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -491,9 +468,6 @@ test "complete recovery workflow with mixed operations" {
 }
 
 test "create test recovery setup provides working components" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
     var setup = try create_test_recovery_setup(testing.allocator);
     defer setup.deinit();
 

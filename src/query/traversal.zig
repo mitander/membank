@@ -656,9 +656,7 @@ test "traversal algorithm enum parsing" {
 }
 
 test "traversal result memory management" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_block = create_test_block(try BlockId.from_hex("1111111111111111111111111111111111111111"), "test content");
 
@@ -672,9 +670,7 @@ test "traversal result memory management" {
 }
 
 test "basic traversal with empty graph" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -696,9 +692,7 @@ test "basic traversal with empty graph" {
 }
 
 test "outgoing traversal with linear chain" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -752,9 +746,7 @@ test "outgoing traversal with linear chain" {
 }
 
 test "incoming traversal" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -796,9 +788,7 @@ test "incoming traversal" {
 }
 
 test "bidirectional traversal" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -840,9 +830,7 @@ test "bidirectional traversal" {
 }
 
 test "edge type filtering" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -894,9 +882,7 @@ test "edge type filtering" {
 }
 
 test "max depth limit enforcement" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -953,9 +939,7 @@ test "max depth limit enforcement" {
 }
 
 test "max results limit enforcement" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -1008,9 +992,7 @@ test "max results limit enforcement" {
 }
 
 test "breadth-first vs depth-first traversal ordering" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -1098,9 +1080,7 @@ test "breadth-first vs depth-first traversal ordering" {
 }
 
 test "traversal error handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -1118,9 +1098,7 @@ test "traversal error handling" {
 }
 
 test "convenience traversal functions" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();

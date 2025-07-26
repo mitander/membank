@@ -312,9 +312,7 @@ comptime {
 
 // Tests
 test "WALEntryStream initialization" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const sim_vfs = @import("../../sim/simulation_vfs.zig");
     var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
@@ -338,9 +336,7 @@ test "WALEntryStream initialization" {
 }
 
 test "WALEntryStream read from empty file" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const sim_vfs = @import("../../sim/simulation_vfs.zig");
     var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
@@ -359,9 +355,7 @@ test "WALEntryStream read from empty file" {
 }
 
 test "WALEntryStream read single complete entry" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const sim_vfs = @import("../../sim/simulation_vfs.zig");
     var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
@@ -408,9 +402,7 @@ test "WALEntryStream read single complete entry" {
 }
 
 test "WALEntryStream read multiple entries" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const sim_vfs = @import("../../sim/simulation_vfs.zig");
     var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
@@ -469,9 +461,7 @@ test "WALEntryStream read multiple entries" {
 }
 
 test "WALEntryStream corrupted entry handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const sim_vfs = @import("../../sim/simulation_vfs.zig");
     var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
@@ -498,9 +488,7 @@ test "WALEntryStream corrupted entry handling" {
 }
 
 test "WALEntryStream oversized payload" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const sim_vfs = @import("../../sim/simulation_vfs.zig");
     var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
@@ -526,9 +514,7 @@ test "WALEntryStream oversized payload" {
 }
 
 test "WALEntryStream incomplete entry at EOF" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const sim_vfs = @import("../../sim/simulation_vfs.zig");
     var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
@@ -551,9 +537,7 @@ test "WALEntryStream incomplete entry at EOF" {
 }
 
 test "WALEntryStream large entry handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const sim_vfs = @import("../../sim/simulation_vfs.zig");
     var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
@@ -597,9 +581,7 @@ test "WALEntryStream large entry handling" {
 }
 
 test "WALEntryStream position tracking" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const sim_vfs = @import("../../sim/simulation_vfs.zig");
     var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
@@ -649,9 +631,7 @@ test "WALEntryStream position tracking" {
 }
 
 test "WALEntryStream buffer boundary handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const sim_vfs = @import("../../sim/simulation_vfs.zig");
     var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
@@ -695,9 +675,7 @@ test "WALEntryStream buffer boundary handling" {
 }
 
 test "StreamEntry memory management" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     const test_payload = try allocator.dupe(u8, "test payload for memory management");
 

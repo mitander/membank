@@ -325,9 +325,7 @@ fn create_test_block(id: BlockId, content: []const u8) ContextBlock {
 }
 
 test "query engine initialization and deinitialization" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -341,9 +339,7 @@ test "query engine initialization and deinitialization" {
 }
 
 test "query engine statistics tracking" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -376,9 +372,7 @@ test "query engine statistics tracking" {
 }
 
 test "query engine statistics calculations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -401,9 +395,7 @@ test "query engine statistics calculations" {
 }
 
 test "query engine statistics reset" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -427,9 +419,7 @@ test "query engine statistics reset" {
 }
 
 test "query engine find_blocks execution" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -456,9 +446,7 @@ test "query engine find_blocks execution" {
 }
 
 test "query engine find_block convenience method" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -480,9 +468,7 @@ test "query engine find_block convenience method" {
 }
 
 test "query engine block_exists check" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -506,9 +492,7 @@ test "query engine block_exists check" {
 }
 
 test "query engine uninitialized error handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
@@ -552,9 +536,7 @@ test "query command enum parsing" {
 }
 
 test "query engine traversal integration" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();

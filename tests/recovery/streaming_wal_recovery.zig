@@ -36,9 +36,7 @@ fn create_test_block(allocator: std.mem.Allocator, id_suffix: u8) !ContextBlock 
 }
 
 test "streaming WAL recovery - basic correctness" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 12345);
     defer sim.deinit();
@@ -57,6 +55,12 @@ test "streaming WAL recovery - basic correctness" {
     // Create and store test blocks
     const test_blocks = [_]u8{ 1, 2, 3, 4, 5 };
     var expected_blocks = std.ArrayList(ContextBlock).init(allocator);
+    defer {
+        for (expected_blocks.items) |block| {
+            block.deinit(allocator);
+        }
+        expected_blocks.deinit();
+    }
 
     for (test_blocks) |suffix| {
         const block = try create_test_block(allocator, suffix);
@@ -88,9 +92,7 @@ test "streaming WAL recovery - basic correctness" {
 }
 
 test "streaming WAL recovery - large WAL file efficiency" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 54321);
     defer sim.deinit();
@@ -114,6 +116,7 @@ test "streaming WAL recovery - large WAL file efficiency" {
         var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
         std.mem.writeInt(u64, id_bytes[0..8], i, .little);
         const block = try create_test_block_with_id(allocator, id_bytes, @intCast(i % 256));
+        defer block.deinit(allocator);
 
         try storage_engine.put_block(block);
     }
@@ -147,9 +150,7 @@ test "streaming WAL recovery - large WAL file efficiency" {
 }
 
 test "streaming WAL recovery - empty WAL file handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 98765);
     defer sim.deinit();
@@ -167,6 +168,7 @@ test "streaming WAL recovery - empty WAL file handling" {
 
     // Should be able to write and read blocks normally after recovery from empty state
     const test_block = try create_test_block(allocator, 42);
+    defer test_block.deinit(allocator);
     try storage_engine.put_block(test_block);
 
     const retrieved_block = (try storage_engine.find_block(test_block.id)) orelse {
@@ -177,9 +179,7 @@ test "streaming WAL recovery - empty WAL file handling" {
 }
 
 test "streaming WAL recovery - arena memory reset validation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 13579);
     defer sim.deinit();
@@ -204,6 +204,7 @@ test "streaming WAL recovery - arena memory reset validation" {
         var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
         std.mem.writeInt(u64, id_bytes[0..8], i, .little);
         const block = try create_test_block_with_id(allocator, id_bytes, @intCast(i % 256));
+        defer block.deinit(allocator);
 
         try storage_engine.put_block(block);
     }

@@ -74,9 +74,7 @@ fn create_test_block(allocator: std.mem.Allocator, id_suffix: u8) !ContextBlock 
 }
 
 test "streaming recovery basic functionality" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -132,9 +130,7 @@ test "streaming recovery basic functionality" {
 }
 
 test "streaming recovery with large entries" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -183,9 +179,7 @@ test "streaming recovery with large entries" {
 }
 
 test "streaming recovery memory efficiency" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -223,9 +217,7 @@ test "streaming recovery memory efficiency" {
 }
 
 test "streaming recovery empty WAL" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();

@@ -52,9 +52,7 @@ const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
 test "WAL entry serialization roundtrip" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create test block
     const test_block = ContextBlock{
@@ -89,9 +87,7 @@ test "WAL entry serialization roundtrip" {
 }
 
 test "WAL basic write and recovery" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -141,9 +137,7 @@ test "WAL basic write and recovery" {
 }
 
 test "WAL segment rotation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -192,9 +186,7 @@ test "WAL segment rotation" {
 }
 
 test "WAL corruption resilience" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Test that invalid entry types are rejected
     try testing.expectError(WALError.InvalidEntryType, WALEntryType.from_u8(0));

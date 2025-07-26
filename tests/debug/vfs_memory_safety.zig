@@ -17,10 +17,9 @@ const VFile = vfs.VFile;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
 test "vfs memory safety: arraylist expansion corruption detection" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
+    const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(arena.allocator());
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
     const test_vfs = sim_vfs.vfs();
 
@@ -72,10 +71,9 @@ test "vfs memory safety: arraylist expansion corruption detection" {
 }
 
 test "vfs memory safety: multiple file creation stress test" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
+    const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(arena.allocator());
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
     const test_vfs = sim_vfs.vfs();
 
@@ -85,7 +83,8 @@ test "vfs memory safety: multiple file creation stress test" {
 
     // Create many files to trigger file_storage reallocation
     for (0..num_files) |i| {
-        const file_name = try std.fmt.allocPrint(arena.allocator(), "test_file_{}.log", .{i});
+        const file_name = try std.fmt.allocPrint(allocator, "test_file_{}.log", .{i});
+        defer allocator.free(file_name);
         files[i] = try test_vfs.create(file_name);
 
         // Write unique pattern to each file
@@ -117,10 +116,9 @@ test "vfs memory safety: multiple file creation stress test" {
 }
 
 test "vfs memory safety: incremental growth corruption detection" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
+    const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(arena.allocator());
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
     const test_vfs = sim_vfs.vfs();
 
@@ -133,7 +131,8 @@ test "vfs memory safety: incremental growth corruption detection" {
 
     // Write in increasing chunk sizes
     for (write_sizes) |size| {
-        const write_buffer = try arena.allocator().alloc(u8, size);
+        const write_buffer = try allocator.alloc(u8, size);
+        defer allocator.free(write_buffer);
 
         // Fill with deterministic pattern
         for (write_buffer, 0..) |*byte, i| {
@@ -153,7 +152,8 @@ test "vfs memory safety: incremental growth corruption detection" {
         const current_pos = try file.tell();
         _ = try file.seek(current_pos - size, .start);
 
-        const verify_buffer = try arena.allocator().alloc(u8, size);
+        const verify_buffer = try allocator.alloc(u8, size);
+        defer allocator.free(verify_buffer);
         const read_bytes = try file.read(verify_buffer);
         try testing.expectEqual(size, read_bytes);
 
@@ -170,7 +170,8 @@ test "vfs memory safety: incremental growth corruption detection" {
     const file_size = try file.file_size();
     try testing.expectEqual(total_written, file_size);
 
-    const full_read_buffer = try arena.allocator().alloc(u8, total_written);
+    const full_read_buffer = try allocator.alloc(u8, total_written);
+    defer allocator.free(full_read_buffer);
     const full_read = try file.read(full_read_buffer);
     try testing.expectEqual(total_written, full_read);
 
@@ -189,10 +190,9 @@ test "vfs memory safety: incremental growth corruption detection" {
 }
 
 test "vfs memory safety: sparse file gap handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
+    const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(arena.allocator());
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
     const test_vfs = sim_vfs.vfs();
 
@@ -240,10 +240,9 @@ test "vfs memory safety: sparse file gap handling" {
 }
 
 test "vfs memory safety: capacity boundary write" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
+    const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(arena.allocator());
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
     const test_vfs = sim_vfs.vfs();
 
@@ -254,7 +253,8 @@ test "vfs memory safety: capacity boundary write" {
     const sizes = [_]usize{ 127, 128, 129, 255, 256, 257, 511, 512, 513, 1023, 1024, 1025 };
 
     for (sizes) |size| {
-        const write_buffer = try arena.allocator().alloc(u8, size);
+        const write_buffer = try allocator.alloc(u8, size);
+        defer allocator.free(write_buffer);
         @memset(write_buffer, @intCast(size & 0xFF));
 
         const written = try file.write(write_buffer);
@@ -264,7 +264,8 @@ test "vfs memory safety: capacity boundary write" {
         const pos = try file.tell();
         _ = try file.seek(pos - size, .start);
 
-        const read_buffer = try arena.allocator().alloc(u8, size);
+        const read_buffer = try allocator.alloc(u8, size);
+        defer allocator.free(read_buffer);
         const read_bytes = try file.read(read_buffer);
         try testing.expectEqual(size, read_bytes);
 
@@ -278,10 +279,9 @@ test "vfs memory safety: capacity boundary write" {
 }
 
 test "vfs memory safety: handle stability during expansion" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
+    const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(arena.allocator());
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
     const test_vfs = sim_vfs.vfs();
 
@@ -302,7 +302,8 @@ test "vfs memory safety: handle stability during expansion" {
     // Create many more files to potentially trigger file_storage reallocation
     var temp_files: [50]VFile = undefined;
     for (0..50) |i| {
-        const name = try std.fmt.allocPrint(arena.allocator(), "temp_{}.log", .{i});
+        const name = try std.fmt.allocPrint(allocator, "temp_{}.log", .{i});
+        defer allocator.free(name);
         temp_files[i] = try test_vfs.create(name);
         _ = try temp_files[i].write("TEMP");
     }
@@ -327,10 +328,9 @@ test "vfs memory safety: handle stability during expansion" {
 }
 
 test "vfs memory safety: comprehensive checksum validation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
+    const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(arena.allocator());
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
     const test_vfs = sim_vfs.vfs();
 

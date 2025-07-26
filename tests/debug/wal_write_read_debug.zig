@@ -18,9 +18,7 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 
 test "WAL write then direct VFS read corruption test" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     log.info("=== WAL Write -> Direct VFS Read Corruption Test ===", .{});
 

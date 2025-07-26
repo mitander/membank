@@ -111,9 +111,7 @@ test "message header - buffer too small" {
 test "server initialization" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -144,9 +142,7 @@ test "server initialization" {
 test "client connection - initialization" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create a mock stream
     const mock_stream = std.net.Stream{
@@ -200,9 +196,7 @@ test "protocol - find_blocks message" {
 test "server - connection limit configuration" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -229,9 +223,7 @@ test "server - connection limit configuration" {
 test "server stats - initial values" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -304,9 +296,7 @@ test "protocol - corrupted header recovery" {
 test "server - engine references" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -335,9 +325,7 @@ test "server - engine references" {
 test "connection state machine - header reading with partial I/O" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create a mock pipe pair to simulate async I/O
     const pipe_result = try std.posix.pipe();
@@ -390,9 +378,7 @@ test "connection state machine - header reading with partial I/O" {
 test "connection state machine - payload reading with flow control" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create a mock pipe pair
     const pipe_result = try std.posix.pipe();
@@ -463,9 +449,7 @@ test "connection state machine - payload reading with flow control" {
 test "connection state machine - response state transitions" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create a mock pipe pair for successful write operations
     const pipe_result = try std.posix.pipe();
@@ -507,9 +491,7 @@ test "connection state machine - response state transitions" {
 test "connection state machine - request size limits" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create a mock pipe pair
     const pipe_result = try std.posix.pipe();
@@ -552,9 +534,7 @@ test "connection state machine - request size limits" {
 test "connection state machine - client disconnection handling" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create a mock pipe pair
     const pipe_result = try std.posix.pipe();
@@ -584,9 +564,7 @@ test "connection state machine - client disconnection handling" {
 test "connection state machine - arena memory isolation" {
     concurrency.init();
 
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     // Create a mock pipe pair
     const pipe_result = try std.posix.pipe();

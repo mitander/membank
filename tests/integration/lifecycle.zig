@@ -24,9 +24,7 @@ const EdgeType = context_block.EdgeType;
 const Simulation = simulation.Simulation;
 
 test "integration: full data lifecycle with compaction" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0x5EC7E571);
     defer sim.deinit();
@@ -281,9 +279,7 @@ test "integration: full data lifecycle with compaction" {
 }
 
 test "integration: concurrent storage and query operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xC0FFEE42);
     defer sim.deinit();
@@ -417,9 +413,7 @@ test "integration: concurrent storage and query operations" {
 }
 
 test "integration: storage recovery and query consistency" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xBADC0FFE);
     defer sim.deinit();
@@ -559,9 +553,7 @@ test "integration: storage recovery and query consistency" {
 }
 
 test "integration: large scale performance characteristics" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xDEADBEEF);
     defer sim.deinit();

@@ -39,9 +39,7 @@ fn create_wal_entry(writer: anytype, entry_type: u8, payload: []const u8) !void 
 }
 
 test "stream basic entry reading" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -86,9 +84,7 @@ test "stream basic entry reading" {
 }
 
 test "stream large entry exceeding buffer" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -141,9 +137,7 @@ test "stream large entry exceeding buffer" {
 }
 
 test "stream entry spanning buffer boundary" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -185,9 +179,7 @@ test "stream entry spanning buffer boundary" {
 }
 
 test "stream corruption detection" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -222,9 +214,7 @@ test "stream corruption detection" {
 }
 
 test "stream invalid entry type detection" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -251,9 +241,7 @@ test "stream invalid entry type detection" {
 }
 
 test "stream empty file handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -275,9 +263,7 @@ test "stream empty file handling" {
 }
 
 test "stream truncated entry handling" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -311,9 +297,7 @@ test "stream truncated entry handling" {
 }
 
 test "stream memory management" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
@@ -354,9 +338,7 @@ test "stream memory management" {
 }
 
 test "stream position tracking" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
