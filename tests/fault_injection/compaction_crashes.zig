@@ -70,7 +70,7 @@ test "compaction crash - recovery from partial sstable write" {
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
     try populate_storage_for_compaction(allocator, &storage_engine, 50);
 
     // Force flush to create initial SSTables
@@ -105,7 +105,7 @@ test "compaction crash - recovery from partial sstable write" {
     var recovered_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer recovered_engine.deinit();
 
-    try recovered_engine.initialize_storage();
+    try recovered_engine.startup();
 
     // Verify data integrity after recovery
     // All originally stored blocks should be accessible
@@ -160,7 +160,7 @@ test "compaction crash - recovery with orphaned files" {
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
     try populate_storage_for_compaction(allocator, &storage_engine, 40);
     try storage_engine.flush_memtable();
 
@@ -191,7 +191,7 @@ test "compaction crash - recovery with orphaned files" {
     var recovered_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer recovered_engine.deinit();
 
-    try recovered_engine.initialize_storage();
+    try recovered_engine.startup();
 
     // Verify storage is consistent after recovery
     // System should have cleaned up any orphaned files and be operational
@@ -242,7 +242,7 @@ test "compaction crash - multiple sequential crash recovery" {
         var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
         defer storage_engine.deinit();
 
-        try storage_engine.initialize_storage();
+        try storage_engine.startup();
 
         // Add data that may trigger compaction
         try populate_storage_for_compaction(allocator, &storage_engine, 25);
@@ -269,7 +269,7 @@ test "compaction crash - multiple sequential crash recovery" {
     var final_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer final_engine.deinit();
 
-    try final_engine.initialize_storage();
+    try final_engine.startup();
 
     // System should be operational after multiple crashes
     const final_block = ContextBlock{
@@ -304,7 +304,7 @@ test "compaction crash - torn write recovery" {
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
     try populate_storage_for_compaction(allocator, &storage_engine, 30);
 
     // Enable torn writes to simulate power loss during compaction file writes
@@ -324,7 +324,7 @@ test "compaction crash - torn write recovery" {
     var recovered_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer recovered_engine.deinit();
 
-    try recovered_engine.initialize_storage();
+    try recovered_engine.startup();
 
     // System should detect and handle corrupted files during recovery
     // Some data may be lost, but system should be operational

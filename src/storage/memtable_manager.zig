@@ -58,7 +58,7 @@ pub const MemtableManager = struct {
     /// both block and edge indexes atomically.
     pub fn deinit(self: *MemtableManager) void {
         concurrency.assert_main_thread();
-        
+
         self.block_index.deinit();
         self.graph_index.deinit();
     }
@@ -68,7 +68,7 @@ pub const MemtableManager = struct {
     /// Updates memory accounting for accurate flush threshold calculations.
     pub fn put_block(self: *MemtableManager, block: ContextBlock) !void {
         concurrency.assert_main_thread();
-        
+
         try self.block_index.put_block(block);
     }
 
@@ -77,7 +77,7 @@ pub const MemtableManager = struct {
     /// Used for delete operations and during WAL recovery.
     pub fn delete_block(self: *MemtableManager, block_id: BlockId) void {
         concurrency.assert_main_thread();
-        
+
         self.block_index.remove_block(block_id);
         self.graph_index.remove_block_edges(block_id);
     }
@@ -87,7 +87,7 @@ pub const MemtableManager = struct {
     /// Clones edge data into the arena for ownership isolation.
     pub fn put_edge(self: *MemtableManager, edge: GraphEdge) !void {
         concurrency.assert_main_thread();
-        
+
         try self.graph_index.put_edge(edge);
     }
 
@@ -110,7 +110,7 @@ pub const MemtableManager = struct {
     /// block and edge indexes while retaining HashMap capacity for performance.
     pub fn clear(self: *MemtableManager) void {
         concurrency.assert_main_thread();
-        
+
         self.block_index.clear();
         self.graph_index.clear();
     }

@@ -76,7 +76,7 @@ test "fault injection - disk full during compaction" {
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Fill up storage with blocks to trigger compaction
     var blocks_written: u32 = 0;
@@ -134,7 +134,7 @@ test "fault injection - read corruption during query" {
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Create and store a test block
     const test_id = try BlockId.from_hex("1234567890abcdef1234567890abcdef");
@@ -169,60 +169,3 @@ fn calculate_disk_usage(sim_vfs: *SimulationVFS) u64 {
     }
     return total_usage;
 }
-
-// TODO: Re-enable once fault injection methods are implemented
-// test "fault injection - io failure during wal write" {
-//     concurrency.init();
-
-//     const allocator = testing.allocator;
-
-//     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 99999);
-//     defer sim_vfs.deinit();
-
-//     // Enable I/O failures for write operations with lower probability
-//     sim_vfs.enable_io_failures(100, .{ .write = true }); // 10% probability
-
-//     const vfs_interface = sim_vfs.vfs();
-
-//     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
-//     defer storage_engine.deinit();
-
-//     try storage_engine.initialize_storage();
-
-//     // Attempt to write blocks - some should fail due to I/O errors
-//     var successful_writes: u32 = 0;
-//     var failed_writes: u32 = 0;
-
-//     for (0..20) |i| {
-//         const source_uri = try std.fmt.allocPrint(allocator, "test://io_fail{d}", .{i});
-//         defer allocator.free(source_uri);
-//         const content = try std.fmt.allocPrint(allocator, "Block {d}", .{i});
-//         defer allocator.free(content);
-
-//         const block = ContextBlock{
-//             .id = random_block_id(),
-//             .version = 1,
-//             .source_uri = source_uri,
-//             .metadata_json = "{}",
-//             .content = content,
-//         };
-
-//         storage_engine.put_block(block) catch |err| {
-//             switch (err) {
-//                 error.IoError => {
-//                     failed_writes += 1;
-//                     continue;
-//                 },
-//                 else => return err,
-//             }
-//         };
-//         successful_writes += 1;
-//     }
-
-//     try testing.expect(successful_writes > 0);
-//     try testing.expect(failed_writes > 0);
-//     try testing.expect(successful_writes + failed_writes == 20);
-
-//     const usage = calculate_memory_usage(&sim_vfs);
-//     try testing.expect(usage > 0);
-// }

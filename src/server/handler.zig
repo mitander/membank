@@ -144,8 +144,9 @@ pub const CortexServer = struct {
         self.connections.deinit();
     }
 
-    /// Start the server and listen for connections
-    pub fn start(self: *CortexServer) !void {
+    /// Phase 2 initialization: Start the server and listen for connections.
+    /// Performs I/O operations including socket binding and network setup.
+    pub fn startup(self: *CortexServer) !void {
         concurrency.assert_main_thread();
 
         const address = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, self.config.port);

@@ -92,6 +92,7 @@ test "streaming recovery basic functionality" {
 
     var test_wal = try WAL.init(allocator, vfs_interface, test_dir);
     defer test_wal.deinit();
+    try test_wal.startup();
 
     // Create test entries of different types
     const test_block1 = try create_test_block(allocator, 1);
@@ -161,6 +162,7 @@ test "streaming recovery large entries" {
 
     var test_wal = try WAL.init(allocator, vfs_interface, test_dir);
     defer test_wal.deinit();
+    try test_wal.startup();
 
     // Create block with large content that exceeds typical buffer sizes
     var large_content = try allocator.alloc(u8, 64 * 1024); // 64KB content
@@ -256,6 +258,7 @@ test "streaming recovery corruption resilience" {
 
     var test_wal = try WAL.init(allocator, vfs_interface, test_dir);
     defer test_wal.deinit();
+    try test_wal.startup();
 
     // Recovery should skip corrupted entry and continue
     var recovery_context = RecoveryContext.init(allocator);
@@ -287,6 +290,7 @@ test "streaming recovery memory efficiency" {
 
     var test_wal = try WAL.init(allocator, vfs_interface, test_dir);
     defer test_wal.deinit();
+    try test_wal.startup();
 
     // Create many entries to fill a substantial WAL segment
     const num_entries = 1000;
@@ -343,6 +347,7 @@ test "streaming recovery empty segment" {
 
     var test_wal = try WAL.init(allocator, vfs_interface, test_dir);
     defer test_wal.deinit();
+    try test_wal.startup();
 
     var recovery_context = RecoveryContext.init(allocator);
     defer recovery_context.deinit();
@@ -369,6 +374,7 @@ test "streaming recovery callback error propagation" {
 
     var test_wal = try WAL.init(allocator, vfs_interface, test_dir);
     defer test_wal.deinit();
+    try test_wal.startup();
 
     // Write a test entry
     const test_block = try create_test_block(allocator, 1);
@@ -410,6 +416,7 @@ test "streaming vs buffered recovery equivalence" {
 
     var test_wal = try WAL.init(allocator, vfs_interface, test_dir);
     defer test_wal.deinit();
+    try test_wal.startup();
 
     // Create diverse set of entries to test both approaches
     const test_entries = [_]struct { block_id: u8, content_size: usize }{

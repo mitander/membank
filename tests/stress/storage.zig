@@ -45,7 +45,7 @@ test "storage stress: high volume writes during network partition" {
     );
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Create partition between node1 and other nodes
     sim.partition_nodes(node1, node2);
@@ -118,7 +118,7 @@ test "storage recovery: WAL corruption simulation" {
         "recovery_data",
     );
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Write some initial blocks
     var i: u32 = 0;
@@ -157,7 +157,7 @@ test "storage recovery: WAL corruption simulation" {
     );
     defer storage_engine2.deinit();
 
-    try storage_engine2.initialize_storage();
+    try storage_engine2.startup();
 
     // Perform WAL recovery
     try storage_engine2.recover_from_wal();
@@ -203,7 +203,7 @@ test "storage limits: large block handling" {
     );
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Create a large block (1MB content)
     const large_content = try allocator.alloc(u8, 1024 * 1024);
@@ -255,7 +255,7 @@ test "storage concurrency: rapid block updates" {
     );
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     const block_id = try BlockId.from_hex("11111111111111112222222222222222");
 
@@ -310,7 +310,7 @@ test "storage integrity: duplicate block handling" {
     );
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     const block_id = try BlockId.from_hex("deadbeefcafebabe1337133713371337");
     const original_block = ContextBlock{
@@ -366,7 +366,7 @@ test "storage edges: graph relationship persistence" {
     );
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Create related blocks
     const main_id = try BlockId.from_hex("11111111111111111111111111111111");
@@ -461,7 +461,7 @@ test "storage performance: batch operations under load" {
     );
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Perform batch writes in chunks
     const batch_size = 20;
@@ -541,7 +541,7 @@ test "storage robustness: invalid data handling" {
     );
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Test invalid JSON metadata
     const block_id = try BlockId.from_hex("deadbeefdeadbeefdeadbeefdeadbeef");

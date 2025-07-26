@@ -39,7 +39,7 @@ test "wal memory safety: sequential recovery cycles" {
             var engine = try StorageEngine.init_default(allocator, vfs, data_dir);
             defer engine.deinit();
 
-            try engine.initialize_storage();
+            try engine.startup();
 
             // Create blocks with varying content sizes to stress memory allocation
             for (0..3) |block_idx| {
@@ -81,7 +81,7 @@ test "wal memory safety: sequential recovery cycles" {
             var engine = try StorageEngine.init_default(allocator, vfs, data_dir);
             defer engine.deinit();
 
-            try engine.initialize_storage();
+            try engine.startup();
             try engine.recover_from_wal();
 
             // Verify all blocks recovered correctly
@@ -127,7 +127,7 @@ test "wal memory safety: allocator stress testing" {
     );
     defer engine.deinit();
 
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Create blocks with sizes that might trigger reallocations in HashMap
     const block_sizes = [_]usize{ 1024, 4096, 16384, 65536 };
@@ -175,7 +175,7 @@ test "wal memory safety: allocator stress testing" {
     );
     defer recovery_engine.deinit();
 
-    try recovery_engine.initialize_storage();
+    try recovery_engine.startup();
     try recovery_engine.recover_from_wal();
 
     try testing.expectEqual(@as(u32, block_sizes.len), recovery_engine.block_count());
@@ -220,7 +220,7 @@ test "wal memory safety: rapid cycle stress test" {
         var engine = try StorageEngine.init_default(allocator, vfs, data_dir);
         defer engine.deinit();
 
-        try engine.initialize_storage();
+        try engine.startup();
 
         // Small block with unique content
         const block_id_str = try std.fmt.allocPrint(allocator, "{:0>32}", .{cycle});
@@ -262,7 +262,7 @@ test "wal memory safety: edge case robustness" {
         var engine = try StorageEngine.init_default(allocator, vfs, "edge_empty");
         defer engine.deinit();
 
-        try engine.initialize_storage();
+        try engine.startup();
 
         const block = ContextBlock{
             .id = try BlockId.from_hex("00000000000000000000000000000001"),
@@ -289,7 +289,7 @@ test "wal memory safety: edge case robustness" {
         var engine = try StorageEngine.init_default(allocator, vfs, "edge_long");
         defer engine.deinit();
 
-        try engine.initialize_storage();
+        try engine.startup();
 
         const long_content = try allocator.alloc(u8, 10000);
         defer allocator.free(long_content);
@@ -321,7 +321,7 @@ test "wal memory safety: edge case robustness" {
         var engine = try StorageEngine.init_default(allocator, vfs, "edge_utf8");
         defer engine.deinit();
 
-        try engine.initialize_storage();
+        try engine.startup();
 
         const special_content = "Hello 世界 (world) Здравствуй мир!";
         const special_metadata = "{\"unicode\":\"测试\",\"emoji\":\"(rocket)\"}";
@@ -358,7 +358,7 @@ test "wal memory safety: rapid sequential operations" {
     var engine = try StorageEngine.init_default(testing.allocator, vfs, "rapid_operations");
     defer engine.deinit();
 
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Simulate rapid operations that might stress the HashMap implementation
     const num_operations = 10; // Reduced from 100 to avoid memory corruption
@@ -401,7 +401,7 @@ test "wal memory safety: rapid sequential operations" {
     );
     defer recovery_engine.deinit();
 
-    try recovery_engine.initialize_storage();
+    try recovery_engine.startup();
     try recovery_engine.recover_from_wal();
 
     try testing.expectEqual(@as(u32, num_operations), recovery_engine.block_count());

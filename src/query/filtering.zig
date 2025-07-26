@@ -723,7 +723,7 @@ test "execute filtered query with storage engine" {
 
     var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_filtering");
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Add test blocks with varying content
     const blocks = [_]ContextBlock{
@@ -790,7 +790,7 @@ test "filtered query with pagination" {
 
     var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_pagination");
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Add multiple matching blocks
     for (0..10) |i| {

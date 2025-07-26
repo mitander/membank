@@ -131,7 +131,7 @@ test "wal hang debug: storage engine initialization" {
         std.debug.panic("Storage init timeout: {}ms", .{init_time - start_time});
     }
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     const storage_init_time = std.time.milliTimestamp();
     if (storage_init_time - start_time > MAX_TEST_DURATION_MS) {
@@ -167,7 +167,7 @@ test "wal hang debug: single block write and recovery" {
         var storage_engine = try StorageEngine.init_default(allocator, sim_vfs, data_dir);
         defer storage_engine.deinit();
 
-        try storage_engine.initialize_storage();
+        try storage_engine.startup();
 
         const write_start = std.time.milliTimestamp();
         if (write_start - start_time > MAX_TEST_DURATION_MS / 4) {
@@ -202,7 +202,7 @@ test "wal hang debug: single block write and recovery" {
         var storage_engine = try StorageEngine.init_default(allocator, sim_vfs, data_dir);
         defer storage_engine.deinit();
 
-        try storage_engine.initialize_storage();
+        try storage_engine.startup();
 
         const recovery_start = std.time.milliTimestamp();
         if (recovery_start - start_time > MAX_TEST_DURATION_MS) {
@@ -294,7 +294,7 @@ test "wal hang debug: wal recovery with large blocks" {
         var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
         defer engine.deinit();
 
-        try engine.initialize_storage();
+        try engine.startup();
 
         const checkpoint_1 = std.time.milliTimestamp();
         if (checkpoint_1 - start_time > MAX_TEST_DURATION_MS / 4) {
@@ -380,7 +380,7 @@ test "wal hang debug: wal recovery with large blocks" {
         var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
         defer engine2.deinit();
 
-        try engine2.initialize_storage();
+        try engine2.startup();
 
         const recovery_start = std.time.milliTimestamp();
         if (recovery_start - start_time > MAX_TEST_DURATION_MS) {
@@ -422,7 +422,7 @@ test "wal hang debug: minimal recovery simulation" {
         var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
         defer engine.deinit();
 
-        try engine.initialize_storage();
+        try engine.startup();
 
         // Single small block - minimal case
         const small_block = ContextBlock{
@@ -447,7 +447,7 @@ test "wal hang debug: minimal recovery simulation" {
         var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
         defer engine2.deinit();
 
-        try engine2.initialize_storage();
+        try engine2.startup();
 
         const init_time = std.time.milliTimestamp();
         if (init_time - start_time > 2000) {
@@ -485,7 +485,7 @@ test "wal hang debug: empty WAL file recovery" {
     var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine.deinit();
 
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Try to recover from empty/uninitialized WAL - this should not hang
     const start_time = std.time.milliTimestamp();
@@ -519,7 +519,7 @@ test "wal hang debug: WAL file initialization check" {
     var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine.deinit();
 
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Check if WAL directory was created properly
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
@@ -647,7 +647,7 @@ test "wal hang debug: investigate data corruption source" {
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs, data_dir);
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     std.debug.print("Writing block to storage...\n", .{});
     try storage_engine.put_block(test_block);
@@ -818,7 +818,7 @@ test "wal corruption debug: isolated single block write-read" {
     );
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     std.debug.print("=== WAL Corruption Debug Test ===\n", .{});
 
@@ -904,7 +904,7 @@ test "wal corruption debug: isolated single block write-read" {
     );
     defer recovery_engine.deinit();
 
-    try recovery_engine.initialize_storage();
+    try recovery_engine.startup();
     try recovery_engine.recover_from_wal();
 
     const recovered_count = recovery_engine.block_count();

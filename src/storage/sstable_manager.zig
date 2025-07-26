@@ -184,7 +184,7 @@ pub const SSTableManager = struct {
 
     /// Get the next SSTable ID that will be assigned.
     /// Used for testing and debugging SSTable creation sequence.
-    pub fn get_next_sstable_id(self: *const SSTableManager) u32 {
+    pub fn next_id(self: *const SSTableManager) u32 {
         return self.next_sstable_id;
     }
 
@@ -242,7 +242,7 @@ pub const SSTableManager = struct {
     /// Returns null if filename doesn't match expected pattern.
     fn parse_sstable_id_from_path(self: *SSTableManager, filename: []const u8) ?u32 {
         _ = self;
-        
+
         // Expected format: "sstable_NNNN.sst"
         if (!std.mem.startsWith(u8, filename, "sstable_")) return null;
         if (!std.mem.endsWith(u8, filename, ".sst")) return null;

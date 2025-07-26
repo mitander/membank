@@ -147,11 +147,38 @@ pub const StorageEngine = struct {
 - Resource discovery
 - Operations that can be expensive and should be controllable by the caller
 
+### The Golden Rule for Component Lifecycle Naming
+
+CortexDB uses precise semantic naming to communicate component lifecycle phases clearly:
+
+| Method | Semantic Meaning | Lifecycle Phase | I/O Allowed | Example Analogy |
+|--------|------------------|-----------------|-------------|-----------------|
+| `init()` | **Creation & Configuration (Cold)** | Phase 1 | ❌ No | Building engine in factory |
+| `startup()` | **Preparation & Recovery (Warm-up)** | Phase 2 | ✅ Yes | Prime fuel pump, run diagnostics |
+| `run()` | **Main Execution Loop (Hot)** | Phase 3 | ✅ Yes | Engine running, consuming fuel |
+| `deinit()` | **Resource Cleanup** | Shutdown | ✅ Yes | Turn off engine, release resources |
+
+### Naming Rules
+
+1. **`startup()` is the Public API for Phase 2 preparation**
+   - All I/O, resource discovery, state recovery happens here
+   - One-time process that transitions component from cold to hot
+   - Can call private `run_event_loop()` methods for server components
+
+2. **`run()` implies continuous execution loop**
+   - Only use for components with blocking event loops (servers, workers)
+   - Should be private implementation detail called by `startup()`
+   - Not used for passive components like StorageEngine
+
+3. **`start()` is avoided to prevent semantic confusion**
+   - Implies paired `stop()` which may not be appropriate
+   - Less clear than `startup()` for one-time preparation
+
 ### Initialization Lifecycle Rules
 
-1. **`init()` must never fail for memory allocation reasons alone** - use ArenaAllocator or handle OOM gracefully
-2. **Always check `initialized` flag** before performing operations in two-phase components
-3. **Provide convenience methods** like `startup()` for common initialization sequences
+1. **`init()` must never perform I/O operations** - pure memory allocation and configuration
+2. **`startup()` handles all I/O and preparation** - file discovery, network binding, state recovery
+3. **Always check `initialized` flag** before performing operations in two-phase components
 4. **Document initialization requirements** clearly in function comments
 5. **Initialize fields in a consistent order** - allocator, external dependencies, internal state, initialized flag
 

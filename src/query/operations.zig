@@ -451,7 +451,7 @@ test "execute_find_blocks with storage engine" {
 
     var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_operations");
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Add test blocks
     const test_id1 = try BlockId.from_hex("1111111111111111111111111111111111111111");
@@ -509,7 +509,7 @@ test "execute_semantic_query with mock similarity" {
 
     var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_semantic");
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Add test blocks with varying similarity to query
     const blocks = [_]ContextBlock{
@@ -645,7 +645,7 @@ test "block existence checking" {
 
     var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_existence");
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     const existing_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
     const missing_id = try BlockId.from_hex("2222222222222222222222222222222222222222");
@@ -684,7 +684,7 @@ test "find_block convenience function" {
 
     var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_find_single");
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     const test_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const test_block = ContextBlock{
@@ -715,7 +715,7 @@ test "large dataset query performance" {
 
     var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_performance");
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Add multiple blocks
     const block_count = 50;

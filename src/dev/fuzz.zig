@@ -303,7 +303,7 @@ fn fuzz_storage_iteration(allocator: std.mem.Allocator, random: std.Random) !Fuz
     defer engine.deinit();
 
     // Initialize storage before using it
-    engine.initialize_storage() catch {
+    engine.startup() catch {
         return FuzzResult.expected_error;
     };
 
@@ -423,7 +423,7 @@ fn fuzz_query_iteration(allocator: std.mem.Allocator, random: std.Random) !FuzzR
     defer storage_engine.deinit();
 
     // Initialize storage before using it
-    storage_engine.initialize_storage() catch {
+    storage_engine.startup() catch {
         return FuzzResult.expected_error;
     };
 

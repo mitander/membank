@@ -46,7 +46,7 @@ test "wal recovery: empty directory" {
     );
     defer storage_engine.deinit();
 
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Recovery from empty WAL directory should succeed
     try storage_engine.recover_from_wal();
@@ -79,7 +79,7 @@ test "wal recovery: missing wal directory" {
     );
     defer storage_engine.deinit();
 
-    // Don't call initialize_storage to avoid creating WAL directory
+    // Don't call startup() to avoid creating WAL directory
     storage_engine.initialized = true;
 
     // Recovery should handle missing directory gracefully
@@ -113,7 +113,7 @@ test "wal recovery: single block recovery" {
     );
     defer storage_engine1.deinit();
 
-    try storage_engine1.initialize_storage();
+    try storage_engine1.startup();
 
     // Create and store a block
     const test_block = ContextBlock{
@@ -137,7 +137,7 @@ test "wal recovery: single block recovery" {
     );
     defer storage_engine2.deinit();
 
-    try storage_engine2.initialize_storage();
+    try storage_engine2.startup();
     try storage_engine2.recover_from_wal();
 
     // Verify block was recovered
@@ -179,7 +179,7 @@ test "wal recovery: multiple blocks and types" {
     );
     defer storage_engine1.deinit();
 
-    try storage_engine1.initialize_storage();
+    try storage_engine1.startup();
 
     // Create multiple blocks
     const block1 = ContextBlock{
@@ -224,7 +224,7 @@ test "wal recovery: multiple blocks and types" {
     );
     defer storage_engine2.deinit();
 
-    try storage_engine2.initialize_storage();
+    try storage_engine2.startup();
     try storage_engine2.recover_from_wal();
 
     // Verify final state: only block2 should exist (block1 was deleted)
@@ -356,7 +356,7 @@ test "wal recovery: corruption handling - invalid checksum" {
     );
     defer storage_engine1.deinit();
 
-    try storage_engine1.initialize_storage();
+    try storage_engine1.startup();
 
     const good_block = ContextBlock{
         .id = try BlockId.from_hex("1234567890abcdef1234567890abcdef"),
@@ -398,7 +398,7 @@ test "wal recovery: corruption handling - invalid checksum" {
     );
     defer storage_engine2.deinit();
 
-    try storage_engine2.initialize_storage();
+    try storage_engine2.startup();
     try storage_engine2.recover_from_wal(); // Should not error, but should not recover blocks
 
     // Should have no blocks due to corruption
@@ -488,7 +488,7 @@ test "wal recovery: deterministic replay" {
         );
         defer storage_engine1.deinit();
 
-        try storage_engine1.initialize_storage();
+        try storage_engine1.startup();
 
         const test_block = ContextBlock{
             .id = try BlockId.from_hex("fedcba9876543210fedcba9876543210"),
@@ -511,7 +511,7 @@ test "wal recovery: deterministic replay" {
         );
         defer storage_engine2.deinit();
 
-        try storage_engine2.initialize_storage();
+        try storage_engine2.startup();
         try storage_engine2.recover_from_wal();
 
         results[i] = storage_engine2.block_count();
@@ -561,7 +561,7 @@ test "wal recovery: large blocks" {
     );
     // Note: storage_engine1.deinit() is called explicitly before recovery
 
-    try storage_engine1.initialize_storage();
+    try storage_engine1.startup();
     try storage_engine1.put_block(large_block);
     try storage_engine1.flush_wal();
 
@@ -578,7 +578,7 @@ test "wal recovery: large blocks" {
     );
     defer storage_engine2.deinit();
 
-    try storage_engine2.initialize_storage();
+    try storage_engine2.startup();
     try storage_engine2.recover_from_wal();
 
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
@@ -609,7 +609,7 @@ test "wal recovery: stress test with many entries" {
     );
     defer storage_engine1.deinit();
 
-    try storage_engine1.initialize_storage();
+    try storage_engine1.startup();
 
     var expected_blocks = std.ArrayList(ContextBlock).init(allocator);
     defer {
@@ -654,7 +654,7 @@ test "wal recovery: stress test with many entries" {
     );
     defer storage_engine2.deinit();
 
-    try storage_engine2.initialize_storage();
+    try storage_engine2.startup();
     try storage_engine2.recover_from_wal();
 
     try testing.expectEqual(@as(u32, num_blocks), storage_engine2.block_count());

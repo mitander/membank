@@ -45,7 +45,7 @@ test "wal segmentation: rotation at size limit" {
     var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine.deinit();
 
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Create a large block that will trigger rotation
     // Each block with overhead will be ~2MB, so we need ~32 blocks for 64MB
@@ -103,7 +103,7 @@ test "wal segmentation: rotation at size limit" {
     var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine2.deinit();
 
-    try engine2.initialize_storage();
+    try engine2.startup();
     try engine2.recover_from_wal();
 
     try testing.expectEqual(blocks_written, engine2.block_count());
@@ -130,7 +130,7 @@ test "wal segmentation: cleanup after sstable flush" {
     var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine.deinit();
 
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Write enough small blocks to trigger rotation but not flush
     var i: u32 = 0;
@@ -214,7 +214,7 @@ test "wal segmentation: cleanup after sstable flush" {
     var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine2.deinit();
 
-    try engine2.initialize_storage();
+    try engine2.startup();
     try engine2.recover_from_wal();
 
     // Verify data integrity by checking a few specific blocks
@@ -258,7 +258,7 @@ test "wal segmentation: recovery from mixed segments and sstables" {
     var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine.deinit();
 
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Phase 1: Write blocks that will be flushed to SSTable
     var i: u32 = 0;
@@ -302,7 +302,7 @@ test "wal segmentation: recovery from mixed segments and sstables" {
     var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine2.deinit();
 
-    try engine2.initialize_storage();
+    try engine2.startup();
     try engine2.recover_from_wal();
 
     try testing.expectEqual(@as(u32, 75), engine2.block_count());
@@ -342,7 +342,7 @@ test "wal segmentation: segment number persistence" {
         var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
         defer engine.deinit();
 
-        try engine.initialize_storage();
+        try engine.startup();
 
         // Write enough to create multiple segments
         const large_content = try allocator.alloc(u8, 10 * 1024 * 1024);
@@ -372,7 +372,7 @@ test "wal segmentation: segment number persistence" {
         var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
         defer engine2.deinit();
 
-        try engine2.initialize_storage();
+        try engine2.startup();
 
         // Write one more block
         const block = ContextBlock{
@@ -427,7 +427,7 @@ test "wal segmentation: empty segment handling" {
     var engine = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine.deinit();
 
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Just flush without writing anything
     try engine.flush_wal();
@@ -452,7 +452,7 @@ test "wal segmentation: empty segment handling" {
     var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine2.deinit();
 
-    try engine2.initialize_storage();
+    try engine2.startup();
     try engine2.recover_from_wal();
 
     try testing.expectEqual(@as(u32, 0), engine2.block_count());

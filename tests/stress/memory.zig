@@ -46,7 +46,7 @@ test "memory isolation: single test with 25 storage cycles" {
         var engine = try StorageEngine.init_default(allocator, vfs, data_dir_owned);
         defer engine.deinit();
 
-        try engine.initialize_storage();
+        try engine.startup();
 
         // Create and store multiple blocks per cycle
         var block_num: u32 = 0;
@@ -112,7 +112,7 @@ test "memory isolation: HashMap operations under stress" {
     var engine = try StorageEngine.init_default(allocator, vfs, "hashmap_stress");
     defer engine.deinit();
 
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Create many blocks to trigger HashMap resizing
     var i: u32 = 0;

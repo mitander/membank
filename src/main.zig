@@ -111,7 +111,7 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     std.debug.print("Starting CortexDB TCP server on port {d}...\n", .{server_config.port});
 
     // Start the server (this blocks until stopped)
-    try cortex_server.start();
+    try cortex_server.startup();
 }
 
 fn run_demo(allocator: std.mem.Allocator) !void {

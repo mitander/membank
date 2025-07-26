@@ -93,9 +93,9 @@ pub const StorageEngine = struct {
         return init(allocator, filesystem, data_dir, Config{});
     }
 
-    /// Initialize storage engine with custom configuration.
+    /// Phase 1 initialization: Create storage engine with custom configuration.
     /// Creates all necessary subsystems but does not perform I/O operations.
-    /// Call initialize_storage() and recover_from_wal() to complete startup.
+    /// Call startup() to complete Phase 2 initialization.
     pub fn init(
         allocator: std.mem.Allocator,
         filesystem: VFS,
@@ -139,10 +139,9 @@ pub const StorageEngine = struct {
         self.backing_allocator.free(self.data_dir);
     }
 
-    /// Initialize storage by creating directories and discovering existing data.
-    /// Must be called before any read/write operations. Creates necessary
-    /// directory structure and starts up all subsystems with I/O operations.
-    pub fn initialize_storage(self: *StorageEngine) !void {
+    /// Create directory structure and discover existing data files.
+    /// Called internally by startup() to prepare filesystem state.
+    fn create_storage_directories(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
         if (self.initialized) return StorageError.AlreadyInitialized;
 
@@ -165,10 +164,12 @@ pub const StorageEngine = struct {
         self.initialized = true;
     }
 
-    /// Complete startup by performing WAL recovery.
-    /// Convenience method that calls initialize_storage() followed by recover_from_wal().
+    /// Phase 2 initialization: Complete startup by performing storage initialization and WAL recovery.
+    /// This is the primary entry point for bringing StorageEngine from cold to hot state.
+    /// Performs I/O operations including directory creation, SSTable discovery, and WAL recovery.
     pub fn startup(self: *StorageEngine) !void {
-        try self.initialize_storage();
+        try self.create_storage_directories();
+        try self.wal.startup();
         try self.recover_from_wal();
     }
 
@@ -300,7 +301,6 @@ pub const StorageEngine = struct {
         return &self.storage_metrics;
     }
 
-
     /// Block iterator for scanning all blocks in storage (memtable + SSTables)
     pub const BlockIterator = struct {
         storage_engine: *StorageEngine,
@@ -382,7 +382,7 @@ pub const StorageEngine = struct {
     /// and coordinates cleanup with MemtableManager. Follows the coordinator pattern.
     fn flush_memtable(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
-        
+
         if (self.memtable_manager.block_count() == 0) return; // Nothing to flush
 
         // Collect all blocks from memtable for SSTable creation
@@ -436,7 +436,13 @@ pub const StorageEngine = struct {
 
         var recovery_context = RecoveryContext{ .engine = self };
 
-        try self.wal.recover_entries(recovery_callback, &recovery_context);
+        self.wal.recover_entries(recovery_callback, &recovery_context) catch |err| switch (err) {
+            wal.WALError.FileNotFound => {
+                // Normal case: no WAL directory exists yet (new database)
+                return;
+            },
+            else => return err,
+        };
 
         _ = self.storage_metrics.wal_recoveries.fetchAdd(1, .monotonic);
     }
@@ -737,7 +743,7 @@ test "block iterator with empty storage" {
 
     var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "/test/data");
     defer engine.deinit();
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Test iterator over empty storage
     var iterator = engine.iterate_all_blocks();
@@ -755,7 +761,7 @@ test "block iterator with memtable blocks only" {
 
     var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "/test/data");
     defer engine.deinit();
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Add test blocks to memtable
     const block1 = ContextBlock{
@@ -816,7 +822,7 @@ test "block iterator with SSTable blocks" {
     const config = Config.minimal_for_testing();
     var engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "/test/data", config);
     defer engine.deinit();
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Add blocks to trigger SSTable flush
     const block1 = ContextBlock{
@@ -868,7 +874,7 @@ test "block iterator with mixed memtable and SSTable blocks" {
     const config = Config.minimal_for_testing();
     var engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "/test/data", config);
     defer engine.deinit();
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Add blocks to SSTable first
     const sstable_block = ContextBlock{
@@ -931,7 +937,7 @@ test "block iterator handles multiple calls to next after exhaustion" {
 
     var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "/test/data");
     defer engine.deinit();
-    try engine.initialize_storage();
+    try engine.startup();
 
     // Add single test block
     const block = ContextBlock{

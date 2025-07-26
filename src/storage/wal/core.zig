@@ -48,23 +48,13 @@ pub const WAL = struct {
         assert(max_segment_number > 1000);
     }
 
-    /// Initialize WAL with specified directory and filesystem interface.
-    /// Creates directory if it doesn't exist and discovers existing segments for continuation.
-    /// Returns WALError.AccessDenied if directory is not writable.
+    /// Phase 1 initialization: Create WAL structure with memory allocation only.
+    /// No I/O operations performed. Call startup() to complete initialization.
     pub fn init(allocator: std.mem.Allocator, filesystem: VFS, directory: []const u8) WALError!WAL {
         assert(directory.len > 0);
         assert(directory.len < 4096); // Reasonable path length limit
 
-        var vfs_copy = filesystem;
-        vfs_copy.mkdir(directory) catch |err| switch (err) {
-            error.FileExists => {},
-            error.AccessDenied => return WALError.AccessDenied,
-            error.FileNotFound => return WALError.FileNotFound,
-            error.OutOfMemory => return WALError.OutOfMemory,
-            else => return WALError.IoError,
-        };
-
-        var wal = WAL{
+        return WAL{
             .directory = try allocator.dupe(u8, directory),
             .vfs = filesystem,
             .active_file = null,
@@ -73,16 +63,25 @@ pub const WAL = struct {
             .allocator = allocator,
             .stats = WALStats.init(),
         };
+    }
 
-        // Initialization state must be consistent before segment discovery
-        assert(wal.directory.len > 0);
-        assert(wal.segment_number == 0);
-        assert(wal.segment_size == 0);
-        assert(wal.active_file == null);
+    /// Phase 2 initialization: Create directory structure and discover existing segments.
+    /// Performs I/O operations including directory creation and segment discovery.
+    /// Must be called after init() and before any write operations.
+    pub fn startup(self: *WAL) WALError!void {
+        concurrency.assert_main_thread();
 
-        try wal.initialize_active_segment();
+        // Create directory if it doesn't exist
+        self.vfs.mkdir(self.directory) catch |err| switch (err) {
+            error.FileExists => {},
+            error.AccessDenied => return WALError.AccessDenied,
+            error.FileNotFound => return WALError.FileNotFound,
+            error.OutOfMemory => return WALError.OutOfMemory,
+            else => return WALError.IoError,
+        };
 
-        return wal;
+        // Discover existing segments and initialize active segment
+        try self.initialize_active_segment();
     }
 
     /// Clean up WAL resources and close active files

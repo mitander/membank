@@ -158,6 +158,7 @@ test "minimal WAL corruption isolation" {
         {
             var test_wal = try WAL.init(allocator, vfs_interface, wal_dir);
             defer test_wal.deinit();
+            try test_wal.startup();
 
             log.info("Initialized WAL in directory: {s}", .{wal_dir});
 
@@ -205,6 +206,7 @@ test "minimal WAL corruption isolation" {
         {
             var recovery_wal = try WAL.init(allocator, vfs_interface, wal_dir);
             defer recovery_wal.deinit();
+            try recovery_wal.startup();
 
             log.info("Starting WAL recovery...", .{});
             try recovery_wal.recover_entries(recovery_callback, &recovery_ctx);
@@ -408,6 +410,7 @@ test "small block WAL corruption test" {
     {
         var test_wal = try WAL.init(allocator, vfs_interface, wal_dir);
         defer test_wal.deinit();
+        try test_wal.startup();
 
         log.info("Initialized WAL in directory: {s}", .{wal_dir});
 
@@ -455,6 +458,7 @@ test "small block WAL corruption test" {
     {
         var recovery_wal = try WAL.init(allocator, vfs_interface, wal_dir);
         defer recovery_wal.deinit();
+        try recovery_wal.startup();
 
         log.info("Starting small block WAL recovery...", .{});
         try recovery_wal.recover_entries(recovery_callback, &recovery_ctx);
@@ -613,6 +617,7 @@ test "medium block WAL corruption test" {
     {
         var test_wal = try WAL.init(allocator, vfs_interface, wal_dir);
         defer test_wal.deinit();
+        try test_wal.startup();
 
         log.info("Initialized WAL in directory: {s}", .{wal_dir});
 
@@ -660,6 +665,7 @@ test "medium block WAL corruption test" {
     {
         var recovery_wal = try WAL.init(allocator, vfs_interface, wal_dir);
         defer recovery_wal.deinit();
+        try recovery_wal.startup();
 
         log.info("Starting medium block WAL recovery...", .{});
         try recovery_wal.recover_entries(recovery_callback, &recovery_ctx);

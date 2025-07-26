@@ -50,7 +50,7 @@ test "streaming WAL recovery - basic correctness" {
     defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Create and store test blocks
     const test_blocks = [_]u8{ 1, 2, 3, 4, 5 };
@@ -106,7 +106,7 @@ test "streaming WAL recovery - large WAL file efficiency" {
     defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Write many blocks to create a large WAL file
     const num_blocks = 2000;
@@ -164,7 +164,7 @@ test "streaming WAL recovery - empty WAL file handling" {
     defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Should be able to write and read blocks normally after recovery from empty state
     const test_block = try create_test_block(allocator, 42);
@@ -193,7 +193,7 @@ test "streaming WAL recovery - arena memory reset validation" {
     defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Write enough blocks to trigger arena resets (> 1000 entries)
     // This validates that the periodic arena reset at 1000 entries works correctly

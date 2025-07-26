@@ -57,6 +57,7 @@ test "WAL write then direct VFS read corruption test" {
 
         var test_wal = try WAL.init(allocator, vfs_interface, wal_dir);
         defer test_wal.deinit();
+        try test_wal.startup();
 
         try test_wal.write_entry(entry);
         log.info("WAL write completed", .{});

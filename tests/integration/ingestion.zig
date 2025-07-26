@@ -62,7 +62,7 @@ test "complete ingestion pipeline - git to storage" {
     const vfs_for_storage = sim_vfs.vfs();
     var storage_engine = try StorageEngine.init_default(allocator, vfs_for_storage, "test_db");
     defer storage_engine.deinit();
-    try storage_engine.initialize_storage();
+    try storage_engine.startup();
 
     // Setup pipeline configuration
     var pipeline_config = PipelineConfig.init(allocator);
