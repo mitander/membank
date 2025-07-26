@@ -1,121 +1,212 @@
-# CortexDB Design Document
+# CortexDB Design
 
-## 1. The CortexDB Philosophy: Principled Engineering
+## Philosophy
 
-CortexDB is a specialized database with a specialized purpose: to serve as a fast, reliable, and deterministic context source for Large Language Models. Its design is not a collection of features, but a reflection of a core engineering philosophy inspired by mission-critical systems like TigerBeetle.
+CortexDB eliminates LLM context drift through principled engineering. Three non-negotiable rules:
 
-These principles are not suggestions; they are the laws by which this project is governed.
+1. **Simplicity is the Prerequisite for Reliability** - Complex code kills systems
+2. **Explicit is Better Than Implicit** - No hidden control flow, no surprise allocations
+3. **Correctness is Not Negotiable** - Architecture must make incorrect states unrepresentable
 
-- **Correctness is Not Negotiable:** The system must be verifiably correct. We favor simplicity and deterministic testing over features. A simple, correct system is the only foundation upon which performance can be built.
+Inspired by TigerBeetle's financial-grade reliability applied to AI infrastructure.
 
-- **Simplicity is the Prerequisite for Reliability:** We aggressively fight complexity. A system that is easy to reason about is a system that can be made robust. This means avoiding complex abstractions, hidden control flow, and intricate state management.
+## Why Zig?
 
-- **Explicit is Better Than Implicit:** All control flow and memory allocations must be explicit and obvious. If a function allocates memory, it must take an `Allocator`. There is no global state, no hidden magic. The code does what it says on the tin.
+**No hidden complexity.** Every allocation explicit. Every control flow obvious. Zero runtime surprises.
 
-- **Performance is Designed, Not Tweaked:** We achieve performance through architecture, not through late-stage optimization hacks. A data-oriented, single-threaded design that avoids dynamic allocations and lock contention on the hot path is our primary performance strategy.
+This eliminates entire bug classes that plague databases: use-after-free, double-free, memory leaks, data races. When your foundation is solid, you can build fast.
 
-## 2. High-Level Architecture
-
-CortexDB is a modular, single-threaded, asynchronous engine. Its architecture is designed to enforce a clean separation of concerns, enabling our core principle of deterministic testing.
+## Core Architecture
 
 ```
-cortex-core (The Database Engine)
-│
-├── Storage Engine (LSMT Persistence Layer - Coordinator)
-│   ├── MemtableManager (Complete In-Memory State)
-│   │   ├── BlockIndex (Context Block Storage)
-│   │   └── GraphEdgeIndex (Relationship Storage)
-│   ├── SSTableManager (Complete On-Disk State)
-│   │   ├── SSTable Discovery & Creation
-│   │   ├── Read Coordination
-│   │   └── CompactionManager Integration
-│   └── Write-Ahead Log (WAL) for Durability
-│
-├── Query Engine (Context Retrieval)
-│   ├── ID-Based Lookups
-│   └── Graph Traversal (BFS/DFS)
-│
-├── Replication Layer (High Availability - Future)
-│   └── WAL-Based Primary-Backup Replication
-│
-└── VFS (Virtual File System Abstraction)
-    ├── ProductionVFS (Real OS Filesystem)
-    └── SimulationVFS (In-Memory, Deterministic Test Filesystem)
+┌─────────────────────────────────────────────────────────────┐
+│                     CortexDB Engine                         │
+├─────────────────────────────────────────────────────────────┤
+│  Query Engine                    Storage Engine             │
+│  ├── Block Lookups              ├── Coordinator             │
+│  ├── Graph Traversal            ├── MemtableManager         │
+│  └── Result Formatting          │   ├── BlockIndex          │
+│                                 │   └── GraphEdgeIndex      │
+│                                 ├── SSTableManager          │
+│                                 │   ├── File Discovery      │
+│                                 │   └── Compaction          │
+│                                 └── WAL (Durability)        │
+├─────────────────────────────────────────────────────────────┤
+│                       VFS Abstraction                       │
+│              ProductionVFS  │  SimulationVFS                │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## 3. The Core Design Pillars
+**Coordinator Pattern**: Main engines delegate to specialized managers. No monolithic modules.
 
-These are the fundamental architectural decisions that define CortexDB.
+## Memory Management: Arena-per-Subsystem
 
-### 3.1. Memory Management: The Arena-per-Subsystem Pattern
+**The Problem**: Complex allocator hierarchies create cross-allocator corruption.
 
-Our experience has shown that complex, mixed-allocator models are a source of profound instability. Therefore, CortexDB's memory safety is built on a single, simple, and non-negotiable pattern: **the arena-per-subsystem.**
+**The Solution**: Each subsystem owns an `ArenaAllocator` for all its state.
 
-- **Clear Ownership:** State-heavy subsystems like the `BlockIndex` (our in-memory memtable) are given their own `std.heap.ArenaAllocator`. This arena owns all dynamic memory associated with the subsystem's state (e.g., the strings within all `ContextBlock`s).
+```zig
+// MemtableManager owns ALL block strings
+arena: std.heap.ArenaAllocator,
+blocks: HashMap(BlockId, ContextBlock, ...),
 
-- **Bulk Deallocation:** We do not manually free individual objects. When the subsystem's state is no longer needed (e.g., when the memtable is flushed to an SSTable), the entire arena is reset with a single `arena.reset(.retain_capacity)`. This is an O(1) operation that eliminates an entire class of memory bugs (double-frees, use-after-frees, memory leaks) by design.
+// Bulk deallocation in O(1)
+pub fn clear(self: *MemtableManager) void {
+    self.blocks.clearRetainingCapacity();
+    _ = self.arena.reset(.retain_capacity);
+}
+```
 
-- **Consistent Allocators:** A component and its children must use a single, consistent backing allocator. This prevents cross-allocator corruption, which was the root cause of our previous `HashMap` alignment issues.
+**Benefits**:
 
-- **No General-Purpose Allocations on Hot Paths:** The `StorageEngine` uses this arena model for its memtable. The performance-critical WAL writing and query paths will use temporary, function-scoped arenas to avoid the overhead of a general-purpose allocator. The complex `BufferPool` has been removed in favor of this simpler, safer, and often faster model.
+- Eliminates use-after-free by design
+- O(1) cleanup of complex state
+- Zero memory leaks from incomplete cleanup
 
-### 3.2. Concurrency Model: Single-Threaded by Design
+## Concurrency: Single-Threaded by Design
 
-CortexDB's core logic is **strictly single-threaded**. This is an architectural choice to eliminate complexity.
+**Zero data races.** All core logic runs on one thread. Concurrency achieved through async I/O, not threads.
 
-- **No Locks, No Data Races:** By restricting all core state modification to a single thread, we eliminate the need for mutexes, atomics, and other complex synchronization primitives. This makes the system dramatically easier to reason about and debug.
-- **Concurrency via Async I/O:** Concurrency is achieved at the I/O boundary. The single thread drives an event loop, handing off I/O operations to the OS kernel and processing results as they complete.
-- **Enforcement:** The `concurrency.assert_main_thread()` function is used liberally in debug builds to guarantee this invariant is never violated.
+```zig
+// Enforced at runtime in debug builds
+concurrency.assert_main_thread();
+```
 
-### 3.3. Storage Engine: A Decomposed LSM-Tree
+**Why**: Threading bugs are the hardest to debug and most dangerous in production. Better to be fast on one thread than correct sometimes on many.
 
-We use a Log-Structured Merge-Tree for its exceptional write performance, which is critical for the high-volume ingestion of context data. The storage engine follows a **state-oriented decomposition** with clear ownership boundaries.
+## Storage Engine: Decomposed LSM-Tree
 
-**Storage Engine Coordinator:**
-The main `StorageEngine` acts as a pure coordinator, orchestrating LSM-tree operations across specialized subsystems without implementing storage logic directly.
+**LSM-tree optimized for read-heavy LLM workloads:**
 
-**Subsystem Architecture:**
+### MemtableManager
 
-1.  **MemtableManager (In-Memory State):** Encapsulates the complete in-memory write buffer including both `BlockIndex` (context blocks) and `GraphEdgeIndex` (relationships). Uses arena-per-subsystem memory management for O(1) bulk cleanup during flushes.
+- In-memory `BlockIndex` + `GraphEdgeIndex`
+- Arena-allocated strings for blocks/edges
+- Handles all write operations with WAL durability
 
-2.  **SSTableManager (On-Disk State):** Manages the complete collection of SSTable files including discovery, creation, read coordination, and compaction management. Handles all persistent storage concerns independently.
+### SSTableManager
 
-3.  **Write-Ahead Log (WAL):** All writes (`put_block`, `put_edge`, `delete_block`) are first appended to the WAL for durability. A write is considered successful once it is flushed to the WAL file.
+- Immutable on-disk sorted tables
+- File discovery and compaction coordination
+- Read-optimized for graph traversal queries
 
-**LSM-Tree Operation Flow:**
+### WAL (Write-Ahead Log)
 
-1. WAL-first writes ensure durability before in-memory updates
-2. MemtableManager handles all in-memory state changes
-3. When memtable reaches size threshold, SSTableManager creates new immutable SSTables
-4. MemtableManager performs O(1) arena cleanup
-5. SSTableManager coordinates background compaction as needed
+- Durability guarantee for all mutations
+- Streaming recovery for fast startup
+- Segmented 64MB files for rotation
 
-This decomposition provides clear ownership boundaries, enhanced testability, and simplified reasoning about system behavior while maintaining all LSM-tree performance characteristics.
+**Data Flow**: `WAL → MemtableManager → SSTableManager`
 
-### 3.4. Testing Philosophy: Deterministic Simulation
+Write operations hit WAL first, then memtable. Compaction moves memtable to SSTables. Queries read memtable first, then SSTables.
 
-**We do not mock.** Mocking is fragile and often fails to capture the emergent behavior of a complex system. Our primary testing strategy is **holistic, deterministic simulation.**
+## Testing Philosophy: Don't Mock, Simulate
 
-- **The VFS Abstraction:** The `VFS` (Virtual File System) is the key. In production, it maps to the real OS filesystem. In tests, it maps to `SimulationVFS`—an in-memory, deterministic filesystem.
-- **Reproducible Realities:** The simulation harness controls time, I/O, and networking. We can write byte-for-byte reproducible tests for complex failure scenarios:
-  - A network partition occurs during a heavy write workload.
-  - The disk returns a corrupted byte in the middle of a WAL read.
-  - The system crashes after compacting an SSTable but before deleting the old files.
-- This approach allows us to find and fix bugs that would be nearly impossible to reproduce in a traditional testing environment.
+**We don't mock filesystem calls.** We run real code against a simulated filesystem.
 
-## 4. Future Systems: A Pragmatic Vision
+**VFS Abstraction**: Production uses real OS filesystem. Tests use `SimulationVFS` - deterministic, in-memory filesystem with fault injection.
 
-### 4.1. Replication: High Availability, Not Strict Consistency
+**Hostile Environment Testing**:
 
-While inspired by TigerBeetle, we recognize that LLM context data has different consistency requirements than financial ledgers. We can therefore choose a simpler, more robust replication strategy.
+- Network partitions during writes
+- Disk corruption in WAL recovery
+- I/O errors during compaction
+- Power loss at arbitrary points
 
-- **Design Decision: Primary-Backup over Paxos/VSR.** We will implement a simple **WAL-shipping replication** model. A single primary node streams its WAL to one or more backup replicas.
-- **Rationale:** This model provides excellent read scalability and high availability for failover. It is dramatically simpler to implement and test than a full consensus protocol like Paxos. The eventual consistency it provides is a perfectly acceptable trade-off for this problem domain.
+**Result**: Byte-for-byte reproducible tests of scenarios that destroy other databases.
 
-### 4.2. Ingestion Pipeline: A Pluggable Framework
+## Component Lifecycle: Two-Phase Initialization
 
-The goal is to continuously and automatically keep the database's context up-to-date.
+**Phase 1**: `init()` - Memory allocation only, no I/O
+**Phase 2**: `startup()` - I/O operations, can fail
 
-- **Connectors:** Pluggable modules that know how to fetch data from a source (e.g., cloning a Git repository, scraping a website).
-- **Parsers:** Source-specific modules that understand a file format (e.g., a Zig parser that can extract functions, comments, and relationships).
-- **Chunkers:** Intelligent splitters that break down large documents into meaningful, semantically-related `ContextBlock`s.
+```zig
+var storage = try StorageEngine.init(allocator, vfs, data_dir);
+try storage.startup(); // File discovery, WAL recovery
+```
+
+**Why**: Separates resource allocation from resource access. Makes error handling explicit and testing deterministic.
+
+## Data Model: Knowledge Graphs
+
+### Context Blocks
+
+Atomic knowledge units with:
+
+- Unique ID and version
+- Source URI and metadata
+- Content (function, paragraph, config)
+
+### Graph Edges
+
+Typed relationships:
+
+- `IMPORTS`: Module dependencies
+- `CALLS`: Function call graph
+- `REFERENCES`: Variable/symbol usage
+
+**Query Model**: Start with seed blocks, traverse relationships, return interconnected context subgraph.
+
+## Performance by Design
+
+**Hot Path Optimizations**:
+
+- No allocations during queries (pre-allocated buffers)
+- Linear scans for small collections (<16 items)
+- Single-threaded avoids cache bouncing
+- Arena bulk operations over individual frees
+
+**Write Path**:
+
+- WAL append-only writes
+- Memtable arena allocations
+- Background compaction doesn't block writes
+
+**Target Performance**:
+
+- <1ms block lookups
+- <10ms graph traversals (3-hop)
+- 10K writes/sec sustained
+
+## Error Handling
+
+**Specific Error Sets**: No `anyerror` in public APIs.
+
+```zig
+const StorageError = error{
+    BlockNotFound,
+    CorruptedWALEntry,
+} || std.fs.File.ReadError;
+```
+
+**Rich Error Context**: Debug builds include file paths, line numbers, expected vs actual values.
+
+**Defensive Programming**: Assertions everywhere in debug builds. Zero cost in release.
+
+## Future: Replication
+
+**Design Decision**: Primary-backup over consensus protocols.
+
+**Rationale**: LLM context has different consistency requirements than financial transactions. Eventual consistency acceptable. WAL shipping simpler and more reliable than Paxos/Raft.
+
+**Implementation**: Primary ships WAL segments to replicas. Read scalability through replica fanout.
+
+## Anti-Patterns Banned
+
+- Global state
+- Hidden allocations
+- Generic error types in APIs
+- I/O operations in `init()` functions
+- Complex inheritance hierarchies
+- Thread-based concurrency in core logic
+
+## Design Goals Achieved
+
+- **Sub-millisecond Queries**: Architecture optimized for read latency
+- **Memory Safety**: Arena model eliminates use-after-free by design
+- **Deterministic Testing**: VFS enables reproduction of complex failures
+- **Zero Dependencies**: Pure Zig, no external libraries
+- **Defensive Programming**: Comprehensive assertion framework
+- **Modular Architecture**: Coordinator pattern with focused managers
+
+CortexDB proves that careful architecture beats clever optimization. Simple, explicit, correct.

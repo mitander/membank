@@ -1,276 +1,218 @@
 # CortexDB Development Guide
 
-## 1. Development Philosophy
-
-Welcome to CortexDB. We are building a high-performance, mission-critical database, and our development practices reflect that. Our philosophy is simple:
-
-- **Simplicity is Non-Negotiable:** We build reliable systems by relentlessly pursuing simplicity. We choose simple, explicit patterns over complex, "magical" abstractions.
-- **We Don't Mock; We Simulate:** The only way to trust a complex system is to test it holistically. Our primary method of validation is through a deterministic simulation framework that can reproduce the most hostile production environments byte-for-byte.
-- **The Toolchain Serves the Developer:** Our build system, tests, and scripts are designed to be simple, consistent, and cross-platform. There should be zero friction in writing, testing, and debugging high-quality code.
-
-## 2. Project Structure
-
-CortexDB follows a clean, modular architecture with clear separation of concerns:
-
-```
-src/
-├── cortexdb.zig          # Single public API entry point
-├── main.zig              # Application entry point
-├── core/                 # Foundation - types, VFS interface, utilities
-│   ├── types.zig         # Core data model (ContextBlock, BlockId, etc.)
-│   ├── vfs.zig           # Filesystem abstraction interface
-│   ├── assert.zig        # Assertion framework
-│   ├── concurrency.zig   # Thread safety utilities
-│   └── error_context.zig # Rich error reporting
-├── storage/              # Storage engine (decomposed LSM-tree coordinator)
-│   ├── engine.zig        # StorageEngine coordinator
-│   ├── memtable_manager.zig  # In-memory state management
-│   ├── sstable_manager.zig   # On-disk state management
-│   └── wal.zig          # Write-ahead log durability
-├── query/                # Query processing
-├── ingestion/            # Data ingestion pipeline
-├── server/               # TCP server and protocol handling
-├── sim/                  # Simulation framework (testing only)
-└── dev/                  # Development tools (not shippable)
-
-tests/
-├── integration/          # End-to-end workflows
-├── simulation/           # Network partition/latency scenarios
-├── stress/               # High-load performance testing
-├── recovery/             # WAL corruption/recovery scenarios
-└── debug/                # Memory debugging tools
-
-scripts/
-├── fuzz.sh              # Unified fuzzing (profiles: quick, ci, deep, production)
-├── benchmark.sh         # Performance regression detection
-├── local_ci.sh          # Local CI runner (mirrors GitHub Actions exactly)
-├── install_zig.sh       # Toolchain setup
-└── setup_hooks.sh       # Git hooks installation
-```
-
-**Key Principles:**
-
-- **Dependencies flow downward:** `storage` → `core`, `sim` → `core` (never `core` → `sim`)
-- **VFS abstraction:** Core defines interface, implementations live in respective modules
-- **Test categorization:** Run focused tests like `./zig/zig build storage_stress`
-- **Development isolation:** Tools in `dev/` are not part of the shippable library
-
-## 3. One-Step Setup
-
-Our goal is a "clone-and-build" developer experience on macOS, Linux, and Windows.
-
-### Step 1: Install Project-Specific Zig
-
-CortexDB depends on a specific version of the Zig toolchain. We provide a script to download it into a local `./zig/` directory. This ensures every developer and the CI environment uses the exact same compiler version, eliminating "works on my machine" issues.
+## Setup
 
 ```bash
-# This will download the correct Zig version for your OS/architecture.
-./scripts/install_zig.sh
+./scripts/install_zig.sh    # Install project-specific Zig toolchain
+./scripts/setup_hooks.sh    # Install git hooks (formatting, commit standards)
 ```
 
-### Step 2: Install Git Hooks
+## Core Workflow
 
-We enforce code quality and commit message standards automatically. This script installs the necessary pre-commit and commit-msg hooks into your local `.git` directory.
+**Golden Rule**: `./zig/zig build test` must pass before every commit.
 
 ```bash
-# This script is idempotent and safe to run multiple times.
-./scripts/setup_hooks.sh
+./zig/zig build test         # Build + run all tests (unit/simulation/integration)
+./zig/zig build run          # Start CortexDB server
+./zig/zig build check        # Quick compilation + quality checks
 ```
 
-That's it. You are now ready to build CortexDB.
-
-## 4. The Core Workflow: The Inner Loop
-
-We have one command that represents the "inner loop" for 95% of development. It builds the project, runs all tests (unit, simulation, and integration), and verifies all code quality and formatting standards.
-
-**This is the only command you need to run before committing:**
+## Build Commands
 
 ```bash
-./zig/zig build test
+# Testing
+./zig/zig build simulation         # Deterministic failure scenarios
+./zig/zig build storage_simulation # Storage-specific simulation tests
+./zig/zig build wal_recovery       # WAL recovery validation
+./zig/zig build memory_isolation   # Arena memory safety tests
+
+# Development
+./zig/zig build benchmark    # Performance benchmarks
+./zig/zig build fuzz         # Fuzz testing
+./zig/zig build tidy         # Code quality checks
+./zig/zig build fmt          # Check code formatting
+./zig/zig build fmt-fix      # Auto-fix formatting
+./zig/zig build ci           # Complete CI pipeline
+
+# Local CI
+./scripts/local_ci.sh        # Run exact GitHub Actions locally
+./scripts/local_ci.sh --job=test-ubuntu  # Specific job only
 ```
 
-A successful run of this command means your code is correct, well-formatted, and meets our style guidelines. If it passes, you can commit with confidence.
+## Build Modes
 
-## 5. The Toolchain: A Deeper Dive
+**Recommended for Development**: `ReleaseSafe`
 
-While `./zig/zig build test` is your primary tool, the build system provides several granular targets for specific tasks.
+```bash
+./zig/zig build test -Doptimize=ReleaseSafe  # Fast compilation + safety checks
+```
 
-### Main Commands
+**Debug Mode Issues**: Linking hangs 60+ seconds. Use `ReleaseSafe` instead - same safety checks, faster builds.
 
-- **Run CortexDB:** `./zig/zig build run`
-  Builds and runs the CortexDB database server.
-- **Run All Tests:** `./zig/zig build test`
-  As mentioned, this is the canonical way to validate your changes.
-- **Quick Check:** `./zig/zig build check`
-  Run tests and code quality checks together.
-- **Performance Benchmarks:** `./zig/zig build benchmark`
-  Build and run performance benchmarks.
-- **Fuzz Testing:** `./zig/zig build fuzz`
-  Build and run fuzz tests.
-- **Code Quality:** `./zig/zig build tidy`
-  Run CortexDB-specific linting and style checks.
-- **Complete CI:** `./zig/zig build ci`
-  Run the complete CI pipeline (formatting, tidy, tests).
+**Production**: `ReleaseFast`
 
-### Test Categories
+## Debugging Memory Issues
 
-- **Unit Tests:** `./zig/zig build unit-test`
-  Core module tests.
-- **Simulation Tests:** `./zig/zig build simulation`
-  Deterministic simulation framework tests.
-- **Storage Tests:** `./zig/zig build storage_simulation`
-  Storage layer simulation tests.
-- **WAL Recovery Tests:** `./zig/zig build wal_recovery`
-  Write-Ahead Log recovery tests.
-- **WAL Memory Safety:** `./zig/zig build wal_memory_safety`
-  WAL memory safety validation.
-- **Memory Isolation Tests:** `./zig/zig build memory_isolation`
-  Memory isolation and arena safety tests.
-- **Integration Tests:** `./zig/zig build integration`
-  End-to-end integration tests.
-
-### Code Formatting
-
-- **Check Formatting:** `./zig/zig build fmt`
-  Verify code formatting without making changes.
-- **Fix Formatting:** `./zig/zig build fmt-fix`
-  Automatically fix code formatting issues.
-
-### Setup Commands
-
-- **Install Zig:** `./scripts/install_zig.sh`
-  Install or update the project Zig toolchain.
-- **Setup Hooks:** `./scripts/setup_hooks.sh`
-  Setup git hooks for development.
-
-## 6. Debugging Memory Issues: A Pragmatic Guide
-
-We follow a tiered approach to debugging, escalating from simple checks to powerful tools.
-
-### Tier 1: `GeneralPurposeAllocator` with Safety Checks
-
-This is your first and most effective tool for finding memory corruption. If a test is crashing unpredictably, modify it to use a `GeneralPurposeAllocator` with `.safety = true`.
+**Tier 1**: Safety-enabled allocator (finds 90% of bugs instantly)
 
 ```zig
-test "my component is crashing" {
-    // Before: const allocator = std.testing.allocator;
-
-    // The fix: Create a safety-enabled GPA for this test.
+test "crashing test" {
+    // Replace: const allocator = std.testing.allocator;
     var gpa = std.heap.GeneralPurposeAllocator(.{.safety = true}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // ... rest of the test code ...
+    // ... test code ...
 }
 ```
 
-This will instantly detect most use-after-free, double-free, and buffer overflow bugs, causing a panic at the _exact line_ of the corruption. This turns most debugging sessions into a 5-minute fix.
-
-### Tier 2: LLVM AddressSanitizer (ASan)
-
-For more subtle bugs, we use the AddressSanitizer built into the LLVM toolchain.
+**Tier 2**: AddressSanitizer (detailed memory error reports)
 
 ```bash
-# Run the entire test suite with ASan enabled.
 ./zig/zig build test -fsanitize-address
 ```
 
-ASan will halt the program on any memory error and provide a detailed report, including the stack trace of the invalid access, the allocation site, and the deallocation site.
+**Tier 3**: LLDB (only if sanitizers don't catch it)
 
-## 7. Build Modes and Optimization Levels
-
-CortexDB supports all Zig optimization levels, but we recommend specific modes for different use cases:
-
-### Recommended Build Modes
-
-- **Development/Testing:** `./zig/zig build test -Doptimize=ReleaseSafe`
-- **CI/Automation:** `-Doptimize=ReleaseSafe` (default in our CI pipeline)
-- **Production Releases:** `-Doptimize=ReleaseFast`
-- **Size-Constrained Deployments:** `-Doptimize=ReleaseSmall`
-
-### Debug Mode Limitations
-
-**Important:** Debug mode (`-Doptimize=Debug`) has known linking performance issues:
-
-- **Symptom:** Linking phase hangs for 60+ seconds during compilation
-- **Root Cause:** Zig compiler performance issue with large debug symbol generation
-- **Workaround:** Use `ReleaseSafe` for most development work
-
-**Why ReleaseSafe is Better for Development:**
-
-- Includes all safety checks (bounds checking, integer overflow detection)
-- Fast compilation and linking (< 10 seconds)
-- Catches the same classes of bugs as Debug mode
-- Used in our CI pipeline for consistent validation
-
-**When to Use Debug Mode:**
-
-- Only when you specifically need full debug symbols for external debuggers
-- Be prepared for slow linking times
-- Consider using `ReleaseSafe` with Tier 1/Tier 2 debugging tools instead
-
-### CI Configuration
-
-Our CI pipeline uses `ReleaseSafe` by default to ensure:
-
-- Fast, reliable builds (< 5 minute test cycles)
-- Comprehensive safety checking without Debug mode overhead
-- Consistent behavior between local development and CI validation
-
-### Local CI Runner
-
-The `./scripts/local_ci.sh` script eliminates the push-wait-read cycle by running the complete GitHub Actions pipeline locally. This mirrors the exact CI environment for faster iteration and debugging.
-
-**Basic Usage:**
-```bash
-./scripts/local_ci.sh                    # Run all CI jobs in parallel
-./scripts/local_ci.sh --job=test-ubuntu  # Run specific job only
-./scripts/local_ci.sh --sequential       # Run jobs sequentially (easier debugging)
-```
-
-**Key Features:**
-- **Exact CI Mirror:** Uses identical commands, flags, and environment as GitHub Actions
-- **Parallel Execution:** Runs multiple jobs concurrently for speed (like CI)
-- **Memory Testing:** Includes Valgrind integration for memory safety validation
-- **Color Output:** Clear visual feedback with timing information
-- **Interrupt Handling:** Clean shutdown on Ctrl+C with proper cleanup
-
-**Available Jobs:**
-- `test-ubuntu`: Core test suite on Ubuntu environment
-- `test-macos`: Core test suite on macOS environment
-- `build-ubuntu`: Release build validation
-- `performance`: Benchmark regression detection
-- `memory-safety`: Valgrind memory error detection
-
-This tool is essential for debugging CI failures without the friction of remote iteration.
-
-## 8. Contributing
-
-### Commit Messages
-
-We enforce the **Conventional Commits** standard via a `commit-msg` hook. This allows for automated changelog generation and clear project history. Your commit messages must follow this pattern.
-
-**The Anatomy of a Great CortexDB Commit:**
-
-A great commit has a good message, and a description includign a short description and bullet points of relevant changes.
+## Project Structure
 
 ```
-    feat(ci): add automated performance regression detection
+src/
+├── cortexdb.zig              # Public API entry point
+├── main.zig                  # Server binary
+├── core/                     # Foundation (types, VFS, utilities)
+├── storage/                  # LSM-tree coordinator + managers
+│   ├── engine.zig            # StorageEngine coordinator
+│   ├── memtable_manager.zig  # In-memory state
+│   └── sstable_manager.zig   # On-disk state
+├── query/                    # Query engine
+├── ingestion/                # Data ingestion pipeline
+├── server/                   # TCP server
+├── sim/                      # Simulation framework
+└── dev/                      # Development tools (not shippable)
 
-    Add CI pipeline to detect performance regressions automatically.
-
-    - Add JSON output format to benchmark framework (--json flag)
-    - Create performance-ci.sh script with 15% slowdown threshold
-    - Integrate performance job into GitHub Actions workflow
-    - Store baseline in .github/performance-baseline.json
-    - Shell-based detection using jq/awk (no Python dependency)
-    - Upload performance artifacts and comment on PRs
-    - Fail CI when operations are >15% slower than baseline
+tests/
+├── integration/              # End-to-end workflows
+├── simulation/               # Failure scenarios
+├── stress/                   # High-load testing
+└── recovery/                 # WAL corruption/recovery
 ```
 
-### Pull Requests
+## Testing Philosophy
 
-1.  **Title:** Use a conventional commit title (e.g., `feat(query): add metadata filtering`).
-2.  **Description:** Clearly explain the "why" behind your change. Link to any relevant issues.
-3.  **Checklist:** Ensure `zig build test` passes locally before submitting.
-4.  **CI:** Ensure all automated checks pass on your PR.
+**Don't mock, simulate.** Run real production code against simulated filesystem/network.
+
+**VFS Pattern**: All I/O goes through `VFS` abstraction
+
+- Production: Real filesystem
+- Tests: In-memory `SimulationVFS` with fault injection
+
+**Memory Management**: Use `std.testing.allocator` (detects leaks automatically)
+
+## Commit Standards
+
+**Format**: `type(scope): description`
+
+**Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+
+**Example**:
+
+```
+feat(storage): add streaming WAL recovery
+
+Reduces memory usage during startup by processing entries one at a time.
+
+- Extract WALEntryStream for buffered I/O
+- Process recovery incrementally vs loading entire segment
+- Maintain identical behavior for corruption detection
+- Add comprehensive recovery stress tests
+
+Startup memory usage reduced from 200MB to <10MB for large WAL files.
+```
+
+**Rules**:
+
+- Subject line <50 chars
+- Description explains WHY, bullet points explain WHAT
+- Never mention AI/Claude/assistants
+- Test locally with `./zig/zig build test` first
+
+## Code Standards
+
+**Memory**: Explicit allocators, arena-per-subsystem pattern
+
+```zig
+// Good: Allocator parameter explicit
+pub fn init(allocator: std.mem.Allocator) !MyStruct { ... }
+
+// Bad: Hidden global allocator
+pub fn init() !MyStruct { ... }
+```
+
+**Lifecycle**: Two-phase initialization for I/O components
+
+```zig
+var engine = try StorageEngine.init(allocator, vfs, data_dir);  // Phase 1: memory only
+try engine.startup();  // Phase 2: I/O operations
+```
+
+**Errors**: Specific error sets, no `anyerror` in public APIs
+
+```zig
+// Good: Caller knows what to handle
+const StorageError = error{BlockNotFound} || std.fs.File.ReadError;
+pub fn find_block(id: BlockId) StorageError!ContextBlock { ... }
+
+// Bad: Generic error type
+pub fn find_block(id: BlockId) !ContextBlock { ... }
+```
+
+**Comments**: Explain WHY, not WHAT
+
+```zig
+// Good: Design rationale
+// Linear scan faster than binary search for <16 SSTables due to cache locality
+for (self.sstables.items) |sstable| { ... }
+
+// Bad: Obvious statement
+// Loop through SSTables
+for (self.sstables.items) |sstable| { ... }
+```
+
+## Performance Guidelines
+
+**Hot Path Rules**:
+
+- No allocations during queries
+- Use arenas for temporary data
+- Linear scans for small collections (<16 items)
+- Single-threaded core (enforced with assertions)
+
+**Target Metrics**:
+
+- <1ms block lookups
+- <10ms graph traversals (3-hop)
+- 10K writes/sec sustained
+
+## Common Issues
+
+**Compilation Hangs**: Switch from Debug to ReleaseSafe mode
+
+**Memory Corruption**: Use Tier 1 debugging (safety allocator)
+
+**Test Flakiness**: Check for cross-allocator usage, ensure consistent VFS usage
+
+**Performance Regression**: Run benchmarks, check for allocations in hot paths
+
+## CI/GitHub Integration
+
+**Pre-commit Hook**: Runs `fmt`, `tidy`, and `test` automatically
+
+**GitHub Actions**:
+
+- Ubuntu/macOS testing
+- Valgrind memory safety
+- Performance regression detection
+- Fuzz testing
+
+**Local CI Mirror**: `./scripts/local_ci.sh` runs identical pipeline locally

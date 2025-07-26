@@ -1,310 +1,412 @@
 # CortexDB Style Guide
 
-## 1. Guiding Principles
+## Principles
 
-This guide is not a list of pedantic rules. It is a codification of our architectural philosophy. Every rule exists to serve one of our four core principles. When in doubt, defer to these principles.
+1. **Explicit is Better Than Implicit** - No hidden allocations, control flow, or state
+2. **Simplicity is the Prerequisite for Reliability** - Complex code kills systems
+3. **Correctness is Not Negotiable** - Use types and assertions to prevent bugs
 
-1.  **Clarity & Explicitness:** All control flow and memory allocations must be explicit. The code should do what it says, and nothing more. We avoid "magic" and hidden complexity.
+## Memory Management
 
-2.  **Correctness & Robustness:** The system must be verifiably correct. We favor simple, predictable patterns over complex, clever ones. We use the type system and a strong assertion framework to make incorrect states unrepresentable.
+### Allocator Parameters
 
-3.  **Performance by Design:** Performance is achieved by architecting the system to avoid unnecessary work (e.g., dynamic allocations on hot paths), not by premature micro-optimization. A simple, data-oriented design is our primary performance tool.
-4.  **Determinism & Testability:** All core logic must be runnable within the deterministic simulation framework. This requires abstracting all sources of non-determinism, such as I/O (VFS) and time.
-
-## 2. Memory Management: The CortexDB Playbook
-
-Memory management is the most critical aspect of our architecture. The following patterns are non-negotiable as they are fundamental to the stability and performance of the system.
-
-### The Allocator is an Explicit Parameter
-
-A function or struct that allocates memory must accept an `allocator: std.mem.Allocator` as a parameter. There are no global allocators.
+Functions that allocate must accept explicit allocators:
 
 ```zig
-// Good: Allocator dependency is explicit.
+// Good
 pub fn init(allocator: std.mem.Allocator) !MyStruct { ... }
+
+// Bad
+pub fn init() !MyStruct { ... }
 ```
 
-### The Arena-per-Subsystem Pattern
+### Arena-per-Subsystem Pattern
 
-For managing the lifetime of complex, related objects, we use arenas. A subsystem that owns a collection of dynamic data (like the `BlockIndex` memtable) owns an `ArenaAllocator` for all of that data.
-
-This pattern eliminates manual `free()` calls for individual objects in favor of a single, atomic `arena.reset()`.
+Complex state uses dedicated arenas for bulk deallocation:
 
 ```zig
-// In src/storage/storage.zig
-
-pub const BlockIndex = struct {
-    blocks: std.HashMap(BlockId, ContextBlock, ...),
-
-    // This arena owns ALL string memory for the blocks in the memtable.
+pub const MemtableManager = struct {
     arena: std.heap.ArenaAllocator,
+    blocks: HashMap(BlockId, ContextBlock, ...),
 
-    pub fn init(allocator: std.mem.Allocator) BlockIndex {
-        return .{
-            .blocks = .init(allocator),
-            .arena = std.heap.ArenaAllocator.init(allocator),
-        };
-    }
-
-    pub fn put_block(self: *BlockIndex, block: ContextBlock) !void {
-        // GOOD: No manual `free` needed. The arena's allocator is used
-        // to dupe the strings, which are all freed together later.
-        const arena_allocator = self.arena.allocator();
-        const cloned_block = ContextBlock{
-            .id = block.id,
-            .version = block.version,
-            .source_uri = try arena_allocator.dupe(u8, block.source_uri),
-            .metadata_json = try arena_allocator.dupe(u8, block.metadata_json),
-            .content = try arena_allocator.dupe(u8, block.content),
-        };
-        try self.blocks.put(block.id, cloned_block);
-    }
-
-    pub fn clear(self: *BlockIndex) void {
+    pub fn clear(self: *MemtableManager) void {
         self.blocks.clearRetainingCapacity();
-        // GOOD: All string memory is freed at once. Simple, fast, and safe.
-        _ = self.arena.reset(.retain_capacity);
+        _ = self.arena.reset(.retain_capacity);  // O(1) cleanup
     }
 };
 ```
 
-### No General-Purpose Allocations on Hot Paths
+### Hot Path Rules
 
-Critical performance paths (e.g., WAL writes, query execution, SSTable compaction) must not use a general-purpose allocator (`gpa.alloc()`).
+- No allocations during queries
+- Use temporary arenas for short-lived data
+- Pre-allocate buffers when possible
 
-- For short-lived, temporary memory, a temporary `ArenaAllocator` should be passed into the function.
-- For frequently used buffers, a `BufferPool` can be considered, but only if profiling proves it is a significant bottleneck and a safer implementation (e.g., with allocation headers) is used.
+## Naming Conventions
 
-## 3. Initialization Lifecycle Patterns
+| Type      | Convention             | Examples                    | Bad Examples           |
+| --------- | ---------------------- | --------------------------- | ---------------------- |
+| Types     | `PascalCase`           | `StorageEngine`, `BlockId`  | `storage_engine`       |
+| Functions | `snake_case`           | `find_block`, `put_edge`    | `findBlock`, `putEdge` |
+| Variables | `snake_case`           | `block_count`, `wal_file`   | `blockCount`           |
+| Constants | `SCREAMING_SNAKE_CASE` | `MAX_BLOCKS`, `HEADER_SIZE` | `MaxBlocks`            |
 
-CortexDB follows specific initialization patterns to ensure consistent, safe, and predictable component lifecycle management. Understanding when to use each pattern is critical for system reliability.
+### Function Naming Rules
 
-### Single-Phase Initialization (Preferred)
-
-For components that can be fully initialized in one step, use single-phase initialization:
+**Ban `get_` and `set_` prefixes:**
 
 ```zig
-// GOOD: Complete initialization in one call
-pub const QueryEngine = struct {
-    allocator: std.mem.Allocator,
-    storage_engine: *StorageEngine,
+// Good: Noun for simple getters
+fn capacity(self: *const Buffer) usize { ... }
 
-    pub fn init(allocator: std.mem.Allocator, storage_engine: *StorageEngine) QueryEngine {
-        return QueryEngine{
-            .allocator = allocator,
-            .storage_engine = storage_engine,
-        };
-    }
-};
+// Good: Specific verb for mutators
+fn update_capacity(self: *Buffer, new_capacity: usize) void { ... }
+
+// Good: Action verbs for operations
+fn find_block(self: *Engine, id: BlockId) !ContextBlock { ... }
+
+// Bad: Generic get/set prefixes
+fn get_capacity() usize { ... }
+fn set_capacity() void { ... }
 ```
 
-**When to use:** When initialization requires no I/O, cannot fail, or all setup can be done atomically.
+## Initialization Patterns
 
-### Two-Phase Initialization (For I/O-Heavy Components)
+### Single-Phase (Preferred)
 
-For components that require I/O operations or can fail during setup, use two-phase initialization:
-
-```zig
-// ACCEPTABLE: Two-phase for I/O-heavy initialization
-pub const StorageEngine = struct {
-    initialized: bool,
-    // ... other fields
-
-    /// Phase 1: Create object structure, allocate memory, no I/O
-    pub fn init(allocator: std.mem.Allocator, vfs: VFS, data_dir: []const u8) !StorageEngine {
-        return StorageEngine{
-            .backing_allocator = allocator,
-            .vfs = vfs,
-            .data_dir = try allocator.dupe(u8, data_dir),
-            .initialized = false,
-            // ... other fields
-        };
-    }
-
-    /// Phase 2: Perform I/O operations, can fail
-    pub fn initialize_storage(self: *StorageEngine) !void {
-        if (self.initialized) return StorageError.AlreadyInitialized;
-
-        // Create directories, discover existing files
-        try self.vfs.mkdir(self.data_dir);
-        try self.discover_existing_sstables();
-
-        self.initialized = true;
-    }
-
-    /// Convenience: Complete startup including WAL recovery
-    pub fn startup(self: *StorageEngine) !void {
-        try self.initialize_storage();
-        try self.recover_from_wal();
-    }
-};
-```
-
-**When to use:** When initialization involves:
-
-- File system operations that can fail
-- Network operations
-- Resource discovery
-- Operations that can be expensive and should be controllable by the caller
-
-### The Golden Rule for Component Lifecycle Naming
-
-CortexDB uses precise semantic naming to communicate component lifecycle phases clearly:
-
-| Method | Semantic Meaning | Lifecycle Phase | I/O Allowed | Example Analogy |
-|--------|------------------|-----------------|-------------|-----------------|
-| `init()` | **Creation & Configuration (Cold)** | Phase 1 | ❌ No | Building engine in factory |
-| `startup()` | **Preparation & Recovery (Warm-up)** | Phase 2 | ✅ Yes | Prime fuel pump, run diagnostics |
-| `run()` | **Main Execution Loop (Hot)** | Phase 3 | ✅ Yes | Engine running, consuming fuel |
-| `deinit()` | **Resource Cleanup** | Shutdown | ✅ Yes | Turn off engine, release resources |
-
-### Naming Rules
-
-1. **`startup()` is the Public API for Phase 2 preparation**
-   - All I/O, resource discovery, state recovery happens here
-   - One-time process that transitions component from cold to hot
-   - Can call private `run_event_loop()` methods for server components
-
-2. **`run()` implies continuous execution loop**
-   - Only use for components with blocking event loops (servers, workers)
-   - Should be private implementation detail called by `startup()`
-   - Not used for passive components like StorageEngine
-
-3. **`start()` is avoided to prevent semantic confusion**
-   - Implies paired `stop()` which may not be appropriate
-   - Less clear than `startup()` for one-time preparation
-
-### Initialization Lifecycle Rules
-
-1. **`init()` must never perform I/O operations** - pure memory allocation and configuration
-2. **`startup()` handles all I/O and preparation** - file discovery, network binding, state recovery
-3. **Always check `initialized` flag** before performing operations in two-phase components
-4. **Document initialization requirements** clearly in function comments
-5. **Initialize fields in a consistent order** - allocator, external dependencies, internal state, initialized flag
-
-### Anti-Patterns to Avoid
+For simple components:
 
 ```zig
-// BAD: Multiple required setup methods with unclear ordering
-pub fn init() Component { ... }
-pub fn set_config() void { ... }    // Required but not obvious
-pub fn set_callbacks() void { ... } // Required but not obvious
-pub fn start() void { ... }         // Must be called last
-
-// BAD: Partial initialization without clear state tracking
-pub fn init() Component {
-    // Some fields initialized, others left undefined
-}
-
-// BAD: Hidden I/O operations in init()
-pub fn init(data_dir: []const u8) !Component {
-    // Surprise! This does file system operations
-    try std.fs.cwd().makePath(data_dir);
+pub fn init(allocator: std.mem.Allocator, config: Config) Component {
+    return Component{ .allocator = allocator, .config = config };
 }
 ```
 
-## 4. Error Handling
+### Two-Phase (I/O Components)
 
-### Use Specific, Scoped Error Sets
-
-Functions must return specific error sets. Avoid returning a generic `anyerror` from high-level functions. Union specific error sets from dependencies to create a clear error contract.
+For components requiring I/O:
 
 ```zig
-// GOOD: The caller knows exactly what to expect.
+pub fn init(allocator: std.mem.Allocator, vfs: VFS, data_dir: []const u8) !Component {
+    // Phase 1: Memory allocation only, no I/O
+    return Component{
+        .allocator = allocator,
+        .vfs = vfs,
+        .data_dir = try allocator.dupe(u8, data_dir),
+        .initialized = false,
+    };
+}
+
+pub fn startup(self: *Component) !void {
+    // Phase 2: I/O operations, can fail
+    try self.vfs.mkdir(self.data_dir);
+    try self.discover_existing_files();
+    self.initialized = true;
+}
+```
+
+**Rule**: `init()` never performs I/O. `startup()` handles resource discovery.
+
+## Error Handling
+
+### Specific Error Sets
+
+No `anyerror` in public APIs:
+
+```zig
+// Good: Specific error contract
 const StorageError = error{
     BlockNotFound,
-    CorruptedWALEntry,
+    CorruptedData,
 } || std.fs.File.ReadError;
 
-pub fn find_block(self: *StorageEngine, id: BlockId) StorageError!ContextBlock { ... }
+pub fn find_block(id: BlockId) StorageError!ContextBlock { ... }
 
-// BAD: The caller has no idea what errors to handle.
-pub fn find_block(self: *StorageEngine, id: BlockId) !ContextBlock { ... }
+// Bad: Generic error type
+pub fn find_block(id: BlockId) !ContextBlock { ... }
 ```
 
-### Use `error_context` for Rich Debugging
+### Error Context
 
-When returning an error from a deep call stack, wrap it with `error_context` to provide rich diagnostic information in debug builds. This has zero performance cost in release builds.
+Use `error_context` for rich debugging:
 
 ```zig
-// GOOD: Provides invaluable debugging info when things go wrong.
-if (computed_checksum != header.checksum) {
+if (computed_checksum != expected) {
     return error_context.storage_error(error.InvalidChecksum, .{
         .operation = "deserialize_block",
         .file_path = self.file_path,
-        .expected_value = header.checksum,
-        .actual_value = computed_checksum,
+        .expected = expected,
+        .actual = computed_checksum,
     });
 }
 ```
 
-## 4. Naming Conventions
+## Comments
 
-Our naming conventions follow Zig standards but add specific constraints to enforce our design philosophy.
+### What to Comment
 
-| Type          | Convention             | Good Examples               | Bad Examples               |
-| ------------- | ---------------------- | --------------------------- | -------------------------- |
-| **Types**     | `PascalCase`           | `StorageEngine`, `BlockId`  | `storage_engine`           |
-| **Constants** | `SCREAMING_SNAKE_CASE` | `MAX_BLOCKS`, `HEADER_SIZE` | `MaxBlocks`, `header_size` |
-| **Functions** | `snake_case`           | `find_block`, `serialize`   | `findBlock`, `GetBlock`    |
-| **Variables** | `snake_case`           | `block_count`, `wal_file`   | `blockCount`, `WALFile`    |
+**Required**:
 
-**CRITICAL: Function Naming Philosophy**
+- Design rationale and trade-offs
+- Performance decisions
+- Non-obvious constraints
+- Public API documentation (`///`)
 
-We strictly forbid `get_` and `set_` prefixes for function names. This enforces a clearer separation between simple accessors and operations with side effects.
+**Forbidden**:
 
-- **For simple getters:** Use a noun.
-  - `fn id(self: *const Block) u64`
-  - `fn capacity(self: *const Buffer) usize`
-- **For setters/mutators:** Use a specific verb that describes the action.
-  - `fn update_id(self: *Block, id: u64)`
-  - `fn clear(self: *BlockIndex)`
-- **For operations:** Use a verb that describes the work being done.
-  - `fn find_block(...)`
-  - `fn recover_from_wal(...)`
+- Restating obvious code
+- Step-by-step narration
+- Development artifacts (`TODO`, `FIXME`, `HACK`)
+- Commented-out code
 
-## 5. Commenting Philosophy: The WHY, Not the WHAT
-
-Comments should explain the **rationale, design decisions, and non-obvious constraints** of the code. We assume a competent reader; do not explain what the code is doing if it's obvious.
+### Examples
 
 ```zig
-// BAD: This comment is useless and just adds noise.
-// Increment the index.
-i += 1;
+// Good: Explains design decision
+// Linear scan outperforms binary search for <16 SSTables
+// due to cache locality and reduced branching overhead
+for (self.sstables.items) |sstable| { ... }
 
-// GOOD: This comment explains a non-obvious design decision.
-// We use a linear scan of the index here instead of binary search.
-// For the expected number of SSTables (< 16), the simpler code and
-// improved cache locality of a linear scan outweighs the algorithmic
-// benefit of a binary search.
-for (self.index.items) |entry| { ... }
+// Good: Non-obvious constraint
+// Block must be cloned to prevent use-after-free when
+// source MemTable is compacted and deallocated
+const owned_block = try source_block.clone(allocator);
+
+// Bad: Obvious statement
+// Loop through SSTables
+for (self.sstables.items) |sstable| { ... }
+
+// Bad: Development noise
+// TODO: optimize this later
+const result = slow_operation();
 ```
 
-- Public APIs must have full `///` documentation explaining their purpose, parameters, and potential errors.
-- `TODO` and `FIXME` comments are for local development only and **must be removed** before merging into `main`.
+## Testing Patterns
 
-## 6. Testing
+### Memory Management
 
-### Deterministic Tests are the Default
-
-The default for any new feature or bug fix is a deterministic simulation test. Unit tests are for simple, pure functions. System behavior must be validated in the simulation framework.
-
-### Test Memory Management
-
-Tests should use `std.testing.allocator` directly for memory allocations. This allocator automatically detects and reports memory leaks, helping maintain code quality.
+Use `std.testing.allocator` (detects leaks automatically):
 
 ```zig
-test "storage engine can write and read a block" {
-    // Standard pattern: declare allocator const for cleaner usage
+test "storage engine operations" {
     const allocator = std.testing.allocator;
 
-    var sim = try Simulation.init(allocator, 1234);
-    var storage = try StorageEngine.init_default(allocator, ...);
+    var engine = try StorageEngine.init(allocator, vfs, data_dir);
+    defer engine.deinit();
 
-    // Use allocator throughout the test
-    const test_data = try allocator.dupe(u8, "test content");
-    defer allocator.free(test_data);
-
-    // ... rest of test logic ...
+    // Test operations...
 }
 ```
+
+### VFS Abstraction
+
+All I/O through VFS for simulation testing:
+
+```zig
+test "handles file corruption" {
+    var sim = try Simulation.init(allocator, seed);
+    defer sim.deinit();
+
+    // Simulate corruption
+    try sim.vfs.inject_fault(.file_corruption, "wal_segment_01.log");
+
+    // Test recovery behavior
+    var engine = try StorageEngine.init(allocator, sim.vfs, data_dir);
+    const result = engine.startup();
+    try testing.expectError(error.CorruptedData, result);
+}
+```
+
+### Deterministic Testing
+
+Prefer simulation over mocking:
+
+```zig
+// Good: Real code, simulated environment
+test "network partition during write" {
+    var sim = try Simulation.init(allocator, seed);
+    sim.network.partition_nodes(.{1, 2}, .{3});
+    // Test with real storage engine...
+}
+
+// Bad: Mock objects
+test "write failure" {
+    var mock_storage = MockStorage.init();
+    mock_storage.expect_write_failure();
+    // Test behavior loses realism...
+}
+```
+
+## Concurrency
+
+### Single-Threaded Core
+
+Use assertions to enforce threading model:
+
+```zig
+pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
+    concurrency.assert_main_thread();  // Debug builds only
+    // ... implementation
+}
+```
+
+### Async I/O Only
+
+Concurrency through event loop, not threads:
+
+```zig
+// Good: Async I/O operations
+const write_task = async self.vfs.write(file, data);
+const read_task = async self.vfs.read(other_file);
+const write_result = await write_task;
+const read_result = await read_task;
+
+// Bad: Thread-based concurrency in core logic
+const thread = try std.Thread.spawn(.{}, worker_function, args);
+```
+
+## Performance Guidelines
+
+### Hot Path Optimizations
+
+```zig
+// Good: Linear scan for small collections
+// Binary search overhead > linear scan for <16 items
+for (self.sstables.items) |sstable| { ... }
+
+// Good: Pre-allocated buffers
+var buffer: [4096]u8 = undefined;
+const result = try self.format_to_buffer(&buffer, block);
+
+// Bad: Dynamic allocation in hot path
+const formatted = try allocator.alloc(u8, estimated_size);
+```
+
+### Memory Efficiency
+
+```zig
+// Good: Arena for related allocations
+var arena = std.heap.ArenaAllocator.init(backing_allocator);
+defer arena.deinit();
+const temp_allocator = arena.allocator();
+
+// Process many related items using temp_allocator
+// All memory freed at once with arena.deinit()
+
+// Bad: Individual allocations
+for (items) |item| {
+    const processed = try allocator.alloc(u8, item.size);
+    defer allocator.free(processed);  // Expensive
+    // ...
+}
+```
+
+## Defensive Programming
+
+### Assertions
+
+Use comprehensive assertions in debug builds:
+
+```zig
+const assert = @import("core/assert.zig");
+
+pub fn put_block(self: *Engine, block: ContextBlock) !void {
+    assert.not_null(block.content);
+    assert.positive(block.content.len);
+    assert.valid_block_id(block.id);
+
+    // ... implementation
+}
+```
+
+### Invariant Checking
+
+Validate critical invariants:
+
+```zig
+pub fn compact_sstables(self: *SSTableManager) !void {
+    const initial_count = self.sstables.items.len;
+
+    // ... compaction logic
+
+    // Invariant: Compaction reduces or maintains file count
+    assert.less_than_or_equal(self.sstables.items.len, initial_count);
+}
+```
+
+## Code Organization
+
+### Module Boundaries
+
+Clear dependency hierarchy:
+
+```
+core/           # Foundation, no dependencies
+├── storage/    # Depends on core/
+├── query/      # Depends on core/ and storage/
+├── server/     # Depends on core/, storage/, query/
+└── sim/        # Depends on core/ only (for testing)
+```
+
+### File Structure
+
+```zig
+// File header with module purpose
+//! SSTableManager handles on-disk sorted string table operations.
+//! Responsibilities: file discovery, compaction coordination, read optimization.
+
+const std = @import("std");
+const core = @import("../core/cortexdb.zig");
+const assert = @import("../core/assert.zig");
+
+// Types first
+const Self = @This();
+const SSTable = @import("sstable.zig");
+
+// Public API
+pub const SSTableManager = struct {
+    // Implementation...
+};
+
+// Tests at bottom
+test "sstable manager lifecycle" {
+    // Test implementation...
+}
+```
+
+## Anti-Patterns
+
+**Banned**:
+
+- Global state
+- Hidden allocations
+- Thread-based concurrency in core logic
+- `anyerror` in public APIs
+- `get_`/`set_` function prefixes
+- I/O in `init()` functions
+- Mocking instead of simulation
+
+**Required**:
+
+- Explicit allocator parameters
+- Specific error sets
+- VFS abstraction for all I/O
+- Arena-per-subsystem for complex state
+- Comprehensive assertions in debug builds
+
+## Style Enforcement
+
+**Automated via `tidy`**:
+
+- Custom assert usage (no `std.debug.assert`)
+- Lifecycle naming conventions
+- Error set specificity
+- Comment quality
+
+**Git hooks**:
+
+- Code formatting (`zig fmt`)
+- Commit message standards
+- Test passage before commit
+
+CortexDB style serves reliability. Every rule prevents real bugs.
