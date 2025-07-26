@@ -22,7 +22,11 @@ src/
 │   ├── assert.zig        # Assertion framework
 │   ├── concurrency.zig   # Thread safety utilities
 │   └── error_context.zig # Rich error reporting
-├── storage/              # Storage engine (LSM-tree, SSTables, WAL)
+├── storage/              # Storage engine (decomposed LSM-tree coordinator)
+│   ├── engine.zig        # StorageEngine coordinator
+│   ├── memtable_manager.zig  # In-memory state management
+│   ├── sstable_manager.zig   # On-disk state management
+│   └── wal.zig          # Write-ahead log durability
 ├── query/                # Query processing
 ├── ingestion/            # Data ingestion pipeline
 ├── server/               # TCP server and protocol handling

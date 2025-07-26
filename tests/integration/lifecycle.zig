@@ -164,8 +164,8 @@ test "integration: full data lifecycle with compaction" {
     // Test graph traversal queries
     const module_0_id = try BlockId.from_hex("00000000000000000000000000000000");
     const outgoing_edges = storage_engine.find_outgoing_edges(module_0_id);
-    try testing.expect(outgoing_edges != null);
-    try testing.expectEqual(@as(usize, 1), outgoing_edges.?.len);
+    try testing.expect(outgoing_edges.len > 0);
+    try testing.expectEqual(@as(usize, 1), outgoing_edges.len);
 
     // Phase 4: Data modification and consistency
 
@@ -535,8 +535,8 @@ test "integration: storage recovery and query consistency" {
         // Test graph relationships survived recovery
         const block1_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1");
         const outgoing = storage_engine2.find_outgoing_edges(block1_id);
-        try testing.expect(outgoing != null);
-        try testing.expectEqual(@as(usize, 1), outgoing.?.len);
+        try testing.expect(outgoing.len > 0);
+        try testing.expectEqual(@as(usize, 1), outgoing.len);
 
         // Test query formatting
         const formatted = try batch_result.format_for_llm(allocator);

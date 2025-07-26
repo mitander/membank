@@ -135,7 +135,7 @@ pub const BlockIndex = struct {
 
     /// Find a block by ID, returning pointer to the stored block or null.
     /// Returns pointer into HashMap storage for zero-copy access to block data.
-    pub fn find_block(self: *BlockIndex, block_id: BlockId) ?*const ContextBlock {
+    pub fn find_block(self: *const BlockIndex, block_id: BlockId) ?*const ContextBlock {
         return self.blocks.getPtr(block_id);
     }
 

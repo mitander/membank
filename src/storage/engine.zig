@@ -23,8 +23,9 @@ const concurrency = @import("../core/concurrency.zig");
 // Import storage submodules
 const config_mod = @import("config.zig");
 const metrics_mod = @import("metrics.zig");
+const memtable_manager_mod = @import("memtable_manager.zig");
+const sstable_manager_mod = @import("sstable_manager.zig");
 const block_index_mod = @import("block_index.zig");
-const graph_edge_index_mod = @import("graph_edge_index.zig");
 
 // Import existing storage modules
 const sstable = @import("sstable.zig");
@@ -36,11 +37,15 @@ const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 
+// Type aliases for cleaner code
+const BlockHashMap = std.HashMap(BlockId, ContextBlock, block_index_mod.BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage);
+const BlockHashMapIterator = BlockHashMap.Iterator;
+
 // Re-export submodule types
 pub const Config = config_mod.Config;
 pub const StorageMetrics = metrics_mod.StorageMetrics;
-pub const BlockIndex = block_index_mod.BlockIndex;
-pub const GraphEdgeIndex = graph_edge_index_mod.GraphEdgeIndex;
+pub const MemtableManager = memtable_manager_mod.MemtableManager;
+pub const SSTableManager = sstable_manager_mod.SSTableManager;
 
 // Re-export existing module types
 pub const SSTable = sstable.SSTable;
@@ -63,20 +68,17 @@ pub const StorageError = error{
 
 /// Main storage engine coordinating all storage subsystems.
 /// Implements LSM-tree architecture with WAL durability, in-memory
-/// memtable (BlockIndex), immutable SSTables, and background compaction.
-/// Enforces single-threaded access for correctness and uses arena-per-subsystem
-/// memory management for performance and safety.
+/// memtable management, immutable SSTables, and background compaction.
+/// Follows state-oriented decomposition with MemtableManager for in-memory
+/// state and SSTableManager for on-disk state. True coordinator pattern.
 pub const StorageEngine = struct {
     backing_allocator: std.mem.Allocator,
     vfs: VFS,
     data_dir: []const u8,
     config: Config,
-    index: BlockIndex,
-    graph_index: GraphEdgeIndex,
+    memtable_manager: MemtableManager,
+    sstable_manager: SSTableManager,
     wal: WAL,
-    sstables: std.ArrayList([]const u8), // Paths to SSTable files
-    compaction_manager: TieredCompactionManager,
-    next_sstable_id: u32,
     initialized: bool,
     storage_metrics: StorageMetrics,
     query_cache_arena: std.heap.ArenaAllocator,
@@ -114,16 +116,9 @@ pub const StorageEngine = struct {
             .vfs = filesystem,
             .data_dir = owned_data_dir,
             .config = storage_config,
-            .index = BlockIndex.init(allocator),
-            .graph_index = GraphEdgeIndex.init(allocator),
+            .memtable_manager = MemtableManager.init(allocator),
+            .sstable_manager = SSTableManager.init(allocator, filesystem, owned_data_dir),
             .wal = try WAL.init(allocator, filesystem, wal_dir),
-            .sstables = std.ArrayList([]const u8).init(allocator),
-            .compaction_manager = TieredCompactionManager.init(
-                allocator,
-                filesystem,
-                owned_data_dir,
-            ),
-            .next_sstable_id = 0,
             .initialized = false,
             .storage_metrics = StorageMetrics.init(),
             .query_cache_arena = std.heap.ArenaAllocator.init(allocator),
@@ -138,25 +133,15 @@ pub const StorageEngine = struct {
         concurrency.assert_main_thread();
 
         self.wal.deinit();
-
-        // Clean up SSTable path strings
-        for (self.sstables.items) |sstable_path| {
-            self.backing_allocator.free(sstable_path);
-        }
-        self.sstables.deinit();
-
-        // Clean up indexes with their arenas
-        self.index.deinit();
-        self.graph_index.deinit();
+        self.memtable_manager.deinit();
+        self.sstable_manager.deinit();
         self.query_cache_arena.deinit();
-
-        self.compaction_manager.deinit();
         self.backing_allocator.free(self.data_dir);
     }
 
     /// Initialize storage by creating directories and discovering existing data.
     /// Must be called before any read/write operations. Creates necessary
-    /// directory structure and registers existing SSTables with compaction manager.
+    /// directory structure and starts up all subsystems with I/O operations.
     pub fn initialize_storage(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
         if (self.initialized) return StorageError.AlreadyInitialized;
@@ -166,22 +151,16 @@ pub const StorageEngine = struct {
             try self.vfs.mkdir(self.data_dir);
         }
 
-        // Create subdirectories for WAL and SSTables
+        // Create WAL directory
         const wal_dir = try std.fmt.allocPrint(self.backing_allocator, "{s}/wal", .{self.data_dir});
         defer self.backing_allocator.free(wal_dir);
-
-        const sst_dir = try std.fmt.allocPrint(self.backing_allocator, "{s}/sst", .{self.data_dir});
-        defer self.backing_allocator.free(sst_dir);
 
         if (!self.vfs.exists(wal_dir)) {
             try self.vfs.mkdir(wal_dir);
         }
-        if (!self.vfs.exists(sst_dir)) {
-            try self.vfs.mkdir(sst_dir);
-        }
 
-        // Discover and register existing SSTables
-        try self.discover_existing_sstables();
+        // Start up SSTable manager (creates sst dir and discovers existing files)
+        try self.sstable_manager.startup();
 
         self.initialized = true;
     }
@@ -210,12 +189,12 @@ pub const StorageEngine = struct {
         defer wal_entry.deinit(self.backing_allocator);
         try self.write_wal_entry(wal_entry);
 
-        // Update in-memory index after WAL write
-        try self.index.put_block(block);
+        // Update in-memory memtable after WAL write
+        try self.memtable_manager.put_block(block);
 
         // Check if memtable flush is needed
-        if (self.index.memory_usage() >= self.config.memtable_max_size) {
-            try self.flush_memtable_to_sstable();
+        if (self.memtable_manager.memory_usage() >= self.config.memtable_max_size) {
+            try self.flush_memtable();
         }
 
         // Update metrics
@@ -234,7 +213,7 @@ pub const StorageEngine = struct {
         const start_time = std.time.nanoTimestamp();
 
         // Check memtable first for most recent data
-        if (self.index.find_block(block_id)) |block_ptr| {
+        if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
             const end_time = std.time.nanoTimestamp();
             _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
             _ = self.storage_metrics.total_read_time_ns.fetchAdd(@intCast(end_time - start_time), .monotonic);
@@ -243,27 +222,17 @@ pub const StorageEngine = struct {
         }
 
         // Search SSTables in reverse order (newest first)
-        var i: usize = self.sstables.items.len;
-        while (i > 0) {
-            i -= 1;
-            const sstable_path = self.sstables.items[i];
+        if (try self.sstable_manager.find_block_in_sstables(block_id, self.query_cache_arena.allocator())) |block| {
+            const end_time = std.time.nanoTimestamp();
+            _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.sstable_reads.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.total_read_time_ns.fetchAdd(@intCast(end_time - start_time), .monotonic);
+            _ = self.storage_metrics.total_bytes_read.fetchAdd(block.content.len, .monotonic);
 
-            var sstable_file = SSTable.init(self.query_cache_arena.allocator(), self.vfs, sstable_path);
-            sstable_file.read_index() catch continue;
-            defer sstable_file.deinit();
+            // Periodically clear query cache to prevent unbounded growth
+            self.maybe_clear_query_cache();
 
-            if (try sstable_file.find_block(block_id)) |block| {
-                const end_time = std.time.nanoTimestamp();
-                _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
-                _ = self.storage_metrics.sstable_reads.fetchAdd(1, .monotonic);
-                _ = self.storage_metrics.total_read_time_ns.fetchAdd(@intCast(end_time - start_time), .monotonic);
-                _ = self.storage_metrics.total_bytes_read.fetchAdd(block.content.len, .monotonic);
-
-                // Periodically clear query cache to prevent unbounded growth
-                self.maybe_clear_query_cache();
-
-                return block;
-            }
+            return block;
         }
 
         return null;
@@ -281,9 +250,8 @@ pub const StorageEngine = struct {
         defer wal_entry.deinit(self.backing_allocator);
         try self.write_wal_entry(wal_entry);
 
-        // Remove from memtable and graph index
-        self.index.remove_block(block_id);
-        self.graph_index.remove_block_edges(block_id);
+        // Remove from memtable (handles both block and edges)
+        self.memtable_manager.delete_block(block_id);
 
         _ = self.storage_metrics.blocks_deleted.fetchAdd(1, .monotonic);
     }
@@ -299,20 +267,32 @@ pub const StorageEngine = struct {
         defer wal_entry.deinit(self.backing_allocator);
         try self.write_wal_entry(wal_entry);
 
-        // Update in-memory graph index
-        try self.graph_index.put_edge(edge);
+        // Update in-memory graph index via memtable manager
+        try self.memtable_manager.put_edge(edge);
 
         _ = self.storage_metrics.edges_added.fetchAdd(1, .monotonic);
     }
 
     /// Get current block count across all storage layers.
     pub fn block_count(self: *const StorageEngine) u32 {
-        return self.index.block_count();
+        return self.memtable_manager.block_count();
     }
 
     /// Get current edge count in graph index.
     pub fn edge_count(self: *const StorageEngine) u32 {
-        return self.graph_index.edge_count();
+        return self.memtable_manager.edge_count();
+    }
+
+    /// Find all outgoing edges from a source block.
+    /// Delegates to memtable manager for graph traversal operations.
+    pub fn find_outgoing_edges(self: *const StorageEngine, source_id: BlockId) []const GraphEdge {
+        return self.memtable_manager.find_outgoing_edges(source_id);
+    }
+
+    /// Find all incoming edges to a target block.
+    /// Delegates to memtable manager for reverse graph traversal operations.
+    pub fn find_incoming_edges(self: *const StorageEngine, target_id: BlockId) []const GraphEdge {
+        return self.memtable_manager.find_incoming_edges(target_id);
     }
 
     /// Get performance metrics for monitoring and debugging.
@@ -320,20 +300,11 @@ pub const StorageEngine = struct {
         return &self.storage_metrics;
     }
 
-    /// Find outgoing edges from a source block for graph traversal.
-    pub fn find_outgoing_edges(self: *const StorageEngine, source_id: BlockId) ?[]const GraphEdge {
-        return self.graph_index.find_outgoing_edges(source_id);
-    }
-
-    /// Find incoming edges to a target block for reverse graph traversal.
-    pub fn find_incoming_edges(self: *const StorageEngine, target_id: BlockId) ?[]const GraphEdge {
-        return self.graph_index.find_incoming_edges(target_id);
-    }
 
     /// Block iterator for scanning all blocks in storage (memtable + SSTables)
     pub const BlockIterator = struct {
         storage_engine: *StorageEngine,
-        memtable_iterator: ?std.HashMap(BlockId, ContextBlock, BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage).Iterator,
+        memtable_iterator: ?BlockHashMapIterator,
         sstable_index: usize,
         current_sstable: ?SSTable,
         current_sstable_iterator: ?sstable.SSTableIterator,
@@ -389,7 +360,7 @@ pub const StorageEngine = struct {
     pub fn iterate_all_blocks(self: *StorageEngine) BlockIterator {
         return BlockIterator{
             .storage_engine = self,
-            .memtable_iterator = self.index.blocks.iterator(),
+            .memtable_iterator = self.memtable_manager.raw_iterator(),
             .sstable_index = 0,
             .current_sstable = null,
             .current_sstable_iterator = null,
@@ -406,62 +377,42 @@ pub const StorageEngine = struct {
         _ = self.storage_metrics.total_wal_flush_time_ns.fetchAdd(@intCast(end_time - start_time), .monotonic);
     }
 
-    /// Flush current memtable to a new SSTable and reset for new writes.
-    /// This is the core LSM-tree operation that maintains write performance
-    /// by periodically moving data from memory to immutable disk storage.
-    /// Arena reset provides O(1) memory cleanup for optimal performance.
-    pub fn flush_memtable_to_sstable(self: *StorageEngine) !void {
+    /// Flush current memtable to SSTable with coordinated subsystem management.
+    /// Core LSM-tree operation that delegates to SSTableManager for SSTable creation
+    /// and coordinates cleanup with MemtableManager. Follows the coordinator pattern.
+    fn flush_memtable(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
-        if (!self.initialized) return StorageError.NotInitialized;
+        
+        if (self.memtable_manager.block_count() == 0) return; // Nothing to flush
 
-        if (self.index.block_count() == 0) return; // Nothing to flush
-
-        // Generate unique SSTable filename
-        const sstable_filename = try std.fmt.allocPrint(self.backing_allocator, "{s}/sst/sstable_{:04}.sst", .{ self.data_dir, self.next_sstable_id });
-        self.next_sstable_id += 1;
-
-        // Create iterator over memtable blocks
-        var iterator = self.index.blocks.iterator();
+        // Collect all blocks from memtable for SSTable creation
         var blocks = std.ArrayList(ContextBlock).init(self.backing_allocator);
         defer blocks.deinit();
 
-        // Collect all blocks for SSTable writing
-        while (iterator.next()) |entry| {
-            try blocks.append(entry.value_ptr.*);
+        var iterator = self.memtable_manager.iterator();
+        while (iterator.next()) |block| {
+            try blocks.append(block);
         }
 
-        // Sort blocks by ID for efficient SSTable layout
-        std.sort.pdq(ContextBlock, blocks.items, {}, struct {
-            fn less_than(_: void, a: ContextBlock, b: ContextBlock) bool {
-                return std.mem.lessThan(u8, &a.id.bytes, &b.id.bytes);
-            }
-        }.less_than);
+        // Delegate SSTable creation to SSTableManager
+        try self.sstable_manager.create_new_sstable(blocks.items);
 
-        // Write SSTable atomically
-        var new_sstable = SSTable.init(self.backing_allocator, self.vfs, sstable_filename);
-        defer {
-            // Manual cleanup to avoid double-free of file_path (owned by storage engine)
-            new_sstable.index.deinit();
-            if (new_sstable.bloom_filter) |*filter| {
-                filter.deinit();
-            }
-        }
-        try new_sstable.write_blocks(blocks.items);
-
-        // Register new SSTable with storage and compaction manager
-        try self.sstables.append(sstable_filename);
-        try self.compaction_manager.add_sstable(sstable_filename, try self.read_file_size(sstable_filename), 0);
-
-        // Clear memtable using O(1) arena reset
-        self.index.clear();
+        // Atomically clear memtable after successful SSTable creation
+        self.memtable_manager.clear();
 
         // Check for compaction opportunities
-        try self.check_and_run_compaction();
+        try self.sstable_manager.check_and_run_compaction();
 
-        // Clean up old WAL segments after successful SSTable flush
+        // Clean up old WAL segments after successful flush
         try self.wal.cleanup_old_segments();
 
         _ = self.storage_metrics.sstable_writes.fetchAdd(1, .monotonic);
+    }
+
+    /// Public wrapper for memtable flush - backward compatibility.
+    /// Delegates to internal flush_memtable method for coordinated subsystem management.
+    pub fn flush_memtable_to_sstable(self: *StorageEngine) !void {
+        try self.flush_memtable();
     }
 
     /// Recover storage state from WAL files.
@@ -518,16 +469,15 @@ pub const StorageEngine = struct {
                 const temp_allocator = temp_arena.allocator();
 
                 const block = try entry.extract_block(temp_allocator);
-                try self.index.put_block(block);
+                try self.memtable_manager.put_block(block);
             },
             .delete_block => {
                 const block_id = try entry.extract_block_id();
-                self.index.remove_block(block_id);
-                self.graph_index.remove_block_edges(block_id);
+                self.memtable_manager.delete_block(block_id);
             },
             .put_edge => {
                 const edge = try entry.extract_edge();
-                try self.graph_index.put_edge(edge);
+                try self.memtable_manager.put_edge(edge);
             },
         }
     }
@@ -891,7 +841,7 @@ test "block iterator with SSTable blocks" {
     try engine.flush_memtable_to_sstable();
 
     // Verify memtable is empty
-    try testing.expectEqual(@as(u32, 0), engine.index.block_count());
+    try testing.expectEqual(@as(u32, 0), engine.block_count());
 
     // Iterate and collect all blocks from SSTables
     var iterator = engine.iterate_all_blocks();

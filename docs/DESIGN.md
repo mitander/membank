@@ -21,11 +21,15 @@ CortexDB is a modular, single-threaded, asynchronous engine. Its architecture is
 ```
 cortex-core (The Database Engine)
 │
-├── Storage Engine (LSMT Persistence Layer)
-│   ├── Write-Ahead Log (WAL) for Durability
-│   ├── BlockIndex (In-Memory Memtable)
-│   ├── SSTable (Immutable On-Disk Files)
-│   └── CompactionManager (Background Maintenance)
+├── Storage Engine (LSMT Persistence Layer - Coordinator)
+│   ├── MemtableManager (Complete In-Memory State)
+│   │   ├── BlockIndex (Context Block Storage)
+│   │   └── GraphEdgeIndex (Relationship Storage)
+│   ├── SSTableManager (Complete On-Disk State)
+│   │   ├── SSTable Discovery & Creation
+│   │   ├── Read Coordination
+│   │   └── CompactionManager Integration
+│   └── Write-Ahead Log (WAL) for Durability
 │
 ├── Query Engine (Context Retrieval)
 │   ├── ID-Based Lookups
@@ -63,14 +67,29 @@ CortexDB's core logic is **strictly single-threaded**. This is an architectural 
 -   **Concurrency via Async I/O:** Concurrency is achieved at the I/O boundary. The single thread drives an event loop, handing off I/O operations to the OS kernel and processing results as they complete.
 -   **Enforcement:** The `concurrency.assert_main_thread()` function is used liberally in debug builds to guarantee this invariant is never violated.
 
-### 3.3. Storage Engine: A Classic LSM-Tree
+### 3.3. Storage Engine: A Decomposed LSM-Tree
 
-We use a Log-Structured Merge-Tree for its exceptional write performance, which is critical for the high-volume ingestion of context data.
+We use a Log-Structured Merge-Tree for its exceptional write performance, which is critical for the high-volume ingestion of context data. The storage engine follows a **state-oriented decomposition** with clear ownership boundaries.
 
-1.  **Write-Ahead Log (WAL):** All writes (`put_block`, `put_edge`, `delete_block`) are first appended to the WAL for durability. A write is considered successful once it is flushed to the WAL file. This enables fast, crash-safe recovery.
-2.  **`BlockIndex` (Memtable):** After writing to the WAL, the block is inserted into the in-memory `BlockIndex`, which is a `HashMap` backed by an `ArenaAllocator`. Reads always check the `BlockIndex` first to find the most recent data.
-3.  **SSTables:** When the `BlockIndex` reaches a certain size, its contents are sorted by `BlockId` and flushed to a new, immutable SSTable file on disk. The `BlockIndex` and its arena are then cleared.
-4.  **Size-Tiered Compaction:** SSTables are organized into levels. A background process periodically merges smaller SSTables from one level into larger ones at the next level, cleaning up deleted or updated data in the process.
+**Storage Engine Coordinator:**
+The main `StorageEngine` acts as a pure coordinator, orchestrating LSM-tree operations across specialized subsystems without implementing storage logic directly.
+
+**Subsystem Architecture:**
+
+1.  **MemtableManager (In-Memory State):** Encapsulates the complete in-memory write buffer including both `BlockIndex` (context blocks) and `GraphEdgeIndex` (relationships). Uses arena-per-subsystem memory management for O(1) bulk cleanup during flushes.
+
+2.  **SSTableManager (On-Disk State):** Manages the complete collection of SSTable files including discovery, creation, read coordination, and compaction management. Handles all persistent storage concerns independently.
+
+3.  **Write-Ahead Log (WAL):** All writes (`put_block`, `put_edge`, `delete_block`) are first appended to the WAL for durability. A write is considered successful once it is flushed to the WAL file.
+
+**LSM-Tree Operation Flow:**
+1. WAL-first writes ensure durability before in-memory updates
+2. MemtableManager handles all in-memory state changes
+3. When memtable reaches size threshold, SSTableManager creates new immutable SSTables  
+4. MemtableManager performs O(1) arena cleanup
+5. SSTableManager coordinates background compaction as needed
+
+This decomposition provides clear ownership boundaries, enhanced testability, and simplified reasoning about system behavior while maintaining all LSM-tree performance characteristics.
 
 ### 3.4. Testing Philosophy: Deterministic Simulation
 
