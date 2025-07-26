@@ -47,7 +47,9 @@ fn create_valid_serialized_edge() ![GraphEdge.SERIALIZED_SIZE]u8 {
 }
 
 test "fault injection - contextblock header magic corruption" {
-    const allocator = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     const buffer = try create_valid_serialized_block(allocator);
     defer allocator.free(buffer);

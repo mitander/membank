@@ -75,7 +75,107 @@ Critical performance paths (e.g., WAL writes, query execution, SSTable compactio
 - For short-lived, temporary memory, a temporary `ArenaAllocator` should be passed into the function.
 - For frequently used buffers, a `BufferPool` can be considered, but only if profiling proves it is a significant bottleneck and a safer implementation (e.g., with allocation headers) is used.
 
-## 3. Error Handling
+## 3. Initialization Lifecycle Patterns
+
+CortexDB follows specific initialization patterns to ensure consistent, safe, and predictable component lifecycle management. Understanding when to use each pattern is critical for system reliability.
+
+### Single-Phase Initialization (Preferred)
+
+For components that can be fully initialized in one step, use single-phase initialization:
+
+```zig
+// GOOD: Complete initialization in one call
+pub const QueryEngine = struct {
+    allocator: std.mem.Allocator,
+    storage_engine: *StorageEngine,
+
+    pub fn init(allocator: std.mem.Allocator, storage_engine: *StorageEngine) QueryEngine {
+        return QueryEngine{
+            .allocator = allocator,
+            .storage_engine = storage_engine,
+        };
+    }
+};
+```
+
+**When to use:** When initialization requires no I/O, cannot fail, or all setup can be done atomically.
+
+### Two-Phase Initialization (For I/O-Heavy Components)
+
+For components that require I/O operations or can fail during setup, use two-phase initialization:
+
+```zig
+// ACCEPTABLE: Two-phase for I/O-heavy initialization
+pub const StorageEngine = struct {
+    initialized: bool,
+    // ... other fields
+
+    /// Phase 1: Create object structure, allocate memory, no I/O
+    pub fn init(allocator: std.mem.Allocator, vfs: VFS, data_dir: []const u8) !StorageEngine {
+        return StorageEngine{
+            .backing_allocator = allocator,
+            .vfs = vfs,
+            .data_dir = try allocator.dupe(u8, data_dir),
+            .initialized = false,
+            // ... other fields
+        };
+    }
+
+    /// Phase 2: Perform I/O operations, can fail
+    pub fn initialize_storage(self: *StorageEngine) !void {
+        if (self.initialized) return StorageError.AlreadyInitialized;
+
+        // Create directories, discover existing files
+        try self.vfs.mkdir(self.data_dir);
+        try self.discover_existing_sstables();
+
+        self.initialized = true;
+    }
+
+    /// Convenience: Complete startup including WAL recovery
+    pub fn startup(self: *StorageEngine) !void {
+        try self.initialize_storage();
+        try self.recover_from_wal();
+    }
+};
+```
+
+**When to use:** When initialization involves:
+- File system operations that can fail
+- Network operations
+- Resource discovery
+- Operations that can be expensive and should be controllable by the caller
+
+### Initialization Lifecycle Rules
+
+1. **`init()` must never fail for memory allocation reasons alone** - use ArenaAllocator or handle OOM gracefully
+2. **Always check `initialized` flag** before performing operations in two-phase components
+3. **Provide convenience methods** like `startup()` for common initialization sequences
+4. **Document initialization requirements** clearly in function comments
+5. **Initialize fields in a consistent order** - allocator, external dependencies, internal state, initialized flag
+
+### Anti-Patterns to Avoid
+
+```zig
+// BAD: Multiple required setup methods with unclear ordering
+pub fn init() Component { ... }
+pub fn set_config() void { ... }    // Required but not obvious
+pub fn set_callbacks() void { ... } // Required but not obvious
+pub fn start() void { ... }         // Must be called last
+
+// BAD: Partial initialization without clear state tracking
+pub fn init() Component {
+    // Some fields initialized, others left undefined
+}
+
+// BAD: Hidden I/O operations in init()
+pub fn init(data_dir: []const u8) !Component {
+    // Surprise! This does file system operations
+    try std.fs.cwd().makePath(data_dir);
+}
+```
+
+## 4. Error Handling
 
 ### Use Specific, Scoped Error Sets
 
