@@ -12,6 +12,8 @@ const assert_fmt = @import("../core/assert.zig").assert_fmt;
 const log = std.log.scoped(.storage_recovery);
 const context_block = @import("../core/types.zig");
 const concurrency = @import("../core/concurrency.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const testing = std.testing;
 
 // Import storage submodules
 const block_index_mod = @import("block_index.zig");
@@ -23,6 +25,7 @@ const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 const BlockIndex = block_index_mod.BlockIndex;
 const GraphEdgeIndex = graph_edge_index_mod.GraphEdgeIndex;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 const WALEntry = wal.WALEntry;
 
 /// Recovery statistics for monitoring and debugging.
@@ -231,8 +234,6 @@ pub fn create_test_recovery_setup(allocator: std.mem.Allocator) !struct {
 }
 
 // Tests
-const testing = std.testing;
-const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
 test "recovery context initialization and finalization" {
     var setup = try create_test_recovery_setup(testing.allocator);
@@ -413,7 +414,7 @@ test "recovery callback handles corrupted blocks gracefully" {
 test "complete recovery workflow with mixed operations" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var setup = try create_test_recovery_setup(allocator);

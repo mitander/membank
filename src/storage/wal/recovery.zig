@@ -14,6 +14,9 @@ const types = @import("types.zig");
 const entry_mod = @import("entry.zig");
 const wal_entry_stream = @import("stream.zig");
 const vfs = @import("../../core/vfs.zig");
+const simulation_vfs = @import("../../sim/simulation_vfs.zig");
+const context_block = @import("../../core/types.zig");
+const testing = std.testing;
 
 const WALError = types.WALError;
 const RecoveryCallback = types.RecoveryCallback;
@@ -21,6 +24,10 @@ const MAX_PATH_LENGTH = types.MAX_PATH_LENGTH;
 const WALEntry = entry_mod.WALEntry;
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;
+const ContextBlock = context_block.ContextBlock;
+const BlockId = context_block.BlockId;
+const GraphEdge = context_block.GraphEdge;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 
 /// Recover entries from a single WAL segment file using streaming approach
 /// Processes entries one at a time to minimize memory usage and improve corruption resilience
@@ -197,12 +204,6 @@ fn list_segment_files(filesystem: VFS, allocator: std.mem.Allocator, directory: 
 }
 
 // Tests
-const testing = std.testing;
-const simulation_vfs = @import("../../sim/simulation_vfs.zig");
-const context_block = @import("../../core/types.zig");
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
 
 fn create_test_wal_entry(entry_type: u8, payload: []const u8, allocator: std.mem.Allocator) ![]u8 {
     var hasher = std.hash.Wyhash.init(0);
@@ -276,7 +277,7 @@ fn error_recovery_callback(entry: entry_mod.WALEntry, context: *anyopaque) WALEr
 test "recover_from_segment - empty file" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     // Create empty WAL file

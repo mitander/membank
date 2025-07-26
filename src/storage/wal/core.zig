@@ -16,6 +16,9 @@ const recovery = @import("recovery.zig");
 const vfs = @import("../../core/vfs.zig");
 const concurrency = @import("../../core/concurrency.zig");
 const error_context = @import("../../core/error_context.zig");
+const simulation_vfs = @import("../../sim/simulation_vfs.zig");
+const context_block = @import("../../core/types.zig");
+const testing = std.testing;
 
 const WALError = types.WALError;
 const WALStats = types.WALStats;
@@ -23,6 +26,10 @@ const RecoveryCallback = types.RecoveryCallback;
 const WALEntry = entry_mod.WALEntry;
 const MAX_SEGMENT_SIZE = types.MAX_SEGMENT_SIZE;
 const MAX_PAYLOAD_SIZE = types.MAX_PAYLOAD_SIZE;
+const ContextBlock = context_block.ContextBlock;
+const BlockId = context_block.BlockId;
+const GraphEdge = context_block.GraphEdge;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 const WAL_FILE_PREFIX = types.WAL_FILE_PREFIX;
 const WAL_FILE_SUFFIX = types.WAL_FILE_SUFFIX;
 const WAL_FILE_NUMBER_DIGITS = types.WAL_FILE_NUMBER_DIGITS;
@@ -456,12 +463,6 @@ pub const WAL = struct {
 };
 
 // Tests
-const testing = std.testing;
-const simulation_vfs = @import("../../sim/simulation_vfs.zig");
-const context_block = @import("../../core/types.zig");
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
 
 fn create_test_block() ContextBlock {
     return ContextBlock{
@@ -488,7 +489,7 @@ fn create_test_edge() GraphEdge {
 test "WAL initialization and cleanup" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_init");

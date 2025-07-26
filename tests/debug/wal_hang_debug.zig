@@ -811,7 +811,7 @@ test "wal corruption debug: isolated single block write-read" {
     // Initialize storage with isolated allocator
     const data_dir = try allocator.dupe(u8, "wal_corruption_debug");
     defer allocator.free(data_dir);
-    var storage_engine = try storage.StorageEngine.init_default(
+    var storage_engine = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir,
@@ -897,7 +897,7 @@ test "wal corruption debug: isolated single block write-read" {
 
     // Step 3: Try recovery
     std.debug.print("Attempting WAL recovery...\n", .{});
-    var recovery_engine = try storage.StorageEngine.init_default(
+    var recovery_engine = try StorageEngine.init_default(
         allocator,
         node1_vfs,
         data_dir,

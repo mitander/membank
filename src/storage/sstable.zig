@@ -24,6 +24,8 @@ const log = std.log.scoped(.sstable);
 const context_block = @import("../core/types.zig");
 const vfs = @import("../core/vfs.zig");
 const bloom_filter = @import("bloom_filter.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const testing = std.testing;
 
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
@@ -31,6 +33,7 @@ const GraphEdge = context_block.GraphEdge;
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;
 const BloomFilter = bloom_filter.BloomFilter;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 
 /// SSTable file format:
 /// | Magic (4) | Version (4) | Index Offset (8) | Block Count (4) | Reserved (12) |
@@ -639,10 +642,9 @@ pub const Compactor = struct {
 // Tests
 
 test "SSTable write and read" {
-    const allocator = std.testing.allocator;
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
+    const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "test.sst"));
@@ -686,10 +688,9 @@ test "SSTable write and read" {
 }
 
 test "SSTable iterator" {
-    const allocator = std.testing.allocator;
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
+    const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "test_iter.sst"));
@@ -746,10 +747,9 @@ test "SSTable iterator" {
 }
 
 test "SSTable compaction" {
-    const allocator = std.testing.allocator;
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
+    const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var sstable1 = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "table1.sst"));
@@ -819,10 +819,9 @@ test "SSTable compaction" {
 }
 
 test "SSTable checksum validation" {
-    const allocator = std.testing.allocator;
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
+    const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const path = try allocator.dupe(u8, "checksum_test.sst");
@@ -860,10 +859,9 @@ test "SSTable checksum validation" {
 }
 
 test "SSTable Bloom filter functionality" {
-    const allocator = std.testing.allocator;
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
+    const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_test.sst"));
@@ -914,10 +912,9 @@ test "SSTable Bloom filter functionality" {
 }
 
 test "SSTable Bloom filter persistence" {
-    const allocator = std.testing.allocator;
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
+    const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const file_path = try allocator.dupe(u8, "bloom_persist_test.sst");
@@ -974,10 +971,9 @@ test "SSTable Bloom filter persistence" {
 }
 
 test "SSTable Bloom filter with many blocks" {
-    const allocator = std.testing.allocator;
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
+    const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_many_test.sst"));
@@ -1040,10 +1036,9 @@ test "SSTable Bloom filter with many blocks" {
 }
 
 test "SSTable binary search performance" {
-    const allocator = std.testing.allocator;
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
+    const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "binary_search_test.sst"));

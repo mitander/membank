@@ -19,6 +19,8 @@ const vfs = @import("../core/vfs.zig");
 const context_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
 const concurrency = @import("../core/concurrency.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const testing = std.testing;
 
 // Import storage submodules
 const config_mod = @import("config.zig");
@@ -36,6 +38,7 @@ const VFS = vfs.VFS;
 const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 
 // Type aliases for cleaner code
 const BlockHashMap = std.HashMap(BlockId, ContextBlock, block_index_mod.BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage);
@@ -505,13 +508,11 @@ pub const StorageEngine = struct {
 };
 
 // Tests
-const testing = std.testing;
-const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
 test "storage engine initialization and cleanup" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "/test/data");

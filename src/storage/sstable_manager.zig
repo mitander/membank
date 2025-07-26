@@ -12,6 +12,8 @@ const assert_fmt = @import("../core/assert.zig").assert_fmt;
 const vfs = @import("../core/vfs.zig");
 const context_block = @import("../core/types.zig");
 const concurrency = @import("../core/concurrency.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const testing = std.testing;
 
 const sstable = @import("sstable.zig");
 const tiered_compaction = @import("tiered_compaction.zig");
@@ -21,6 +23,7 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const SSTable = sstable.SSTable;
 const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 
 /// Manages the complete collection of on-disk SSTable files.
 /// Provides single ownership boundary for all persistent storage state
@@ -254,13 +257,10 @@ pub const SSTableManager = struct {
 
 // Tests
 
-const testing = std.testing;
-const simulation_vfs = @import("../sim/simulation_vfs.zig");
-
 test "SSTableManager two-phase initialization" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var manager = SSTableManager.init(allocator, sim_vfs.vfs(), "/test/data");

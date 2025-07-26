@@ -8,12 +8,15 @@ const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const testing = std.testing;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 const EdgeType = context_block.EdgeType;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 
 /// Hash context for BlockId HashMap operations
 const BlockIdHashContext = struct {
@@ -583,11 +586,9 @@ pub fn traverse_bidirectional(
 }
 
 // Tests
-const testing = std.testing;
-const simulation_vfs = @import("../sim/simulation_vfs.zig");
 
 fn create_test_storage_engine(allocator: std.mem.Allocator) !StorageEngine {
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_traversal");
     try storage_engine.startup();
     return storage_engine;

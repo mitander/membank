@@ -18,9 +18,11 @@ const testing = std.testing;
 const log = std.log.scoped(.wal_stream);
 
 const vfs = @import("../../core/vfs.zig");
+const simulation_vfs = @import("../../sim/simulation_vfs.zig");
 const stdx = @import("../../core/stdx.zig");
 
 const VFile = vfs.VFile;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 
 /// Maximum payload size for a single WAL entry (16MB)
 /// Must match the constant in wal.zig for compatibility
@@ -314,8 +316,7 @@ comptime {
 test "WALEntryStream initialization" {
     const allocator = testing.allocator;
 
-    const sim_vfs = @import("../../sim/simulation_vfs.zig");
-    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    var vfs_sim = SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     // Create empty test file
@@ -338,8 +339,7 @@ test "WALEntryStream initialization" {
 test "WALEntryStream read from empty file" {
     const allocator = testing.allocator;
 
-    const sim_vfs = @import("../../sim/simulation_vfs.zig");
-    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    var vfs_sim = SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     // Create empty test file
@@ -357,8 +357,7 @@ test "WALEntryStream read from empty file" {
 test "WALEntryStream read single complete entry" {
     const allocator = testing.allocator;
 
-    const sim_vfs = @import("../../sim/simulation_vfs.zig");
-    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    var vfs_sim = SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     // Create test file with a single WAL entry
@@ -404,8 +403,7 @@ test "WALEntryStream read single complete entry" {
 test "WALEntryStream read multiple entries" {
     const allocator = testing.allocator;
 
-    const sim_vfs = @import("../../sim/simulation_vfs.zig");
-    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    var vfs_sim = SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "multiple_entries.wal";
@@ -463,8 +461,7 @@ test "WALEntryStream read multiple entries" {
 test "WALEntryStream corrupted entry handling" {
     const allocator = testing.allocator;
 
-    const sim_vfs = @import("../../sim/simulation_vfs.zig");
-    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    var vfs_sim = SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "corrupted_entry.wal";
@@ -490,8 +487,7 @@ test "WALEntryStream corrupted entry handling" {
 test "WALEntryStream oversized payload" {
     const allocator = testing.allocator;
 
-    const sim_vfs = @import("../../sim/simulation_vfs.zig");
-    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    var vfs_sim = SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "oversized_payload.wal";
@@ -516,8 +512,7 @@ test "WALEntryStream oversized payload" {
 test "WALEntryStream incomplete entry at EOF" {
     const allocator = testing.allocator;
 
-    const sim_vfs = @import("../../sim/simulation_vfs.zig");
-    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    var vfs_sim = SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "incomplete_entry.wal";
@@ -539,8 +534,7 @@ test "WALEntryStream incomplete entry at EOF" {
 test "WALEntryStream large entry handling" {
     const allocator = testing.allocator;
 
-    const sim_vfs = @import("../../sim/simulation_vfs.zig");
-    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    var vfs_sim = SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "large_entry.wal";
@@ -583,8 +577,7 @@ test "WALEntryStream large entry handling" {
 test "WALEntryStream position tracking" {
     const allocator = testing.allocator;
 
-    const sim_vfs = @import("../../sim/simulation_vfs.zig");
-    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    var vfs_sim = SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "position_tracking.wal";
@@ -633,8 +626,7 @@ test "WALEntryStream position tracking" {
 test "WALEntryStream buffer boundary handling" {
     const allocator = testing.allocator;
 
-    const sim_vfs = @import("../../sim/simulation_vfs.zig");
-    var vfs_sim = sim_vfs.SimulationVFS.init(allocator);
+    var vfs_sim = SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "buffer_boundary.wal";

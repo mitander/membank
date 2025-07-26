@@ -8,10 +8,13 @@ const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const testing = std.testing;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 
 /// Basic query operation errors
 pub const QueryError = error{
@@ -329,7 +332,6 @@ fn clone_block(allocator: std.mem.Allocator, block: ContextBlock) !ContextBlock 
 }
 
 // Tests
-const testing = std.testing;
 
 test "find blocks query validation" {
     // Valid query
@@ -445,11 +447,10 @@ test "execute_find_blocks with storage engine" {
     const allocator = testing.allocator;
 
     // Create test storage engine
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_operations");
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_operations");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -503,11 +504,10 @@ test "execute_semantic_query with mock similarity" {
     const allocator = testing.allocator;
 
     // Create test storage engine
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_semantic");
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_semantic");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -639,11 +639,10 @@ test "block existence checking" {
     const allocator = testing.allocator;
 
     // Create test storage engine
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_existence");
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_existence");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -678,11 +677,10 @@ test "find_block convenience function" {
     const allocator = testing.allocator;
 
     // Create test storage engine
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_find_single");
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_find_single");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -709,11 +707,10 @@ test "large dataset query performance" {
     const allocator = testing.allocator;
 
     // Create test storage engine
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_performance");
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_performance");
     defer storage_engine.deinit();
     try storage_engine.startup();
 

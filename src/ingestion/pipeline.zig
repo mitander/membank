@@ -18,12 +18,15 @@ const context_block = @import("../core/types.zig");
 const vfs = @import("../core/vfs.zig");
 const assert = @import("../core/assert.zig");
 const concurrency = @import("../core/concurrency.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const testing = std.testing;
 
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
 const EdgeType = context_block.EdgeType;
 const VFS = vfs.VFS;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 
 /// Errors that can occur during ingestion pipeline operations
 pub const IngestionError = error{
@@ -426,12 +429,10 @@ pub const IngestionPipeline = struct {
 };
 
 test "pipeline creation and cleanup" {
-    const testing = std.testing;
     const allocator = testing.allocator;
 
     // Use simulation VFS for testing
-    const simulation_vfs = @import("simulation_vfs");
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var config = PipelineConfig.init(allocator);
@@ -447,7 +448,6 @@ test "pipeline creation and cleanup" {
 }
 
 test "source content lifecycle" {
-    const testing = std.testing;
     const allocator = testing.allocator;
 
     var metadata = std.StringHashMap([]const u8).init(allocator);

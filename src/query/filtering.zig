@@ -8,10 +8,13 @@ const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const testing = std.testing;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 
 /// Filtering operation errors
 pub const FilterError = error{
@@ -358,7 +361,6 @@ fn clone_block(allocator: std.mem.Allocator, block: ContextBlock) !ContextBlock 
 }
 
 // Tests
-const testing = std.testing;
 
 test "filter condition - content contains" {
     const allocator = testing.allocator;
@@ -717,11 +719,10 @@ test "execute filtered query with storage engine" {
     const allocator = testing.allocator;
 
     // Create test storage engine
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_filtering");
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_filtering");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -784,11 +785,10 @@ test "filtered query with pagination" {
     const allocator = testing.allocator;
 
     // Create test storage engine
-    const simulation_vfs = @import("../sim/simulation_vfs.zig");
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try storage.StorageEngine.init(allocator, sim_vfs.vfs(), "./test_pagination");
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_pagination");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
