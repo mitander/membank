@@ -170,6 +170,7 @@ pub const StorageEngine = struct {
     pub fn startup(self: *StorageEngine) !void {
         try self.create_storage_directories();
         try self.wal.startup();
+        try self.sstable_manager.startup();
         try self.recover_from_wal();
     }
 
@@ -489,13 +490,10 @@ pub const StorageEngine = struct {
     }
 
     /// Check for compaction opportunities and execute if beneficial.
-    /// Delegates to TieredCompactionManager for LSM-tree optimization.
+    /// Delegates to SSTableManager for LSM-tree optimization.
     fn check_and_run_compaction(self: *StorageEngine) !void {
-        const compaction_job = self.compaction_manager.check_compaction_needed();
-        if (compaction_job) |job| {
-            try self.compaction_manager.execute_compaction(job);
-            _ = self.storage_metrics.compactions.fetchAdd(1, .monotonic);
-        }
+        try self.sstable_manager.check_and_run_compaction();
+        _ = self.storage_metrics.compactions.fetchAdd(1, .monotonic);
     }
 
     /// Get file size for SSTable registration with compaction manager.
@@ -503,45 +501,6 @@ pub const StorageEngine = struct {
         var file = try self.vfs.open(path, .read);
         defer file.close();
         return try file.file_size();
-    }
-
-    /// Discover existing SSTable files and register with compaction manager.
-    /// Called during initialization to restore system state after restart.
-    fn discover_existing_sstables(self: *StorageEngine) !void {
-        const sst_dir = try std.fmt.allocPrint(self.backing_allocator, "{s}/sst", .{self.data_dir});
-        defer self.backing_allocator.free(sst_dir);
-
-        if (!self.vfs.exists(sst_dir)) return;
-
-        var dir_iter = try self.vfs.iterate_directory(sst_dir, self.backing_allocator);
-        defer dir_iter.deinit(self.backing_allocator);
-
-        while (dir_iter.next()) |entry| {
-            if (entry.kind != .file) continue;
-
-            const extension = std.fs.path.extension(entry.name);
-            if (!std.mem.eql(u8, extension, ".sst")) continue;
-
-            // Build full path and register with storage
-            const full_path = try std.fmt.allocPrint(self.backing_allocator, "{s}/{s}", .{ sst_dir, entry.name });
-            try self.sstables.append(full_path);
-
-            // Register with compaction manager
-            const file_size = try self.read_file_size(full_path);
-            try self.compaction_manager.add_sstable(full_path, file_size, 0);
-
-            // Update next SSTable ID to avoid conflicts
-            if (std.mem.startsWith(u8, entry.name, "sstable_")) {
-                const id_str = entry.name[8..12]; // Extract 4-digit ID
-                if (std.fmt.parseInt(u32, id_str, 10)) |id| {
-                    if (id >= self.next_sstable_id) {
-                        self.next_sstable_id = id + 1;
-                    }
-                } else |_| {
-                    // Invalid format, skip
-                }
-            }
-        }
     }
 };
 
