@@ -135,6 +135,16 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/server/protocol_tests.zig",
             .description = "TCP server and binary protocol tests",
         },
+        .{
+            .name = "memtable_manager",
+            .source_file = "tests/storage/memtable_manager_test.zig",
+            .description = "isolated MemtableManager component tests",
+        },
+        .{
+            .name = "sstable_manager",
+            .source_file = "tests/storage/sstable_manager_test.zig",
+            .description = "isolated SSTableManager component tests",
+        },
     };
 
     var test_steps: [test_configs.len]*std.Build.Step.Run = undefined;
