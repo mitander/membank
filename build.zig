@@ -116,6 +116,16 @@ pub fn build(b: *std.Build) void {
             .description = "VFS memory safety unit tests",
         },
         .{
+            .name = "defensive_assertions",
+            .source_file = "tests/defensive/assertion_validation.zig",
+            .description = "Defensive programming assertion validation tests",
+        },
+        .{
+            .name = "defensive_performance",
+            .source_file = "tests/defensive/performance_impact.zig",
+            .description = "Defensive programming performance impact tests",
+        },
+        .{
             .name = "allocator_torture",
             .source_file = "src/dev/allocator_torture_test.zig",
             .description = "allocator torture tests",
@@ -154,6 +164,11 @@ pub fn build(b: *std.Build) void {
             .name = "streaming_benchmark",
             .source_file = "tests/performance/streaming_memory_benchmark.zig",
             .description = "memory efficiency benchmark for streaming query formatting",
+        },
+        .{
+            .name = "simple_memtable",
+            .source_file = "tests/storage/simple_memtable_test.zig",
+            .description = "simple MemtableManager debug test",
         },
     };
 

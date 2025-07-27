@@ -52,8 +52,8 @@ test "storage stress: high volume writes during network partition" {
     sim.partition_nodes(node1, node3);
 
     // Write 100 blocks rapidly during partition
-    var i: u32 = 0;
-    while (i < 100) : (i += 1) {
+    var i: u32 = 1;
+    while (i < 101) : (i += 1) {
         const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{i});
         defer allocator.free(block_id_hex);
 
@@ -86,8 +86,8 @@ test "storage stress: high volume writes during network partition" {
     sim.tick_multiple(20);
 
     // Verify we can retrieve all blocks
-    i = 0;
-    while (i < 100) : (i += 1) {
+    i = 1;
+    while (i < 101) : (i += 1) {
         const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{i});
         defer allocator.free(block_id_hex);
 
@@ -120,14 +120,13 @@ test "storage recovery: WAL corruption simulation" {
 
     try storage_engine.startup();
 
-    // Write some initial blocks
-    var i: u32 = 0;
-    while (i < 10) : (i += 1) {
-        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{i});
+    // Write some initial blocks (start from 1, all-zero BlockID invalid)
+    var index: u32 = 1;
+    while (index <= 10) : (index += 1) {
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{index});
         defer allocator.free(block_id_hex);
-
         const block_id = try BlockId.from_hex(block_id_hex);
-        const content = try std.fmt.allocPrint(allocator, "Recovery test block #{}", .{i});
+        const content = try std.fmt.allocPrint(allocator, "Recovery test block #{}", .{index});
         defer allocator.free(content);
 
         const block = ContextBlock{
@@ -159,8 +158,8 @@ test "storage recovery: WAL corruption simulation" {
     // Verify blocks were recovered from WAL
     try std.testing.expectEqual(@as(u32, 10), storage_engine2.block_count());
 
-    // Verify we can retrieve the recovered blocks
-    for (0..10) |j| {
+    // Verify we can retrieve the recovered blocks (start from 1, matching write loop)
+    for (1..11) |j| {
         const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{j});
         defer allocator.free(block_id_hex);
         const block_id = try BlockId.from_hex(block_id_hex);
@@ -457,15 +456,15 @@ test "storage performance: batch operations under load" {
 
     try storage_engine.startup();
 
-    // Perform batch writes in chunks
+    // Perform batch writes in chunks (start from 1, all-zero BlockID invalid)
     const batch_size = 20;
     const total_batches = 5;
 
     var batch: u32 = 0;
     while (batch < total_batches) : (batch += 1) {
-        var i: u32 = 0;
-        while (i < batch_size) : (i += 1) {
-            const block_num = batch * batch_size + i;
+        var item: u32 = 0;
+        while (item < batch_size) : (item += 1) {
+            const block_num = batch * batch_size + item + 1; // Start from 1
             const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{block_num});
             defer allocator.free(block_id_hex);
 
@@ -473,7 +472,7 @@ test "storage performance: batch operations under load" {
             const content = try std.fmt.allocPrint(
                 allocator,
                 "Batch {} item {} content",
-                .{ batch, i },
+                .{ batch, item },
             );
             defer allocator.free(content);
 
@@ -496,9 +495,9 @@ test "storage performance: batch operations under load" {
     const expected_count = batch_size * total_batches;
     try std.testing.expectEqual(@as(u32, expected_count), storage_engine.block_count());
 
-    // Spot check some blocks
-    const first_block_id = try BlockId.from_hex("00000000000000000000000000000000");
-    const last_block_id = try BlockId.from_hex("00000000000000000000000000000063"); // 99 in hex
+    // Spot check some blocks (adjusted for 1-based indexing)
+    const first_block_id = try BlockId.from_hex("00000000000000000000000000000001"); // First block is now 1
+    const last_block_id = try BlockId.from_hex("00000000000000000000000000000064"); // 100 in hex
 
     const first_block = (try storage_engine.find_block(first_block_id)) orelse {
         try testing.expect(false); // Block should exist

@@ -42,7 +42,7 @@ test "wal memory safety: sequential recovery cycles" {
             try engine.startup();
 
             // Create blocks with varying content sizes to stress memory allocation
-            for (0..3) |block_idx| {
+            for (1..4) |block_idx| {
                 const block_id_str = try std.fmt.allocPrint(
                     allocator,
                     "{:0>32}",
@@ -84,7 +84,7 @@ test "wal memory safety: sequential recovery cycles" {
             // Verify all blocks recovered correctly
             try testing.expectEqual(@as(u32, 3), engine.block_count());
 
-            for (0..3) |block_idx| {
+            for (1..4) |block_idx| {
                 const block_id_str = try std.fmt.allocPrint(
                     allocator,
                     "{:0>32}",
@@ -130,9 +130,6 @@ test "wal memory safety: allocator stress testing" {
     const block_sizes = [_]usize{ 1024, 4096, 16384, 65536 };
 
     for (block_sizes, 0..) |size, idx| {
-        const block_id_str = try std.fmt.allocPrint(allocator, "{:0>31}{}", .{ 0, idx });
-        defer allocator.free(block_id_str);
-
         const content = try allocator.alloc(u8, size);
         defer allocator.free(content);
 
@@ -152,7 +149,7 @@ test "wal memory safety: allocator stress testing" {
         defer allocator.free(metadata);
 
         const block = ContextBlock{
-            .id = try BlockId.from_hex(block_id_str),
+            .id = BlockId.test_id(@intCast(idx + 100)), // Offset to avoid collision
             .version = 1,
             .source_uri = uri,
             .metadata_json = metadata,
@@ -175,11 +172,12 @@ test "wal memory safety: allocator stress testing" {
     try testing.expectEqual(@as(u32, block_sizes.len), recovery_engine.block_count());
 
     // Verify content integrity
-    for (block_sizes, 0..) |size, idx| {
-        const block_id_str = try std.fmt.allocPrint(allocator, "{:0>31}{}", .{ 0, idx });
-        defer allocator.free(block_id_str);
-
-        const recovered = (try recovery_engine.find_block(try BlockId.from_hex(block_id_str))) orelse {
+    for (block_sizes, 0..) |size, index| {
+        // Use offset to ensure non-zero BlockID (all-zero BlockID invalid)
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{index + 100});
+        defer allocator.free(block_id_hex);
+        
+        const recovered = (try recovery_engine.find_block(try BlockId.from_hex(block_id_hex))) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
@@ -187,7 +185,7 @@ test "wal memory safety: allocator stress testing" {
 
         // Verify pattern integrity
         for (recovered.content, 0..) |byte, i| {
-            const expected: u8 = @intCast((i + idx) % 256);
+            const expected: u8 = @intCast((i + index) % 256);
             try testing.expectEqual(expected, byte);
         }
     }
@@ -207,7 +205,7 @@ test "wal memory safety: rapid cycle stress test" {
     // Perform many small operations to stress allocator bookkeeping
     const num_cycles = 20;
 
-    for (0..num_cycles) |cycle| {
+    for (1..num_cycles + 1) |cycle| { // Start from 1, all-zero BlockID invalid
         const data_dir = try std.fmt.allocPrint(allocator, "rapid_cycle_{}", .{cycle});
         defer allocator.free(data_dir);
 
@@ -217,14 +215,14 @@ test "wal memory safety: rapid cycle stress test" {
         try engine.startup();
 
         // Small block with unique content
-        const block_id_str = try std.fmt.allocPrint(allocator, "{:0>32}", .{cycle});
-        defer allocator.free(block_id_str);
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{cycle});
+        defer allocator.free(block_id_hex);
 
         const content = try std.fmt.allocPrint(allocator, "rapid cycle {} content", .{cycle});
         defer allocator.free(content);
 
         const block = ContextBlock{
-            .id = try BlockId.from_hex(block_id_str),
+            .id = try BlockId.from_hex(block_id_hex),
             .version = 1,
             .source_uri = "test://rapid.zig",
             .metadata_json = "{}",
@@ -257,7 +255,7 @@ test "wal memory safety: edge case robustness" {
         try engine.startup();
 
         const block = ContextBlock{
-            .id = try BlockId.from_hex("00000000000000000000000000000001"),
+            .id = BlockId.test_id(1),
             .version = 1,
             .source_uri = "",
             .metadata_json = "{}",
@@ -290,7 +288,7 @@ test "wal memory safety: edge case robustness" {
         @memset(long_uri, 'U');
 
         const block = ContextBlock{
-            .id = try BlockId.from_hex("00000000000000000000000000000002"),
+            .id = BlockId.test_id(2),
             .version = 1,
             .source_uri = long_uri,
             .metadata_json = "{}",
@@ -315,7 +313,7 @@ test "wal memory safety: edge case robustness" {
         const special_metadata = "{\"unicode\":\"测试\",\"emoji\":\"(rocket)\"}";
 
         const block = ContextBlock{
-            .id = try BlockId.from_hex("00000000000000000000000000000003"),
+            .id = BlockId.test_id(3),
             .version = 1,
             .source_uri = "test://unicode_файл.zig",
             .metadata_json = special_metadata,
@@ -349,18 +347,18 @@ test "wal memory safety: rapid sequential operations" {
     // Simulate rapid operations that might stress the HashMap implementation
     const num_operations = 10; // Reduced from 100 to avoid memory corruption
 
-    for (0..num_operations) |i| {
-        const block_id_str = try std.fmt.allocPrint(allocator, "{:0>30}{:02}", .{ 0, i });
-        defer allocator.free(block_id_str);
+    for (1..num_operations + 1) |index| { // Start from 1, all-zero BlockID invalid
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{index});
+        defer allocator.free(block_id_hex);
 
-        const content = try std.fmt.allocPrint(allocator, "operation {} content", .{i});
+        const content = try std.fmt.allocPrint(allocator, "operation {} content", .{index});
         defer allocator.free(content);
 
-        const metadata = try std.fmt.allocPrint(allocator, "{{\"operation\":{}}}", .{i});
+        const metadata = try std.fmt.allocPrint(allocator, "{{\"operation\":{}}}", .{index});
         defer allocator.free(metadata);
 
         const block = ContextBlock{
-            .id = try BlockId.from_hex(block_id_str),
+            .id = try BlockId.from_hex(block_id_hex),
             .version = 1,
             .source_uri = "test://rapid.zig",
             .metadata_json = metadata,
@@ -370,7 +368,7 @@ test "wal memory safety: rapid sequential operations" {
         try engine.put_block(block);
 
         // Flush every 10 operations to create multiple WAL entries
-        if (i % 10 == 9) {
+        if (index % 10 == 0) {
             // No additional flushing needed
         }
     }
@@ -390,18 +388,18 @@ test "wal memory safety: rapid sequential operations" {
 
     try testing.expectEqual(@as(u32, num_operations), recovery_engine.block_count());
 
-    // Verify random sample of recovered blocks
-    const sample_indices = [_]usize{ 0, 2, 5, 7, 9 };
-    for (sample_indices) |i| {
-        const block_id_str = try std.fmt.allocPrint(allocator, "{:0>30}{:02}", .{ 0, i });
-        defer allocator.free(block_id_str);
+    // Verify random sample of recovered blocks (adjust for 1-based indexing)
+    const sample_indices = [_]usize{ 1, 3, 6, 8, 10 };
+    for (sample_indices) |index| {
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{index});
+        defer allocator.free(block_id_hex);
 
-        const recovered = (try recovery_engine.find_block(try BlockId.from_hex(block_id_str))) orelse {
+        const recovered = (try recovery_engine.find_block(try BlockId.from_hex(block_id_hex))) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
 
-        const expected_content = try std.fmt.allocPrint(allocator, "operation {} content", .{i});
+        const expected_content = try std.fmt.allocPrint(allocator, "operation {} content", .{index});
         defer allocator.free(expected_content);
 
         try testing.expectEqualStrings(expected_content, recovered.content);

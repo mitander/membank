@@ -49,23 +49,23 @@ test "memory isolation: single test with 25 storage cycles" {
 
         try engine.startup();
 
-        // Create and store multiple blocks per cycle
-        var block_num: u32 = 0;
-        while (block_num < 5) : (block_num += 1) {
+        // Create and store multiple blocks per cycle (start from 1, all-zero BlockID invalid)
+        var block_index: u32 = 1;
+        while (block_index <= 5) : (block_index += 1) {
             // Create unique block ID
-            var id_bytes: [16]u8 = undefined;
-            std.mem.writeInt(u64, id_bytes[0..8], cycle, .little);
-            std.mem.writeInt(u64, id_bytes[8..16], block_num, .little);
+            const combined_id = cycle * 100 + block_index;
+            const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{combined_id});
+            defer allocator.free(block_id_hex);
 
             const content = try std.fmt.allocPrint(
                 allocator,
                 "Block {} in cycle {}",
-                .{ block_num, cycle },
+                .{ block_index, cycle },
             );
             defer allocator.free(content);
 
             const block = ContextBlock{
-                .id = BlockId{ .bytes = id_bytes },
+                .id = try BlockId.from_hex(block_id_hex),
                 .version = 1,
                 .source_uri = "test://isolation",
                 .content = content,
@@ -110,17 +110,17 @@ test "memory isolation: HashMap operations under stress" {
 
     try engine.startup();
 
-    // Create many blocks to trigger HashMap resizing
-    var i: u32 = 0;
-    while (i < 100) : (i += 1) {
-        var id_bytes: [16]u8 = undefined;
-        std.mem.writeInt(u128, &id_bytes, i, .little);
+    // Create many blocks to trigger HashMap resizing (start from 1, all-zero BlockID invalid)
+    var index: u32 = 1;
+    while (index <= 100) : (index += 1) {
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{index});
+        defer allocator.free(block_id_hex);
 
-        const content = try std.fmt.allocPrint(allocator, "HashMap stress block {}", .{i});
+        const content = try std.fmt.allocPrint(allocator, "HashMap stress block {}", .{index});
         defer allocator.free(content);
 
         const block = ContextBlock{
-            .id = BlockId{ .bytes = id_bytes },
+            .id = try BlockId.from_hex(block_id_hex),
             .version = 1,
             .source_uri = "test://hashmap",
             .content = content,
@@ -130,7 +130,7 @@ test "memory isolation: HashMap operations under stress" {
         try engine.put_block(block);
 
         // Periodically retrieve and verify blocks
-        if (i % 10 == 0) {
+        if (index % 10 == 0) {
             const retrieved = (try engine.find_block(block.id)) orelse {
                 try testing.expect(false); // Block should exist
                 continue;
