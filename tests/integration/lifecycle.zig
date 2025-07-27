@@ -536,8 +536,11 @@ test "integration: storage recovery and query consistency" {
         try testing.expectEqual(@as(usize, 1), outgoing.len);
 
         // Test query formatting
-        const formatted = try batch_result.format_for_llm(allocator);
-        defer allocator.free(formatted);
+        var formatted_output = std.ArrayList(u8).init(allocator);
+        defer formatted_output.deinit();
+
+        try batch_result.format_for_llm(formatted_output.writer().any());
+        const formatted = formatted_output.items;
         try testing.expect(std.mem.indexOf(u8, formatted, "BEGIN CONTEXT BLOCK") != null);
         try testing.expect(std.mem.indexOf(u8, formatted, "END CONTEXT BLOCK") != null);
 

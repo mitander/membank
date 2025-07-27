@@ -82,12 +82,8 @@ pub const QueryResult = struct {
         return self.blocks.len == 0;
     }
 
-    /// Format results for LLM consumption with block count
-    pub fn format_for_llm(self: QueryResult, allocator: std.mem.Allocator) QueryError![]const u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        defer result.deinit();
-
-        const writer = result.writer();
+    /// Format results for LLM consumption with block count, streaming to writer
+    pub fn format_for_llm(self: QueryResult, writer: std.io.AnyWriter) anyerror!void {
         try writer.print("Retrieved {} blocks:\n\n", .{self.count});
 
         for (self.blocks, 0..) |block, i| {
@@ -99,8 +95,6 @@ pub const QueryResult = struct {
             try writer.print("Content: {s}\n", .{block.content});
             try writer.writeAll("--- END CONTEXT BLOCK ---\n\n");
         }
-
-        return result.toOwnedSlice();
     }
 };
 
@@ -164,12 +158,8 @@ pub const SemanticQueryResult = struct {
         self.allocator.free(self.results);
     }
 
-    /// Format semantic results for LLM consumption with similarity scores
-    pub fn format_for_llm(self: SemanticQueryResult, allocator: std.mem.Allocator) QueryError![]const u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        defer result.deinit();
-
-        const writer = result.writer();
+    /// Format semantic results for LLM consumption with similarity scores, streaming to writer
+    pub fn format_for_llm(self: SemanticQueryResult, writer: std.io.AnyWriter) anyerror!void {
         try writer.print("Found {} semantically similar blocks:\n\n", .{self.total_matches});
 
         for (self.results, 0..) |search_result, i| {
@@ -185,8 +175,6 @@ pub const SemanticQueryResult = struct {
             try writer.print("Content: {s}\n", .{search_result.block.content});
             try writer.writeAll("--- END CONTEXT BLOCK ---\n\n");
         }
-
-        return result.toOwnedSlice();
     }
 
     /// Get blocks sorted by similarity score (highest first)

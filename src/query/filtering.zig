@@ -223,12 +223,8 @@ pub const FilteredQueryResult = struct {
         self.allocator.free(self.blocks);
     }
 
-    /// Format results for LLM consumption with metadata about filtering
-    pub fn format_for_llm(self: FilteredQueryResult, allocator: std.mem.Allocator) ![]const u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        defer result.deinit();
-
-        const writer = result.writer();
+    /// Format results for LLM consumption with metadata about filtering, streaming to writer
+    pub fn format_for_llm(self: FilteredQueryResult, writer: std.io.AnyWriter) anyerror!void {
         try writer.print("Found {} matching blocks", .{self.total_matches});
         if (self.has_more) {
             try writer.print(" (showing first {})", .{self.blocks.len});
@@ -241,8 +237,6 @@ pub const FilteredQueryResult = struct {
             try writer.print("Type: {s}\n", .{@tagName(block.block_type)});
             try writer.print("Content: {s}\n\n", .{block.content});
         }
-
-        return result.toOwnedSlice();
     }
 };
 
@@ -695,8 +689,11 @@ test "filtered query result operations" {
     try testing.expect(result.has_more);
 
     // Test formatting
-    const formatted = try result.format_for_llm(allocator);
-    defer allocator.free(formatted);
+    var formatted_output = std.ArrayList(u8).init(allocator);
+    defer formatted_output.deinit();
+
+    try result.format_for_llm(formatted_output.writer().any());
+    const formatted = formatted_output.items;
 
     try testing.expect(std.mem.indexOf(u8, formatted, "Found 5 matching blocks") != null);
     try testing.expect(std.mem.indexOf(u8, formatted, "showing first 2") != null);

@@ -145,6 +145,11 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/storage/sstable_manager_test.zig",
             .description = "isolated SSTableManager component tests",
         },
+        .{
+            .name = "streaming_benchmark",
+            .source_file = "tests/performance/streaming_memory_benchmark.zig",
+            .description = "memory efficiency benchmark for streaming query formatting",
+        },
     };
 
     var test_steps: [test_configs.len]*std.Build.Step.Run = undefined;
