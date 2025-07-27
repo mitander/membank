@@ -143,8 +143,6 @@ test "storage recovery: WAL corruption simulation" {
 
     try std.testing.expectEqual(@as(u32, 10), storage_engine.block_count());
 
-    // Flush WAL to ensure durability
-    try storage_engine.flush_wal();
 
     // Properly close first storage engine before restart simulation
     storage_engine.deinit();
@@ -158,9 +156,6 @@ test "storage recovery: WAL corruption simulation" {
     defer storage_engine2.deinit();
 
     try storage_engine2.startup();
-
-    // Perform WAL recovery
-    try storage_engine2.recover_from_wal();
 
     // Verify blocks were recovered from WAL
     try std.testing.expectEqual(@as(u32, 10), storage_engine2.block_count());
@@ -494,8 +489,7 @@ test "storage performance: batch operations under load" {
             try storage_engine.put_block(block);
         }
 
-        // Flush and advance simulation after each batch
-        try storage_engine.flush_wal();
+        // Advance simulation after each batch
         sim.tick_multiple(10);
     }
 

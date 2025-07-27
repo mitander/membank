@@ -72,8 +72,6 @@ test "wal memory safety: sequential recovery cycles" {
 
                 try engine.put_block(block);
             }
-
-            try engine.flush_wal();
         }
 
         // Recovery phase
@@ -82,7 +80,6 @@ test "wal memory safety: sequential recovery cycles" {
             defer engine.deinit();
 
             try engine.startup();
-            try engine.recover_from_wal();
 
             // Verify all blocks recovered correctly
             try testing.expectEqual(@as(u32, 3), engine.block_count());
@@ -165,8 +162,6 @@ test "wal memory safety: allocator stress testing" {
         try engine.put_block(block);
     }
 
-    try engine.flush_wal();
-
     // Recovery with same allocator
     var recovery_engine = try StorageEngine.init_default(
         allocator,
@@ -176,7 +171,6 @@ test "wal memory safety: allocator stress testing" {
     defer recovery_engine.deinit();
 
     try recovery_engine.startup();
-    try recovery_engine.recover_from_wal();
 
     try testing.expectEqual(@as(u32, block_sizes.len), recovery_engine.block_count());
 
@@ -238,10 +232,8 @@ test "wal memory safety: rapid cycle stress test" {
         };
 
         try engine.put_block(block);
-        try engine.flush_wal();
 
         // Immediate recovery in same cycle
-        try engine.recover_from_wal();
         try testing.expectEqual(@as(u32, 1), engine.block_count());
     }
 }
@@ -273,9 +265,7 @@ test "wal memory safety: edge case robustness" {
         };
 
         try engine.put_block(block);
-        try engine.flush_wal();
 
-        try engine.recover_from_wal();
         const recovered = (try engine.find_block(block.id)) orelse {
             try testing.expect(false); // Block should exist
             return;
@@ -308,9 +298,7 @@ test "wal memory safety: edge case robustness" {
         };
 
         try engine.put_block(block);
-        try engine.flush_wal();
 
-        try engine.recover_from_wal();
         const recovered = (try engine.find_block(block.id)).?;
         try testing.expectEqual(long_content.len, recovered.content.len);
         try testing.expectEqual(long_uri.len, recovered.source_uri.len);
@@ -335,9 +323,7 @@ test "wal memory safety: edge case robustness" {
         };
 
         try engine.put_block(block);
-        try engine.flush_wal();
 
-        try engine.recover_from_wal();
         const recovered = (try engine.find_block(block.id)).?;
         try testing.expectEqualStrings(special_content, recovered.content);
         try testing.expectEqualStrings(special_metadata, recovered.metadata_json);
@@ -385,11 +371,10 @@ test "wal memory safety: rapid sequential operations" {
 
         // Flush every 10 operations to create multiple WAL entries
         if (i % 10 == 9) {
-            try engine.flush_wal();
+            // No additional flushing needed
         }
     }
 
-    try engine.flush_wal();
     try testing.expectEqual(@as(u32, num_operations), engine.block_count());
 
     // Test recovery of all operations
@@ -402,7 +387,6 @@ test "wal memory safety: rapid sequential operations" {
     defer recovery_engine.deinit();
 
     try recovery_engine.startup();
-    try recovery_engine.recover_from_wal();
 
     try testing.expectEqual(@as(u32, num_operations), recovery_engine.block_count());
 

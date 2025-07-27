@@ -68,8 +68,6 @@ test "streaming WAL recovery - basic correctness" {
         try storage_engine.put_block(block);
     }
 
-    // Force WAL flush to ensure data is written
-    try storage_engine.flush_wal();
 
     // Create a new storage engine to simulate recovery
     var recovery_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
@@ -121,8 +119,6 @@ test "streaming WAL recovery - large WAL file efficiency" {
         try storage_engine.put_block(block);
     }
 
-    // Force WAL flush
-    try storage_engine.flush_wal();
 
     // Create new engine for recovery and verify memory usage is reasonable
     var recovery_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
@@ -208,8 +204,6 @@ test "streaming WAL recovery - arena memory reset validation" {
 
         try storage_engine.put_block(block);
     }
-
-    try storage_engine.flush_wal();
 
     // Create new engine for recovery
     var recovery_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);

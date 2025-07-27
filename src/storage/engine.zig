@@ -73,7 +73,8 @@ pub const StorageError = error{
 /// Implements LSM-tree architecture with WAL durability, in-memory
 /// memtable management, immutable SSTables, and background compaction.
 /// Follows state-oriented decomposition with MemtableManager for in-memory
-/// state and SSTableManager for on-disk state. True coordinator pattern.
+/// state (including WAL ownership) and SSTableManager for on-disk state.
+/// True coordinator pattern with clear ownership boundaries.
 pub const StorageEngine = struct {
     backing_allocator: std.mem.Allocator,
     vfs: VFS,
@@ -81,7 +82,6 @@ pub const StorageEngine = struct {
     config: Config,
     memtable_manager: MemtableManager,
     sstable_manager: SSTableManager,
-    wal: WAL,
     initialized: bool,
     storage_metrics: StorageMetrics,
     query_cache_arena: std.heap.ArenaAllocator,
@@ -110,18 +110,13 @@ pub const StorageEngine = struct {
         // Clone data_dir for owned storage
         const owned_data_dir = try allocator.dupe(u8, data_dir);
 
-        // Initialize WAL directory path
-        const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{owned_data_dir});
-        defer allocator.free(wal_dir);
-
         const engine = StorageEngine{
             .backing_allocator = allocator,
             .vfs = filesystem,
             .data_dir = owned_data_dir,
             .config = storage_config,
-            .memtable_manager = MemtableManager.init(allocator),
+            .memtable_manager = try MemtableManager.init(allocator, filesystem, owned_data_dir),
             .sstable_manager = SSTableManager.init(allocator, filesystem, owned_data_dir),
-            .wal = try WAL.init(allocator, filesystem, wal_dir),
             .initialized = false,
             .storage_metrics = StorageMetrics.init(),
             .query_cache_arena = std.heap.ArenaAllocator.init(allocator),
@@ -135,7 +130,6 @@ pub const StorageEngine = struct {
     pub fn deinit(self: *StorageEngine) void {
         concurrency.assert_main_thread();
 
-        self.wal.deinit();
         self.memtable_manager.deinit();
         self.sstable_manager.deinit();
         self.query_cache_arena.deinit();
@@ -153,14 +147,6 @@ pub const StorageEngine = struct {
             try self.vfs.mkdir(self.data_dir);
         }
 
-        // Create WAL directory
-        const wal_dir = try std.fmt.allocPrint(self.backing_allocator, "{s}/wal", .{self.data_dir});
-        defer self.backing_allocator.free(wal_dir);
-
-        if (!self.vfs.exists(wal_dir)) {
-            try self.vfs.mkdir(wal_dir);
-        }
-
         // Start up SSTable manager (creates sst dir and discovers existing files)
         try self.sstable_manager.startup();
 
@@ -172,13 +158,13 @@ pub const StorageEngine = struct {
     /// Performs I/O operations including directory creation, SSTable discovery, and WAL recovery.
     pub fn startup(self: *StorageEngine) !void {
         try self.create_storage_directories();
-        try self.wal.startup();
+        try self.memtable_manager.startup();
         try self.sstable_manager.startup();
-        try self.recover_from_wal();
+        try self.memtable_manager.recover_from_wal();
     }
 
     /// Write a Context Block to storage with full durability guarantees.
-    /// WAL-first design ensures durability before in-memory state update.
+    /// Delegates to MemtableManager for WAL-first durability pattern.
     /// Automatically triggers memtable flush when size threshold exceeded.
     pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
         concurrency.assert_main_thread();
@@ -189,13 +175,8 @@ pub const StorageEngine = struct {
         // Validate block structure and content before accepting
         try block.validate(self.backing_allocator);
 
-        // WAL-first: durability before visibility
-        const wal_entry = try WALEntry.create_put_block(block, self.backing_allocator);
-        defer wal_entry.deinit(self.backing_allocator);
-        try self.write_wal_entry(wal_entry);
-
-        // Update in-memory memtable after WAL write
-        try self.memtable_manager.put_block(block);
+        // Delegate to MemtableManager for durable storage with WAL-first pattern
+        try self.memtable_manager.put_block_durable(block);
 
         // Check if memtable flush is needed
         if (self.memtable_manager.memory_usage() >= self.config.memtable_max_size) {
@@ -244,36 +225,26 @@ pub const StorageEngine = struct {
     }
 
     /// Delete a Context Block by ID with tombstone semantics.
-    /// Creates WAL entry for durability then removes from memtable.
+    /// Delegates to MemtableManager for WAL-first durability pattern.
     /// Actual space reclamation occurs during SSTable compaction.
     pub fn delete_block(self: *StorageEngine, block_id: BlockId) !void {
         concurrency.assert_main_thread();
         if (!self.initialized) return StorageError.NotInitialized;
 
-        // WAL-first: record deletion for durability
-        const wal_entry = try WALEntry.create_delete_block(block_id, self.backing_allocator);
-        defer wal_entry.deinit(self.backing_allocator);
-        try self.write_wal_entry(wal_entry);
-
-        // Remove from memtable (handles both block and edges)
-        self.memtable_manager.delete_block(block_id);
+        // Delegate to MemtableManager for durable deletion with WAL-first pattern
+        try self.memtable_manager.delete_block_durable(block_id);
 
         _ = self.storage_metrics.blocks_deleted.fetchAdd(1, .monotonic);
     }
 
     /// Add a graph edge with durability guarantees.
-    /// Updates both WAL and in-memory graph index for immediate availability.
+    /// Delegates to MemtableManager for WAL-first durability pattern.
     pub fn put_edge(self: *StorageEngine, edge: GraphEdge) !void {
         concurrency.assert_main_thread();
         if (!self.initialized) return StorageError.NotInitialized;
 
-        // WAL-first: durability before visibility
-        const wal_entry = try WALEntry.create_put_edge(edge, self.backing_allocator);
-        defer wal_entry.deinit(self.backing_allocator);
-        try self.write_wal_entry(wal_entry);
-
-        // Update in-memory graph index via memtable manager
-        try self.memtable_manager.put_edge(edge);
+        // Delegate to MemtableManager for durable edge storage with WAL-first pattern
+        try self.memtable_manager.put_edge_durable(edge);
 
         _ = self.storage_metrics.edges_added.fetchAdd(1, .monotonic);
     }
@@ -371,15 +342,6 @@ pub const StorageEngine = struct {
         };
     }
 
-    /// Force WAL flush to disk for durability testing.
-    /// WAL normally flushes automatically on writes for durability.
-    pub fn flush_wal(self: *StorageEngine) !void {
-        const start_time = std.time.nanoTimestamp();
-
-        const end_time = std.time.nanoTimestamp();
-        _ = self.storage_metrics.wal_flushes.fetchAdd(1, .monotonic);
-        _ = self.storage_metrics.total_wal_flush_time_ns.fetchAdd(@intCast(end_time - start_time), .monotonic);
-    }
 
     /// Flush current memtable to SSTable with coordinated subsystem management.
     /// Core LSM-tree operation that delegates to SSTableManager for SSTable creation
@@ -408,7 +370,7 @@ pub const StorageEngine = struct {
         try self.sstable_manager.check_and_run_compaction();
 
         // Clean up old WAL segments after successful flush
-        try self.wal.cleanup_old_segments();
+        try self.memtable_manager.cleanup_old_wal_segments();
 
         _ = self.storage_metrics.sstable_writes.fetchAdd(1, .monotonic);
     }
@@ -419,37 +381,6 @@ pub const StorageEngine = struct {
         try self.flush_memtable();
     }
 
-    /// Recover storage state from WAL files.
-    /// Replays all committed operations to reconstruct consistent state
-    /// after system restart. Uses WAL module's streaming recovery for
-    /// memory efficiency with large WAL files.
-    pub fn recover_from_wal(self: *StorageEngine) !void {
-        concurrency.assert_main_thread();
-        if (!self.initialized) return StorageError.NotInitialized;
-
-        const RecoveryContext = struct {
-            engine: *StorageEngine,
-        };
-
-        const recovery_callback = struct {
-            fn apply(entry: WALEntry, context: *anyopaque) !void {
-                const ctx: *RecoveryContext = @ptrCast(@alignCast(context));
-                try ctx.engine.apply_wal_entry(entry);
-            }
-        }.apply;
-
-        var recovery_context = RecoveryContext{ .engine = self };
-
-        self.wal.recover_entries(recovery_callback, &recovery_context) catch |err| switch (err) {
-            wal.WALError.FileNotFound => {
-                // Normal case: no WAL directory exists yet (new database)
-                return;
-            },
-            else => return err,
-        };
-
-        _ = self.storage_metrics.wal_recoveries.fetchAdd(1, .monotonic);
-    }
 
     // Internal helper methods
 
@@ -463,34 +394,6 @@ pub const StorageEngine = struct {
         }
     }
 
-    /// Write a WAL entry using the WAL subsystem.
-    fn write_wal_entry(self: *StorageEngine, entry: WALEntry) !void {
-        try self.wal.write_entry(entry);
-        _ = self.storage_metrics.wal_writes.fetchAdd(1, .monotonic);
-    }
-
-    /// Apply a WAL entry during recovery to rebuild storage state.
-    fn apply_wal_entry(self: *StorageEngine, entry: WALEntry) !void {
-        switch (entry.entry_type) {
-            .put_block => {
-                // Use temporary arena for block deserialization to prevent memory leaks
-                var temp_arena = std.heap.ArenaAllocator.init(self.backing_allocator);
-                defer temp_arena.deinit();
-                const temp_allocator = temp_arena.allocator();
-
-                const block = try entry.extract_block(temp_allocator);
-                try self.memtable_manager.put_block(block);
-            },
-            .delete_block => {
-                const block_id = try entry.extract_block_id();
-                self.memtable_manager.delete_block(block_id);
-            },
-            .put_edge => {
-                const edge = try entry.extract_edge();
-                try self.memtable_manager.put_edge(edge);
-            },
-        }
-    }
 
     /// Check for compaction opportunities and execute if beneficial.
     /// Delegates to SSTableManager for LSM-tree optimization.

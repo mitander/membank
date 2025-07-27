@@ -49,7 +49,6 @@ test "wal recovery: empty directory" {
     try storage_engine.startup();
 
     // Recovery from empty WAL directory should succeed
-    try storage_engine.recover_from_wal();
 
     // Verify no blocks were recovered
     try testing.expectEqual(@as(u32, 0), storage_engine.block_count());
@@ -83,7 +82,6 @@ test "wal recovery: missing wal directory" {
     storage_engine.initialized = true;
 
     // Recovery should handle missing directory gracefully
-    try storage_engine.recover_from_wal();
 
     try testing.expectEqual(@as(u32, 0), storage_engine.block_count());
 }
@@ -125,7 +123,6 @@ test "wal recovery: single block recovery" {
     };
 
     try storage_engine1.put_block(test_block);
-    try storage_engine1.flush_wal();
 
     // Second storage engine: recover from WAL
     const data_dir2 = try allocator.dupe(u8, "wal_single_data");
@@ -138,7 +135,6 @@ test "wal recovery: single block recovery" {
     defer storage_engine2.deinit();
 
     try storage_engine2.startup();
-    try storage_engine2.recover_from_wal();
 
     // Verify block was recovered
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
@@ -212,7 +208,6 @@ test "wal recovery: multiple blocks and types" {
     // Delete first block
     try storage_engine1.delete_block(block1.id);
 
-    try storage_engine1.flush_wal();
 
     // Second storage engine: recover from WAL
     const data_dir2 = try allocator.dupe(u8, "wal_multiple_data");
@@ -225,7 +220,6 @@ test "wal recovery: multiple blocks and types" {
     defer storage_engine2.deinit();
 
     try storage_engine2.startup();
-    try storage_engine2.recover_from_wal();
 
     // Verify final state: only block2 should exist (block1 was deleted)
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
@@ -320,8 +314,7 @@ test "wal recovery: multiple wal files" {
     );
     defer storage_engine.deinit();
 
-    storage_engine.initialized = true; // Skip normal initialization
-    try storage_engine.recover_from_wal();
+    try storage_engine.startup();
 
     // Verify all blocks were recovered
     try testing.expectEqual(@as(u32, 3), storage_engine.block_count());
@@ -367,7 +360,6 @@ test "wal recovery: corruption handling - invalid checksum" {
     };
 
     try storage_engine1.put_block(good_block);
-    try storage_engine1.flush_wal();
 
     // Manually corrupt the WAL file by modifying checksum
     const wal_file_path = "wal_corrupt_data/wal/wal_0000.log";
@@ -399,7 +391,6 @@ test "wal recovery: corruption handling - invalid checksum" {
     defer storage_engine2.deinit();
 
     try storage_engine2.startup();
-    try storage_engine2.recover_from_wal(); // Should not error, but should not recover blocks
 
     // Should have no blocks due to corruption
     try testing.expectEqual(@as(u32, 0), storage_engine2.block_count());
@@ -446,7 +437,6 @@ test "wal recovery: corruption handling - incomplete entry" {
     defer storage_engine.deinit();
 
     storage_engine.initialized = true;
-    try storage_engine.recover_from_wal(); // Should handle incomplete entry gracefully
 
     try testing.expectEqual(@as(u32, 0), storage_engine.block_count());
 }
@@ -499,7 +489,6 @@ test "wal recovery: deterministic replay" {
         };
 
         try storage_engine1.put_block(test_block);
-        try storage_engine1.flush_wal();
 
         // Recover
         const data_dir_copy2 = try allocator.dupe(u8, data_dir);
@@ -512,7 +501,6 @@ test "wal recovery: deterministic replay" {
         defer storage_engine2.deinit();
 
         try storage_engine2.startup();
-        try storage_engine2.recover_from_wal();
 
         results[i] = storage_engine2.block_count();
     }
@@ -563,7 +551,6 @@ test "wal recovery: large blocks" {
 
     try storage_engine1.startup();
     try storage_engine1.put_block(large_block);
-    try storage_engine1.flush_wal();
 
     // Explicitly close the first storage engine to ensure WAL files are properly closed
     storage_engine1.deinit();
@@ -579,7 +566,6 @@ test "wal recovery: large blocks" {
     defer storage_engine2.deinit();
 
     try storage_engine2.startup();
-    try storage_engine2.recover_from_wal();
 
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
     const recovered = (try storage_engine2.find_block(large_block.id)).?;
@@ -642,7 +628,6 @@ test "wal recovery: stress test with many entries" {
         try expected_blocks.append(block);
     }
 
-    try storage_engine1.flush_wal();
 
     // Recover all blocks
     const data_dir2 = try allocator.dupe(u8, "wal_stress_data");
@@ -655,7 +640,6 @@ test "wal recovery: stress test with many entries" {
     defer storage_engine2.deinit();
 
     try storage_engine2.startup();
-    try storage_engine2.recover_from_wal();
 
     try testing.expectEqual(@as(u32, num_blocks), storage_engine2.block_count());
 

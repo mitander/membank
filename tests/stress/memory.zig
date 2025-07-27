@@ -82,11 +82,6 @@ test "memory isolation: single test with 25 storage cycles" {
             try testing.expect(retrieved.id.eql(block.id));
         }
 
-        // Force compaction if needed
-        if (cycle % 5 == 0) {
-            try engine.flush_wal();
-        }
-
         log.debug("Completed storage cycle {} successfully", .{cycle});
     }
 

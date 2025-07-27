@@ -71,7 +71,6 @@ test "wal segmentation: rotation at size limit" {
         blocks_written += 1;
     }
 
-    try engine.flush_wal();
 
     // Verify multiple WAL segments were created
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
@@ -104,7 +103,6 @@ test "wal segmentation: rotation at size limit" {
     defer engine2.deinit();
 
     try engine2.startup();
-    try engine2.recover_from_wal();
 
     try testing.expectEqual(blocks_written, engine2.block_count());
 }
@@ -155,7 +153,6 @@ test "wal segmentation: cleanup after sstable flush" {
         try engine.put_block(block);
     }
 
-    try engine.flush_wal();
 
     // Check WAL segments before flush
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
@@ -215,7 +212,6 @@ test "wal segmentation: cleanup after sstable flush" {
     defer engine2.deinit();
 
     try engine2.startup();
-    try engine2.recover_from_wal();
 
     // Verify data integrity by checking a few specific blocks
     // Some should be recoverable from SSTable, some from remaining WAL
@@ -296,14 +292,12 @@ test "wal segmentation: recovery from mixed segments and sstables" {
         try engine.put_block(block);
     }
 
-    try engine.flush_wal();
 
     // Recover and verify all blocks
     var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine2.deinit();
 
     try engine2.startup();
-    try engine2.recover_from_wal();
 
     try testing.expectEqual(@as(u32, 75), engine2.block_count());
 
@@ -364,7 +358,6 @@ test "wal segmentation: segment number persistence" {
             try engine.put_block(block);
         }
 
-        try engine.flush_wal();
     }
 
     // Restart and verify segment numbering continues correctly
@@ -384,7 +377,6 @@ test "wal segmentation: segment number persistence" {
         };
 
         try engine2.put_block(block);
-        try engine2.flush_wal();
 
         // List WAL files to verify numbering
         const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
@@ -430,7 +422,6 @@ test "wal segmentation: empty segment handling" {
     try engine.startup();
 
     // Just flush without writing anything
-    try engine.flush_wal();
 
     // Should still have one WAL segment (wal_0000.log)
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
@@ -453,7 +444,6 @@ test "wal segmentation: empty segment handling" {
     defer engine2.deinit();
 
     try engine2.startup();
-    try engine2.recover_from_wal();
 
     try testing.expectEqual(@as(u32, 0), engine2.block_count());
 }

@@ -189,8 +189,6 @@ test "wal hang debug: single block write and recovery" {
             std.debug.panic("Put block timeout: {}ms", .{put_time - start_time});
         }
 
-        try storage_engine.flush_wal();
-
         const flush_time = std.time.milliTimestamp();
         if (flush_time - start_time > MAX_TEST_DURATION_MS) {
             std.debug.panic("WAL flush timeout: {}ms", .{flush_time - start_time});
@@ -208,8 +206,6 @@ test "wal hang debug: single block write and recovery" {
         if (recovery_start - start_time > MAX_TEST_DURATION_MS) {
             std.debug.panic("Recovery setup timeout: {}ms", .{recovery_start - start_time});
         }
-
-        try storage_engine.recover_from_wal();
 
         const recovery_end = std.time.milliTimestamp();
         if (recovery_end - start_time > MAX_TEST_DURATION_MS * 2) {
@@ -333,8 +329,6 @@ test "wal hang debug: wal recovery with large blocks" {
             std.debug.panic("Write phase timeout: {}ms", .{checkpoint_2 - start_time});
         }
 
-        try engine.flush_wal();
-
         const checkpoint_3 = std.time.milliTimestamp();
         if (checkpoint_3 - start_time > MAX_TEST_DURATION_MS) {
             std.debug.panic("WAL flush timeout: {}ms", .{checkpoint_3 - start_time});
@@ -388,7 +382,6 @@ test "wal hang debug: wal recovery with large blocks" {
         }
 
         // This is the critical call that hangs in the original tests
-        try engine2.recover_from_wal();
 
         const recovery_end = std.time.milliTimestamp();
         if (recovery_end - start_time > MAX_TEST_DURATION_MS * 2) {
@@ -434,7 +427,6 @@ test "wal hang debug: minimal recovery simulation" {
         };
 
         try engine.put_block(small_block);
-        try engine.flush_wal();
 
         const write_time = std.time.milliTimestamp();
         if (write_time - start_time > 1000) {
@@ -455,7 +447,6 @@ test "wal hang debug: minimal recovery simulation" {
         }
 
         // Critical recovery call with timeout
-        try engine2.recover_from_wal();
 
         const recovery_time = std.time.milliTimestamp();
         if (recovery_time - start_time > 5000) {
@@ -489,8 +480,6 @@ test "wal hang debug: empty WAL file recovery" {
 
     // Try to recover from empty/uninitialized WAL - this should not hang
     const start_time = std.time.milliTimestamp();
-
-    try engine.recover_from_wal();
 
     const recovery_time = std.time.milliTimestamp() - start_time;
     if (recovery_time > 1000) {
@@ -651,7 +640,6 @@ test "wal hang debug: investigate data corruption source" {
 
     std.debug.print("Writing block to storage...\n", .{});
     try storage_engine.put_block(test_block);
-    try storage_engine.flush_wal();
 
     // Step 6: Read the WAL file directly and inspect its contents
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
@@ -825,7 +813,6 @@ test "wal corruption debug: isolated single block write-read" {
     // Step 1: Write single block
     std.debug.print("Writing test block...\n", .{});
     try storage_engine.put_block(test_block);
-    try storage_engine.flush_wal();
 
     // Step 2: Inspect WAL file contents immediately
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
@@ -905,7 +892,6 @@ test "wal corruption debug: isolated single block write-read" {
     defer recovery_engine.deinit();
 
     try recovery_engine.startup();
-    try recovery_engine.recover_from_wal();
 
     const recovered_count = recovery_engine.block_count();
     std.debug.print("Recovered {} blocks\n", .{recovered_count});

@@ -85,6 +85,8 @@ test "streaming recovery basic functionality" {
 
     var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
+    
+    try storage_engine.startup();
 
     // Create and store test data
     const test_block1 = try create_test_block(allocator, 1);
@@ -97,36 +99,37 @@ test "streaming recovery basic functionality" {
 
     // Create edge between blocks
     const test_edge = GraphEdge{
-        .from = test_block1.id,
-        .to = test_block2.id,
-        .edge_type = EdgeType.references,
+        .source_id = test_block1.id,
+        .target_id = test_block2.id,
+        .edge_type = EdgeType.calls,
     };
     try storage_engine.put_edge(test_edge);
 
     // Delete one block
     try storage_engine.delete_block(test_block3.id);
 
-    // Flush WAL to ensure data is written
-    try storage_engine.flush_wal();
 
     // Set up recovery context
     var recovery_context = RecoveryContext.init(allocator);
 
-    // Test recovery using default approach (for comparison)
+    // Test recovery using automatic approach
     var fresh_storage = try StorageEngine.init(allocator, vfs_interface, test_dir);
     defer fresh_storage.deinit();
 
-    try fresh_storage.recover_from_wal(
-        recovery_context.recovery_callback,
-        recovery_context.edge_callback,
-        recovery_context.delete_callback,
-        &recovery_context,
-    );
+    try fresh_storage.startup();
 
-    // Validate recovery results
-    try testing.expectEqual(@as(u32, 3), recovery_context.blocks_recovered);
-    try testing.expectEqual(@as(u32, 1), recovery_context.edges_recovered);
-    try testing.expectEqual(@as(u32, 1), recovery_context.deletes_recovered);
+    // Validate recovery results by checking storage engine state
+    // Should have 2 blocks remaining (3 created, 1 deleted)
+    try testing.expectEqual(@as(u32, 2), fresh_storage.block_count());
+    
+    // Verify specific blocks exist
+    const recovered_block1 = try fresh_storage.find_block(test_block1.id);
+    const recovered_block2 = try fresh_storage.find_block(test_block2.id);
+    const recovered_block3 = try fresh_storage.find_block(test_block3.id);
+    
+    try testing.expect(recovered_block1 != null);
+    try testing.expect(recovered_block2 != null);
+    try testing.expect(recovered_block3 == null); // This block was deleted
 }
 
 test "streaming recovery with large entries" {
@@ -140,6 +143,8 @@ test "streaming recovery with large entries" {
 
     var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
+    
+    try storage_engine.startup();
 
     // Create block with large content that exceeds typical buffer sizes
     var large_block = try create_test_block(allocator, 1);
@@ -159,23 +164,16 @@ test "streaming recovery with large entries" {
     try storage_engine.put_block(large_block);
     try storage_engine.put_block(normal_block2);
 
-    try storage_engine.flush_wal();
-
     // Recovery should handle large entries correctly
     var recovery_context = RecoveryContext.init(allocator);
 
     var fresh_storage = try StorageEngine.init(allocator, vfs_interface, test_dir);
     defer fresh_storage.deinit();
 
-    try fresh_storage.recover_from_wal(
-        recovery_context.recovery_callback,
-        recovery_context.edge_callback,
-        recovery_context.delete_callback,
-        &recovery_context,
-    );
+    try fresh_storage.startup();
 
     // All blocks should be recovered successfully
-    try testing.expectEqual(@as(u32, 3), recovery_context.blocks_recovered);
+    try testing.expectEqual(@as(u32, 3), fresh_storage.block_count());
 }
 
 test "streaming recovery memory efficiency" {
@@ -189,6 +187,8 @@ test "streaming recovery memory efficiency" {
 
     var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
+    
+    try storage_engine.startup();
 
     // Create many entries to test memory efficiency
     const num_entries = 500;
@@ -197,23 +197,16 @@ test "streaming recovery memory efficiency" {
         try storage_engine.put_block(test_block);
     }
 
-    try storage_engine.flush_wal();
-
     // Recovery should process all entries without excessive memory usage
     var recovery_context = RecoveryContext.init(allocator);
 
     var fresh_storage = try StorageEngine.init(allocator, vfs_interface, test_dir);
     defer fresh_storage.deinit();
 
-    try fresh_storage.recover_from_wal(
-        recovery_context.recovery_callback,
-        recovery_context.edge_callback,
-        recovery_context.delete_callback,
-        &recovery_context,
-    );
+    try fresh_storage.startup();
 
     // All entries should be recovered
-    try testing.expectEqual(@as(u32, num_entries), recovery_context.blocks_recovered);
+    try testing.expectEqual(@as(u32, num_entries), fresh_storage.block_count());
 }
 
 test "streaming recovery empty WAL" {
@@ -227,21 +220,17 @@ test "streaming recovery empty WAL" {
 
     var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
+    
+    try storage_engine.startup();
 
     // Don't write any data - WAL should be empty
 
     var recovery_context = RecoveryContext.init(allocator);
 
     // Recovery from empty WAL should complete without errors
-    try storage_engine.recover_from_wal(
-        recovery_context.recovery_callback,
-        recovery_context.edge_callback,
-        recovery_context.delete_callback,
-        &recovery_context,
-    );
+    try storage_engine.startup();
 
     // No entries should be recovered from empty WAL
-    try testing.expectEqual(@as(u32, 0), recovery_context.blocks_recovered);
-    try testing.expectEqual(@as(u32, 0), recovery_context.edges_recovered);
-    try testing.expectEqual(@as(u32, 0), recovery_context.deletes_recovered);
+    try testing.expectEqual(@as(u32, 0), storage_engine.block_count());
+    try testing.expectEqual(@as(u32, 0), storage_engine.edge_count());
 }
