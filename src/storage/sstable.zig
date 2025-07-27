@@ -224,6 +224,7 @@ pub const SSTable = struct {
     }
 
     pub fn deinit(self: *SSTable) void {
+        self.allocator.free(self.file_path);
         self.index.deinit();
         if (self.bloom_filter) |*filter| {
             filter.deinit();
@@ -539,9 +540,10 @@ pub const Compactor = struct {
     ) !void {
         assert(input_paths.len > 1);
 
+        var tables_initialized: usize = 0;
         var input_tables = try self.allocator.alloc(SSTable, input_paths.len);
         defer {
-            for (input_tables) |*table| {
+            for (input_tables[0..tables_initialized]) |*table| {
                 table.deinit();
             }
             self.allocator.free(input_tables);
@@ -549,11 +551,14 @@ pub const Compactor = struct {
 
         for (input_paths, 0..) |path, i| {
             const path_copy = try self.allocator.dupe(u8, path);
+            errdefer self.allocator.free(path_copy);
             input_tables[i] = SSTable.init(self.allocator, self.filesystem, path_copy);
             try input_tables[i].read_index();
+            tables_initialized += 1;
         }
 
         const output_path_copy = try self.allocator.dupe(u8, output_path);
+        errdefer self.allocator.free(output_path_copy);
         var output_table = SSTable.init(self.allocator, self.filesystem, output_path_copy);
         defer output_table.deinit();
 

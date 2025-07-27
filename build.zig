@@ -131,6 +131,11 @@ pub fn build(b: *std.Build) void {
             .description = "fault injection and storage resilience tests",
         },
         .{
+            .name = "wal_cleanup_faults",
+            .source_file = "tests/fault_injection/wal_cleanup_faults.zig",
+            .description = "WAL cleanup fault injection and recovery tests",
+        },
+        .{
             .name = "server_protocol",
             .source_file = "tests/server/protocol_tests.zig",
             .description = "TCP server and binary protocol tests",

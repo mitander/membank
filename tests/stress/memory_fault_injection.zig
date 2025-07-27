@@ -89,7 +89,7 @@ test "memory fault injection: allocation failure during memtable operations" {
         var failing_alloc = FailingAllocator.init(backing_allocator, fail_after);
         const allocator = failing_alloc.allocator();
 
-        var sim = Simulation.init(allocator, 0xFAULT01 + fail_after) catch |err| {
+        var sim = Simulation.init(allocator, 0x1000000 + fail_after) catch |err| {
             // Expected failure, verify cleanup
             try testing.expect(err == error.OutOfMemory);
             continue;
@@ -139,7 +139,7 @@ test "memory fault injection: I/O errors during memory operations" {
     }
     const allocator = gpa.allocator();
 
-    var sim = try Simulation.init(allocator, 0xDISK_FAIL);
+    var sim = try Simulation.init(allocator, 0x2000000);
     defer sim.deinit();
 
     // Inject I/O failures at critical points
@@ -235,7 +235,7 @@ test "memory fault injection: error path cleanup validation" {
     }
     const allocator = gpa.allocator();
 
-    var sim = try Simulation.init(allocator, 0xERR_PATH);
+    var sim = try Simulation.init(allocator, 0x3000000);
     defer sim.deinit();
 
     // Test multiple failure scenarios in sequence
@@ -301,7 +301,7 @@ test "memory fault injection: sustained operations under memory pressure" {
     var failing_alloc = FailingAllocator.init(backing_allocator, 1000); // Fail after 1000 allocations
     const allocator = failing_alloc.allocator();
 
-    var sim = try Simulation.init(backing_allocator, 0xPRESSURE); // Use backing allocator for sim
+    var sim = try Simulation.init(backing_allocator, 0x4000000); // Use backing allocator for sim
     defer sim.deinit();
 
     var memtable = try MemtableManager.init(backing_allocator); // Use backing allocator for memtable
@@ -370,7 +370,7 @@ test "memory fault injection: graph edge operations under stress" {
     }
     const allocator = gpa.allocator();
 
-    var sim = try Simulation.init(allocator, 0xGRAPH_STRESS);
+    var sim = try Simulation.init(allocator, 0x5000000);
     defer sim.deinit();
 
     var storage = try StorageEngine.init(allocator, sim.vfs, "graph_stress_data");

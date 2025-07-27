@@ -90,7 +90,7 @@ test "vfs debug: write past end without seek" {
 
     // Read back and verify
     _ = try file.seek(0, .start);
-    var buffer = try allocator.alloc(u8, 12);
+    const buffer = try allocator.alloc(u8, 12);
     const bytes_read = try file.read(buffer);
     try testing.expectEqual(@as(usize, 12), bytes_read);
 
