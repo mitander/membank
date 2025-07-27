@@ -53,6 +53,7 @@ pub const MemtableManager = struct {
     block_index: BlockIndex,
     graph_index: GraphEdgeIndex,
     wal: WAL,
+    memtable_max_size: u64,
 
     /// Phase 1: Create the memtable manager without I/O operations.
     /// Initializes both block and edge indexes with their dedicated arenas.
@@ -62,6 +63,7 @@ pub const MemtableManager = struct {
         allocator: std.mem.Allocator,
         filesystem: VFS,
         data_dir: []const u8,
+        memtable_max_size: u64,
     ) !MemtableManager {
         const owned_data_dir = try allocator.dupe(u8, data_dir);
 
@@ -75,6 +77,7 @@ pub const MemtableManager = struct {
             .block_index = BlockIndex.init(allocator),
             .graph_index = GraphEdgeIndex.init(allocator),
             .wal = try WAL.init(allocator, filesystem, wal_dir),
+            .memtable_max_size = memtable_max_size,
         };
     }
 
@@ -183,6 +186,13 @@ pub const MemtableManager = struct {
         return self.block_index.memory_usage();
     }
 
+    /// Encapsulates flush decision within memtable ownership boundary.
+    /// Prevents StorageEngine from needing knowledge of internal memory thresholds,
+    /// maintaining clear separation between coordination and state management.
+    pub fn should_flush(self: *const MemtableManager) bool {
+        return self.memory_usage() >= self.memtable_max_size;
+    }
+
     /// Atomically clear all in-memory data with O(1) arena reset.
     /// Used after successful memtable flush to SSTable. Resets both
     /// block and edge indexes while retaining HashMap capacity for performance.
@@ -266,6 +276,34 @@ pub const MemtableManager = struct {
         concurrency.assert_main_thread();
 
         try self.wal.cleanup_old_segments();
+    }
+
+    /// Orchestrates atomic transition from write-optimized to read-optimized storage.
+    /// Maintains LSM-tree performance characteristics by ensuring memtable state
+    /// remains consistent throughout the flush operation. Prevents partial flushes
+    /// that could compromise durability guarantees or create inconsistent views.
+    pub fn flush_to_sstable(self: *MemtableManager, sstable_manager: anytype) !void {
+        concurrency.assert_main_thread();
+
+        if (self.block_count() == 0) return;
+
+        // Snapshot current state to ensure atomic flush semantics
+        var blocks = std.ArrayList(ContextBlock).init(self.backing_allocator);
+        defer blocks.deinit();
+
+        var block_iterator = self.iterator();
+        while (block_iterator.next()) |block| {
+            try blocks.append(block);
+        }
+
+        // Maintain responsibility boundaries - SSTable creation is not memtable concern
+        try sstable_manager.create_new_sstable(blocks.items);
+
+        // Only clear after successful persistence to maintain durability guarantees
+        self.clear();
+
+        // WAL entries now redundant since data persisted to durable SSTable storage
+        try self.cleanup_old_wal_segments();
     }
 
     /// Apply a WAL entry during recovery to rebuild memtable state.

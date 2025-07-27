@@ -115,7 +115,7 @@ pub const StorageEngine = struct {
             .vfs = filesystem,
             .data_dir = owned_data_dir,
             .config = storage_config,
-            .memtable_manager = try MemtableManager.init(allocator, filesystem, owned_data_dir),
+            .memtable_manager = try MemtableManager.init(allocator, filesystem, owned_data_dir, storage_config.memtable_max_size),
             .sstable_manager = SSTableManager.init(allocator, filesystem, owned_data_dir),
             .initialized = false,
             .storage_metrics = StorageMetrics.init(),
@@ -179,7 +179,7 @@ pub const StorageEngine = struct {
         try self.memtable_manager.put_block_durable(block);
 
         // Check if memtable flush is needed
-        if (self.memtable_manager.memory_usage() >= self.config.memtable_max_size) {
+        if (self.memtable_manager.should_flush()) {
             try self.flush_memtable();
         }
 
@@ -348,28 +348,13 @@ pub const StorageEngine = struct {
     fn flush_memtable(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
 
-        if (self.memtable_manager.block_count() == 0) return;
+        // Delegate flush to MemtableManager for orchestration
+        try self.memtable_manager.flush_to_sstable(&self.sstable_manager);
 
-        // Atomically transition from write-optimized memtable to read-optimized SSTable
-        var blocks = std.ArrayList(ContextBlock).init(self.backing_allocator);
-        defer blocks.deinit();
-
-        var iterator = self.memtable_manager.iterator();
-        while (iterator.next()) |block| {
-            try blocks.append(block);
-        }
-
-        try self.sstable_manager.create_new_sstable(blocks.items);
-
-        // Atomically clear memtable after successful SSTable creation
-        self.memtable_manager.clear();
-
-        // Check for compaction opportunities
+        // Check for compaction opportunities after flush
         try self.sstable_manager.check_and_run_compaction();
 
-        // Clean up old WAL segments after successful flush
-        try self.memtable_manager.cleanup_old_wal_segments();
-
+        // Update metrics
         _ = self.storage_metrics.sstable_writes.fetchAdd(1, .monotonic);
     }
 

@@ -38,7 +38,7 @@ fn create_test_memtable_manager(allocator: std.mem.Allocator) !struct {
     const node1 = try sim.add_node();
     const node1_ptr = sim.find_node(node1);
     const node1_vfs = node1_ptr.filesystem_interface();
-    const manager = try MemtableManager.init(allocator, node1_vfs, "/test/data");
+    const manager = try MemtableManager.init(allocator, node1_vfs, "/test/data", 1024 * 1024);
 
     return .{
         .simulation = sim,

@@ -115,7 +115,9 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 
     var prod_vfs = production_vfs.ProductionVFS.init(allocator);
     const vfs_interface = prod_vfs.vfs();
-    const data_dir = try allocator.dupe(u8, "demo_data");
+    const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+    defer allocator.free(cwd);
+    const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, "demo_data" });
     defer allocator.free(data_dir);
 
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
@@ -187,10 +189,12 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 
     std.debug.print("Formatting results for LLM consumption:\n", .{});
     std.debug.print("=====================================\n", .{});
-    const formatted = try multi_result.format_for_llm(allocator);
-    defer allocator.free(formatted);
 
-    std.debug.print("{s}", .{formatted});
+    var formatted_output = std.ArrayList(u8).init(allocator);
+    defer formatted_output.deinit();
+    try multi_result.format_for_llm(formatted_output.writer().any());
+
+    std.debug.print("{s}", .{formatted_output.items});
     std.debug.print("=====================================\n\n", .{});
 
     const metrics = storage_engine.metrics();
