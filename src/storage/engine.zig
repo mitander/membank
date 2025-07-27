@@ -144,11 +144,17 @@ pub const StorageEngine = struct {
 
         // Create data directory structure
         if (!self.vfs.exists(self.data_dir)) {
-            try self.vfs.mkdir(self.data_dir);
+            self.vfs.mkdir(self.data_dir) catch |err| {
+                error_context.log_storage_error(err, error_context.file_context("create_data_directory", self.data_dir));
+                return err;
+            };
         }
 
         // Start up SSTable manager (creates sst dir and discovers existing files)
-        try self.sstable_manager.startup();
+        self.sstable_manager.startup() catch |err| {
+            error_context.log_storage_error(err, error_context.file_context("sstable_manager_startup", self.data_dir));
+            return err;
+        };
 
         self.initialized = true;
     }
@@ -157,10 +163,22 @@ pub const StorageEngine = struct {
     /// This is the primary entry point for bringing StorageEngine from cold to hot state.
     /// Performs I/O operations including directory creation, SSTable discovery, and WAL recovery.
     pub fn startup(self: *StorageEngine) !void {
-        try self.create_storage_directories();
-        try self.memtable_manager.startup();
-        try self.sstable_manager.startup();
-        try self.memtable_manager.recover_from_wal();
+        self.create_storage_directories() catch |err| {
+            error_context.log_storage_error(err, error_context.file_context("create_storage_directories", self.data_dir));
+            return err;
+        };
+        self.memtable_manager.startup() catch |err| {
+            error_context.log_storage_error(err, error_context.file_context("memtable_manager_startup", self.data_dir));
+            return err;
+        };
+        self.sstable_manager.startup() catch |err| {
+            error_context.log_storage_error(err, error_context.file_context("sstable_manager_startup", self.data_dir));
+            return err;
+        };
+        self.memtable_manager.recover_from_wal() catch |err| {
+            error_context.log_storage_error(err, error_context.file_context("wal_recovery", self.data_dir));
+            return err;
+        };
     }
 
     /// Write a Context Block to storage with full durability guarantees.
@@ -173,14 +191,23 @@ pub const StorageEngine = struct {
         const start_time = std.time.nanoTimestamp();
 
         // Validate block structure and content before accepting
-        try block.validate(self.backing_allocator);
+        block.validate(self.backing_allocator) catch |err| {
+            error_context.log_storage_error(err, error_context.block_context("block_validation", block.id));
+            return err;
+        };
 
         // Delegate to MemtableManager for durable storage with WAL-first pattern
-        try self.memtable_manager.put_block_durable(block);
+        self.memtable_manager.put_block_durable(block) catch |err| {
+            error_context.log_storage_error(err, error_context.block_context("put_block_durable", block.id));
+            return err;
+        };
 
         // Check if memtable flush is needed
         if (self.memtable_manager.should_flush()) {
-            try self.flush_memtable();
+            self.flush_memtable() catch |err| {
+                error_context.log_storage_error(err, error_context.block_context("memtable_flush", block.id));
+                return err;
+            };
         }
 
         // Update metrics
@@ -208,7 +235,11 @@ pub const StorageEngine = struct {
         }
 
         // Search SSTables in reverse order (newest first)
-        if (try self.sstable_manager.find_block_in_sstables(block_id, self.query_cache_arena.allocator())) |block| {
+        const sstable_result = self.sstable_manager.find_block_in_sstables(block_id, self.query_cache_arena.allocator()) catch |err| {
+            error_context.log_storage_error(err, error_context.block_context("find_block_in_sstables", block_id));
+            return err;
+        };
+        if (sstable_result) |block| {
             const end_time = std.time.nanoTimestamp();
             _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
             _ = self.storage_metrics.sstable_reads.fetchAdd(1, .monotonic);
@@ -232,7 +263,10 @@ pub const StorageEngine = struct {
         if (!self.initialized) return StorageError.NotInitialized;
 
         // Delegate to MemtableManager for durable deletion with WAL-first pattern
-        try self.memtable_manager.delete_block_durable(block_id);
+        self.memtable_manager.delete_block_durable(block_id) catch |err| {
+            error_context.log_storage_error(err, error_context.block_context("delete_block_durable", block_id));
+            return err;
+        };
 
         _ = self.storage_metrics.blocks_deleted.fetchAdd(1, .monotonic);
     }
@@ -244,7 +278,10 @@ pub const StorageEngine = struct {
         if (!self.initialized) return StorageError.NotInitialized;
 
         // Delegate to MemtableManager for durable edge storage with WAL-first pattern
-        try self.memtable_manager.put_edge_durable(edge);
+        self.memtable_manager.put_edge_durable(edge) catch |err| {
+            error_context.log_storage_error(err, error_context.block_context("put_edge_durable", edge.source_id));
+            return err;
+        };
 
         _ = self.storage_metrics.edges_added.fetchAdd(1, .monotonic);
     }
@@ -349,10 +386,16 @@ pub const StorageEngine = struct {
         concurrency.assert_main_thread();
 
         // Delegate flush to MemtableManager for orchestration
-        try self.memtable_manager.flush_to_sstable(&self.sstable_manager);
+        self.memtable_manager.flush_to_sstable(&self.sstable_manager) catch |err| {
+            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "flush_to_sstable" });
+            return err;
+        };
 
         // Check for compaction opportunities after flush
-        try self.sstable_manager.check_and_run_compaction();
+        self.sstable_manager.check_and_run_compaction() catch |err| {
+            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "post_flush_compaction" });
+            return err;
+        };
 
         // Update metrics
         _ = self.storage_metrics.sstable_writes.fetchAdd(1, .monotonic);
@@ -806,4 +849,33 @@ test "block iterator handles multiple calls to next after exhaustion" {
 
     const third = try iterator.next();
     try testing.expectEqual(@as(?ContextBlock, null), third);
+}
+
+test "error context logging for storage operations" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "/test/data");
+    defer engine.deinit();
+
+    // Test error context for uninitialized operations
+    const test_block = ContextBlock{
+        .id = BlockId.generate(),
+        .version = 1,
+        .source_uri = "test.zig",
+        .metadata_json = "{}",
+        .content = "test content",
+    };
+
+    // Should return NotInitialized error with context logging
+    const put_result = engine.put_block(test_block);
+    try testing.expectError(StorageError.NotInitialized, put_result);
+
+    const find_result = engine.find_block(test_block.id);
+    try testing.expectError(StorageError.NotInitialized, find_result);
+
+    const delete_result = engine.delete_block(test_block.id);
+    try testing.expectError(StorageError.NotInitialized, delete_result);
 }

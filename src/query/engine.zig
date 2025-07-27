@@ -8,6 +8,7 @@ const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
+const error_context = @import("../core/error_context.zig");
 const operations = @import("operations.zig");
 const traversal = @import("traversal.zig");
 const filtering = @import("filtering.zig");
@@ -128,7 +129,13 @@ pub const QueryEngine = struct {
             self.allocator,
             self.storage_engine,
             query,
-        );
+        ) catch |err| {
+            error_context.log_storage_error(err, error_context.StorageContext{
+                .operation = "execute_find_blocks",
+                .size = query.block_ids.len,
+            });
+            return err;
+        };
     }
 
     /// Find a single block by ID - convenience method for single block queries
@@ -157,7 +164,14 @@ pub const QueryEngine = struct {
             self.allocator,
             self.storage_engine,
             query,
-        );
+        ) catch |err| {
+            error_context.log_storage_error(err, error_context.StorageContext{
+                .operation = "execute_traversal",
+                .block_id = query.start_block,
+                .size = query.max_results,
+            });
+            return err;
+        };
     }
 
     /// Convenience method for outgoing traversal
@@ -257,7 +271,13 @@ pub const QueryEngine = struct {
             self.allocator,
             self.storage_engine,
             query,
-        );
+        ) catch |err| {
+            error_context.log_storage_error(err, error_context.StorageContext{
+                .operation = "execute_semantic_query",
+                .size = query.max_results,
+            });
+            return err;
+        };
     }
 
     /// Execute a filtered query
@@ -272,7 +292,13 @@ pub const QueryEngine = struct {
             self.allocator,
             self.storage_engine,
             query,
-        );
+        ) catch |err| {
+            error_context.log_storage_error(err, error_context.StorageContext{
+                .operation = "execute_filtered_query",
+                .size = query.max_results,
+            });
+            return err;
+        };
     }
 };
 
