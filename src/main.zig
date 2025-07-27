@@ -80,26 +80,22 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 
     std.debug.print("CortexDB server starting...\n", .{});
 
-    // Create production VFS for production server
     var prod_vfs = production_vfs.ProductionVFS.init(allocator);
     const vfs_interface = prod_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "cortexdb_data");
     defer allocator.free(data_dir);
 
-    // Initialize storage engine
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
     try storage_engine.startup();
     std.debug.print("Storage engine initialized and recovered from WAL.\n", .{});
 
-    // Initialize query engine
     var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();
 
     std.debug.print("Query engine initialized.\n", .{});
 
-    // Initialize and start TCP server
     const server_config = server.ServerConfig{
         .port = 8080,
         .enable_logging = true,
@@ -110,7 +106,6 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 
     std.debug.print("Starting CortexDB TCP server on port {d}...\n", .{server_config.port});
 
-    // Start the server (this blocks until stopped)
     try cortex_server.startup();
 }
 
@@ -118,13 +113,11 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("=== CortexDB Storage and Query Demo ===\n\n", .{});
     log.info("Starting CortexDB demo with scoped logging", .{});
 
-    // Create production VFS for demo
     var prod_vfs = production_vfs.ProductionVFS.init(allocator);
     const vfs_interface = prod_vfs.vfs();
     const data_dir = try allocator.dupe(u8, "demo_data");
     defer allocator.free(data_dir);
 
-    // Initialize storage engine
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
@@ -132,7 +125,6 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("✓ Storage engine initialized and recovered from WAL\n", .{});
     log.info("Storage engine startup completed successfully", .{});
 
-    // Initialize query engine
     var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();
     std.debug.print("✓ Query engine initialized\n\n", .{});
@@ -168,7 +160,6 @@ fn run_demo(allocator: std.mem.Allocator) !void {
         ,
     };
 
-    // Store blocks
     std.debug.print("Storing context blocks...\n", .{});
     try storage_engine.put_block(block1);
     try storage_engine.put_block(block2);
@@ -176,7 +167,6 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     const stats = query_eng.statistics();
     std.debug.print("✓ Stored {} blocks\n\n", .{stats.total_blocks_stored});
 
-    // Query single block
     std.debug.print("Querying single block by ID...\n", .{});
     const single_result = try query_eng.find_block(block1_id);
     defer single_result.deinit();
@@ -185,7 +175,6 @@ fn run_demo(allocator: std.mem.Allocator) !void {
         std.debug.print("✓ Found block: {s}\n", .{single_result.blocks[0].source_uri});
     }
 
-    // Query multiple blocks
     std.debug.print("\nQuerying multiple blocks...\n", .{});
     const query = query_engine.FindBlocksQuery{
         .block_ids = &[_]BlockId{ block1_id, block2_id },
@@ -196,7 +185,6 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 
     std.debug.print("✓ Found {} blocks\n\n", .{multi_result.count});
 
-    // Format for LLM
     std.debug.print("Formatting results for LLM consumption:\n", .{});
     std.debug.print("=====================================\n", .{});
     const formatted = try multi_result.format_for_llm(allocator);
@@ -205,7 +193,6 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("{s}", .{formatted});
     std.debug.print("=====================================\n\n", .{});
 
-    // Display comprehensive performance metrics
     const metrics = storage_engine.metrics();
     std.debug.print("\n=== Storage Metrics ===\n", .{});
     std.debug.print("Blocks: {} written, {} read, {} deleted\n", .{
@@ -223,7 +210,6 @@ fn run_demo(allocator: std.mem.Allocator) !void {
         metrics.average_read_latency_ns(),
     });
 
-    // Also show query engine metrics
     const query_stats = query_eng.statistics();
     std.debug.print("\n=== Query Engine Metrics ===\n", .{});
     std.debug.print("Storage: {} blocks available\n", .{query_stats.total_blocks_stored});

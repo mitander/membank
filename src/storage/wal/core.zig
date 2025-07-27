@@ -174,7 +174,6 @@ pub const WAL = struct {
                 return WALError.CorruptedEntry;
             }
 
-            // Verify checksum matches expected value
             if (serialized_checksum != entry.checksum) {
                 log.err("WAL checksum mismatch: expected 0x{X}, got 0x{X}", .{ entry.checksum, serialized_checksum });
                 return WALError.InvalidChecksum;
@@ -381,7 +380,6 @@ pub const WAL = struct {
             else => return err,
         };
 
-        // Set segment size based on current file size
         if (self.active_file) |*file| {
             self.segment_size = file.file_size() catch 0;
         }

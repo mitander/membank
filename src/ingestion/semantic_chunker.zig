@@ -121,7 +121,6 @@ pub const SemanticChunker = struct {
             return err;
         };
 
-        // Create source URI from location information
         const source_uri = self.create_source_uri(allocator, unit.location) catch |err| {
             error_context.log_ingestion_error(err, error_context.chunking_context(
                 "create_source_uri",
@@ -131,7 +130,6 @@ pub const SemanticChunker = struct {
             return err;
         };
 
-        // Convert metadata to JSON
         const metadata_json = self.serialize_metadata(allocator, unit) catch |err| {
             error_context.log_ingestion_error(err, error_context.chunking_context(
                 "serialize_metadata",

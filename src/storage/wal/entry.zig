@@ -60,19 +60,15 @@ pub const WALEntry = struct {
 
         var offset: usize = 0;
 
-        // Write checksum (8 bytes, little-endian)
         std.mem.writeInt(u64, buffer[offset..][0..8], self.checksum, .little);
         offset += 8;
 
-        // Write entry type (1 byte)
         buffer[offset] = @intFromEnum(self.entry_type);
         offset += 1;
 
-        // Write payload size (4 bytes, little-endian)
         std.mem.writeInt(u32, buffer[offset..][0..4], self.payload_size, .little);
         offset += 4;
 
-        // Write payload
         @memcpy(buffer[offset .. offset + self.payload.len], self.payload);
         offset += self.payload.len;
 
@@ -87,15 +83,12 @@ pub const WALEntry = struct {
 
         var offset: usize = 0;
 
-        // Read checksum
         const checksum = std.mem.readInt(u64, buffer[offset..][0..8], .little);
         offset += 8;
 
-        // Read entry type
         const entry_type = try WALEntryType.from_u8(buffer[offset]);
         offset += 1;
 
-        // Read payload size
         const payload_size = std.mem.readInt(u32, buffer[offset..][0..4], .little);
         offset += 4;
 
@@ -109,7 +102,6 @@ pub const WALEntry = struct {
             return WALError.BufferTooSmall;
         }
 
-        // Read payload
         const payload = try allocator.dupe(u8, buffer[offset .. offset + payload_size]);
         errdefer allocator.free(payload);
 

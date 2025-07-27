@@ -269,7 +269,6 @@ pub const TieredCompactionManager = struct {
         );
         defer self.allocator.free(output_path);
 
-        // Perform compaction
         try self.compactor.compact_sstables(job.input_paths.items, output_path);
 
         // Update tier tracking
@@ -290,7 +289,6 @@ pub const TieredCompactionManager = struct {
         );
         defer self.allocator.free(output_path);
 
-        // Perform compaction
         try self.compactor.compact_sstables(job.input_paths.items, output_path);
 
         // Update tier tracking

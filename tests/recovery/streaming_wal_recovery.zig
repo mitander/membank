@@ -68,7 +68,6 @@ test "streaming WAL recovery - basic correctness" {
         try storage_engine.put_block(block);
     }
 
-
     // Create a new storage engine to simulate recovery
     var recovery_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer recovery_engine.deinit();
@@ -118,7 +117,6 @@ test "streaming WAL recovery - large WAL file efficiency" {
 
         try storage_engine.put_block(block);
     }
-
 
     // Create new engine for recovery and verify memory usage is reasonable
     var recovery_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);

@@ -26,13 +26,11 @@ const BlockId = context_block.BlockId;
 
 /// Binary protocol message types
 pub const MessageType = enum(u8) {
-    // Client requests
     ping = 0x01,
     find_blocks = 0x02,
     filtered_query = 0x03,
     traversal_query = 0x04,
 
-    // Server responses
     pong = 0x81,
     blocks_response = 0x82,
     filtered_response = 0x83,
@@ -184,7 +182,6 @@ pub const ClientConnection = struct {
 
     /// Attempt to read message header non-blockingly
     fn try_read_header(self: *ClientConnection, config: ServerConfig) !bool {
-        // Try to read remaining header bytes
         const header_remaining = MessageHeader.HEADER_SIZE - self.header_bytes_read;
         const n = self.stream.read(self.read_buffer[self.header_bytes_read .. self.header_bytes_read + header_remaining]) catch |err| switch (err) {
             error.WouldBlock => return true, // No data available, try again later
@@ -196,14 +193,12 @@ pub const ClientConnection = struct {
 
         self.header_bytes_read += n;
 
-        // Check if we have the complete header
         if (self.header_bytes_read >= MessageHeader.HEADER_SIZE) {
             self.current_header = MessageHeader.decode(self.read_buffer[0..MessageHeader.HEADER_SIZE]) catch {
                 log.warn("Connection {d}: Invalid message header", .{self.connection_id});
                 return false;
             };
 
-            // Transition to reading payload or processing
             if (self.current_header.?.payload_length == 0) {
                 self.state = .processing;
             } else {
@@ -212,7 +207,6 @@ pub const ClientConnection = struct {
                     return false;
                 }
 
-                // Allocate payload buffer
                 self.current_payload = self.arena.allocator().alloc(u8, self.current_header.?.payload_length) catch {
                     log.warn("Connection {d}: Failed to allocate payload buffer", .{self.connection_id});
                     return false;
@@ -241,7 +235,6 @@ pub const ClientConnection = struct {
 
         self.payload_bytes_read += n;
 
-        // Check if we have the complete payload
         if (self.payload_bytes_read >= payload.len) {
             self.state = .processing;
         }
@@ -261,9 +254,7 @@ pub const ClientConnection = struct {
 
         self.response_bytes_written += n;
 
-        // Check if we've written the complete response
         if (self.response_bytes_written >= response.len) {
-            // Reset for next request
             self.header_bytes_read = 0;
             self.current_header = null;
             self.current_payload = null;
@@ -272,7 +263,6 @@ pub const ClientConnection = struct {
             self.response_bytes_written = 0;
             self.state = .reading_header;
 
-            // Reset arena to free memory from this request
             _ = self.arena.reset(.retain_capacity);
         }
 
@@ -309,12 +299,10 @@ pub const ClientConnection = struct {
             .payload_length = @intCast(payload.len),
         };
 
-        // Write header
         var header_bytes: [MessageHeader.HEADER_SIZE]u8 = undefined;
         header.encode(&header_bytes);
         _ = try self.stream.writeAll(&header_bytes);
 
-        // Write payload if present
         if (payload.len > 0) {
             _ = try self.stream.writeAll(payload);
         }

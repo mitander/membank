@@ -20,7 +20,6 @@ const storage = @import("../storage/engine.zig");
 const query_engine = @import("../query/engine.zig");
 const context_block = @import("../core/types.zig");
 
-// Import connection state machine module
 const conn = @import("connection.zig");
 pub const ClientConnection = conn.ClientConnection;
 pub const MessageType = conn.MessageType;
@@ -136,7 +135,6 @@ pub const CortexServer = struct {
     pub fn deinit(self: *CortexServer) void {
         self.stop();
 
-        // Clean up active connections
         for (self.connections.items) |connection| {
             connection.deinit();
             self.allocator.destroy(connection);
@@ -152,7 +150,6 @@ pub const CortexServer = struct {
         const address = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, self.config.port);
         self.listener = try address.listen(.{ .reuse_address = true });
 
-        // Set listener socket to non-blocking mode for async I/O
         const flags = try std.posix.fcntl(self.listener.?.stream.handle, std.posix.F.GETFL, 0);
         const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
         _ = try std.posix.fcntl(self.listener.?.stream.handle, std.posix.F.SETFL, flags | nonblock_flag);
@@ -160,18 +157,15 @@ pub const CortexServer = struct {
         log.info("CortexDB server started on port {d}", .{self.config.port});
         log.info("Server config: max_connections={d}, timeout={d}s", .{ self.config.max_connections, self.config.connection_timeout_sec });
 
-        // Main async event loop
         try self.run_event_loop();
     }
 
     /// Main async event loop - polls all sockets and processes I/O events
     fn run_event_loop(self: *CortexServer) !void {
-        // Allocate poll file descriptors array
         var poll_fds = try self.allocator.alloc(std.posix.pollfd, self.config.max_connections + 1);
         defer self.allocator.free(poll_fds);
 
         while (true) {
-            // Setup poll array - first entry is listener socket
             poll_fds[0] = std.posix.pollfd{
                 .fd = self.listener.?.stream.handle,
                 .events = std.posix.POLL.IN,
@@ -180,18 +174,16 @@ pub const CortexServer = struct {
 
             var poll_count: usize = 1;
 
-            // Add all active client connections to poll array
             for (self.connections.items) |connection| {
                 if (poll_count >= poll_fds.len) break; // Safety check
 
                 var events: i16 = 0;
 
-                // Determine what events we're interested in based on connection state
                 switch (connection.state) {
                     .reading_header, .reading_payload => events |= std.posix.POLL.IN,
                     .writing_response => events |= std.posix.POLL.OUT,
-                    .processing => {}, // No I/O events needed
-                    .closing, .closed => continue, // Skip closed connections
+                    .processing => {},
+                    .closing, .closed => continue,
                 }
 
                 if (events != 0) {
@@ -204,31 +196,26 @@ pub const CortexServer = struct {
                 }
             }
 
-            // Poll for I/O events (1 second timeout)
             const ready_count = std.posix.poll(poll_fds[0..poll_count], 1000) catch |err| switch (err) {
                 error.Unexpected => continue, // Interrupted by signal, retry
                 else => return err,
             };
 
             if (ready_count == 0) {
-                // Timeout - perform maintenance tasks
                 try self.cleanup_timed_out_connections();
                 continue;
             }
 
-            // Process events
             try self.process_poll_events(poll_fds[0..poll_count]);
         }
     }
 
     /// Process events from poll() results
     fn process_poll_events(self: *CortexServer, poll_fds: []std.posix.pollfd) !void {
-        // Check listener socket for new connections
         if (poll_fds[0].revents & std.posix.POLL.IN != 0) {
             try self.accept_new_connections();
         }
 
-        // Process client connection events
         var i: usize = 1;
         var conn_index: usize = 0;
 
@@ -236,13 +223,11 @@ pub const CortexServer = struct {
             const poll_fd = poll_fds[i];
             const connection = self.connections.items[conn_index];
 
-            // Skip if this poll_fd doesn't match this connection
             if (poll_fd.fd != connection.stream.handle) {
                 conn_index += 1;
                 continue;
             }
 
-            // Check for error conditions
             if (poll_fd.revents & (std.posix.POLL.ERR | std.posix.POLL.HUP | std.posix.POLL.NVAL) != 0) {
                 log.info("Connection {d}: socket error, closing", .{connection.connection_id});
                 self.close_connection(conn_index);
@@ -250,7 +235,6 @@ pub const CortexServer = struct {
                 continue;
             }
 
-            // Process I/O for this connection
             const keep_alive = connection.process_io(self.config.to_connection_config()) catch |err| blk: {
                 log.err("Connection {d}: I/O error: {any}", .{ connection.connection_id, err });
                 break :blk false;
@@ -259,7 +243,6 @@ pub const CortexServer = struct {
             if (!keep_alive) {
                 self.close_connection(conn_index);
             } else {
-                // Check if connection has a complete request to process
                 if (connection.has_complete_request()) {
                     try self.process_connection_request(connection);
                 }
@@ -279,7 +262,6 @@ pub const CortexServer = struct {
                 else => return err,
             };
 
-            // Check connection limit
             if (self.connections.items.len >= self.config.max_connections) {
                 tcp_connection.stream.close();
                 self.stats.errors_encountered += 1;
@@ -287,7 +269,6 @@ pub const CortexServer = struct {
                 continue;
             }
 
-            // Create client connection and set to non-blocking
             const connection = try self.allocator.create(ClientConnection);
             connection.* = ClientConnection.init(self.allocator, tcp_connection.stream, self.next_connection_id);
             const conn_flags = try std.posix.fcntl(connection.stream.handle, std.posix.F.GETFL, 0);
@@ -308,7 +289,6 @@ pub const CortexServer = struct {
         const payload = connection.request_payload() orelse return;
         const header = connection.current_header orelse return;
 
-        // Process the request based on message type
         switch (header.msg_type) {
             .ping => {
                 const response = "CortexDB server v0.1.0";
@@ -332,7 +312,6 @@ pub const CortexServer = struct {
                 try self.handle_traversal_query_request_async(connection, payload);
             },
 
-            // Server response types should not be sent by clients
             .pong, .blocks_response, .filtered_response, .traversal_response, .error_response => {
                 const error_msg = "Invalid request: client sent server response type";
                 connection.send_response(error_msg);
@@ -370,7 +349,6 @@ pub const CortexServer = struct {
             if (connection_age > timeout_seconds) {
                 log.info("Connection {d}: timeout after {d}s", .{ connection.connection_id, connection_age });
                 self.close_connection(i);
-                // Don't increment i since we removed an element
             } else {
                 i += 1;
             }
@@ -390,7 +368,6 @@ pub const CortexServer = struct {
     fn handle_find_blocks_request_async(self: *CortexServer, connection: *ClientConnection, payload: []const u8) !void {
         const allocator = connection.arena.allocator();
 
-        // Parse block IDs from payload (simple format: count + list of 16-byte block IDs)
         if (payload.len < 4) {
             const error_msg = "Invalid find_blocks request: missing block count";
             connection.send_response(error_msg);
@@ -413,7 +390,6 @@ pub const CortexServer = struct {
             return;
         }
 
-        // Extract block IDs
         var block_ids = try allocator.alloc(context_block.BlockId, block_count);
         for (0..block_count) |i| {
             const id_start = 4 + (i * 16);
@@ -421,7 +397,6 @@ pub const CortexServer = struct {
             block_ids[i] = context_block.BlockId{ .bytes = id_bytes[0..16].* };
         }
 
-        // Build query and execute
         const query = query_engine.FindBlocksQuery{ .block_ids = block_ids };
         const result = self.query_engine.execute_find_blocks(query) catch |err| {
             const error_msg = try std.fmt.allocPrint(allocator, "Query execution failed: {any}", .{err});
@@ -431,7 +406,6 @@ pub const CortexServer = struct {
         };
         defer result.deinit();
 
-        // Serialize response
         const response_data = try self.serialize_blocks_response(allocator, result);
         connection.send_response(response_data);
         self.stats.bytes_sent += response_data.len + MessageHeader.HEADER_SIZE;
@@ -461,7 +435,6 @@ pub const CortexServer = struct {
     fn handle_traversal_query_request_async(self: *CortexServer, connection: *ClientConnection, payload: []const u8) !void {
         const allocator = connection.arena.allocator();
 
-        // Parse traversal parameters from payload
         if (payload.len < 20) { // minimum: 4 bytes count + 16 bytes start ID
             const error_msg = "Invalid traversal request: insufficient payload";
             connection.send_response(error_msg);
@@ -505,7 +478,6 @@ pub const CortexServer = struct {
     fn serialize_blocks_response(self: *CortexServer, allocator: std.mem.Allocator, result: QueryResult) ![]u8 {
         _ = self; // Suppress unused parameter warning
 
-        // Calculate total size needed
         var total_size: usize = 4; // 4 bytes for block count
         for (0..result.count) |i| {
             const block = result.blocks[i];
@@ -515,35 +487,28 @@ pub const CortexServer = struct {
             total_size += 4 + block.content.len; // Content length + content
         }
 
-        // Allocate and serialize
         const buffer = try allocator.alloc(u8, total_size);
         var offset: usize = 0;
 
-        // Write block count
         std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(result.count), .little);
         offset += 4;
 
-        // Write each block
         for (0..result.count) |i| {
             const block = result.blocks[i];
 
-            // Block ID (16 bytes)
             @memcpy(buffer[offset .. offset + 16], &block.id.bytes);
             offset += 16;
 
-            // Source URI
             std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.source_uri.len), .little);
             offset += 4;
             @memcpy(buffer[offset .. offset + block.source_uri.len], block.source_uri);
             offset += block.source_uri.len;
 
-            // Metadata JSON
             std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.metadata_json.len), .little);
             offset += 4;
             @memcpy(buffer[offset .. offset + block.metadata_json.len], block.metadata_json);
             offset += block.metadata_json.len;
 
-            // Content
             std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.content.len), .little);
             offset += 4;
             @memcpy(buffer[offset .. offset + block.content.len], block.content);
@@ -583,8 +548,6 @@ test "server initialization" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Mock storage and query engines for testing
-    // In real usage these would be properly initialized
     var mock_storage: StorageEngine = undefined;
     var mock_query: QueryEngine = undefined;
 

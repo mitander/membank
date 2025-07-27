@@ -254,7 +254,6 @@ pub const SSTable = struct {
 
         var current_offset: u64 = HEADER_SIZE;
 
-        // Create and populate Bloom filter
         const bloom_params = if (sorted_blocks.len < 1000)
             BloomFilter.Params.small
         else if (sorted_blocks.len < 10000)
@@ -294,7 +293,6 @@ pub const SSTable = struct {
             current_offset += IndexEntry.SERIALIZED_SIZE;
         }
 
-        // Write Bloom filter after index
         const bloom_filter_offset = current_offset;
         const bloom_filter_size = bloom.serialized_size();
         const bloom_buffer = try self.allocator.alloc(u8, bloom_filter_size);
@@ -304,10 +302,8 @@ pub const SSTable = struct {
         _ = try file.write(bloom_buffer);
         current_offset += bloom_filter_size;
 
-        // Calculate file checksum over all content (excluding header checksum field)
         const file_checksum = try self.calculate_file_checksum(&file, current_offset);
 
-        // Calculate footer checksum
         const file_size = try file.file_size();
         const content_size = file_size - FOOTER_SIZE;
 
@@ -348,7 +344,6 @@ pub const SSTable = struct {
         _ = self;
         var crc = std.hash.Crc32.init();
 
-        // Calculate checksum over all content from header end to content end
         // This includes: blocks + index + bloom filter (but excludes header and footer)
         _ = try file.seek(HEADER_SIZE, .start);
         const content_size = content_end_offset - HEADER_SIZE;
@@ -504,7 +499,6 @@ pub const SSTableIterator = struct {
             return null;
         }
 
-        // Open file if not already open
         if (self.file == null) {
             self.file = try self.sstable.filesystem.open(self.sstable.file_path, .read);
         }

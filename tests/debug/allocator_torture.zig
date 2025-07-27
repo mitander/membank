@@ -16,7 +16,6 @@ const AllocatorTortureTester = allocator_torture_test.AllocatorTortureTester;
 const TortureTestConfig = allocator_torture_test.TortureTestConfig;
 
 test "DebugAllocator torture test integration" {
-    // Arena per test for perfect isolation as mandated by STYLE.md
     const allocator = testing.allocator;
 
     // Layer DebugAllocator over arena for enhanced debugging capability

@@ -85,7 +85,7 @@ test "streaming recovery basic functionality" {
 
     var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
-    
+
     try storage_engine.startup();
 
     // Create and store test data
@@ -108,7 +108,6 @@ test "streaming recovery basic functionality" {
     // Delete one block
     try storage_engine.delete_block(test_block3.id);
 
-
     // Set up recovery context
     var recovery_context = RecoveryContext.init(allocator);
 
@@ -121,12 +120,12 @@ test "streaming recovery basic functionality" {
     // Validate recovery results by checking storage engine state
     // Should have 2 blocks remaining (3 created, 1 deleted)
     try testing.expectEqual(@as(u32, 2), fresh_storage.block_count());
-    
+
     // Verify specific blocks exist
     const recovered_block1 = try fresh_storage.find_block(test_block1.id);
     const recovered_block2 = try fresh_storage.find_block(test_block2.id);
     const recovered_block3 = try fresh_storage.find_block(test_block3.id);
-    
+
     try testing.expect(recovered_block1 != null);
     try testing.expect(recovered_block2 != null);
     try testing.expect(recovered_block3 == null); // This block was deleted
@@ -143,7 +142,7 @@ test "streaming recovery with large entries" {
 
     var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
-    
+
     try storage_engine.startup();
 
     // Create block with large content that exceeds typical buffer sizes
@@ -187,7 +186,7 @@ test "streaming recovery memory efficiency" {
 
     var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
-    
+
     try storage_engine.startup();
 
     // Create many entries to test memory efficiency
@@ -220,7 +219,7 @@ test "streaming recovery empty WAL" {
 
     var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
-    
+
     try storage_engine.startup();
 
     // Don't write any data - WAL should be empty

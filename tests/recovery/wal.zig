@@ -208,7 +208,6 @@ test "wal recovery: multiple blocks and types" {
     // Delete first block
     try storage_engine1.delete_block(block1.id);
 
-
     // Second storage engine: recover from WAL
     const data_dir2 = try allocator.dupe(u8, "wal_multiple_data");
     defer allocator.free(data_dir2);
@@ -627,7 +626,6 @@ test "wal recovery: stress test with many entries" {
         try storage_engine1.put_block(block);
         try expected_blocks.append(block);
     }
-
 
     // Recover all blocks
     const data_dir2 = try allocator.dupe(u8, "wal_stress_data");

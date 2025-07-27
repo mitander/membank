@@ -127,19 +127,15 @@ pub const BloomFilter = struct {
 
         var offset: usize = 0;
 
-        // Write bit count (4 bytes)
         std.mem.writeInt(u32, buffer[offset..][0..4], self.bit_count, .little);
         offset += 4;
 
-        // Write hash count (1 byte)
         buffer[offset] = self.hash_count;
         offset += 1;
 
-        // Reserved padding for alignment (3 bytes)
         @memset(buffer[offset .. offset + 3], 0);
         offset += 3;
 
-        // Write bit array
         @memcpy(buffer[offset..][0..self.bits.len], self.bits);
     }
 
@@ -157,7 +153,6 @@ pub const BloomFilter = struct {
         const hash_count = buffer[offset];
         offset += 1;
 
-        // Skip reserved padding
         offset += 3;
 
         const byte_count = bit_count / 8;

@@ -342,16 +342,15 @@ pub const StorageEngine = struct {
         };
     }
 
-
     /// Flush current memtable to SSTable with coordinated subsystem management.
     /// Core LSM-tree operation that delegates to SSTableManager for SSTable creation
     /// and coordinates cleanup with MemtableManager. Follows the coordinator pattern.
     fn flush_memtable(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
 
-        if (self.memtable_manager.block_count() == 0) return; // Nothing to flush
+        if (self.memtable_manager.block_count() == 0) return;
 
-        // Collect all blocks from memtable for SSTable creation
+        // Atomically transition from write-optimized memtable to read-optimized SSTable
         var blocks = std.ArrayList(ContextBlock).init(self.backing_allocator);
         defer blocks.deinit();
 
@@ -360,7 +359,6 @@ pub const StorageEngine = struct {
             try blocks.append(block);
         }
 
-        // Delegate SSTable creation to SSTableManager
         try self.sstable_manager.create_new_sstable(blocks.items);
 
         // Atomically clear memtable after successful SSTable creation
@@ -381,7 +379,6 @@ pub const StorageEngine = struct {
         try self.flush_memtable();
     }
 
-
     // Internal helper methods
 
     /// Clear query cache arena if it exceeds memory threshold to prevent unbounded growth.
@@ -393,7 +390,6 @@ pub const StorageEngine = struct {
             _ = self.query_cache_arena.reset(.retain_capacity);
         }
     }
-
 
     /// Check for compaction opportunities and execute if beneficial.
     /// Delegates to SSTableManager for LSM-tree optimization.

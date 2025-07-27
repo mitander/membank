@@ -153,7 +153,6 @@ pub const TraversalResult = struct {
 
     /// Free allocated memory for traversal results
     pub fn deinit(self: TraversalResult) void {
-        // Free block content strings
         for (self.blocks) |block| {
             self.allocator.free(block.source_uri);
             self.allocator.free(block.metadata_json);
@@ -161,13 +160,11 @@ pub const TraversalResult = struct {
         }
         self.allocator.free(self.blocks);
 
-        // Free paths
         for (self.paths) |path| {
             self.allocator.free(path);
         }
         self.allocator.free(self.paths);
 
-        // Free depths array
         self.allocator.free(self.depths);
     }
 
@@ -223,7 +220,6 @@ fn traverse_breadth_first(
     var result_depths = std.ArrayList(u32).init(allocator);
     defer result_depths.deinit();
 
-    // Queue for BFS: (block_id, depth, path_to_block)
     const QueueItem = struct {
         block_id: BlockId,
         depth: u32,
@@ -322,7 +318,6 @@ fn traverse_depth_first(
     var result_depths = std.ArrayList(u32).init(allocator);
     defer result_depths.deinit();
 
-    // Stack for DFS: (block_id, depth, path_to_block)
     const StackItem = struct {
         block_id: BlockId,
         depth: u32,
@@ -584,8 +579,6 @@ pub fn traverse_bidirectional(
     };
     return execute_traversal(allocator, storage_engine, query);
 }
-
-// Tests
 
 fn create_test_storage_engine(allocator: std.mem.Allocator) !StorageEngine {
     var sim_vfs = try SimulationVFS.init(allocator);

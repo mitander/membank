@@ -206,8 +206,7 @@ pub const ZigParser = struct {
             const trimmed = std.mem.trim(u8, line, " \t");
 
             if (trimmed.len == 0) {
-                _ = context
-                    .advance(); // consume newline
+                _ = context.advance();
                 continue;
             }
 

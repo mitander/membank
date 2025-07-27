@@ -65,7 +65,6 @@ pub const SSTableManager = struct {
     pub fn deinit(self: *SSTableManager) void {
         concurrency.assert_main_thread();
 
-        // Clean up SSTable path strings
         for (self.sstable_paths.items) |sstable_path| {
             self.backing_allocator.free(sstable_path);
         }
@@ -80,7 +79,6 @@ pub const SSTableManager = struct {
     pub fn startup(self: *SSTableManager) !void {
         concurrency.assert_main_thread();
 
-        // Create SSTable directory if needed
         const sst_dir = try std.fmt.allocPrint(self.backing_allocator, "{s}/sst", .{self.data_dir});
         defer self.backing_allocator.free(sst_dir);
 
@@ -88,7 +86,6 @@ pub const SSTableManager = struct {
             try self.vfs.mkdir(sst_dir);
         }
 
-        // Discover existing SSTables
         try self.discover_existing_sstables();
     }
 
@@ -101,7 +98,6 @@ pub const SSTableManager = struct {
         block_id: BlockId,
         query_cache: std.mem.Allocator,
     ) !?ContextBlock {
-        // Search SSTables in reverse order (newest first)
         var i: usize = self.sstable_paths.items.len;
         while (i > 0) {
             i -= 1;
@@ -127,7 +123,6 @@ pub const SSTableManager = struct {
 
         if (blocks.len == 0) return; // Nothing to flush
 
-        // Generate unique SSTable filename
         const sstable_filename = try std.fmt.allocPrint(
             self.backing_allocator,
             "{s}/sst/sstable_{:04}.sst",
@@ -135,22 +130,18 @@ pub const SSTableManager = struct {
         );
         self.next_sstable_id += 1;
 
-        // Create sorted copy for optimal SSTable layout
         const sorted_blocks = try self.backing_allocator.alloc(ContextBlock, blocks.len);
         defer self.backing_allocator.free(sorted_blocks);
         @memcpy(sorted_blocks, blocks);
 
-        // Sort blocks by ID for efficient SSTable layout
         std.sort.pdq(ContextBlock, sorted_blocks, {}, struct {
             fn less_than(_: void, a: ContextBlock, b: ContextBlock) bool {
                 return std.mem.lessThan(u8, &a.id.bytes, &b.id.bytes);
             }
         }.less_than);
 
-        // Write SSTable atomically
         var new_sstable = SSTable.init(self.backing_allocator, self.vfs, sstable_filename);
         defer {
-            // Manual cleanup to avoid double-free of file_path (owned by SSTableManager)
             new_sstable.index.deinit();
             if (new_sstable.bloom_filter) |*filter| {
                 filter.deinit();
@@ -158,7 +149,6 @@ pub const SSTableManager = struct {
         }
         try new_sstable.write_blocks(sorted_blocks);
 
-        // Register new SSTable with manager and compaction
         try self.sstable_paths.append(sstable_filename);
         try self.compaction_manager.add_sstable(
             sstable_filename,
@@ -191,8 +181,6 @@ pub const SSTableManager = struct {
         return self.next_sstable_id;
     }
 
-    // Private helper methods
-
     /// Discover existing SSTable files and register with compaction manager.
     /// Called during startup to restore system state after restart.
     /// Scans SSTable directory for .sst files and registers them in order.
@@ -211,7 +199,6 @@ pub const SSTableManager = struct {
             const extension = std.fs.path.extension(entry.name);
             if (!std.mem.eql(u8, extension, ".sst")) continue;
 
-            // Build full path and register with storage
             const full_path = try std.fmt.allocPrint(
                 self.backing_allocator,
                 "{s}/{s}",
@@ -219,11 +206,8 @@ pub const SSTableManager = struct {
             );
             try self.sstable_paths.append(full_path);
 
-            // Register with compaction manager
             const file_size = try self.read_file_size(full_path);
             try self.compaction_manager.add_sstable(full_path, file_size, 0);
-
-            // Update next_sstable_id to avoid conflicts
             if (self.parse_sstable_id_from_path(entry.name)) |id| {
                 if (id >= self.next_sstable_id) {
                     self.next_sstable_id = id + 1;
@@ -246,11 +230,10 @@ pub const SSTableManager = struct {
     fn parse_sstable_id_from_path(self: *SSTableManager, filename: []const u8) ?u32 {
         _ = self;
 
-        // Expected format: "sstable_NNNN.sst"
         if (!std.mem.startsWith(u8, filename, "sstable_")) return null;
         if (!std.mem.endsWith(u8, filename, ".sst")) return null;
 
-        const id_str = filename[8 .. filename.len - 4]; // Remove "sstable_" and ".sst"
+        const id_str = filename[8 .. filename.len - 4];
         return std.fmt.parseInt(u32, id_str, 10) catch null;
     }
 };
@@ -284,7 +267,6 @@ test "SSTableManager creates new SSTable from blocks" {
 
     try manager.startup();
 
-    // Create test blocks
     const block1 = ContextBlock{
         .id = BlockId.generate(),
         .version = 1,
@@ -311,7 +293,6 @@ test "SSTableManager finds blocks in SSTables" {
 
     try manager.startup();
 
-    // Create and write test block
     const block_id = BlockId.generate();
     const block = ContextBlock{
         .id = block_id,
@@ -324,16 +305,12 @@ test "SSTableManager finds blocks in SSTables" {
     const blocks = [_]ContextBlock{block};
     try manager.create_new_sstable(&blocks);
 
-    // Query cache for temporary allocations
     var query_arena = std.heap.ArenaAllocator.init(allocator);
     defer query_arena.deinit();
 
-    // Find the block
     const found_block = try manager.find_block_in_sstables(block_id, query_arena.allocator());
     try testing.expect(found_block != null);
     try testing.expectEqualStrings("test content", found_block.?.content);
-
-    // Try to find non-existent block
     const missing_block = try manager.find_block_in_sstables(BlockId.generate(), query_arena.allocator());
     try testing.expect(missing_block == null);
 }

@@ -12,7 +12,6 @@ const debug_allocator = cortexdb.debug_allocator;
 const DebugAllocator = debug_allocator.DebugAllocator;
 
 test "DebugAllocator basic allocation tracking" {
-    // Arena per test for perfect isolation as per STYLE.md
     const allocator = testing.allocator;
 
     // Layer DebugAllocator over arena for enhanced debugging

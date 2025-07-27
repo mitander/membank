@@ -143,7 +143,6 @@ test "storage recovery: WAL corruption simulation" {
 
     try std.testing.expectEqual(@as(u32, 10), storage_engine.block_count());
 
-
     // Properly close first storage engine before restart simulation
     storage_engine.deinit();
 

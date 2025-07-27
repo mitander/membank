@@ -71,7 +71,6 @@ test "wal segmentation: rotation at size limit" {
         blocks_written += 1;
     }
 
-
     // Verify multiple WAL segments were created
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
     defer allocator.free(wal_dir);
@@ -152,7 +151,6 @@ test "wal segmentation: cleanup after sstable flush" {
 
         try engine.put_block(block);
     }
-
 
     // Check WAL segments before flush
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
@@ -292,7 +290,6 @@ test "wal segmentation: recovery from mixed segments and sstables" {
         try engine.put_block(block);
     }
 
-
     // Recover and verify all blocks
     var engine2 = try StorageEngine.init_default(allocator, node_vfs, data_dir);
     defer engine2.deinit();
@@ -357,7 +354,6 @@ test "wal segmentation: segment number persistence" {
 
             try engine.put_block(block);
         }
-
     }
 
     // Restart and verify segment numbering continues correctly

@@ -222,7 +222,6 @@ test "integration: full data lifecycle with compaction" {
 
     // Phase 5: WAL flush and persistence
 
-
     const post_flush_metrics = storage_engine.metrics();
     // WAL flush time may be 0 if there's nothing to flush or it's very fast
     try testing.expect(post_flush_metrics.total_wal_flush_time_ns.load(.monotonic) >= 0);

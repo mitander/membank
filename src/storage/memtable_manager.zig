@@ -63,10 +63,8 @@ pub const MemtableManager = struct {
         filesystem: VFS,
         data_dir: []const u8,
     ) !MemtableManager {
-        // Clone data_dir for owned storage
         const owned_data_dir = try allocator.dupe(u8, data_dir);
 
-        // Initialize WAL directory path
         const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{owned_data_dir});
         defer allocator.free(wal_dir);
 
@@ -107,12 +105,10 @@ pub const MemtableManager = struct {
     pub fn put_block_durable(self: *MemtableManager, block: ContextBlock) !void {
         concurrency.assert_main_thread();
 
-        // WAL-first: durability before visibility
         const wal_entry = try WALEntry.create_put_block(block, self.backing_allocator);
         defer wal_entry.deinit(self.backing_allocator);
         try self.wal.write_entry(wal_entry);
 
-        // Update in-memory memtable after WAL write
         try self.block_index.put_block(block);
     }
 
@@ -131,12 +127,10 @@ pub const MemtableManager = struct {
     pub fn delete_block_durable(self: *MemtableManager, block_id: BlockId) !void {
         concurrency.assert_main_thread();
 
-        // WAL-first: record deletion for durability
         const wal_entry = try WALEntry.create_delete_block(block_id, self.backing_allocator);
         defer wal_entry.deinit(self.backing_allocator);
         try self.wal.write_entry(wal_entry);
 
-        // Remove from memtable (handles both block and edges)
         self.block_index.remove_block(block_id);
         self.graph_index.remove_block_edges(block_id);
     }
@@ -158,12 +152,10 @@ pub const MemtableManager = struct {
     pub fn put_edge_durable(self: *MemtableManager, edge: GraphEdge) !void {
         concurrency.assert_main_thread();
 
-        // WAL-first: durability before visibility
         const wal_entry = try WALEntry.create_put_edge(edge, self.backing_allocator);
         defer wal_entry.deinit(self.backing_allocator);
         try self.wal.write_entry(wal_entry);
 
-        // Update in-memory graph index
         try self.graph_index.put_edge(edge);
     }
 
@@ -262,7 +254,6 @@ pub const MemtableManager = struct {
 
         self.wal.recover_entries(recovery_callback, &recovery_context) catch |err| switch (err) {
             wal.WALError.FileNotFound => {
-                // Normal case: no WAL directory exists yet (new database)
                 return;
             },
             else => return err,
@@ -282,7 +273,6 @@ pub const MemtableManager = struct {
     fn apply_wal_entry(self: *MemtableManager, entry: WALEntry) !void {
         switch (entry.entry_type) {
             .put_block => {
-                // Use temporary arena for block deserialization to prevent memory leaks
                 var temp_arena = std.heap.ArenaAllocator.init(self.backing_allocator);
                 defer temp_arena.deinit();
                 const temp_allocator = temp_arena.allocator();

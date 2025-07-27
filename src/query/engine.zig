@@ -19,23 +19,19 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
-// Re-export basic operations
 pub const QueryError = operations.QueryError;
 pub const FindBlocksQuery = operations.FindBlocksQuery;
 pub const QueryResult = operations.QueryResult;
 
-// Re-export traversal types
 pub const TraversalQuery = traversal.TraversalQuery;
 pub const TraversalResult = traversal.TraversalResult;
 pub const TraversalDirection = traversal.TraversalDirection;
 pub const TraversalAlgorithm = traversal.TraversalAlgorithm;
 
-// Re-export semantic search types
 pub const SemanticQuery = operations.SemanticQuery;
 pub const SemanticQueryResult = operations.SemanticQueryResult;
 pub const SemanticResult = operations.SemanticResult;
 
-// Re-export filtering types
 pub const FilteredQuery = filtering.FilteredQuery;
 pub const FilteredQueryResult = filtering.FilteredQueryResult;
 pub const FilterCondition = filtering.FilterCondition;
@@ -305,8 +301,6 @@ pub const QueryCommand = enum(u8) {
         return std.meta.intToEnum(QueryCommand, value) catch EngineError.NotInitialized;
     }
 };
-
-// Tests
 
 fn create_test_storage_engine(allocator: std.mem.Allocator) !StorageEngine {
     var sim_vfs = try SimulationVFS.init(allocator);

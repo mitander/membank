@@ -193,7 +193,6 @@ pub const SemanticQueryResult = struct {
     pub fn sorted_blocks(self: SemanticQueryResult, allocator: std.mem.Allocator) QueryError![]ContextBlock {
         var blocks = try allocator.alloc(ContextBlock, self.results.len);
 
-        // Sort results by similarity score in descending order
         const sorted_results = try allocator.dupe(SemanticResult, self.results);
         defer allocator.free(sorted_results);
 
@@ -222,7 +221,6 @@ pub fn execute_find_blocks(
         if (try storage_engine.find_block(block_id)) |block| {
             try found_blocks.append(block);
         }
-        // If null, block not found - continue to next block
     }
 
     return QueryResult.init(allocator, found_blocks.items);
@@ -236,8 +234,6 @@ pub fn execute_semantic_query(
 ) !SemanticQueryResult {
     try query.validate();
 
-    // TODO: Implement actual semantic search with embeddings
-    // For now, return basic text matching with mock similarity scores
     var results = std.ArrayList(SemanticResult).init(allocator);
     defer results.deinit();
 
@@ -298,7 +294,6 @@ pub fn count_existing_blocks(
 fn calculate_text_similarity(content: []const u8, query: []const u8) f32 {
     if (content.len == 0 or query.len == 0) return 0.0;
 
-    // Simple word overlap ratio as placeholder for embeddings
     var query_words = std.mem.split(u8, query, " ");
     var total_query_words: f32 = 0;
     var matching_words: f32 = 0;
@@ -331,22 +326,17 @@ fn clone_block(allocator: std.mem.Allocator, block: ContextBlock) !ContextBlock 
     };
 }
 
-// Tests
-
 test "find blocks query validation" {
-    // Valid query
     const valid_query = FindBlocksQuery{
         .block_ids = &[_]BlockId{ 1, 2, 3 },
     };
     try valid_query.validate();
 
-    // Empty query
     const empty_query = FindBlocksQuery{
         .block_ids = &[_]BlockId{},
     };
     try testing.expectError(QueryError.EmptyQuery, empty_query.validate());
 
-    // Too many blocks
     var too_many_ids: [1001]BlockId = undefined;
     for (&too_many_ids, 0..) |*id, i| {
         id.* = @intCast(i);

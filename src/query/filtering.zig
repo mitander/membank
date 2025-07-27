@@ -261,18 +261,14 @@ pub fn execute_filtered_query(
     var blocks_collected: u32 = 0;
     const max_to_collect = query.max_results;
 
-    // Scan through all blocks and apply filter
-    // TODO: Optimize with indices for common filter patterns
     var iterator = storage_engine.iterate_all_blocks();
 
     while (try iterator.next()) |block| {
         if (try query.expression.matches(block, allocator)) {
             total_matches += 1;
 
-            // Skip blocks before offset
             if (total_matches <= query.offset) continue;
 
-            // Collect blocks up to max_results
             if (blocks_collected < max_to_collect) {
                 try matched_blocks.append(try clone_block(allocator, block));
                 blocks_collected += 1;
@@ -304,20 +300,17 @@ pub fn filter_by_metadata_field(field_name: []const u8, value: []const u8) Filte
 
 /// Helper function to extract a field from JSON metadata
 fn extract_metadata_field(metadata_json: []const u8, field_name: []const u8, allocator: std.mem.Allocator) ![]const u8 {
-    // Simple JSON field extraction - replace with proper JSON parser if needed
     const field_pattern = try std.fmt.allocPrint(allocator, "\"{s}\":", .{field_name});
     defer allocator.free(field_pattern);
 
     const start_pos = std.mem.indexOf(u8, metadata_json, field_pattern) orelse return "";
     const value_start = start_pos + field_pattern.len;
 
-    // Skip whitespace and quotes
     var pos = value_start;
     while (pos < metadata_json.len and (metadata_json[pos] == ' ' or metadata_json[pos] == '"')) {
         pos += 1;
     }
 
-    // Find end of value
     var end_pos = pos;
     while (end_pos < metadata_json.len and metadata_json[end_pos] != '"' and metadata_json[end_pos] != ',') {
         end_pos += 1;
@@ -331,7 +324,6 @@ fn extract_metadata_field(metadata_json: []const u8, field_name: []const u8, all
 
 /// Compare values numerically if possible, otherwise lexically
 fn compare_numeric_or_lexical(a: []const u8, b: []const u8) i8 {
-    // Try numeric comparison first
     const a_num = std.fmt.parseFloat(f64, a) catch null;
     const b_num = std.fmt.parseFloat(f64, b) catch null;
 
@@ -341,7 +333,6 @@ fn compare_numeric_or_lexical(a: []const u8, b: []const u8) i8 {
         return 0;
     }
 
-    // Fall back to lexical comparison
     return switch (std.mem.order(u8, a, b)) {
         .lt => -1,
         .gt => 1,
@@ -359,8 +350,6 @@ fn clone_block(allocator: std.mem.Allocator, block: ContextBlock) !ContextBlock 
         .content = try allocator.dupe(u8, block.content),
     };
 }
-
-// Tests
 
 test "filter condition - content contains" {
     const allocator = testing.allocator;
