@@ -65,7 +65,7 @@ pub const MockVFS = struct {
         // Create some test files for discovery tests
         var file = try self.vfs().create("/test/data/sst/test_001.sst", .write);
         defer file.close();
-        
+
         const test_content = "test sstable content";
         _ = try file.write(test_content);
         try file.flush();
@@ -99,7 +99,7 @@ pub const MockVFS = struct {
     pub fn create_test_file(self: *MockVFS, path: []const u8, content: []const u8) !void {
         var file = try self.vfs().create(path, .write);
         defer file.close();
-        
+
         _ = try file.write(content);
         try file.flush();
     }
@@ -108,7 +108,7 @@ pub const MockVFS = struct {
     pub fn read_test_file(self: *MockVFS, allocator: std.mem.Allocator, path: []const u8) ![]u8 {
         var file = try self.vfs().open(path, .read);
         defer file.close();
-        
+
         const size = try file.file_size();
         const content = try allocator.alloc(u8, size);
         _ = try file.readAll(content);
@@ -201,7 +201,7 @@ test "MockVFS failure injection" {
 
     // Test disk space exhaustion
     mock_vfs.exhaust_disk_space();
-    
+
     // Should fail to create files when disk is full
     const result = mock_vfs.vfs().create("/test/should_fail.txt", .write);
     try testing.expectError(error.NoSpaceLeft, result);

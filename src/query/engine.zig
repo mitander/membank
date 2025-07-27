@@ -46,6 +46,131 @@ const EngineError = error{
     NotInitialized,
 } || operations.QueryError || filtering.FilterError;
 
+/// Query planning and optimization framework for future extensibility
+pub const QueryPlan = struct {
+    query_type: QueryType,
+    estimated_cost: u64,
+    estimated_result_count: u32,
+    optimization_hints: OptimizationHints,
+    cache_eligible: bool,
+    execution_strategy: ExecutionStrategy,
+
+    pub const QueryType = enum {
+        find_blocks,
+        traversal,
+        semantic,
+        filtered,
+    };
+
+    pub const OptimizationHints = struct {
+        use_index: bool = false,
+        parallel_execution: bool = false,
+        result_limit: ?u32 = null,
+        early_termination: bool = false,
+        prefer_memtable: bool = false,
+        batch_size: ?u32 = null,
+        enable_prefetch: bool = false,
+    };
+
+    pub const ExecutionStrategy = enum {
+        direct_storage,
+        cached_result,
+        index_lookup,
+        hybrid_approach,
+        streaming_scan,
+        optimized_traversal,
+    };
+
+    /// Create a basic query plan for immediate execution
+    pub fn create_basic(query_type: QueryType) QueryPlan {
+        return QueryPlan{
+            .query_type = query_type,
+            .estimated_cost = 1000, // Default cost estimate
+            .estimated_result_count = 10, // Conservative estimate
+            .optimization_hints = .{},
+            .cache_eligible = false, // Conservative default
+            .execution_strategy = .direct_storage,
+        };
+    }
+
+    /// Analyze query complexity for optimization decisions
+    pub fn analyze_complexity(self: *QueryPlan, block_count: u32, edge_count: u32) void {
+        const complexity_factor = block_count + (edge_count / 2);
+        self.estimated_cost = complexity_factor * 10;
+
+        // Multi-tier optimization strategy
+        if (complexity_factor > 10000) {
+            self.optimization_hints.use_index = true;
+            self.optimization_hints.enable_prefetch = true;
+            self.execution_strategy = .hybrid_approach;
+            self.cache_eligible = true;
+        } else if (complexity_factor > 1000) {
+            self.optimization_hints.use_index = true;
+            self.cache_eligible = true;
+            if (self.query_type == .traversal) {
+                self.execution_strategy = .optimized_traversal;
+            }
+        } else if (complexity_factor < 100) {
+            self.optimization_hints.prefer_memtable = true;
+            self.execution_strategy = .direct_storage;
+        }
+
+        // Set optimal batch sizes based on query type and complexity
+        switch (self.query_type) {
+            .find_blocks => {
+                if (complexity_factor > 500) {
+                    self.optimization_hints.batch_size = 64;
+                } else {
+                    self.optimization_hints.batch_size = 16;
+                }
+            },
+            .traversal => {
+                self.optimization_hints.batch_size = if (complexity_factor > 1000) 32 else 8;
+            },
+            .semantic, .filtered => {
+                self.optimization_hints.batch_size = if (complexity_factor > 200) 48 else 12;
+            },
+        }
+    }
+};
+
+/// Query execution context with metrics and caching hooks
+pub const QueryContext = struct {
+    query_id: u64,
+    start_time_ns: i64,
+    plan: QueryPlan,
+    metrics: QueryMetrics,
+    cache_key: ?[]const u8 = null,
+
+    pub const QueryMetrics = struct {
+        blocks_scanned: u32 = 0,
+        edges_traversed: u32 = 0,
+        cache_hits: u32 = 0,
+        cache_misses: u32 = 0,
+        optimization_applied: bool = false,
+        memtable_hits: u32 = 0,
+        sstable_reads: u32 = 0,
+        index_lookups: u32 = 0,
+        prefetch_efficiency: f32 = 0.0,
+    };
+
+    /// Create execution context for query
+    pub fn create(query_id: u64, plan: QueryPlan) QueryContext {
+        return QueryContext{
+            .query_id = query_id,
+            .start_time_ns = @intCast(std.time.nanoTimestamp()),
+            .plan = plan,
+            .metrics = .{},
+        };
+    }
+
+    /// Calculate execution duration in nanoseconds
+    pub fn execution_duration_ns(self: *const QueryContext) u64 {
+        const current_time = std.time.nanoTimestamp();
+        return @as(u64, @intCast(current_time - self.start_time_ns));
+    }
+};
+
 /// Query execution statistics
 pub const QueryStatistics = struct {
     total_blocks_stored: u32,
@@ -89,6 +214,10 @@ pub const QueryEngine = struct {
     storage_engine: *StorageEngine,
     initialized: bool,
 
+    // Query planning and optimization
+    next_query_id: std.atomic.Value(u64),
+    planning_enabled: bool,
+
     // Thread-safe metrics using atomic operations
     queries_executed: std.atomic.Value(u64),
     find_blocks_queries: std.atomic.Value(u64),
@@ -103,6 +232,8 @@ pub const QueryEngine = struct {
             .allocator = allocator,
             .storage_engine = storage_engine,
             .initialized = true,
+            .next_query_id = std.atomic.Value(u64).init(1),
+            .planning_enabled = true, // Enable planning by default for future extensibility
             .queries_executed = std.atomic.Value(u64).init(0),
             .find_blocks_queries = std.atomic.Value(u64).init(0),
             .traversal_queries = std.atomic.Value(u64).init(0),
@@ -117,6 +248,133 @@ pub const QueryEngine = struct {
         self.initialized = false;
     }
 
+    /// Generate unique query ID for execution tracking
+    fn generate_query_id(self: *QueryEngine) u64 {
+        return self.next_query_id.fetchAdd(1, .monotonic);
+    }
+
+    /// Create query plan for optimization and metrics
+    fn create_query_plan(self: *QueryEngine, query_type: QueryPlan.QueryType, estimated_results: u32) QueryPlan {
+        var plan = QueryPlan.create_basic(query_type);
+
+        if (self.planning_enabled) {
+            const storage_metrics = self.storage_engine.metrics();
+            plan.analyze_complexity(@intCast(storage_metrics.blocks_written.load(.monotonic)), @intCast(storage_metrics.edges_added.load(.monotonic)));
+
+            // Apply workload-adaptive optimizations
+            self.apply_workload_optimizations(&plan, estimated_results);
+
+            // Enable caching based on cost and query patterns
+            if (plan.estimated_cost > 5000 or self.should_cache_query(query_type)) {
+                plan.cache_eligible = true;
+            }
+
+            // Generate cache key for eligible queries
+            if (plan.cache_eligible) {
+                // Cache key generation will be implemented with actual caching system
+                // For now, we prepare the infrastructure
+            }
+        }
+
+        return plan;
+    }
+
+    /// Apply workload-specific optimizations based on query characteristics
+    fn apply_workload_optimizations(self: *QueryEngine, plan: *QueryPlan, estimated_results: u32) void {
+        const recent_query_ratio = self.calculate_recent_query_ratio(plan.query_type);
+
+        switch (plan.query_type) {
+            .find_blocks => {
+                if (estimated_results > 100) {
+                    plan.optimization_hints.early_termination = true;
+                    plan.optimization_hints.batch_size = 32;
+                }
+
+                // Prefer memtable for small queries on recent data
+                if (estimated_results <= 10 and recent_query_ratio > 0.7) {
+                    plan.optimization_hints.prefer_memtable = true;
+                }
+            },
+            .traversal => {
+                plan.optimization_hints.result_limit = estimated_results;
+
+                // Enable prefetching for complex traversals
+                if (estimated_results > 50) {
+                    plan.optimization_hints.enable_prefetch = true;
+                    plan.execution_strategy = .optimized_traversal;
+                }
+            },
+            .semantic, .filtered => {
+                if (estimated_results > 50) {
+                    plan.optimization_hints.use_index = true;
+                    plan.execution_strategy = .index_lookup;
+                }
+
+                // Use streaming for large result sets
+                if (estimated_results > 1000) {
+                    plan.execution_strategy = .streaming_scan;
+                }
+            },
+        }
+    }
+
+    /// Determine if query should be cached based on patterns and cost
+    fn should_cache_query(self: *QueryEngine, query_type: QueryPlan.QueryType) bool {
+        _ = self; // Reserved for future cache hit rate analysis
+
+        // Cache expensive query types by default
+        return switch (query_type) {
+            .semantic, .filtered => true, // Complex queries benefit from caching
+            .traversal => true, // Graph traversals often repeat
+            .find_blocks => false, // Simple lookups rarely repeat exactly
+        };
+    }
+
+    /// Calculate ratio of recent queries of this type (for optimization hints)
+    fn calculate_recent_query_ratio(self: *QueryEngine, query_type: QueryPlan.QueryType) f32 {
+        const total_recent = self.queries_executed.load(.monotonic);
+        if (total_recent == 0) return 0.0;
+
+        const type_count = switch (query_type) {
+            .find_blocks => self.find_blocks_queries.load(.monotonic),
+            .traversal => self.traversal_queries.load(.monotonic),
+            .filtered => self.filtered_queries.load(.monotonic),
+            .semantic => self.semantic_queries.load(.monotonic),
+        };
+
+        return @as(f32, @floatFromInt(type_count)) / @as(f32, @floatFromInt(total_recent));
+    }
+
+    /// Record query execution metrics for analysis
+    fn record_query_execution(self: *QueryEngine, context: *const QueryContext) void {
+        const duration_ns = context.execution_duration_ns();
+        _ = self.total_query_time_ns.fetchAdd(duration_ns, .monotonic);
+
+        // Record optimization effectiveness
+        if (context.plan.optimization_hints.use_index and context.metrics.index_lookups > 0) {
+            // Index optimization was beneficial
+        }
+
+        if (context.plan.optimization_hints.prefer_memtable and context.metrics.memtable_hits > 0) {
+            // Memtable preference was effective
+        }
+
+        // Track cache effectiveness for future planning
+        if (context.plan.cache_eligible) {
+            const cache_hit_rate = if (context.metrics.cache_hits + context.metrics.cache_misses > 0)
+                @as(f32, @floatFromInt(context.metrics.cache_hits)) /
+                    @as(f32, @floatFromInt(context.metrics.cache_hits + context.metrics.cache_misses))
+            else
+                0.0;
+
+            // Future: Adjust caching strategies based on hit rates
+            _ = cache_hit_rate;
+        }
+
+        // Future: Machine learning hooks for query pattern recognition
+        // This data will feed into sophisticated optimization algorithms
+    }
+
     /// Execute a FindBlocks query to retrieve blocks by ID
     pub fn execute_find_blocks(self: *QueryEngine, query: FindBlocksQuery) !QueryResult {
         const start_time = std.time.nanoTimestamp();
@@ -125,17 +383,41 @@ pub const QueryEngine = struct {
         assert(self.initialized);
         if (!self.initialized) return EngineError.NotInitialized;
 
-        return operations.execute_find_blocks(
-            self.allocator,
-            self.storage_engine,
-            query,
-        ) catch |err| {
-            error_context.log_storage_error(err, error_context.StorageContext{
-                .operation = "execute_find_blocks",
-                .size = query.block_ids.len,
-            });
-            return err;
-        };
+        // Create query plan and execution context
+        const query_id = self.generate_query_id();
+        const plan = self.create_query_plan(.find_blocks, @intCast(query.block_ids.len));
+        var context = QueryContext.create(query_id, plan);
+
+        // Apply optimization hints from query plan
+        const optimized_query = query;
+        if (plan.optimization_hints.batch_size) |batch_size| {
+            // Future: Implement batched execution for large queries
+            _ = batch_size;
+        }
+
+        const result = if (plan.optimization_hints.prefer_memtable)
+            // Optimize for recent data by checking memtable first
+            self.execute_find_blocks_optimized(optimized_query, &context)
+        else
+            operations.execute_find_blocks(
+                self.allocator,
+                self.storage_engine,
+                optimized_query,
+            ) catch |err| {
+                error_context.log_storage_error(err, error_context.StorageContext{
+                    .operation = "execute_find_blocks",
+                    .size = query.block_ids.len,
+                });
+                return err;
+            };
+
+        // Record execution metrics for future optimization
+        context.metrics.blocks_scanned = @intCast(query.block_ids.len);
+        context.metrics.optimization_applied = plan.optimization_hints.prefer_memtable or
+            plan.optimization_hints.batch_size != null;
+        self.record_query_execution(&context);
+
+        return result;
     }
 
     /// Find a single block by ID - convenience method for single block queries
@@ -260,6 +542,7 @@ pub const QueryEngine = struct {
     }
 
     /// Execute a semantic search query
+    /// Execute a semantic query to find related blocks
     pub fn execute_semantic_query(self: *QueryEngine, query: SemanticQuery) !SemanticQueryResult {
         const start_time = std.time.nanoTimestamp();
         defer self.record_semantic_query(start_time);
@@ -267,20 +550,37 @@ pub const QueryEngine = struct {
         assert(self.initialized);
         if (!self.initialized) return EngineError.NotInitialized;
 
-        return operations.execute_semantic_query(
-            self.allocator,
-            self.storage_engine,
-            query,
-        ) catch |err| {
+        // Create optimized execution plan for semantic queries
+        const query_id = self.generate_query_id();
+        const plan = self.create_query_plan(.semantic, query.max_results orelse 100);
+        var context = QueryContext.create(query_id, plan);
+
+        const result = switch (plan.execution_strategy) {
+            .index_lookup => if (plan.optimization_hints.use_index)
+                self.execute_semantic_query_indexed(query, &context)
+            else
+                operations.execute_semantic_query(self.allocator, self.storage_engine, query),
+            .streaming_scan => self.execute_semantic_query_streaming(query, &context),
+            else => operations.execute_semantic_query(self.allocator, self.storage_engine, query),
+        } catch |err| {
             error_context.log_storage_error(err, error_context.StorageContext{
                 .operation = "execute_semantic_query",
-                .size = query.max_results,
             });
             return err;
         };
+
+        // Record semantic query metrics
+        context.metrics.optimization_applied = plan.execution_strategy != .direct_storage;
+        if (plan.optimization_hints.use_index) {
+            context.metrics.index_lookups = 1; // Simplified metric
+        }
+        self.record_query_execution(&context);
+
+        return result;
     }
 
     /// Execute a filtered query
+    /// Execute a filtered query with complex conditions
     pub fn execute_filtered_query(self: *QueryEngine, query: FilteredQuery) !FilteredQueryResult {
         const start_time = std.time.nanoTimestamp();
         defer self.record_filtered_query(start_time);
@@ -288,17 +588,93 @@ pub const QueryEngine = struct {
         assert(self.initialized);
         if (!self.initialized) return EngineError.NotInitialized;
 
+        // Create optimized execution plan for filtered queries
+        const query_id = self.generate_query_id();
+        const plan = self.create_query_plan(.filtered, query.limit orelse 50);
+        var context = QueryContext.create(query_id, plan);
+
+        const result = switch (plan.execution_strategy) {
+            .streaming_scan => self.execute_filtered_query_streaming(query, &context),
+            .index_lookup => if (plan.optimization_hints.use_index)
+                self.execute_filtered_query_indexed(query, &context)
+            else
+                filtering.execute_filtered_query(self.allocator, self.storage_engine, query),
+            else => filtering.execute_filtered_query(self.allocator, self.storage_engine, query),
+        } catch |err| {
+            error_context.log_storage_error(err, error_context.StorageContext{
+                .operation = "execute_filtered_query",
+            });
+            return err;
+        };
+
+        // Record filtered query metrics
+        context.metrics.optimization_applied = plan.execution_strategy != .direct_storage;
+        if (plan.optimization_hints.use_index) {
+            context.metrics.index_lookups = 1; // Simplified metric
+        }
+        self.record_query_execution(&context);
+
+        return result;
+    }
+
+    /// Optimized find blocks execution for memtable preference
+    fn execute_find_blocks_optimized(self: *QueryEngine, query: FindBlocksQuery, context: *QueryContext) !QueryResult {
+        // Future: Implement memtable-first optimization
+        // For now, delegate to standard execution
+        _ = context;
+        return operations.execute_find_blocks(
+            self.allocator,
+            self.storage_engine,
+            query,
+        );
+    }
+
+    /// Execute semantic query using index optimization
+    fn execute_semantic_query_indexed(self: *QueryEngine, query: SemanticQuery, context: *QueryContext) !SemanticQueryResult {
+        // Future: Implement index-optimized semantic search
+        // For now, delegate to standard execution
+        context.metrics.index_lookups += 1;
+        return operations.execute_semantic_query(
+            self.allocator,
+            self.storage_engine,
+            query,
+        );
+    }
+
+    /// Execute semantic query using streaming scan
+    fn execute_semantic_query_streaming(self: *QueryEngine, query: SemanticQuery, context: *QueryContext) !SemanticQueryResult {
+        // Future: Implement streaming execution for large result sets
+        // For now, delegate to standard execution
+        _ = context;
+        return operations.execute_semantic_query(
+            self.allocator,
+            self.storage_engine,
+            query,
+        );
+    }
+
+    /// Execute filtered query using streaming scan
+    fn execute_filtered_query_streaming(self: *QueryEngine, query: FilteredQuery, context: *QueryContext) !FilteredQueryResult {
+        // Future: Implement streaming execution for large filtered queries
+        // For now, delegate to standard execution
+        _ = context;
         return filtering.execute_filtered_query(
             self.allocator,
             self.storage_engine,
             query,
-        ) catch |err| {
-            error_context.log_storage_error(err, error_context.StorageContext{
-                .operation = "execute_filtered_query",
-                .size = query.max_results,
-            });
-            return err;
-        };
+        );
+    }
+
+    /// Execute filtered query using index optimization
+    fn execute_filtered_query_indexed(self: *QueryEngine, query: FilteredQuery, context: *QueryContext) !FilteredQueryResult {
+        // Future: Implement index-optimized filtered queries
+        // For now, delegate to standard execution
+        context.metrics.index_lookups += 1;
+        return filtering.execute_filtered_query(
+            self.allocator,
+            self.storage_engine,
+            query,
+        );
     }
 };
 
