@@ -740,7 +740,7 @@ pub const QueryEngine = struct {
         context.metrics.optimization_applied = true;
         context.metrics.blocks_scanned = blocks_evaluated;
 
-        return filtering.FilteredQueryResult.init(self.allocator, streaming_blocks.items);
+        return filtering.FilteredQueryResult.init(self.allocator, streaming_blocks.items, @intCast(streaming_blocks.items.len), false);
     }
 
     /// Execute filtered query using index optimization

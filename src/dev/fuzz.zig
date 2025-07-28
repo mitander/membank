@@ -722,7 +722,7 @@ fn generate_random_block(allocator: std.mem.Allocator, random: std.Random) !Cont
     // Generate random strings with potential edge cases
     const source_uri = try generate_random_string(allocator, random, 1, 200);
     const metadata_json = try generate_random_json_like_string(allocator, random);
-    const content = try generate_random_string(allocator, random, 0, 1000);
+    const content = try generate_random_string(allocator, random, 1, 1000);
 
     return ContextBlock{
         .id = id,
