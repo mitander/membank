@@ -189,13 +189,9 @@ pub fn execute_traversal(
 ) !TraversalResult {
     try query.validate();
 
-    const start_block = (try storage_engine.find_block(
-        query.start_block_id,
-    )) orelse return TraversalError.BlockNotFound;
-
     switch (query.algorithm) {
-        .breadth_first => return traverse_breadth_first(allocator, storage_engine, query, start_block),
-        .depth_first => return traverse_depth_first(allocator, storage_engine, query, start_block),
+        .breadth_first => return traverse_breadth_first(allocator, storage_engine, query),
+        .depth_first => return traverse_depth_first(allocator, storage_engine, query),
     }
 }
 
@@ -204,10 +200,7 @@ fn traverse_breadth_first(
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
     query: TraversalQuery,
-    start_block: ContextBlock,
 ) !TraversalResult {
-    _ = start_block;
-
     var visited = BlockIdHashMap.init(allocator);
     defer visited.deinit();
 
@@ -302,10 +295,7 @@ fn traverse_depth_first(
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
     query: TraversalQuery,
-    start_block: ContextBlock,
 ) !TraversalResult {
-    _ = start_block;
-
     var visited = BlockIdHashMap.init(allocator);
     defer visited.deinit();
 

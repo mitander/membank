@@ -39,7 +39,6 @@ pub const FilterOperator = enum(u8) {
     contains = 0x07,
     starts_with = 0x08,
     ends_with = 0x09,
-    regex_match = 0x0A,
 
     pub fn from_u8(value: u8) !FilterOperator {
         return std.meta.intToEnum(FilterOperator, value) catch FilterError.InvalidFilter;
@@ -139,7 +138,6 @@ pub const FilterCondition = struct {
             .contains => std.mem.indexOf(u8, target_value, self.value) != null,
             .starts_with => std.mem.startsWith(u8, target_value, self.value),
             .ends_with => std.mem.endsWith(u8, target_value, self.value),
-            .regex_match => false, // TODO: Implement regex matching when needed
         };
     }
 };
