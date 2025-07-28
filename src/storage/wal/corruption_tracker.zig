@@ -7,6 +7,7 @@
 const std = @import("std");
 const assert = @import("../../core/assert.zig").assert;
 const fatal_assert = @import("../../core/assert.zig").fatal_assert;
+const log = std.log.scoped(.corruption_tracker);
 
 /// Maximum consecutive failures before considering corruption systematic
 /// This threshold distinguishes between isolated torn writes (acceptable)
@@ -66,7 +67,16 @@ pub const CorruptionTracker = struct {
         // Systematic corruption indicates unrecoverable system state
         // Use different thresholds for testing vs production
         const threshold = if (self.testing_mode) TESTING_CORRUPTION_THRESHOLD else PRODUCTION_CORRUPTION_THRESHOLD;
+
+        // Log pattern before fatal assertion for debugging
+        if (self.consecutive_failures > threshold / 2) {
+            log.warn("Corruption pattern detected in {s}: {} consecutive failures (threshold: {})", .{ context, self.consecutive_failures, threshold });
+            log.warn("Total corruption stats: {}/{} failures/operations = {d:.2}% failure rate", .{ self.total_failures, self.total_operations, self.failure_rate() * 100 });
+        }
+
         if (self.consecutive_failures > threshold) {
+            log.err("SYSTEMATIC CORRUPTION: {s} hit {} consecutive failures (threshold: {})", .{ context, self.consecutive_failures, threshold });
+            log.err("This indicates unrecoverable system state - terminating to prevent data corruption", .{});
             fatal_assert(false, "WAL systematic corruption detected in {s}: {} consecutive failures - data integrity compromised", .{ context, self.consecutive_failures });
         }
     }

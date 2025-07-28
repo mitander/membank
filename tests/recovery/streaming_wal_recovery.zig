@@ -122,8 +122,13 @@ test "streaming WAL recovery - large WAL file efficiency" {
     var recovery_engine = try StorageEngine.init_default(allocator, node1_vfs, data_dir);
     defer recovery_engine.deinit();
 
+    // Add debugging to understand corruption source
+    std.log.warn("Starting WAL recovery for large file test with {} blocks written", .{num_blocks});
+
     // Recovery should complete without excessive memory usage
     try recovery_engine.startup();
+
+    std.log.warn("WAL recovery completed successfully", .{});
 
     // Verify correct number of blocks recovered by checking a few blocks
     var recovered_count: u32 = 0;
@@ -138,6 +143,8 @@ test "streaming WAL recovery - large WAL file efficiency" {
             // Expected for some blocks that might not exist
         }
     }
+
+    std.log.warn("Recovered {} out of first 10 blocks checked", .{recovered_count});
 
     // Should have recovered at least some blocks
     try testing.expect(recovered_count > 0);

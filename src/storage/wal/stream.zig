@@ -142,9 +142,27 @@ pub const WALEntryStream = struct {
                 return null;
             }
 
-            // Update position tracking for debugging
+            // Detect zero progress: if we're not advancing through the file and have suspicious data
+            if (self.zero_progress_count >= MAX_ZERO_PROGRESS_ITERATIONS) {
+                if (available >= WAL_HEADER_SIZE) {
+                    // Check if this looks like corrupted/padding data
+                    const checksum = std.mem.readInt(u64, self.process_buffer[0..8], .little);
+                    const entry_type = self.process_buffer[8];
+                    const payload_size = std.mem.readInt(u32, self.process_buffer[9..13], .little);
+
+                    if ((checksum <= 0xFF and entry_type == 0 and payload_size == 0) or payload_size > MAX_PAYLOAD_SIZE) {
+                        log.debug("WAL stream detected EOF padding after zero progress, terminating", .{});
+                        return null;
+                    }
+                }
+            }
+
+            // Update position tracking for debugging and zero progress detection
             if (current_position != self.last_file_position) {
                 self.last_file_position = current_position;
+                self.zero_progress_count = 0;
+            } else {
+                self.zero_progress_count += 1;
             }
 
             if (try self.try_read_entry(available)) |entry| {
@@ -203,10 +221,34 @@ pub const WALEntryStream = struct {
 
         // Validate entry structure before allocation
         if (payload_size > MAX_PAYLOAD_SIZE) {
+            log.err("WAL stream corruption: payload_size {} exceeds MAX_PAYLOAD_SIZE {} at buffer position {}", .{ payload_size, MAX_PAYLOAD_SIZE, self.buffer_start_file_pos });
+            log.err("Entry header bytes: checksum=0x{X} type={} payload_size={}", .{ checksum, entry_type, payload_size });
+
+            // Advance past corrupted header to prevent infinite loop
+            const skip_size = @min(WAL_HEADER_SIZE, available);
+            self.preserve_remaining_data(skip_size, available);
             return StreamError.CorruptedEntry;
         }
 
         if (entry_type == 0 or entry_type > 3) {
+            // Check if this looks like EOF padding (small checksum, zero values)
+            const looks_like_eof_padding = (checksum <= 0xFF) and (entry_type == 0) and (payload_size == 0);
+
+            if (looks_like_eof_padding) {
+                // This appears to be uninitialized data at EOF, treat as end of stream
+                log.debug("WAL stream reached EOF padding at buffer position {}", .{self.buffer_start_file_pos});
+                // Don't preserve any data, just signal EOF
+                self.remaining_len = 0;
+                return null;
+            }
+
+            log.err("WAL stream corruption: invalid entry_type {} at buffer position {}", .{ entry_type, self.buffer_start_file_pos });
+            log.err("Entry header bytes: checksum=0x{X} type={} payload_size={}", .{ checksum, entry_type, payload_size });
+            log.err("Raw header bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ self.process_buffer[0], self.process_buffer[1], self.process_buffer[2], self.process_buffer[3], self.process_buffer[4], self.process_buffer[5], self.process_buffer[6], self.process_buffer[7], self.process_buffer[8], self.process_buffer[9], self.process_buffer[10], self.process_buffer[11], self.process_buffer[12] });
+
+            // Advance past corrupted header to prevent infinite loop
+            const skip_size = @min(WAL_HEADER_SIZE, available);
+            self.preserve_remaining_data(skip_size, available);
             return StreamError.CorruptedEntry;
         }
 
