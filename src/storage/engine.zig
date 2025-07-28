@@ -355,6 +355,15 @@ pub const StorageEngine = struct {
         assert.assert_fmt(self.storage_metrics.edges_added.load(.monotonic) == edges_before + 1, "Edges added counter update failed", .{});
     }
 
+    /// Force synchronization of all WAL operations to durable storage.
+    /// Delegates to MemtableManager for WAL ownership boundary.
+    pub fn flush_wal(self: *StorageEngine) !void {
+        concurrency.assert_main_thread();
+        if (!self.initialized) return StorageError.NotInitialized;
+
+        try self.memtable_manager.flush_wal();
+    }
+
     /// Get current block count across all storage layers.
     pub fn block_count(self: *const StorageEngine) u32 {
         return self.memtable_manager.block_count();

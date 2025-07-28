@@ -270,6 +270,18 @@ pub const MemtableManager = struct {
         };
     }
 
+    /// Ensure all WAL operations are durably persisted to disk.
+    /// Forces synchronization of any pending write operations.
+    pub fn flush_wal(self: *MemtableManager) !void {
+        concurrency.assert_main_thread();
+
+        // WAL entries are auto-flushed on write, but this ensures
+        // any OS-level buffering is synchronized to storage
+        if (self.wal.active_file) |*file| {
+            file.flush() catch return error.IoError;
+        }
+    }
+
     /// Clean up old WAL segments after successful memtable flush.
     /// Delegates to WAL module for actual cleanup operations.
     pub fn cleanup_old_wal_segments(self: *MemtableManager) !void {
