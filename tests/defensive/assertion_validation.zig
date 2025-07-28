@@ -140,12 +140,12 @@ test "block validation defensive programming" {
         should_succeed: bool,
     }{
         // Valid cases
-        .{ .content_size = 1, .uri_size = 10, .metadata_size = 2, .should_succeed = true },
+        .{ .content_size = 1, .uri_size = 10, .metadata_size = 20, .should_succeed = true },
         .{ .content_size = 1000, .uri_size = 100, .metadata_size = 100, .should_succeed = true },
         .{ .content_size = 1024 * 1024, .uri_size = 1000, .metadata_size = 10000, .should_succeed = true },
 
-        // Edge of valid range
-        .{ .content_size = 50 * 1024 * 1024, .uri_size = 1024, .metadata_size = 512 * 1024, .should_succeed = true },
+        // Edge of valid range (stay within 16MB limit)
+        .{ .content_size = 15 * 1024 * 1024, .uri_size = 1024, .metadata_size = 512 * 1024, .should_succeed = true },
     };
 
     for (boundary_tests, 0..) |test_case, index| { // Start from 0 but add offset to BlockID
@@ -157,9 +157,24 @@ test "block validation defensive programming" {
         defer allocator.free(uri);
         @memset(uri, @as(u8, @intCast('a' + (index % 26))));
 
-        const metadata = try allocator.alloc(u8, test_case.metadata_size);
+        // Generate valid JSON metadata of the specified size
+        const base_json = "{\"test\":\"";
+        const suffix_json = "\"}";
+        const min_required_size = base_json.len + suffix_json.len;
+
+        // Skip test cases where metadata_size is too small for valid JSON structure
+        if (test_case.metadata_size < min_required_size) {
+            continue; // Skip this test case
+        }
+
+        const value_size = test_case.metadata_size - min_required_size;
+
+        var metadata = try allocator.alloc(u8, test_case.metadata_size);
         defer allocator.free(metadata);
-        @memset(metadata, @as(u8, @intCast('0' + (index % 10))));
+
+        @memcpy(metadata[0..base_json.len], base_json);
+        @memset(metadata[base_json.len .. base_json.len + value_size], 'x');
+        @memcpy(metadata[base_json.len + value_size ..], suffix_json);
 
         // Use offset to ensure non-zero BlockID (all-zero BlockID invalid)
         const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{index + 10});

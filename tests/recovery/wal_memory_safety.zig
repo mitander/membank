@@ -148,8 +148,12 @@ test "wal memory safety: allocator stress testing" {
         );
         defer allocator.free(metadata);
 
+        // Use offset to ensure non-zero BlockID (all-zero BlockID invalid)
+        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{idx + 100});
+        defer allocator.free(block_id_hex);
+
         const block = ContextBlock{
-            .id = BlockId.test_id(@intCast(idx + 100)), // Offset to avoid collision
+            .id = try BlockId.from_hex(block_id_hex),
             .version = 1,
             .source_uri = uri,
             .metadata_json = metadata,
@@ -176,7 +180,7 @@ test "wal memory safety: allocator stress testing" {
         // Use offset to ensure non-zero BlockID (all-zero BlockID invalid)
         const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{index + 100});
         defer allocator.free(block_id_hex);
-        
+
         const recovered = (try recovery_engine.find_block(try BlockId.from_hex(block_id_hex))) orelse {
             try testing.expect(false); // Block should exist
             return;
@@ -255,11 +259,11 @@ test "wal memory safety: edge case robustness" {
         try engine.startup();
 
         const block = ContextBlock{
-            .id = BlockId.test_id(1),
+            .id = try BlockId.from_hex("00000000000000000000000000000001"),
             .version = 1,
-            .source_uri = "",
+            .source_uri = "minimal://test.zig",
             .metadata_json = "{}",
-            .content = "",
+            .content = " ",
         };
 
         try engine.put_block(block);
@@ -268,8 +272,8 @@ test "wal memory safety: edge case robustness" {
             try testing.expect(false); // Block should exist
             return;
         };
-        try testing.expectEqualStrings("", recovered.source_uri);
-        try testing.expectEqualStrings("", recovered.content);
+        try testing.expectEqualStrings("minimal://test.zig", recovered.source_uri);
+        try testing.expectEqualStrings(" ", recovered.content);
     }
 
     // Test 2: Very long strings (stress string allocation)
@@ -288,7 +292,7 @@ test "wal memory safety: edge case robustness" {
         @memset(long_uri, 'U');
 
         const block = ContextBlock{
-            .id = BlockId.test_id(2),
+            .id = try BlockId.from_hex("00000000000000000000000000000002"),
             .version = 1,
             .source_uri = long_uri,
             .metadata_json = "{}",
@@ -313,7 +317,7 @@ test "wal memory safety: edge case robustness" {
         const special_metadata = "{\"unicode\":\"测试\",\"emoji\":\"(rocket)\"}";
 
         const block = ContextBlock{
-            .id = BlockId.test_id(3),
+            .id = try BlockId.from_hex("00000000000000000000000000000003"),
             .version = 1,
             .source_uri = "test://unicode_файл.zig",
             .metadata_json = special_metadata,

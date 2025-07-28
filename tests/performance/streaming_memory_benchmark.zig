@@ -8,7 +8,7 @@ const cortexdb = @import("cortexdb");
 const testing = std.testing;
 
 const context_block = cortexdb.types;
-const operations = cortexdb.query_operations;
+const operations = cortexdb.query.operations;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const QueryResult = operations.QueryResult;
@@ -16,19 +16,26 @@ const QueryResult = operations.QueryResult;
 /// Create a test QueryResult with specified number of blocks
 fn create_test_query_result(allocator: std.mem.Allocator, block_count: u32) !QueryResult {
     const blocks = try allocator.alloc(ContextBlock, block_count);
+    defer {
+        // Free the content strings we allocated
+        for (blocks) |block| {
+            allocator.free(block.content);
+        }
+        allocator.free(blocks);
+    }
 
     for (blocks, 0..) |*block, i| {
-        // Create unique block ID
+        // Create unique block ID (start from 1, all-zero BlockID invalid)
         var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
-        std.mem.writeInt(u32, id_bytes[12..16], @as(u32, @intCast(i)), .little);
+        std.mem.writeInt(u32, id_bytes[12..16], @as(u32, @intCast(i + 1)), .little);
 
         const content = try std.fmt.allocPrint(allocator, "This is test block {} with substantial content that represents typical block size in CortexDB. The content includes code, documentation, or other structured data that would be provided to an LLM for context. This makes the memory benchmark more realistic.", .{i});
 
         block.* = ContextBlock{
             .id = BlockId{ .bytes = id_bytes },
             .version = 1,
-            .source_uri = try allocator.dupe(u8, "test://benchmark.zig"),
-            .metadata_json = try allocator.dupe(u8, "{}"),
+            .source_uri = "test://benchmark.zig", // String literal - no allocation needed
+            .metadata_json = "{}", // String literal - no allocation needed
             .content = content,
         };
     }

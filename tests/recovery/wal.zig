@@ -607,7 +607,7 @@ test "wal recovery: stress test with many entries" {
     }
 
     // Create and store many blocks
-    for (0..num_blocks) |i| {
+    for (1..num_blocks + 1) |i| {
         const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
         defer allocator.free(block_id_hex);
 

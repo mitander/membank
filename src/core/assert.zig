@@ -181,7 +181,19 @@ pub fn assert_equal(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    assert_fmt(actual == expected, format, args);
+    const T = @TypeOf(actual);
+    const type_info = @typeInfo(T);
+
+    const equal = switch (type_info) {
+        .array => |array_info| std.mem.eql(array_info.child, &actual, &expected),
+        .pointer => |ptr_info| switch (ptr_info.size) {
+            .slice => std.mem.eql(ptr_info.child, actual, expected),
+            else => actual == expected,
+        },
+        else => actual == expected,
+    };
+
+    assert_fmt(equal, format, args);
 }
 
 /// Assert that a slice is not empty.

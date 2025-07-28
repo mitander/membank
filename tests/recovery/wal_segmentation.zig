@@ -214,7 +214,7 @@ test "wal segmentation: cleanup after sstable flush" {
     // Verify data integrity by checking a few specific blocks
     // Some should be recoverable from SSTable, some from remaining WAL
     var test_id_bytes: [16]u8 = undefined;
-    std.mem.writeInt(u128, &test_id_bytes, 0, .big);
+    std.mem.writeInt(u128, &test_id_bytes, 1, .big);
     const first_block_id = BlockId{ .bytes = test_id_bytes };
 
     std.mem.writeInt(u128, &test_id_bytes, 99, .big);
@@ -254,9 +254,9 @@ test "wal segmentation: recovery from mixed segments and sstables" {
 
     try engine.startup();
 
-    // Phase 1: Write blocks that will be flushed to SSTable
-    var i: u32 = 0;
-    while (i < 50) : (i += 1) {
+    // Phase 1: Write blocks that will be flushed to SSTable (start from 1)
+    var i: u32 = 1;
+    while (i <= 50) : (i += 1) {
         var id_bytes: [16]u8 = undefined;
         std.mem.writeInt(u128, &id_bytes, i, .big);
 
@@ -275,7 +275,7 @@ test "wal segmentation: recovery from mixed segments and sstables" {
     try engine.flush_memtable_to_sstable();
 
     // Phase 2: Write more blocks that stay in WAL
-    while (i < 75) : (i += 1) {
+    while (i <= 75) : (i += 1) {
         var id_bytes: [16]u8 = undefined;
         std.mem.writeInt(u128, &id_bytes, i, .big);
 
@@ -298,8 +298,10 @@ test "wal segmentation: recovery from mixed segments and sstables" {
 
     try testing.expectEqual(@as(u32, 75), engine2.block_count());
 
-    // Verify specific blocks from each phase
-    const phase1_id = BlockId{ .bytes = .{0} ** 16 };
+    // Verify specific blocks from each phase (match write pattern)
+    var phase1_id_bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &phase1_id_bytes, 1, .big);
+    const phase1_id = BlockId{ .bytes = phase1_id_bytes };
     const phase1_block = (try engine2.find_block(phase1_id)) orelse {
         try testing.expect(false); // Block should exist
         return;

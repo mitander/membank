@@ -15,7 +15,6 @@ const GraphEdge = context_block.GraphEdge;
 const EdgeType = context_block.EdgeType;
 const MemtableManager = storage.MemtableManager;
 
-
 fn create_test_block(id: BlockId, content: []const u8) ContextBlock {
     return ContextBlock{
         .id = id,

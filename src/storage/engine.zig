@@ -13,8 +13,7 @@
 //! - Provide comprehensive metrics and error handling
 
 const std = @import("std");
-const assert = @import("../core/assert.zig").assert;
-const assert_fmt = @import("../core/assert.zig").assert_fmt;
+const assert = @import("../core/assert.zig");
 const vfs = @import("../core/vfs.zig");
 const context_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
@@ -105,9 +104,12 @@ pub const StorageEngine = struct {
         data_dir: []const u8,
         storage_config: Config,
     ) !StorageEngine {
+        assert.assert_not_empty(data_dir, "Storage data_dir cannot be empty", .{});
+        assert.assert_fmt(data_dir.len < 4096, "Storage data_dir path too long: {} bytes", .{data_dir.len});
+        assert.assert_fmt(@intFromPtr(data_dir.ptr) != 0, "Storage data_dir has null pointer", .{});
+
         try storage_config.validate();
 
-        // Clone data_dir for owned storage
         const owned_data_dir = try allocator.dupe(u8, data_dir);
 
         const engine = StorageEngine{
@@ -129,6 +131,8 @@ pub const StorageEngine = struct {
     /// Must be called to prevent memory leaks and ensure proper cleanup.
     pub fn deinit(self: *StorageEngine) void {
         concurrency.assert_main_thread();
+        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted during cleanup", .{});
 
         self.memtable_manager.deinit();
         self.sstable_manager.deinit();
@@ -140,9 +144,11 @@ pub const StorageEngine = struct {
     /// Called internally by startup() to prepare filesystem state.
     fn create_storage_directories(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
+        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir is empty", .{});
+
         if (self.initialized) return StorageError.AlreadyInitialized;
 
-        // Create data directory structure
         if (!self.vfs.exists(self.data_dir)) {
             self.vfs.mkdir(self.data_dir) catch |err| {
                 error_context.log_storage_error(err, error_context.file_context("create_data_directory", self.data_dir));
@@ -186,51 +192,91 @@ pub const StorageEngine = struct {
     /// Automatically triggers memtable flush when size threshold exceeded.
     pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
         concurrency.assert_main_thread();
+
+        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted", .{});
+
+        assert.assert_not_empty(block.content, "Block content cannot be empty", .{});
+        assert.assert_not_empty(block.source_uri, "Block source_uri cannot be empty", .{});
+        assert.assert_fmt(block.content.len < 100 * 1024 * 1024, "Block content too large: {} bytes", .{block.content.len});
+        assert.assert_fmt(block.source_uri.len < 2048, "Block source_uri too long: {} bytes", .{block.source_uri.len});
+        assert.assert_fmt(block.metadata_json.len < 1024 * 1024, "Block metadata_json too large: {} bytes", .{block.metadata_json.len});
+        assert.assert_fmt(block.version > 0, "Block version must be positive: {}", .{block.version});
+
         if (!self.initialized) return StorageError.NotInitialized;
 
         const start_time = std.time.nanoTimestamp();
+        assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
 
-        // Validate block structure and content before accepting
         block.validate(self.backing_allocator) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("block_validation", block.id));
             return err;
         };
 
         // Delegate to MemtableManager for durable storage with WAL-first pattern
+        assert.assert_fmt(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager corrupted", .{});
         self.memtable_manager.put_block_durable(block) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("put_block_durable", block.id));
             return err;
         };
 
-        // Check if memtable flush is needed
         if (self.memtable_manager.should_flush()) {
+            assert.assert_fmt(@intFromPtr(&self.sstable_manager) != 0, "SSTableManager corrupted before flush", .{});
             self.flush_memtable() catch |err| {
                 error_context.log_storage_error(err, error_context.block_context("memtable_flush", block.id));
                 return err;
             };
         }
 
-        // Update metrics
         const end_time = std.time.nanoTimestamp();
+        assert.assert_fmt(end_time >= start_time, "Invalid timestamp sequence: {} < {}", .{ end_time, start_time });
+
+        const blocks_before = self.storage_metrics.blocks_written.load(.monotonic);
         _ = self.storage_metrics.blocks_written.fetchAdd(1, .monotonic);
-        _ = self.storage_metrics.total_write_time_ns.fetchAdd(@intCast(end_time - start_time), .monotonic);
+
+        const write_duration = @as(u64, @intCast(end_time - start_time));
+        _ = self.storage_metrics.total_write_time_ns.fetchAdd(write_duration, .monotonic);
         _ = self.storage_metrics.total_bytes_written.fetchAdd(block.content.len, .monotonic);
+
+        assert.assert_fmt(self.storage_metrics.blocks_written.load(.monotonic) == blocks_before + 1, "Blocks written counter update failed", .{});
     }
 
     /// Find a Context Block by ID with LSM-tree read semantics.
     /// Checks memtable first, then SSTables in reverse chronological order
     /// to ensure most recent version is returned.
     pub fn find_block(self: *StorageEngine, block_id: BlockId) !?ContextBlock {
+        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted", .{});
+
+        var non_zero_bytes: u32 = 0;
+        for (block_id.bytes) |byte| {
+            if (byte != 0) non_zero_bytes += 1;
+        }
+        assert.assert_fmt(non_zero_bytes > 0, "Block ID cannot be all zeros", .{});
+
         if (!self.initialized) return StorageError.NotInitialized;
 
         const start_time = std.time.nanoTimestamp();
+        assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
+
+        assert.assert_fmt(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager corrupted", .{});
 
         // Check memtable first for most recent data
         if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
+            assert.assert_fmt(@intFromPtr(block_ptr) != 0, "MemtableManager returned null block pointer", .{});
+            assert.assert_fmt(block_ptr.content.len > 0, "MemtableManager returned block with empty content", .{});
+            assert.assert_equal(block_ptr.id.bytes, block_id.bytes, "MemtableManager returned wrong block ID", .{});
+
             const end_time = std.time.nanoTimestamp();
+            assert.assert_fmt(end_time >= start_time, "Invalid timestamp sequence: {} < {}", .{ end_time, start_time });
+
+            const blocks_before = self.storage_metrics.blocks_read.load(.monotonic);
             _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
             _ = self.storage_metrics.total_read_time_ns.fetchAdd(@intCast(end_time - start_time), .monotonic);
             _ = self.storage_metrics.total_bytes_read.fetchAdd(block_ptr.content.len, .monotonic);
+
+            assert.assert_fmt(self.storage_metrics.blocks_read.load(.monotonic) == blocks_before + 1, "Blocks read counter update failed", .{});
+
             return block_ptr.*;
         }
 
@@ -262,7 +308,6 @@ pub const StorageEngine = struct {
         concurrency.assert_main_thread();
         if (!self.initialized) return StorageError.NotInitialized;
 
-        // Delegate to MemtableManager for durable deletion with WAL-first pattern
         self.memtable_manager.delete_block_durable(block_id) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("delete_block_durable", block_id));
             return err;
@@ -275,7 +320,28 @@ pub const StorageEngine = struct {
     /// Delegates to MemtableManager for WAL-first durability pattern.
     pub fn put_edge(self: *StorageEngine, edge: GraphEdge) !void {
         concurrency.assert_main_thread();
+
+        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted", .{});
+
+        var source_non_zero: u32 = 0;
+        var target_non_zero: u32 = 0;
+        for (edge.source_id.bytes) |byte| {
+            if (byte != 0) source_non_zero += 1;
+        }
+        for (edge.target_id.bytes) |byte| {
+            if (byte != 0) target_non_zero += 1;
+        }
+        assert.assert_fmt(source_non_zero > 0, "Edge source_id cannot be all zeros", .{});
+        assert.assert_fmt(target_non_zero > 0, "Edge target_id cannot be all zeros", .{});
+        assert.assert_fmt(!std.mem.eql(u8, &edge.source_id.bytes, &edge.target_id.bytes), "Edge cannot be self-referential", .{});
+
         if (!self.initialized) return StorageError.NotInitialized;
+
+        const start_time = std.time.nanoTimestamp();
+        assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
+
+        assert.assert_fmt(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager corrupted", .{});
 
         // Delegate to MemtableManager for durable edge storage with WAL-first pattern
         self.memtable_manager.put_edge_durable(edge) catch |err| {
@@ -283,7 +349,10 @@ pub const StorageEngine = struct {
             return err;
         };
 
+        const edges_before = self.storage_metrics.edges_added.load(.monotonic);
         _ = self.storage_metrics.edges_added.fetchAdd(1, .monotonic);
+
+        assert.assert_fmt(self.storage_metrics.edges_added.load(.monotonic) == edges_before + 1, "Edges added counter update failed", .{});
     }
 
     /// Get current block count across all storage layers.
@@ -299,13 +368,55 @@ pub const StorageEngine = struct {
     /// Find all outgoing edges from a source block.
     /// Delegates to memtable manager for graph traversal operations.
     pub fn find_outgoing_edges(self: *const StorageEngine, source_id: BlockId) []const GraphEdge {
-        return self.memtable_manager.find_outgoing_edges(source_id);
+        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted", .{});
+
+        var non_zero_bytes: u32 = 0;
+        for (source_id.bytes) |byte| {
+            if (byte != 0) non_zero_bytes += 1;
+        }
+        assert.assert_fmt(non_zero_bytes > 0, "Source block ID cannot be all zeros", .{});
+
+        assert.assert_fmt(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager corrupted", .{});
+
+        const edges = self.memtable_manager.find_outgoing_edges(source_id);
+
+        if (edges.len > 0) {
+            assert.assert_fmt(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length", .{});
+            // Validate first edge to catch corruption
+            assert.assert_fmt(std.mem.eql(u8, &edges[0].source_id.bytes, &source_id.bytes), "First edge has wrong source_id", .{});
+        }
+
+        return edges;
     }
 
     /// Find all incoming edges to a target block.
     /// Delegates to memtable manager for reverse graph traversal operations.
     pub fn find_incoming_edges(self: *const StorageEngine, target_id: BlockId) []const GraphEdge {
-        return self.memtable_manager.find_incoming_edges(target_id);
+        // Defensive self-pointer validation
+        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
+        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted", .{});
+
+        // Validate target_id structure
+        var non_zero_bytes: u32 = 0;
+        for (target_id.bytes) |byte| {
+            if (byte != 0) non_zero_bytes += 1;
+        }
+        assert.assert_fmt(non_zero_bytes > 0, "Target block ID cannot be all zeros", .{});
+
+        // Validate manager state before access
+        assert.assert_fmt(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager corrupted", .{});
+
+        const edges = self.memtable_manager.find_incoming_edges(target_id);
+
+        // Validate returned edges slice
+        if (edges.len > 0) {
+            assert.assert_fmt(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length", .{});
+            // Validate first edge to catch corruption
+            assert.assert_fmt(std.mem.eql(u8, &edges[0].target_id.bytes, &target_id.bytes), "First edge has wrong target_id", .{});
+        }
+
+        return edges;
     }
 
     /// Get performance metrics for monitoring and debugging.

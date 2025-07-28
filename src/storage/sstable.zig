@@ -17,9 +17,8 @@
 //!     breaking the format for older clients.
 
 const std = @import("std");
-const custom_assert = @import("../core/assert.zig");
-const assert = custom_assert.assert;
-const comptime_assert = custom_assert.comptime_assert;
+const assert = @import("../core/assert.zig");
+const comptime_assert = assert.comptime_assert;
 const log = std.log.scoped(.sstable);
 const context_block = @import("../core/types.zig");
 const vfs = @import("../core/vfs.zig");
@@ -62,7 +61,7 @@ pub const SSTable = struct {
         const SERIALIZED_SIZE = 16 + 8 + 4; // BlockId + offset + size
 
         pub fn serialize(self: IndexEntry, buffer: []u8) !void {
-            assert(buffer.len >= SERIALIZED_SIZE);
+            assert.assert(buffer.len >= SERIALIZED_SIZE);
 
             var offset: usize = 0;
 
@@ -76,7 +75,7 @@ pub const SSTable = struct {
         }
 
         pub fn deserialize(buffer: []const u8) !IndexEntry {
-            assert(buffer.len >= SERIALIZED_SIZE);
+            assert.assert(buffer.len >= SERIALIZED_SIZE);
             if (buffer.len < SERIALIZED_SIZE) return error.BufferTooSmall;
 
             var offset: usize = 0;
@@ -121,7 +120,7 @@ pub const SSTable = struct {
         }
 
         pub fn serialize(self: Header, buffer: []u8) !void {
-            assert(buffer.len >= HEADER_SIZE);
+            assert.assert(buffer.len >= HEADER_SIZE);
 
             var offset: usize = 0;
 
@@ -157,7 +156,7 @@ pub const SSTable = struct {
         }
 
         pub fn deserialize(buffer: []const u8) !Header {
-            assert(buffer.len >= HEADER_SIZE);
+            assert.assert(buffer.len >= HEADER_SIZE);
             if (buffer.len < HEADER_SIZE) return error.BufferTooSmall;
 
             var offset: usize = 0;
@@ -213,6 +212,10 @@ pub const SSTable = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator, filesystem: VFS, file_path: []const u8) SSTable {
+        assert.assert_not_empty(file_path, "SSTable file_path cannot be empty", .{});
+        assert.assert_fmt(file_path.len < 4096, "SSTable file_path too long: {} bytes", .{file_path.len});
+        assert.assert_fmt(@intFromPtr(file_path.ptr) != 0, "SSTable file_path has null pointer", .{});
+
         return SSTable{
             .allocator = allocator,
             .filesystem = filesystem,
@@ -233,7 +236,16 @@ pub const SSTable = struct {
 
     /// Write blocks to SSTable file in sorted order
     pub fn write_blocks(self: *SSTable, blocks: []const ContextBlock) !void {
-        assert(blocks.len > 0);
+        assert.assert_not_empty(blocks, "Cannot write empty blocks array", .{});
+        assert.assert_fmt(blocks.len <= 1000000, "Too many blocks for single SSTable: {}", .{blocks.len});
+        assert.assert_fmt(@intFromPtr(blocks.ptr) != 0, "Blocks array has null pointer", .{});
+
+        // Validate each block before writing
+        for (blocks, 0..) |block, i| {
+            assert.assert_fmt(block.content.len > 0, "Block {} has empty content", .{i});
+            assert.assert_fmt(block.source_uri.len > 0, "Block {} has empty source_uri", .{i});
+            assert.assert_fmt(block.content.len < 100 * 1024 * 1024, "Block {} content too large: {} bytes", .{ i, block.content.len });
+        }
 
         // Sort blocks by ID for efficient range queries
         const sorted_blocks = try self.allocator.dupe(ContextBlock, blocks);
@@ -273,7 +285,7 @@ pub const SSTable = struct {
             defer self.allocator.free(buffer);
 
             const written = try block.serialize(buffer);
-            assert(written == block_size);
+            assert.assert_equal(written, block_size, "Block serialization size mismatch: {} != {}", .{ written, block_size });
 
             _ = try file.write(buffer);
 
@@ -482,6 +494,9 @@ pub const SSTableIterator = struct {
     file: ?vfs.VFile,
 
     pub fn init(sstable: *SSTable) SSTableIterator {
+        assert.assert_fmt(@intFromPtr(sstable) != 0, "SSTable pointer cannot be null", .{});
+        assert.assert_fmt(sstable.index.items.len > 0, "Cannot iterate over SSTable with empty index", .{});
+
         return SSTableIterator{
             .sstable = sstable,
             .current_index = 0,
@@ -495,7 +510,11 @@ pub const SSTableIterator = struct {
         }
     }
 
+    /// Get next block from iterator, opening file if needed
     pub fn next(self: *SSTableIterator) !?ContextBlock {
+        assert.assert_fmt(@intFromPtr(self.sstable) != 0, "Iterator sstable pointer corrupted", .{});
+        assert.assert_index_valid(self.current_index, self.sstable.index.items.len + 1, "Iterator index out of bounds: {} >= {}", .{ self.current_index, self.sstable.index.items.len + 1 });
+
         if (self.current_index >= self.sstable.index.items.len) {
             return null;
         }
@@ -538,7 +557,7 @@ pub const Compactor = struct {
         input_paths: []const []const u8,
         output_path: []const u8,
     ) !void {
-        assert(input_paths.len > 1);
+        assert.assert(input_paths.len > 1);
 
         var input_tables = try self.allocator.alloc(SSTable, input_paths.len);
         defer {
@@ -596,6 +615,8 @@ pub const Compactor = struct {
 
     /// Remove duplicate blocks, keeping the one with highest version
     fn dedup_blocks(self: *Compactor, blocks: []ContextBlock) ![]ContextBlock {
+        assert.assert_fmt(@intFromPtr(blocks.ptr) != 0 or blocks.len == 0, "Blocks array has null pointer with non-zero length", .{});
+
         if (blocks.len == 0) return try self.allocator.alloc(ContextBlock, 0);
 
         const sorted = try self.allocator.dupe(ContextBlock, blocks);

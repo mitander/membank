@@ -13,7 +13,6 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const SSTableManager = storage.SSTableManager;
 
-
 fn create_test_block(id: BlockId, content: []const u8) ContextBlock {
     return ContextBlock{
         .id = id,

@@ -7,8 +7,7 @@
 //! pattern for predictable performance and memory safety.
 
 const std = @import("std");
-const assert = @import("../core/assert.zig").assert;
-const assert_fmt = @import("../core/assert.zig").assert_fmt;
+const assert = @import("../core/assert.zig");
 const context_block = @import("../core/types.zig");
 
 const GraphEdge = context_block.GraphEdge;
@@ -101,6 +100,23 @@ pub const GraphEdgeIndex = struct {
     /// bulk cleanup. Edges are stored in both directions to enable fast
     /// traversal regardless of direction.
     pub fn put_edge(self: *GraphEdgeIndex, edge: GraphEdge) !void {
+        // Defensive self-pointer validation
+        assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
+        assert.assert_fmt(@intFromPtr(&self.arena) != 0, "GraphEdgeIndex arena pointer cannot be null", .{});
+
+        // Defensive edge validation
+        var source_non_zero: u32 = 0;
+        var target_non_zero: u32 = 0;
+        for (edge.source_id.bytes) |byte| {
+            if (byte != 0) source_non_zero += 1;
+        }
+        for (edge.target_id.bytes) |byte| {
+            if (byte != 0) target_non_zero += 1;
+        }
+        assert.assert_fmt(source_non_zero > 0, "Edge source_id cannot be all zeros", .{});
+        assert.assert_fmt(target_non_zero > 0, "Edge target_id cannot be all zeros", .{});
+        assert.assert_fmt(!std.mem.eql(u8, &edge.source_id.bytes, &edge.target_id.bytes), "Edge cannot be self-referential", .{});
+
         const arena_allocator = self.arena.allocator();
 
         // Add to outgoing edges index (source -> targets)
@@ -108,31 +124,57 @@ pub const GraphEdgeIndex = struct {
         if (!outgoing_result.found_existing) {
             outgoing_result.value_ptr.* = std.ArrayList(GraphEdge).init(arena_allocator);
         }
+        const outgoing_before = outgoing_result.value_ptr.items.len;
         try outgoing_result.value_ptr.append(edge);
+        assert.assert_fmt(outgoing_result.value_ptr.items.len == outgoing_before + 1, "Outgoing edge append failed", .{});
 
         // Add to incoming edges index (target <- sources)
         var incoming_result = try self.incoming_edges.getOrPut(edge.target_id);
         if (!incoming_result.found_existing) {
             incoming_result.value_ptr.* = std.ArrayList(GraphEdge).init(arena_allocator);
         }
+        const incoming_before = incoming_result.value_ptr.items.len;
         try incoming_result.value_ptr.append(edge);
+        assert.assert_fmt(incoming_result.value_ptr.items.len == incoming_before + 1, "Incoming edge append failed", .{});
     }
 
-    /// Find all outgoing edges from a source block.
+    /// Find outgoing edges from a source block.
     /// Returns slice into ArrayList storage for zero-copy access.
     /// Used for forward graph traversal operations.
     pub fn find_outgoing_edges(self: *const GraphEdgeIndex, source_id: BlockId) ?[]const GraphEdge {
+        // Defensive self-pointer validation
+        assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
+
+        // Validate source_id structure
+        var non_zero_bytes: u32 = 0;
+        for (source_id.bytes) |byte| {
+            if (byte != 0) non_zero_bytes += 1;
+        }
+        assert.assert_fmt(non_zero_bytes > 0, "Source block ID cannot be all zeros", .{});
+
         if (self.outgoing_edges.getPtr(source_id)) |edge_list| {
+            assert.assert_fmt(@intFromPtr(edge_list.items.ptr) != 0 or edge_list.items.len == 0, "Edge list has null pointer with non-zero length", .{});
             return edge_list.items;
         }
         return null;
     }
 
-    /// Find all incoming edges to a target block.
+    /// Find incoming edges to a target block.
     /// Returns slice into ArrayList storage for zero-copy access.
     /// Used for backward graph traversal operations.
     pub fn find_incoming_edges(self: *const GraphEdgeIndex, target_id: BlockId) ?[]const GraphEdge {
+        // Defensive self-pointer validation
+        assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
+
+        // Validate target_id structure
+        var non_zero_bytes: u32 = 0;
+        for (target_id.bytes) |byte| {
+            if (byte != 0) non_zero_bytes += 1;
+        }
+        assert.assert_fmt(non_zero_bytes > 0, "Target block ID cannot be all zeros", .{});
+
         if (self.incoming_edges.getPtr(target_id)) |edge_list| {
+            assert.assert_fmt(@intFromPtr(edge_list.items.ptr) != 0 or edge_list.items.len == 0, "Edge list has null pointer with non-zero length", .{});
             return edge_list.items;
         }
         return null;
@@ -188,10 +230,15 @@ pub const GraphEdgeIndex = struct {
     /// Counts outgoing edges only to avoid double-counting since each edge
     /// appears in both outgoing and incoming indexes.
     pub fn edge_count(self: *const GraphEdgeIndex) u32 {
+        // Defensive self-pointer validation
+        assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
+
         var total: u32 = 0;
         var iterator = self.outgoing_edges.iterator();
         while (iterator.next()) |entry| {
-            total += @intCast(entry.value_ptr.items.len);
+            const count = @as(u32, @intCast(entry.value_ptr.items.len));
+            assert.assert_fmt(count < 1000000, "Suspicious edge count for single block: {}", .{count});
+            total += count;
         }
         return total;
     }

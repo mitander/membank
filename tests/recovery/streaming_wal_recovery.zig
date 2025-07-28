@@ -108,7 +108,7 @@ test "streaming WAL recovery - large WAL file efficiency" {
     // Write many blocks to create a large WAL file
     const num_blocks = 2000;
 
-    for (0..num_blocks) |i| {
+    for (1..num_blocks + 1) |i| {
         // Use different IDs for each block
         var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
         std.mem.writeInt(u64, id_bytes[0..8], i, .little);
@@ -127,7 +127,7 @@ test "streaming WAL recovery - large WAL file efficiency" {
 
     // Verify correct number of blocks recovered by checking a few blocks
     var recovered_count: u32 = 0;
-    for (0..10) |i| {
+    for (1..11) |i| {
         var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
         std.mem.writeInt(u64, id_bytes[0..8], i, .little);
         const block_id = BlockId{ .bytes = id_bytes };
@@ -193,7 +193,7 @@ test "streaming WAL recovery - arena memory reset validation" {
     // This validates that the periodic arena reset at 1000 entries works correctly
     const num_blocks = 1500;
 
-    for (0..num_blocks) |i| {
+    for (1..num_blocks + 1) |i| {
         // Use unique IDs
         var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
         std.mem.writeInt(u64, id_bytes[0..8], i, .little);
@@ -212,7 +212,7 @@ test "streaming WAL recovery - arena memory reset validation" {
 
     // Verify that some blocks were recovered (arena resets didn't break recovery)
     var found_blocks: u32 = 0;
-    for (0..10) |i| {
+    for (1..11) |i| {
         var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
         std.mem.writeInt(u64, id_bytes[0..8], i, .little);
         const block_id = BlockId{ .bytes = id_bytes };
