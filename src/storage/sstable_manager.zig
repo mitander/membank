@@ -157,15 +157,34 @@ pub const SSTableManager = struct {
         );
     }
 
+    /// Check if compaction is beneficial based on SSTable collection state.
+    /// Delegates decision logic to TieredCompactionManager without executing.
+    /// Pure decision method for coordinator pattern compliance.
+    pub fn should_compact(self: *SSTableManager) bool {
+        const compaction_job = self.compaction_manager.check_compaction_needed();
+        return compaction_job != null;
+    }
+
+    /// Execute compaction operation without decision logic.
+    /// Delegates to TieredCompactionManager for actual compaction execution.
+    /// Called by coordinator after should_compact() returns true.
+    pub fn execute_compaction(self: *SSTableManager) !void {
+        concurrency.assert_main_thread();
+
+        const compaction_job = self.compaction_manager.check_compaction_needed();
+        if (compaction_job) |job| {
+            try self.compaction_manager.execute_compaction(job);
+        }
+    }
+
     /// Check if compaction is needed and run it if beneficial.
     /// Delegates to TieredCompactionManager for actual compaction logic.
     /// Called after new SSTable creation to maintain read performance.
     pub fn check_and_run_compaction(self: *SSTableManager) !void {
         concurrency.assert_main_thread();
 
-        const compaction_job = self.compaction_manager.check_compaction_needed();
-        if (compaction_job) |job| {
-            try self.compaction_manager.execute_compaction(job);
+        if (self.should_compact()) {
+            try self.execute_compaction();
         }
     }
 

@@ -188,8 +188,8 @@ pub const StorageEngine = struct {
     }
 
     /// Write a Context Block to storage with full durability guarantees.
-    /// Delegates to MemtableManager for WAL-first durability pattern.
-    /// Automatically triggers memtable flush when size threshold exceeded.
+    /// Pure coordinator that delegates block storage and orchestrates flush operations.
+    /// All business logic handled by MemtableManager and SSTableManager.
     pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
         concurrency.assert_main_thread();
 
@@ -220,25 +220,13 @@ pub const StorageEngine = struct {
             return err;
         };
 
+        // Delegate flush decision to MemtableManager - no business logic in coordinator
         if (self.memtable_manager.should_flush()) {
-            assert.assert_fmt(@intFromPtr(&self.sstable_manager) != 0, "SSTableManager corrupted before flush", .{});
-            self.flush_memtable() catch |err| {
-                error_context.log_storage_error(err, error_context.block_context("memtable_flush", block.id));
-                return err;
-            };
+            try self.coordinate_memtable_flush();
         }
 
-        const end_time = std.time.nanoTimestamp();
-        assert.assert_fmt(end_time >= start_time, "Invalid timestamp sequence: {} < {}", .{ end_time, start_time });
-
-        const blocks_before = self.storage_metrics.blocks_written.load(.monotonic);
-        _ = self.storage_metrics.blocks_written.fetchAdd(1, .monotonic);
-
-        const write_duration = @as(u64, @intCast(end_time - start_time));
-        _ = self.storage_metrics.total_write_time_ns.fetchAdd(write_duration, .monotonic);
-        _ = self.storage_metrics.total_bytes_written.fetchAdd(block.content.len, .monotonic);
-
-        assert.assert_fmt(self.storage_metrics.blocks_written.load(.monotonic) == blocks_before + 1, "Blocks written counter update failed", .{});
+        // Delegate metrics tracking to dedicated method
+        self.track_write_metrics(start_time, block.content.len);
     }
 
     /// Find a Context Block by ID with LSM-tree read semantics.
@@ -433,69 +421,30 @@ pub const StorageEngine = struct {
         return &self.storage_metrics;
     }
 
-    /// Block iterator for scanning all blocks in storage (memtable + SSTables)
+    /// Block iterator for scanning all blocks in storage (memtable only).
+    /// SSTable iteration delegated to SSTableManager to maintain separation of concerns.
+    /// For full storage iteration, use memtable iterator + SSTableManager methods.
     pub const BlockIterator = struct {
-        storage_engine: *StorageEngine,
-        memtable_iterator: ?BlockHashMapIterator,
-        sstable_index: usize,
-        current_sstable: ?SSTable,
-        current_sstable_iterator: ?sstable.SSTableIterator,
+        memtable_iterator: BlockHashMapIterator,
 
-        pub fn next(self: *BlockIterator) !?ContextBlock {
-            // First, iterate through memtable
-            if (self.memtable_iterator) |*iter| {
-                if (iter.next()) |entry| {
-                    return entry.value_ptr.*;
-                } else {
-                    self.memtable_iterator = null;
-                }
+        pub fn next(self: *BlockIterator) ?ContextBlock {
+            if (self.memtable_iterator.next()) |entry| {
+                return entry.value_ptr.*;
             }
-
-            // Then iterate through SSTables
-            while (self.sstable_index < self.storage_engine.sstables.items.len) {
-                if (self.current_sstable_iterator == null) {
-                    // Open next SSTable
-                    const sstable_path = self.storage_engine.sstables.items[self.sstable_index];
-                    var sstable_instance = SSTable.init(self.storage_engine.backing_allocator, self.storage_engine.vfs, sstable_path);
-                    sstable_instance.read_index() catch {
-                        self.sstable_index += 1;
-                        continue;
-                    };
-                    self.current_sstable = sstable_instance;
-                    self.current_sstable_iterator = sstable_instance.iterator();
-                }
-
-                if (try self.current_sstable_iterator.?.next()) |block| {
-                    return block;
-                } else {
-                    // Finished with current SSTable, move to next
-                    if (self.current_sstable) |*sstable_ref| {
-                        sstable_ref.deinit();
-                    }
-                    self.current_sstable = null;
-                    self.current_sstable_iterator = null;
-                    self.sstable_index += 1;
-                }
-            }
-
             return null;
         }
 
-        pub fn deinit(self: *BlockIterator) void {
-            if (self.current_sstable) |*sstable_ref| {
-                sstable_ref.deinit();
-            }
+        pub fn deinit(_: *BlockIterator) void {
+            // Memtable iterator requires no cleanup
         }
     };
 
-    /// Create iterator to scan all blocks in storage (memtable + SSTables)
+    /// Create iterator to scan blocks in memtable only.
+    /// For complete storage iteration, coordinate with SSTableManager directly.
+    /// Pure coordinator pattern - delegates complex iteration to subsystems.
     pub fn iterate_all_blocks(self: *StorageEngine) BlockIterator {
         return BlockIterator{
-            .storage_engine = self,
             .memtable_iterator = self.memtable_manager.raw_iterator(),
-            .sstable_index = 0,
-            .current_sstable = null,
-            .current_sstable_iterator = null,
         };
     }
 
@@ -511,11 +460,13 @@ pub const StorageEngine = struct {
             return err;
         };
 
-        // Check for compaction opportunities after flush
-        self.sstable_manager.check_and_run_compaction() catch |err| {
-            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "post_flush_compaction" });
-            return err;
-        };
+        // Delegate compaction decision to SSTableManager - coordinator only orchestrates
+        if (self.sstable_manager.should_compact()) {
+            self.sstable_manager.execute_compaction() catch |err| {
+                error_context.log_storage_error(err, error_context.StorageContext{ .operation = "post_flush_compaction" });
+                return err;
+            };
+        }
 
         // Update metrics
         _ = self.storage_metrics.sstable_writes.fetchAdd(1, .monotonic);
@@ -529,6 +480,32 @@ pub const StorageEngine = struct {
 
     // Internal helper methods
 
+    /// Coordinate memtable flush operation without containing business logic.
+    /// Pure delegation to subsystems for flush orchestration.
+    fn coordinate_memtable_flush(self: *StorageEngine) !void {
+        assert.assert_fmt(@intFromPtr(&self.sstable_manager) != 0, "SSTableManager corrupted before flush", .{});
+        self.flush_memtable() catch |err| {
+            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "coordinate_memtable_flush" });
+            return err;
+        };
+    }
+
+    /// Track write operation metrics without business logic.
+    /// Pure metrics recording delegation to storage metrics subsystem.
+    fn track_write_metrics(self: *StorageEngine, start_time: i128, content_len: usize) void {
+        const end_time = std.time.nanoTimestamp();
+        assert.assert_fmt(end_time >= start_time, "Invalid timestamp sequence: {} < {}", .{ end_time, start_time });
+
+        const blocks_before = self.storage_metrics.blocks_written.load(.monotonic);
+        _ = self.storage_metrics.blocks_written.fetchAdd(1, .monotonic);
+
+        const write_duration = @as(u64, @intCast(end_time - start_time));
+        _ = self.storage_metrics.total_write_time_ns.fetchAdd(write_duration, .monotonic);
+        _ = self.storage_metrics.total_bytes_written.fetchAdd(content_len, .monotonic);
+
+        assert.assert_fmt(self.storage_metrics.blocks_written.load(.monotonic) == blocks_before + 1, "Blocks written counter update failed", .{});
+    }
+
     /// Clear query cache arena if it exceeds memory threshold to prevent unbounded growth.
     /// Called after SSTable reads to maintain bounded memory usage for query operations.
     fn maybe_clear_query_cache(self: *StorageEngine) void {
@@ -540,10 +517,12 @@ pub const StorageEngine = struct {
     }
 
     /// Check for compaction opportunities and execute if beneficial.
-    /// Delegates to SSTableManager for LSM-tree optimization.
+    /// Pure coordinator that delegates decision and execution to SSTableManager.
     fn check_and_run_compaction(self: *StorageEngine) !void {
-        try self.sstable_manager.check_and_run_compaction();
-        _ = self.storage_metrics.compactions.fetchAdd(1, .monotonic);
+        if (self.sstable_manager.should_compact()) {
+            try self.sstable_manager.execute_compaction();
+            _ = self.storage_metrics.compactions.fetchAdd(1, .monotonic);
+        }
     }
 
     /// Get file size for SSTable registration with compaction manager.
@@ -633,7 +612,7 @@ test "memtable flush triggers at size threshold" {
 
         // Should flush and reset memtable when threshold exceeded
         if (i >= 3) { // After ~1MB of data
-            try testing.expect(engine.index.memory_usage() < config.memtable_max_size);
+            try testing.expect(engine.memtable_manager.memory_usage() < config.memtable_max_size);
         }
     }
 
