@@ -8,6 +8,8 @@ const cortexdb = @import("cortexdb");
 const std = @import("std");
 const testing = std.testing;
 
+const log = std.log.scoped(.streaming_wal_recovery);
+
 const context_block = cortexdb.types;
 const storage = cortexdb.storage;
 const simulation = cortexdb.simulation;
@@ -123,12 +125,12 @@ test "streaming WAL recovery - large WAL file efficiency" {
     defer recovery_engine.deinit();
 
     // Add debugging to understand corruption source
-    std.log.warn("Starting WAL recovery for large file test with {} blocks written", .{num_blocks});
+    log.warn("Starting WAL recovery for large file test with {} blocks written", .{num_blocks});
 
     // Recovery should complete without excessive memory usage
     try recovery_engine.startup();
 
-    std.log.warn("WAL recovery completed successfully", .{});
+    log.warn("WAL recovery completed successfully", .{});
 
     // Verify correct number of blocks recovered by checking a few blocks
     var recovered_count: u32 = 0;
@@ -144,7 +146,7 @@ test "streaming WAL recovery - large WAL file efficiency" {
         }
     }
 
-    std.log.warn("Recovered {} out of first 10 blocks checked", .{recovered_count});
+    log.warn("Recovered {} out of first 10 blocks checked", .{recovered_count});
 
     // Should have recovered at least some blocks
     try testing.expect(recovered_count > 0);

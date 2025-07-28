@@ -126,6 +126,11 @@ pub fn build(b: *std.Build) void {
             .description = "Defensive programming performance impact tests",
         },
         .{
+            .name = "corruption_injection",
+            .source_file = "tests/defensive/corruption_injection.zig",
+            .description = "Controlled corruption injection tests for fatal assertion validation",
+        },
+        .{
             .name = "allocator_torture",
             .source_file = "src/dev/allocator_torture_test.zig",
             .description = "allocator torture tests",
