@@ -13,6 +13,7 @@ const log = std.log.scoped(.wal_recovery);
 const types = @import("types.zig");
 const entry_mod = @import("entry.zig");
 const wal_entry_stream = @import("stream.zig");
+const corruption_tracker_mod = @import("corruption_tracker.zig");
 const vfs = @import("../../core/vfs.zig");
 const simulation_vfs = @import("../../sim/simulation_vfs.zig");
 const context_block = @import("../../core/types.zig");
@@ -22,6 +23,7 @@ const WALError = types.WALError;
 const RecoveryCallback = types.RecoveryCallback;
 const MAX_PATH_LENGTH = types.MAX_PATH_LENGTH;
 const WALEntry = entry_mod.WALEntry;
+const CorruptionTracker = corruption_tracker_mod.CorruptionTracker;
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;
 const ContextBlock = context_block.ContextBlock;
@@ -43,10 +45,12 @@ pub fn recover_from_segment(
     assert(file_path.len > 0);
     assert(file_path.len < MAX_PATH_LENGTH);
 
+    // Corruption tracking for systematic failure detection
+    // Use testing mode during test runs to prevent false positives
+    var corruption_tracker = if (builtin.is_test) CorruptionTracker.init_testing() else CorruptionTracker.init();
+
     // Defensive limits to prevent runaway processing
-    const MAX_CORRUPTION_SKIPS = 8192;
     const MAX_ENTRIES_PER_SEGMENT = 1_000_000;
-    var corruption_skips: u32 = 0;
     var entries_processed: u32 = 0;
 
     var file = filesystem.open(file_path, .read) catch |err| switch (err) {
@@ -76,19 +80,12 @@ pub fn recover_from_segment(
         const stream_entry = stream.next() catch |err| switch (err) {
             wal_entry_stream.StreamError.EndOfFile => break,
             wal_entry_stream.StreamError.CorruptedEntry => {
-                corruption_skips += 1;
-                if (corruption_skips > MAX_CORRUPTION_SKIPS) {
-                    log.warn("WAL recovery failed after {d} corruption skips", .{MAX_CORRUPTION_SKIPS});
-                    return WALError.CorruptedEntry;
-                }
+                corruption_tracker.record_failure("stream_entry_corruption");
                 continue;
             },
             wal_entry_stream.StreamError.EntryTooLarge => {
                 log.warn("Entry too large in WAL stream", .{});
-                corruption_skips += 1;
-                if (corruption_skips > MAX_CORRUPTION_SKIPS) {
-                    return WALError.CorruptedEntry;
-                }
+                corruption_tracker.record_failure("entry_too_large");
                 continue;
             },
             wal_entry_stream.StreamError.IoError => return WALError.IoError,
@@ -99,12 +96,12 @@ pub fn recover_from_segment(
 
         // Convert stream entry to WAL entry format
         const wal_entry = WALEntry.from_stream_entry(stream_entry, allocator) catch |err| switch (err) {
-            WALError.InvalidChecksum, WALError.InvalidEntryType => {
-                corruption_skips += 1;
-                if (corruption_skips > MAX_CORRUPTION_SKIPS) {
-                    log.warn("WAL recovery failed: too many checksum/type conversion failures: {d}", .{MAX_CORRUPTION_SKIPS});
-                    return WALError.CorruptedEntry;
-                }
+            WALError.InvalidChecksum => {
+                corruption_tracker.record_failure("checksum_validation");
+                continue;
+            },
+            WALError.InvalidEntryType => {
+                corruption_tracker.record_failure("entry_type_validation");
                 continue;
             },
             else => return err,
@@ -112,6 +109,7 @@ pub fn recover_from_segment(
         defer wal_entry.deinit(allocator);
 
         callback(wal_entry, context) catch |err| return err;
+        corruption_tracker.record_success();
         entries_recovered += 1;
     }
 

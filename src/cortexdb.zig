@@ -32,6 +32,13 @@ pub const sstable = @import("storage/sstable.zig");
 pub const tiered_compaction = @import("storage/tiered_compaction.zig");
 pub const storage = @import("storage/engine.zig");
 
+pub const wal = struct {
+    pub const corruption_tracker = @import("storage/wal/corruption_tracker.zig");
+    pub const entry = @import("storage/wal/entry.zig");
+    pub const recovery = @import("storage/wal/recovery.zig");
+    pub const types = @import("storage/wal/types.zig");
+};
+
 pub const query = struct {
     pub const engine = @import("query/engine.zig");
     pub const operations = @import("query/operations.zig");

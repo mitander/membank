@@ -547,7 +547,7 @@ test "WALEntry edge cases" {
     const serialized_size = try empty_entry.serialize(&buffer);
     try testing.expectEqual(@as(usize, WALEntry.HEADER_SIZE), serialized_size);
 
-    const deserialized = try WALEntry.deserialize(&buffer, allocator);
+    const deserialized = try WALEntry.deserialize(buffer, allocator);
     defer deserialized.deinit(allocator);
 
     try testing.expectEqual(empty_entry.checksum, deserialized.checksum);
