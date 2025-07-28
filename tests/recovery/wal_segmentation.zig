@@ -22,16 +22,10 @@ const EdgeType = context_block.EdgeType;
 const Simulation = simulation.Simulation;
 
 test "wal segmentation: rotation at size limit" {
-    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) {
-            // TODO: Fix memory leaks in VFS directory iteration
-            // @panic("Memory leak detected in WAL segmentation test");
-        }
-    }
-    const allocator = gpa.allocator();
+    // Arena allocator eliminates manual memory management and prevents leaks
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 54321);
     defer sim.deinit();
@@ -83,10 +77,6 @@ test "wal segmentation: rotation at size limit" {
     var dir_iterator = try (&node_vfs).iterate_directory(wal_dir, iter_allocator);
 
     var wal_files_list = std.ArrayList([]const u8).init(allocator);
-    defer {
-        for (wal_files_list.items) |file| allocator.free(file);
-        wal_files_list.deinit();
-    }
 
     while (dir_iterator.next()) |entry| {
         const file_copy = try allocator.dupe(u8, entry.name);
@@ -107,13 +97,10 @@ test "wal segmentation: rotation at size limit" {
 }
 
 test "wal segmentation: cleanup after sstable flush" {
-    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("Memory leak detected in WAL cleanup test");
-    }
-    const allocator = gpa.allocator();
+    // Arena allocator eliminates manual memory management and prevents leaks
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 98765);
     defer sim.deinit();
@@ -164,10 +151,6 @@ test "wal segmentation: cleanup after sstable flush" {
     var pre_flush_iterator = try (&node_vfs).iterate_directory(wal_dir, pre_flush_iter_allocator);
 
     var pre_flush_files_list = std.ArrayList([]const u8).init(allocator);
-    defer {
-        for (pre_flush_files_list.items) |file| allocator.free(file);
-        pre_flush_files_list.deinit();
-    }
 
     while (pre_flush_iterator.next()) |entry| {
         const file_copy = try allocator.dupe(u8, entry.name);
@@ -190,10 +173,6 @@ test "wal segmentation: cleanup after sstable flush" {
     var post_flush_iterator = try (&node_vfs).iterate_directory(wal_dir, post_flush_iter_allocator);
 
     var post_flush_files_list = std.ArrayList([]const u8).init(allocator);
-    defer {
-        for (post_flush_files_list.items) |file| allocator.free(file);
-        post_flush_files_list.deinit();
-    }
 
     while (post_flush_iterator.next()) |entry| {
         if (std.mem.startsWith(u8, entry.name, "wal_") and std.mem.endsWith(u8, entry.name, ".log")) {
@@ -232,13 +211,10 @@ test "wal segmentation: cleanup after sstable flush" {
 }
 
 test "wal segmentation: recovery from mixed segments and sstables" {
-    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("Memory leak detected in WAL mixed recovery test");
-    }
-    const allocator = gpa.allocator();
+    // Arena allocator eliminates manual memory management and prevents leaks
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var sim = try Simulation.init(allocator, 11111);
     defer sim.deinit();
