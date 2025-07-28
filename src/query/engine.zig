@@ -449,7 +449,7 @@ pub const QueryEngine = struct {
         ) catch |err| {
             error_context.log_storage_error(err, error_context.StorageContext{
                 .operation = "execute_traversal",
-                .block_id = query.start_block,
+                .block_id = query.start_block_id,
                 .size = query.max_results,
             });
             return err;
@@ -590,7 +590,7 @@ pub const QueryEngine = struct {
 
         // Create optimized execution plan for filtered queries
         const query_id = self.generate_query_id();
-        const plan = self.create_query_plan(.filtered, query.limit orelse 50);
+        const plan = self.create_query_plan(.filtered, query.max_results);
         var context = QueryContext.create(query_id, plan);
 
         const result = switch (plan.execution_strategy) {

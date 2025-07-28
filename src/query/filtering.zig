@@ -257,7 +257,7 @@ pub fn execute_filtered_query(
 
     var iterator = storage_engine.iterate_all_blocks();
 
-    while (try iterator.next()) |block| {
+    while (iterator.next()) |block| {
         if (try query.expression.matches(block, allocator)) {
             total_matches += 1;
 

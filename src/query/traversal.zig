@@ -424,7 +424,8 @@ fn add_neighbors_to_queue(
     const QueueItem = @TypeOf(queue.items[0]);
 
     if (query.direction == .outgoing or query.direction == .bidirectional) {
-        if (storage_engine.graph_index.find_outgoing_edges(current_id)) |edges| {
+        const edges = storage_engine.find_outgoing_edges(current_id);
+        if (edges.len > 0) {
             for (edges) |edge| {
                 if (query.edge_type_filter) |filter| {
                     if (edge.edge_type != filter) continue;
@@ -446,7 +447,8 @@ fn add_neighbors_to_queue(
     }
 
     if (query.direction == .incoming or query.direction == .bidirectional) {
-        if (storage_engine.graph_index.find_incoming_edges(current_id)) |edges| {
+        const edges = storage_engine.find_incoming_edges(current_id);
+        if (edges.len > 0) {
             for (edges) |edge| {
                 if (query.edge_type_filter) |filter| {
                     if (edge.edge_type != filter) continue;
@@ -482,7 +484,8 @@ fn add_neighbors_to_stack(
     const StackItem = @TypeOf(stack.items[0]);
 
     if (query.direction == .outgoing or query.direction == .bidirectional) {
-        if (storage_engine.graph_index.find_outgoing_edges(current_id)) |edges| {
+        const edges = storage_engine.find_outgoing_edges(current_id);
+        if (edges.len > 0) {
             for (edges) |edge| {
                 if (query.edge_type_filter) |filter| {
                     if (edge.edge_type != filter) continue;
@@ -504,7 +507,8 @@ fn add_neighbors_to_stack(
     }
 
     if (query.direction == .incoming or query.direction == .bidirectional) {
-        if (storage_engine.graph_index.find_incoming_edges(current_id)) |edges| {
+        const edges = storage_engine.find_incoming_edges(current_id);
+        if (edges.len > 0) {
             for (edges) |edge| {
                 if (query.edge_type_filter) |filter| {
                     if (edge.edge_type != filter) continue;
