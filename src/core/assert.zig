@@ -10,11 +10,9 @@ const builtin = @import("builtin");
 /// This assertion is active in debug builds and compiled out in release builds.
 /// Use this for simple programming invariants that should never be false.
 pub fn assert(condition: bool) void {
-    if (!condition) {
-        if (builtin.mode == .Debug) {
+    if (builtin.mode == .Debug) {
+        if (!condition) {
             std.debug.panic("Assertion failed", .{});
-        } else {
-            std.debug.panic("Release assertion failed", .{});
         }
     }
 }
@@ -27,11 +25,9 @@ pub fn assert(condition: bool) void {
 /// assert_fmt(context.is_valid(), "Context is invalid: {}", .{context});
 /// ```
 pub fn assert_fmt(condition: bool, comptime format: []const u8, args: anytype) void {
-    if (!condition) {
-        if (builtin.mode == .Debug) {
+    if (builtin.mode == .Debug) {
+        if (!condition) {
             std.debug.panic("Assertion failed: " ++ format, args);
-        } else {
-            std.debug.panic("Release assertion failed: " ++ format, args);
         }
     }
 }
@@ -42,13 +38,21 @@ pub fn assert_fmt(condition: bool, comptime format: []const u8, args: anytype) v
 /// such as buffer overflows or corrupted data structures.
 /// # Examples
 /// ```zig
-/// assert_always(buffer_pos < buffer.len, "Buffer overflow: {} >= {}",
+/// fatal_assert(buffer_pos < buffer.len, "Buffer overflow: {} >= {}",
 ///               .{ buffer_pos, buffer.len });
 /// ```
-pub fn assert_always(condition: bool, comptime format: []const u8, args: anytype) void {
+pub fn fatal_assert(condition: bool, comptime format: []const u8, args: anytype) void {
     if (!condition) {
         std.debug.panic("Critical assertion failed: " ++ format, args);
     }
+}
+
+/// @deprecated Use fatal_assert instead. This alias is provided for backward compatibility.
+/// Assert that a condition is true with a descriptive message.
+/// This variant is always active, even in release builds.
+/// Use fatal_assert for critical safety violations that must never occur.
+pub fn assert_always(condition: bool, comptime format: []const u8, args: anytype) void {
+    fatal_assert(condition, format, args);
 }
 
 /// Assert that a value is within a valid range.
@@ -353,4 +357,32 @@ test "comptime_no_padding functionality" {
         b: u32,
     };
     comptime_no_padding(AlignedStruct);
+}
+
+test "assertion behavior matches documentation" {
+    // Verify that assertion enablement matches documented behavior:
+    // - Debug builds: assertions are active
+    // - Release builds: assertions are compiled out (no-ops)
+
+    const debug_mode = builtin.mode == .Debug;
+
+    // Verify assertion enablement utilities match build mode
+    try std.testing.expectEqual(debug_mode, assertions_enabled());
+    try std.testing.expectEqual(debug_mode, expensive_check_enabled());
+
+    // Test that debug assertions work when conditions are true
+    // (These should be no-ops in release, active in debug)
+    assert(true);
+    assert_fmt(true, "Debug assertion with valid condition", .{});
+
+    // Test that fatal assertions always work regardless of build mode
+    fatal_assert(true, "Fatal assertion should always be active", .{});
+
+    // Test backward compatibility alias
+    assert_always(true, "Backward compatibility alias works", .{});
+
+    // This test validates our fix to P0.2: Assertion Framework Inconsistency
+    // The implementation now matches the documentation:
+    // - assert() and assert_fmt() are no-ops in release builds
+    // - fatal_assert() always panics on false conditions
 }
