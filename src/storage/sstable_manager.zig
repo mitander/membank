@@ -273,7 +273,7 @@ test "SSTableManager two-phase initialization" {
     defer manager.deinit();
 
     try testing.expectEqual(@as(u32, 0), manager.sstable_count());
-    try testing.expectEqual(@as(u32, 0), manager.get_next_sstable_id());
+    try testing.expectEqual(@as(u32, 0), manager.next_id());
 
     try manager.startup();
     try testing.expectEqual(@as(u32, 0), manager.sstable_count());
@@ -302,7 +302,7 @@ test "SSTableManager creates new SSTable from blocks" {
     try manager.create_new_sstable(&blocks);
 
     try testing.expectEqual(@as(u32, 1), manager.sstable_count());
-    try testing.expectEqual(@as(u32, 1), manager.get_next_sstable_id());
+    try testing.expectEqual(@as(u32, 1), manager.next_id());
 }
 
 test "SSTableManager finds blocks in SSTables" {

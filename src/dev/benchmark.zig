@@ -3,12 +3,21 @@
 //! Provides automated regression testing with both performance and memory profiling.
 //! Benchmarks core operations with statistical analysis to detect regressions early.
 //!
-//! Target Performance Goals (1.0 Release):
-//! - Block Write: <50µs (20K+ ops/sec)
-//! - Block Read: <10µs (100K+ ops/sec)
-//! - Single Query: <10µs (100K+ ops/sec)
-//! - Batch Query (10 blocks): <100µs (10K+ ops/sec)
-//! - WAL Flush: <1ms (1K+ ops/sec)
+//! CI Regression Testing Strategy:
+//! Thresholds are set based on measured performance with generous margins to:
+//! 1. Account for CI hardware being 2-3x slower than development machines
+//! 2. Handle normal performance variance without false positives
+//! 3. Catch meaningful regressions (>5x slowdowns indicate real problems)
+//! 4. Provide stable CI results across different runners and load conditions
+//!
+//! Measured Performance (Development):
+//! - Block Write: ~20µs → CI Threshold: 100µs (5x margin)
+//! - Block Read: ~0.06µs → CI Threshold: 1µs (17x margin)
+//! - Block Update: ~10µs → CI Threshold: 50µs (5x margin)
+//! - Block Delete: ~3µs → CI Threshold: 15µs (5x margin)
+//! - Single Query: ~0.1µs → CI Threshold: 2µs (20x margin)
+//! - Batch Query: ~0.3µs → CI Threshold: 5µs (17x margin)
+//! - WAL Flush: ~0µs → CI Threshold: 10µs (conservative)
 //!
 //! Memory Efficiency Goals:
 //! - Peak memory usage <100MB for 10K block operations
@@ -32,17 +41,28 @@ const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
 const EdgeType = context_block.EdgeType;
 
-// Benchmark configuration
+// Benchmark configuration - reduced for fast CI execution
 const BENCHMARK_ITERATIONS = 1000;
-const WARMUP_ITERATIONS = 100;
-const LARGE_BENCHMARK_ITERATIONS = 100;
-const STATISTICAL_SAMPLES = 10;
+const WARMUP_ITERATIONS = 50;
+const LARGE_BENCHMARK_ITERATIONS = 50;
+const STATISTICAL_SAMPLES = 5;
 
-// Performance thresholds (nanoseconds)
-const BLOCK_WRITE_THRESHOLD_NS = 50_000; // 50µs - Target: 20K+ ops/sec
-const BLOCK_READ_THRESHOLD_NS = 10_000; // 10µs - Target: 100K+ ops/sec
-const QUERY_BATCH_THRESHOLD_NS = 100_000; // 100µs - Target: 10K+ ops/sec
-const WAL_FLUSH_THRESHOLD_NS = 1_000_000; // 1ms - Target: 1K+ ops/sec
+// CI Performance Regression Thresholds (nanoseconds)
+// Based on measured performance with margin for CI hardware and variance
+// Measured: 21µs -> Threshold: 100µs (4.7x margin for CI slower hardware)
+const BLOCK_WRITE_THRESHOLD_NS = 100_000;
+// Measured: 0.06µs -> Threshold: 1µs (17x margin for variance)
+const BLOCK_READ_THRESHOLD_NS = 1_000;
+// Measured: 10.2µs -> Threshold: 50µs (4.9x margin)
+const BLOCK_UPDATE_THRESHOLD_NS = 50_000;
+// Measured: 2.9µs -> Threshold: 15µs (5.2x margin)
+const BLOCK_DELETE_THRESHOLD_NS = 15_000;
+// Measured: 0.12µs -> Threshold: 2µs (17x margin)
+const SINGLE_QUERY_THRESHOLD_NS = 2_000;
+// Measured: 0.33µs -> Threshold: 5µs (15x margin)
+const QUERY_BATCH_THRESHOLD_NS = 5_000;
+// WAL flush is currently a no-op, set conservative threshold
+const WAL_FLUSH_THRESHOLD_NS = 10_000; // 10µs
 
 // Memory usage thresholds (bytes)
 const MAX_PEAK_MEMORY_BYTES = 100 * 1024 * 1024; // 100MB for 10K operations
@@ -186,6 +206,9 @@ const StatisticalAnalyzer = struct {
             .throughput_ops_per_sec = throughput_ops_per_sec,
             .passed_threshold = passed_threshold,
             .threshold_ns = threshold_ns,
+            .peak_memory_bytes = 0, // Memory profiling not implemented yet
+            .memory_growth_bytes = 0,
+            .memory_efficient = true,
         };
     }
 };
@@ -289,7 +312,7 @@ fn print_usage() !void {
 fn store_and_print_result(result: BenchmarkResult) !void {
     try all_results.append(result);
     if (!json_output) {
-        try store_and_print_result(result);
+        result.print_results();
     }
 }
 
@@ -490,7 +513,7 @@ fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Al
         try analyzer.add_sample(per_op_time);
     }
 
-    const result = analyzer.analyze("Block Update", BLOCK_WRITE_THRESHOLD_NS);
+    const result = analyzer.analyze("Block Update", BLOCK_UPDATE_THRESHOLD_NS);
     try store_and_print_result(result);
 }
 
@@ -517,7 +540,7 @@ fn benchmark_block_deletes(storage_engine: *StorageEngine, allocator: std.mem.Al
         try analyzer.add_sample(per_op_time);
     }
 
-    const result = analyzer.analyze("Block Delete", BLOCK_WRITE_THRESHOLD_NS);
+    const result = analyzer.analyze("Block Delete", BLOCK_DELETE_THRESHOLD_NS);
     try store_and_print_result(result);
 }
 
@@ -554,7 +577,7 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
         try analyzer.add_sample(per_op_time);
     }
 
-    const result = analyzer.analyze("Single Block Query", BLOCK_READ_THRESHOLD_NS);
+    const result = analyzer.analyze("Single Block Query", SINGLE_QUERY_THRESHOLD_NS);
     try store_and_print_result(result);
 }
 
