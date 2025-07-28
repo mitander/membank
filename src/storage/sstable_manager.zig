@@ -161,8 +161,12 @@ pub const SSTableManager = struct {
     /// Delegates decision logic to TieredCompactionManager without executing.
     /// Pure decision method for coordinator pattern compliance.
     pub fn should_compact(self: *SSTableManager) bool {
-        const compaction_job = self.compaction_manager.check_compaction_needed();
-        return compaction_job != null;
+        if (self.compaction_manager.check_compaction_needed()) |job| {
+            var mutable_job = job;
+            defer mutable_job.deinit();
+            return true;
+        }
+        return false;
     }
 
     /// Execute compaction operation without decision logic.

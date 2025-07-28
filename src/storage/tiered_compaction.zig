@@ -191,9 +191,12 @@ pub const TieredCompactionManager = struct {
     pub fn execute_compaction(self: *TieredCompactionManager, job: CompactionJob) !void {
         concurrency.assert_main_thread();
 
-        switch (job.compaction_type) {
-            .l0_to_l1 => try self.execute_l0_compaction(job),
-            .tier_compaction => try self.execute_tier_compaction(job),
+        var mutable_job = job;
+        defer mutable_job.deinit();
+
+        switch (mutable_job.compaction_type) {
+            .l0_to_l1 => try self.execute_l0_compaction(mutable_job),
+            .tier_compaction => try self.execute_tier_compaction(mutable_job),
         }
     }
 
@@ -277,8 +280,6 @@ pub const TieredCompactionManager = struct {
         }
 
         try self.add_sstable(output_path, job.estimated_output_size, 1);
-
-        job.input_paths.deinit();
     }
 
     fn execute_tier_compaction(self: *TieredCompactionManager, job: CompactionJob) !void {
@@ -297,8 +298,6 @@ pub const TieredCompactionManager = struct {
         }
 
         try self.add_sstable(output_path, job.estimated_output_size, job.output_level);
-
-        job.input_paths.deinit();
     }
 };
 
@@ -314,6 +313,12 @@ pub const CompactionJob = struct {
         l0_to_l1, // L0 -> L1 compaction (count-based)
         tier_compaction, // Same-level size-tiered compaction
     };
+
+    /// Clean up CompactionJob resources including input_paths ArrayList.
+    /// Must be called to prevent memory leaks from allocated path storage.
+    pub fn deinit(self: *CompactionJob) void {
+        self.input_paths.deinit();
+    }
 };
 
 // Tests
