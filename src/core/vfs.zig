@@ -12,6 +12,7 @@
 const std = @import("std");
 const custom_assert = @import("assert.zig");
 const assert = custom_assert.assert;
+const fatal_assert = custom_assert.fatal_assert;
 const testing = std.testing;
 
 /// Maximum path length for defensive validation across platforms
@@ -306,10 +307,9 @@ pub const VFile = struct {
                 if (sim.closed) return VFileError.FileClosed;
                 if (!sim.mode.can_read()) return VFileError.ReadError;
 
-                // Defensive validation of simulation state
-                assert(@intFromPtr(sim.vfs_ptr) >= 0x1000);
-                assert(sim.handle > 0);
-                assert(!sim.closed);
+                // CRITICAL: VFS handle corruption detection
+                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
+                fatal_assert(!sim.closed, "VFS file handle used after close - use-after-free detected", .{});
 
                 // Get file data via stable handle
                 const data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
@@ -340,9 +340,8 @@ pub const VFile = struct {
                 if (sim.closed) return VFileError.FileClosed;
                 if (!sim.mode.can_write()) return VFileError.WriteError;
 
-                // Defensive validation of write parameters
-                assert(@intFromPtr(sim.vfs_ptr) >= 0x1000);
-                assert(sim.handle > 0);
+                // CRITICAL: VFS handle corruption detection
+                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in write: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
                 assert(data.len > 0);
 
                 // Check fault injection (torn writes, disk space limits, etc.)
@@ -457,10 +456,9 @@ pub const VFile = struct {
             .simulation => |*sim| blk: {
                 if (sim.closed) return VFileError.FileClosed;
 
-                // Defensive validation of simulation state
-                assert(@intFromPtr(sim.vfs_ptr) >= 0x1000);
-                assert(sim.handle > 0);
-                assert(!sim.closed);
+                // CRITICAL: VFS handle corruption detection
+                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in seek: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
+                fatal_assert(!sim.closed, "VFS file handle used after close in seek - use-after-free detected", .{});
 
                 // Get file data via stable handle
                 const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
@@ -544,10 +542,9 @@ pub const VFile = struct {
             .simulation => |*sim| blk: {
                 if (sim.closed) return VFileError.FileClosed;
 
-                // Defensive validation of simulation state
-                assert(@intFromPtr(sim.vfs_ptr) >= 0x1000);
-                assert(sim.handle > 0);
-                assert(!sim.closed);
+                // CRITICAL: VFS handle corruption detection
+                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in file_size: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
+                fatal_assert(!sim.closed, "VFS file handle used after close in file_size - use-after-free detected", .{});
 
                 // Get file data via stable handle
                 const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;

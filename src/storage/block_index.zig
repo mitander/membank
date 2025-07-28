@@ -9,6 +9,7 @@
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const assert_fmt = @import("../core/assert.zig").assert_fmt;
+const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const context_block = @import("../core/types.zig");
 
 const ContextBlock = context_block.ContextBlock;
@@ -110,19 +111,19 @@ pub const BlockIndex = struct {
 
         // Verify arena allocator actually cloned the strings (not aliased)
         if (block.source_uri.len > 0) {
-            assert_fmt(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "source_uri was not properly duped by arena allocator", .{});
+            fatal_assert(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "Arena failed to clone source_uri - returned original pointer, heap corruption detected", .{});
         }
         if (block.metadata_json.len > 0) {
-            assert_fmt(@intFromPtr(cloned_block.metadata_json.ptr) != @intFromPtr(block.metadata_json.ptr), "metadata_json was not properly duped by arena allocator", .{});
+            fatal_assert(@intFromPtr(cloned_block.metadata_json.ptr) != @intFromPtr(block.metadata_json.ptr), "Arena failed to clone metadata_json - returned original pointer, heap corruption detected", .{});
         }
         if (block.content.len > 0) {
-            assert_fmt(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "content was not properly duped by arena allocator", .{});
+            fatal_assert(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "Arena failed to clone content - returned original pointer, heap corruption detected", .{});
         }
 
         // Adjust memory accounting for replacement case
         if (self.blocks.get(block.id)) |existing_block| {
             const old_memory = existing_block.source_uri.len + existing_block.metadata_json.len + existing_block.content.len;
-            assert_fmt(self.memory_used >= old_memory, "Memory accounting corruption: {} < {}", .{ self.memory_used, old_memory });
+            fatal_assert(self.memory_used >= old_memory, "Memory accounting underflow: tracked={} removing={} - indicates heap corruption", .{ self.memory_used, old_memory });
             self.memory_used -= old_memory;
         }
 
@@ -145,7 +146,7 @@ pub const BlockIndex = struct {
     pub fn remove_block(self: *BlockIndex, block_id: BlockId) void {
         if (self.blocks.get(block_id)) |existing_block| {
             const old_memory = existing_block.source_uri.len + existing_block.metadata_json.len + existing_block.content.len;
-            assert_fmt(self.memory_used >= old_memory, "Memory accounting corruption: {} < {}", .{ self.memory_used, old_memory });
+            fatal_assert(self.memory_used >= old_memory, "Memory accounting underflow during removal: tracked={} removing={} - indicates heap corruption", .{ self.memory_used, old_memory });
             self.memory_used -= old_memory;
         }
         _ = self.blocks.remove(block_id);
@@ -166,14 +167,14 @@ pub const BlockIndex = struct {
     /// Retains HashMap and arena capacity for efficient reuse after flush.
     /// This is the key operation that makes arena-per-subsystem efficient.
     pub fn clear(self: *BlockIndex) void {
-        assert_fmt(@intFromPtr(self) != 0, "BlockIndex self pointer cannot be null during clear", .{});
-        assert_fmt(@intFromPtr(&self.arena) != 0, "BlockIndex arena pointer cannot be null during clear", .{});
+        fatal_assert(@intFromPtr(self) != 0, "BlockIndex self pointer is null - memory corruption detected", .{});
+        fatal_assert(@intFromPtr(&self.arena) != 0, "BlockIndex arena pointer is null - memory corruption detected", .{});
 
         self.blocks.clearRetainingCapacity();
         _ = self.arena.reset(.retain_capacity);
         self.memory_used = 0;
 
-        assert_fmt(self.blocks.count() == 0, "HashMap not properly cleared", .{});
+        fatal_assert(self.blocks.count() == 0, "HashMap clear failed - data structure corruption detected", .{});
     }
 };
 

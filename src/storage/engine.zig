@@ -14,6 +14,7 @@
 
 const std = @import("std");
 const assert = @import("../core/assert.zig");
+const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const vfs = @import("../core/vfs.zig");
 const context_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
@@ -131,8 +132,8 @@ pub const StorageEngine = struct {
     /// Must be called to prevent memory leaks and ensure proper cleanup.
     pub fn deinit(self: *StorageEngine) void {
         concurrency.assert_main_thread();
-        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
-        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted during cleanup", .{});
+        fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
+        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted during cleanup - heap corruption detected", .{});
 
         self.memtable_manager.deinit();
         self.sstable_manager.deinit();
@@ -144,8 +145,8 @@ pub const StorageEngine = struct {
     /// Called internally by startup() to prepare filesystem state.
     fn create_storage_directories(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
-        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
-        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir is empty", .{});
+        fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
+        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir is empty - heap corruption detected", .{});
 
         if (self.initialized) return StorageError.AlreadyInitialized;
 
@@ -193,8 +194,8 @@ pub const StorageEngine = struct {
     pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
         concurrency.assert_main_thread();
 
-        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
-        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted", .{});
+        fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
+        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
 
         assert.assert_not_empty(block.content, "Block content cannot be empty", .{});
         assert.assert_not_empty(block.source_uri, "Block source_uri cannot be empty", .{});
@@ -214,7 +215,7 @@ pub const StorageEngine = struct {
         };
 
         // Delegate to MemtableManager for durable storage with WAL-first pattern
-        assert.assert_fmt(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager corrupted", .{});
+        fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
         self.memtable_manager.put_block_durable(block) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("put_block_durable", block.id));
             return err;
@@ -233,8 +234,8 @@ pub const StorageEngine = struct {
     /// Checks memtable first, then SSTables in reverse chronological order
     /// to ensure most recent version is returned.
     pub fn find_block(self: *StorageEngine, block_id: BlockId) !?ContextBlock {
-        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
-        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted", .{});
+        fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
+        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
 
         var non_zero_bytes: u32 = 0;
         for (block_id.bytes) |byte| {
@@ -247,13 +248,13 @@ pub const StorageEngine = struct {
         const start_time = std.time.nanoTimestamp();
         assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
 
-        assert.assert_fmt(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager corrupted", .{});
+        fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
 
         // Check memtable first for most recent data
         if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
-            assert.assert_fmt(@intFromPtr(block_ptr) != 0, "MemtableManager returned null block pointer", .{});
-            assert.assert_fmt(block_ptr.content.len > 0, "MemtableManager returned block with empty content", .{});
-            assert.assert_equal(block_ptr.id.bytes, block_id.bytes, "MemtableManager returned wrong block ID", .{});
+            fatal_assert(@intFromPtr(block_ptr) != 0, "MemtableManager returned null block pointer - heap corruption detected", .{});
+            fatal_assert(block_ptr.content.len > 0, "MemtableManager returned block with empty content - data corruption detected", .{});
+            fatal_assert(std.mem.eql(u8, &block_ptr.id.bytes, &block_id.bytes), "MemtableManager returned wrong block ID - index corruption detected", .{});
 
             const end_time = std.time.nanoTimestamp();
             assert.assert_fmt(end_time >= start_time, "Invalid timestamp sequence: {} < {}", .{ end_time, start_time });
@@ -263,7 +264,7 @@ pub const StorageEngine = struct {
             _ = self.storage_metrics.total_read_time_ns.fetchAdd(@intCast(end_time - start_time), .monotonic);
             _ = self.storage_metrics.total_bytes_read.fetchAdd(block_ptr.content.len, .monotonic);
 
-            assert.assert_fmt(self.storage_metrics.blocks_read.load(.monotonic) == blocks_before + 1, "Blocks read counter update failed", .{});
+            fatal_assert(self.storage_metrics.blocks_read.load(.monotonic) == blocks_before + 1, "Blocks read counter update failed - metrics corruption detected", .{});
 
             return block_ptr.*;
         }
@@ -309,8 +310,8 @@ pub const StorageEngine = struct {
     pub fn put_edge(self: *StorageEngine, edge: GraphEdge) !void {
         concurrency.assert_main_thread();
 
-        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
-        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted", .{});
+        fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
+        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
 
         var source_non_zero: u32 = 0;
         var target_non_zero: u32 = 0;
@@ -329,7 +330,7 @@ pub const StorageEngine = struct {
         const start_time = std.time.nanoTimestamp();
         assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
 
-        assert.assert_fmt(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager corrupted", .{});
+        fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
 
         // Delegate to MemtableManager for durable edge storage with WAL-first pattern
         self.memtable_manager.put_edge_durable(edge) catch |err| {
@@ -340,7 +341,7 @@ pub const StorageEngine = struct {
         const edges_before = self.storage_metrics.edges_added.load(.monotonic);
         _ = self.storage_metrics.edges_added.fetchAdd(1, .monotonic);
 
-        assert.assert_fmt(self.storage_metrics.edges_added.load(.monotonic) == edges_before + 1, "Edges added counter update failed", .{});
+        fatal_assert(self.storage_metrics.edges_added.load(.monotonic) == edges_before + 1, "Edges added counter update failed - metrics corruption detected", .{});
     }
 
     /// Force synchronization of all WAL operations to durable storage.
@@ -365,8 +366,8 @@ pub const StorageEngine = struct {
     /// Find all outgoing edges from a source block.
     /// Delegates to memtable manager for graph traversal operations.
     pub fn find_outgoing_edges(self: *const StorageEngine, source_id: BlockId) []const GraphEdge {
-        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
-        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted", .{});
+        fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
+        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
 
         var non_zero_bytes: u32 = 0;
         for (source_id.bytes) |byte| {
@@ -374,14 +375,14 @@ pub const StorageEngine = struct {
         }
         assert.assert_fmt(non_zero_bytes > 0, "Source block ID cannot be all zeros", .{});
 
-        assert.assert_fmt(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager corrupted", .{});
+        fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
 
         const edges = self.memtable_manager.find_outgoing_edges(source_id);
 
         if (edges.len > 0) {
-            assert.assert_fmt(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length", .{});
+            fatal_assert(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length - heap corruption detected", .{});
             // Validate first edge to catch corruption
-            assert.assert_fmt(std.mem.eql(u8, &edges[0].source_id.bytes, &source_id.bytes), "First edge has wrong source_id", .{});
+            fatal_assert(std.mem.eql(u8, &edges[0].source_id.bytes, &source_id.bytes), "First edge has wrong source_id - index corruption detected", .{});
         }
 
         return edges;
@@ -391,8 +392,8 @@ pub const StorageEngine = struct {
     /// Delegates to memtable manager for reverse graph traversal operations.
     pub fn find_incoming_edges(self: *const StorageEngine, target_id: BlockId) []const GraphEdge {
         // Defensive self-pointer validation
-        assert.assert_fmt(@intFromPtr(self) != 0, "StorageEngine self pointer cannot be null", .{});
-        assert.assert_fmt(self.data_dir.len > 0, "StorageEngine data_dir corrupted", .{});
+        fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
+        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
 
         // Validate target_id structure
         var non_zero_bytes: u32 = 0;
@@ -402,15 +403,15 @@ pub const StorageEngine = struct {
         assert.assert_fmt(non_zero_bytes > 0, "Target block ID cannot be all zeros", .{});
 
         // Validate manager state before access
-        assert.assert_fmt(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager corrupted", .{});
+        fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
 
         const edges = self.memtable_manager.find_incoming_edges(target_id);
 
         // Validate returned edges slice
         if (edges.len > 0) {
-            assert.assert_fmt(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length", .{});
+            fatal_assert(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length - heap corruption detected", .{});
             // Validate first edge to catch corruption
-            assert.assert_fmt(std.mem.eql(u8, &edges[0].target_id.bytes, &target_id.bytes), "First edge has wrong target_id", .{});
+            fatal_assert(std.mem.eql(u8, &edges[0].target_id.bytes, &target_id.bytes), "First edge has wrong target_id - index corruption detected", .{});
         }
 
         return edges;

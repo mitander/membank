@@ -12,6 +12,7 @@
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const assert_fmt = @import("../core/assert.zig").assert_fmt;
+const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const context_block = @import("../core/types.zig");
 const concurrency = @import("../core/concurrency.zig");
 const vfs = @import("../core/vfs.zig");
@@ -95,6 +96,11 @@ pub const MemtableManager = struct {
     /// both block and edge indexes atomically plus WAL cleanup.
     pub fn deinit(self: *MemtableManager) void {
         concurrency.assert_main_thread();
+
+        fatal_assert(@intFromPtr(self) != 0, "MemtableManager self pointer is null - memory corruption detected", .{});
+        fatal_assert(@intFromPtr(&self.wal) != 0, "MemtableManager WAL pointer corrupted - memory safety violation detected", .{});
+        fatal_assert(@intFromPtr(&self.block_index) != 0, "MemtableManager block_index pointer corrupted - memory safety violation detected", .{});
+        fatal_assert(@intFromPtr(&self.graph_index) != 0, "MemtableManager graph_index pointer corrupted - memory safety violation detected", .{});
 
         self.wal.deinit();
         self.block_index.deinit();
