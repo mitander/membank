@@ -95,7 +95,7 @@ pub fn analyze_complexity(self: *QueryPlan, block_count: u32, edge_count: u32) v
 fn should_cache_query(query_type: QueryPlan.QueryType) bool {
     return switch (query_type) {
         .semantic, .filtered => true, // Complex queries benefit from caching
-        .traversal => true,           // Graph traversals often repea
+        .traversal => true,           // Graph traversals often repeat
         .find_blocks => false,        // Simple lookups rarely repeat exactly
     };
 }
@@ -191,7 +191,7 @@ fn record_query_execution(context: *const QueryContext) void {
 - **Block Lookups**: < 1ms average latency
 - **Graph Traversals**: < 10ms for 3-hop traversals
 - **Query Planning Overhead**: < 100μs per query
-- **Memory Efficiency**: < 1MB per active query contex
+- **Memory Efficiency**: < 1MB per active query context
 
 ### Optimization Effectiveness
 - **Memtable Preference**: 90% hit rate for recent queries
@@ -201,7 +201,7 @@ fn record_query_execution(context: *const QueryContext) void {
 
 ## Architectural Principles
 
-### 1. Extensibility Firs
+### 1. Extensibility First
 - Plugin architecture for new query types
 - Optimization strategy registration
 - Metrics extension points
@@ -252,7 +252,7 @@ const result = operations.execute_find_blocks(
 
 ### Simulation Testing
 - Large-scale workload simulation
-- Optimization effectiveness measuremen
+- Optimization effectiveness measurement
 - Cache behavior validation
 
 ## Conclusion

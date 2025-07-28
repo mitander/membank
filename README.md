@@ -27,7 +27,45 @@ Built on battle-tested principles from high-frequency trading systems:
 
 **Core Engine**: LSM-tree with WAL, decomposed into `MemtableManager` (in-memory) and `SSTableManager` (on-disk) coordinators.
 
-## Quick Start
+### What it feels like to use CortexDB
+
+The goal is dead simple: give your LLM the **right context**, not just **more context**.
+
+```zig
+// Find that function you're debugging
+var main_func = try cortex.find("function:main");
+
+// Get everything it touches, 3 levels deep
+var context = try cortex.traverse(main_func.id, .outgoing, .depth(3));
+
+// Feed it to your LLM with confidence
+var prompt = try llm.prompt("Explain the call graph for this function:", context);
+```
+
+**Why this matters**: Instead of dumping 50 random code chunks into your prompt, you get the 5 functions that `main()` actually calls, the 3 files they import, and the config they read. **Structured knowledge** beats **scattered information** every time.
+
+### Real-world Example: Code Review Assistant
+
+```zig
+// Someone changed the authentication logic
+var auth_func = try cortex.find("function:authenticate_user");
+
+// What else might be affected?
+var dependencies = try cortex.traverse(auth_func.id, .incoming, .depth(2));
+
+// What does it call?
+var implementations = try cortex.traverse(auth_func.id, .outgoing, .depth(1));
+
+// Now you can ask your LLM intelligent questions:
+var review = try llm.prompt(
+    "This function changed. What security implications should I consider?",
+    .{ .changed = auth_func, .callers = dependencies, .calls = implementations }
+);
+```
+
+**The difference**: Your LLM isn't guessing. It **knows** that changing `authenticate_user()` affects the login endpoint, the session middleware, and the API gateway. That's the power of a knowledge graph.
+
+### Quick Start
 
 ```bash
 # Install exact Zig version + git hooks
