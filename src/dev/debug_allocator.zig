@@ -127,7 +127,6 @@ const AllocationHeader = struct {
     pub fn is_valid(self: *const AllocationHeader) bool {
         if (self.magic != ALLOCATION_MAGIC) return false;
 
-        // Check guard prefix for underflow
         const expected_guard: u8 = @truncate(GUARD_MAGIC);
         for (self.guard_prefix) |byte| {
             if (byte != expected_guard) return false;
@@ -137,12 +136,9 @@ const AllocationHeader = struct {
     }
 
     pub fn validate_guards(self: *const AllocationHeader, user_ptr: [*]u8) !void {
-        // Check header magic
         if (!self.is_valid()) {
             return DebugAllocatorError.CorruptedHeader;
         }
-
-        // Check guard suffix (after user data)
         const guard_suffix = user_ptr[self.size .. self.size + GUARD_SIZE];
         const expected_guard: u8 = @truncate(GUARD_MAGIC >> 8);
         for (guard_suffix) |byte| {

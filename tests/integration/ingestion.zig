@@ -43,7 +43,6 @@ test "complete ingestion pipeline - git to storage" {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Create a simulated Git repository with Zig files
     try create_test_repository(&sim_vfs);
 
     // Debug: Check what files were created
@@ -159,7 +158,6 @@ test "zig parser extracts semantic units correctly" {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Create test Zig file
     const zig_content =
         \\const std = @import("std");
         \\const testing = std.testing;
@@ -274,7 +272,6 @@ test "semantic chunker preserves metadata" {
 
     const allocator = testing.allocator;
 
-    // Create test parsed unit
     var unit_metadata = std.StringHashMap([]const u8).init(allocator);
     try unit_metadata.put("function_name", "test_function");
     try unit_metadata.put("is_public", "true");

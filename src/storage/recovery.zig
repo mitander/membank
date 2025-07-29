@@ -345,7 +345,6 @@ test "recovery state validation detects corruption" {
         try context.validate_recovery_state();
     }
 
-    // Add a block to create non-empty state
     const block = ContextBlock{
         .id = BlockId.generate(),
         .version = 1,
@@ -387,7 +386,6 @@ test "recovery callback handles corrupted blocks gracefully" {
 
     var context = RecoveryContext.init(&setup.block_index, &setup.graph_index);
 
-    // Create a block with invalid content that might cause allocation failure
     var invalid_content = [_]u8{0xFF} ** (1024 * 1024 * 1024); // Huge content
     const corrupted_block = ContextBlock{
         .id = BlockId.generate(),
@@ -425,7 +423,6 @@ test "complete recovery workflow with mixed operations" {
     defer wal_instance.deinit();
     try wal_instance.initialize();
 
-    // Write test entries to WAL
     const block1 = ContextBlock{
         .id = BlockId.generate(),
         .version = 1,

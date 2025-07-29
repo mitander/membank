@@ -44,7 +44,6 @@ test "stream basic entry reading" {
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
 
-    // Create test file with multiple small entries
     const test_file = "test_wal.log";
     var file = try vfs_interface.create(test_file);
     defer file.close();
@@ -89,7 +88,6 @@ test "stream large entry exceeding buffer" {
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
 
-    // Create large payload that exceeds typical buffer sizes
     const large_payload_size = 32 * 1024; // 32KB payload
     const large_payload = try allocator.alloc(u8, large_payload_size);
     // Fill with recognizable pattern for validation
@@ -142,7 +140,6 @@ test "stream entry spanning buffer boundary" {
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
 
-    // Create payload that will cause boundary spanning
     // Use size that fills most of initial buffer
     const boundary_payload = try allocator.alloc(u8, 8000); // Close to 8KB buffer
     @memset(boundary_payload, 'B');
@@ -190,10 +187,8 @@ test "stream corruption detection" {
 
     var writer = file.writer();
 
-    // Write valid entry first
     try create_wal_entry(writer, 1, "valid entry");
 
-    // Write corrupted entry with invalid payload size
     try writer.writeInt(u64, 0x1234567890ABCDEF, .little); // checksum
     try writer.writeByte(1); // valid type
     try writer.writeInt(u32, std.math.maxInt(u32), .little); // invalid huge size
@@ -225,7 +220,6 @@ test "stream invalid entry type detection" {
 
     var writer = file.writer();
 
-    // Write entry with invalid type (0 is invalid, valid range is 1-3)
     try writer.writeInt(u64, 0x1234567890ABCDEF, .little); // checksum
     try writer.writeByte(0); // invalid type
     try writer.writeInt(u32, 4, .little); // reasonable size
@@ -274,10 +268,8 @@ test "stream truncated entry handling" {
 
     var writer = file.writer();
 
-    // Write valid complete entry
     try create_wal_entry(writer, 1, "complete");
 
-    // Write partial entry header (only checksum and type, missing size and payload)
     try writer.writeInt(u64, 0x1234567890ABCDEF, .little);
     try writer.writeByte(1);
     // Missing size and payload - file ends here

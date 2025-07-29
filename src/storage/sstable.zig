@@ -389,7 +389,7 @@ pub const SSTable = struct {
 
         // Verify file checksum if present
         if (header.file_checksum != 0) {
-            // Calculate checksum over content from header end to bloom filter end
+            // Content integrity validation excludes header to prevent checksum recursion
             const content_end = if (header.bloom_filter_size > 0)
                 header.bloom_filter_offset + header.bloom_filter_size
             else
@@ -437,7 +437,7 @@ pub const SSTable = struct {
 
     /// Find a block by ID from this SSTable
     pub fn find_block(self: *SSTable, block_id: BlockId) !?ContextBlock {
-        // Check Bloom filter first to avoid expensive disk I/O for non-existent keys
+        // Bloom filter eliminates 99%+ disk I/O for non-existent keys
         if (self.bloom_filter) |*filter| {
             if (!filter.might_contain(block_id)) {
                 // Definitely not in this SSTable - no false negatives
@@ -594,7 +594,7 @@ pub const Compactor = struct {
             }
         }
 
-        // Remove duplicates (keep latest version)
+        // LSM-tree semantics require latest version precedence for deduplication
         const unique_blocks = try self.dedup_blocks(all_blocks.items);
         defer {
             for (unique_blocks) |block| {
@@ -605,7 +605,7 @@ pub const Compactor = struct {
 
         try output_table.write_blocks(unique_blocks);
 
-        // Remove input files after successful compaction
+        // Cleanup phase: input SSTables no longer needed after merge
         for (input_paths) |path| {
             self.filesystem.remove(path) catch |err| {
                 log.warn("Failed to remove input SSTable {s}: {}", .{ path, err });

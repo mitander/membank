@@ -663,7 +663,6 @@ test "basic traversal with empty graph" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    // Add single block with no edges
     const start_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const start_block = create_test_block(start_id, "isolated block");
     try storage_engine.put_block(start_block);
@@ -685,7 +684,6 @@ test "outgoing traversal with linear chain" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    // Create linear chain: A -> B -> C
     const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
@@ -698,7 +696,6 @@ test "outgoing traversal with linear chain" {
     try storage_engine.put_block(block_b);
     try storage_engine.put_block(block_c);
 
-    // Add edges: A -> B -> C
     const edge_ab = create_test_edge(id_a, id_b, .calls);
     const edge_bc = create_test_edge(id_b, id_c, .calls);
     try storage_engine.put_edge(edge_ab);
@@ -739,7 +736,6 @@ test "incoming traversal" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    // Create chain: A -> B -> C, traverse incoming from C
     const id_a = try BlockId.from_hex("1111111111111111111111111111111111111111");
     const id_b = try BlockId.from_hex("2222222222222222222222222222222222222222");
     const id_c = try BlockId.from_hex("3333333333333333333333333333333333333333");
@@ -781,7 +777,6 @@ test "bidirectional traversal" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    // Create structure: A -> B <- C, traverse bidirectional from B
     const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
@@ -823,7 +818,6 @@ test "edge type filtering" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    // Create blocks with different edge types
     const id_a = try BlockId.from_hex("1111111111111111111111111111111111111111");
     const id_b = try BlockId.from_hex("2222222222222222222222222222222222222222");
     const id_c = try BlockId.from_hex("3333333333333333333333333333333333333333");
@@ -875,7 +869,6 @@ test "max depth limit enforcement" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    // Create deeper chain: A -> B -> C -> D
     const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
@@ -932,7 +925,6 @@ test "max results limit enforcement" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    // Create star pattern: A connects to B, C, D, E
     const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
@@ -985,7 +977,6 @@ test "breadth-first vs depth-first traversal ordering" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    // Create tree structure:
     //     A
     //   /   \
     //  B     C
@@ -1091,7 +1082,6 @@ test "convenience traversal functions" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    // Add test block
     const start_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
     const test_block = create_test_block(start_id, "convenience test");
     try storage_engine.put_block(test_block);

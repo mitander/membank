@@ -226,7 +226,7 @@ test "wal_corruption_recovery_partial_success" {
         };
 
         const corruption_offset = file_size / 2;
-        const corrupt_data = [_]u8{ 0xBA, 0xD0, 0xDA, 0xTA };
+        const corrupt_data = [_]u8{ 0xBA, 0xD0, 0xDA, 0x7A };
         try sim_vfs.inject_corruption(wal_file_path, corruption_offset, &corrupt_data);
 
         // Phase 3: Recovery should succeed partially

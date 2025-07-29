@@ -544,7 +544,7 @@ pub const SimulationVFS = struct {
         // Update disk usage
         self.fault_injection.update_disk_usage(file_data.content.items.len, 0);
 
-        // Remove the file (arena owns file content, we only free the path key)
+        // Arena memory model requires only path key cleanup
         const removed_entry = self.files.fetchRemove(path).?;
         self.allocator.free(removed_entry.key);
 
@@ -627,7 +627,7 @@ pub const SimulationVFS = struct {
             }
         }
 
-        // Remove the directory (arena owns file content, we only free the path key)
+        // Arena memory model requires only path key cleanup
         const removed_entry = self.files.fetchRemove(path).?;
         self.allocator.free(removed_entry.key);
 

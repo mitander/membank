@@ -250,7 +250,7 @@ pub const StorageEngine = struct {
 
         fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
 
-        // Check memtable first for most recent data
+        // LSM-tree read path prioritizes memtable for recency guarantees
         if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
             fatal_assert(@intFromPtr(block_ptr) != 0, "MemtableManager returned null block pointer - heap corruption detected", .{});
             fatal_assert(block_ptr.content.len > 0, "MemtableManager returned block with empty content - data corruption detected", .{});
@@ -269,7 +269,7 @@ pub const StorageEngine = struct {
             return block_ptr.*;
         }
 
-        // Search SSTables in reverse order (newest first)
+        // LSM-tree requires newest-to-oldest SSTable search for write recency
         const sstable_result = self.sstable_manager.find_block_in_sstables(block_id, self.query_cache_arena.allocator()) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("find_block_in_sstables", block_id));
             return err;
@@ -381,7 +381,7 @@ pub const StorageEngine = struct {
 
         if (edges.len > 0) {
             fatal_assert(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length - heap corruption detected", .{});
-            // Validate first edge to catch corruption
+            // Edge consistency validation prevents corrupted graph traversal
             fatal_assert(std.mem.eql(u8, &edges[0].source_id.bytes, &source_id.bytes), "First edge has wrong source_id - index corruption detected", .{});
         }
 
@@ -407,10 +407,9 @@ pub const StorageEngine = struct {
 
         const edges = self.memtable_manager.find_incoming_edges(target_id);
 
-        // Validate returned edges slice
         if (edges.len > 0) {
             fatal_assert(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length - heap corruption detected", .{});
-            // Validate first edge to catch corruption
+            // Edge consistency validation prevents corrupted graph traversal
             fatal_assert(std.mem.eql(u8, &edges[0].target_id.bytes, &target_id.bytes), "First edge has wrong target_id - index corruption detected", .{});
         }
 
@@ -469,7 +468,6 @@ pub const StorageEngine = struct {
             };
         }
 
-        // Update metrics
         _ = self.storage_metrics.sstable_writes.fetchAdd(1, .monotonic);
     }
 
@@ -595,12 +593,10 @@ test "memtable flush triggers at size threshold" {
 
     try engine.startup();
 
-    // Add blocks until flush threshold reached
     const large_content = try allocator.alloc(u8, 1024 * 256); // 256KB blocks
     defer allocator.free(large_content);
     @memset(large_content, 'A');
 
-    // Add enough blocks to exceed 1MB threshold
     for (0..5) |i| {
         const block = ContextBlock{
             .id = BlockId.generate(),
@@ -750,7 +746,6 @@ test "block iterator with memtable blocks only" {
     defer engine.deinit();
     try engine.startup();
 
-    // Add test blocks to memtable
     const block1 = ContextBlock{
         .id = BlockId.generate(),
         .version = 1,
@@ -811,7 +806,6 @@ test "block iterator with SSTable blocks" {
     defer engine.deinit();
     try engine.startup();
 
-    // Add blocks to trigger SSTable flush
     const block1 = ContextBlock{
         .id = BlockId.generate(),
         .version = 1,
@@ -863,7 +857,6 @@ test "block iterator with mixed memtable and SSTable blocks" {
     defer engine.deinit();
     try engine.startup();
 
-    // Add blocks to SSTable first
     const sstable_block = ContextBlock{
         .id = BlockId.generate(),
         .version = 1,
@@ -875,7 +868,6 @@ test "block iterator with mixed memtable and SSTable blocks" {
     try engine.put_block(sstable_block);
     try engine.flush_memtable_to_sstable();
 
-    // Add new blocks to memtable
     const memtable_block = ContextBlock{
         .id = BlockId.generate(),
         .version = 1,
@@ -926,7 +918,6 @@ test "block iterator handles multiple calls to next after exhaustion" {
     defer engine.deinit();
     try engine.startup();
 
-    // Add single test block
     const block = ContextBlock{
         .id = BlockId.generate(),
         .version = 1,

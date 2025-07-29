@@ -163,14 +163,12 @@ const StatisticalAnalyzer = struct {
         const min_ns = self.samples.items[0];
         const max_ns = self.samples.items[self.samples.items.len - 1];
 
-        // Calculate mean
         var sum: u64 = 0;
         for (self.samples.items) |sample| {
             sum += sample;
         }
         const mean_ns = sum / self.samples.items.len;
 
-        // Calculate median
         const median_ns = if (self.samples.items.len % 2 == 0) blk: {
             const mid = self.samples.items.len / 2;
             break :blk (self.samples.items[mid - 1] + self.samples.items[mid]) / 2;
@@ -178,7 +176,6 @@ const StatisticalAnalyzer = struct {
             break :blk self.samples.items[self.samples.items.len / 2];
         };
 
-        // Calculate standard deviation
         var variance_sum: u64 = 0;
         for (self.samples.items) |sample| {
             const diff = if (sample > mean_ns) sample - mean_ns else mean_ns - sample;
@@ -372,7 +369,6 @@ fn run_query_benchmarks(allocator: std.mem.Allocator) !void {
     var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();
 
-    // Setup test data
     try setup_query_test_data(&storage_engine);
 
     // Single block query benchmark
@@ -398,7 +394,6 @@ fn run_compaction_benchmarks(allocator: std.mem.Allocator) !void {
 
     try storage_engine.startup();
 
-    // Setup compaction test data
     try setup_compaction_test_data(&storage_engine);
 
     // WAL flush benchmark
@@ -444,7 +439,6 @@ fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allo
     var analyzer = StatisticalAnalyzer.init(allocator);
     defer analyzer.deinit();
 
-    // Setup test blocks
     const test_ids = try setup_read_test_blocks(storage_engine, allocator);
     defer allocator.free(test_ids);
 
@@ -478,7 +472,6 @@ fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Al
     var analyzer = StatisticalAnalyzer.init(allocator);
     defer analyzer.deinit();
 
-    // Setup initial blocks
     const test_ids = try setup_read_test_blocks(storage_engine, allocator);
     defer allocator.free(test_ids);
 
@@ -523,7 +516,6 @@ fn benchmark_block_deletes(storage_engine: *StorageEngine, allocator: std.mem.Al
 
     // Benchmark
     for (0..STATISTICAL_SAMPLES) |sample| {
-        // Setup blocks for deletion
         const delete_ids = try setup_delete_test_blocks(storage_engine, allocator, sample);
         defer allocator.free(delete_ids);
 

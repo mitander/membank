@@ -830,7 +830,6 @@ test "query engine statistics tracking" {
     try testing.expectEqual(@as(u64, 0), initial_stats.find_blocks_queries);
     try testing.expectEqual(@as(u64, 0), initial_stats.traversal_queries);
 
-    // Add test block
     const test_id = try BlockId.from_hex("1234567890123456789012345678901234567890");
     const test_block = create_test_block(test_id, "test content");
     try storage_engine.put_block(test_block);
@@ -904,7 +903,6 @@ test "query engine find_blocks execution" {
     var query_engine = QueryEngine.init(allocator, &storage_engine);
     defer query_engine.deinit();
 
-    // Add test blocks
     const test_id1 = try BlockId.from_hex("1111111111111111111111111111111111111111");
     const test_id2 = try BlockId.from_hex("2222222222222222222222222222222222222222");
     const test_block1 = create_test_block(test_id1, "content 1");
@@ -931,7 +929,6 @@ test "query engine find_block convenience method" {
     var query_engine = QueryEngine.init(allocator, &storage_engine);
     defer query_engine.deinit();
 
-    // Add test block
     const test_id = try BlockId.from_hex("3333333333333333333333333333333333333333");
     const test_block = create_test_block(test_id, "single block content");
     try storage_engine.put_block(test_block);
@@ -1021,7 +1018,6 @@ test "query engine traversal integration" {
     var query_engine = QueryEngine.init(allocator, &storage_engine);
     defer query_engine.deinit();
 
-    // Add test block for traversal
     const start_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const test_block = create_test_block(start_id, "traversal start");
     try storage_engine.put_block(test_block);

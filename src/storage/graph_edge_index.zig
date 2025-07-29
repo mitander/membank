@@ -119,7 +119,6 @@ pub const GraphEdgeIndex = struct {
 
         const arena_allocator = self.arena.allocator();
 
-        // Add to outgoing edges index (source -> targets)
         var outgoing_result = try self.outgoing_edges.getOrPut(edge.source_id);
         if (!outgoing_result.found_existing) {
             outgoing_result.value_ptr.* = std.ArrayList(GraphEdge).init(arena_allocator);
@@ -128,7 +127,7 @@ pub const GraphEdgeIndex = struct {
         try outgoing_result.value_ptr.append(edge);
         assert.assert_fmt(outgoing_result.value_ptr.items.len == outgoing_before + 1, "Outgoing edge append failed", .{});
 
-        // Add to incoming edges index (target <- sources)
+        // Bidirectional indexing enables both forward and reverse graph traversal
         var incoming_result = try self.incoming_edges.getOrPut(edge.target_id);
         if (!incoming_result.found_existing) {
             incoming_result.value_ptr.* = std.ArrayList(GraphEdge).init(arena_allocator);
@@ -185,12 +184,10 @@ pub const GraphEdgeIndex = struct {
     /// Note: This removes only direct edges; graph traversal cleanup for
     /// indirect references requires separate handling.
     pub fn remove_block_edges(self: *GraphEdgeIndex, block_id: BlockId) void {
-        // Remove all outgoing edges from this block
         if (self.outgoing_edges.fetchRemove(block_id)) |kv| {
             kv.value.deinit();
         }
 
-        // Remove all incoming edges to this block
         if (self.incoming_edges.fetchRemove(block_id)) |kv| {
             kv.value.deinit();
         }

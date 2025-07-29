@@ -221,13 +221,11 @@ test "Bloom filter basic operations" {
     try std.testing.expect(!filter.might_contain(block2));
     try std.testing.expect(!filter.might_contain(block3));
 
-    // Add block1
     filter.add(block1);
     try std.testing.expect(filter.might_contain(block1));
     try std.testing.expect(!filter.might_contain(block2));
     try std.testing.expect(!filter.might_contain(block3));
 
-    // Add block2
     filter.add(block2);
     try std.testing.expect(filter.might_contain(block1));
     try std.testing.expect(filter.might_contain(block2));
@@ -286,7 +284,6 @@ test "Bloom filter false positive behavior" {
     var added_blocks = std.ArrayList(BlockId).init(allocator);
     defer added_blocks.deinit();
 
-    // Add several blocks
     var i: u8 = 0;
     while (i < 10) : (i += 1) {
         var id_bytes: [16]u8 = undefined;

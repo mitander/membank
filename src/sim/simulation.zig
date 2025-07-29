@@ -160,13 +160,11 @@ pub const Node = struct {
 
     /// Process one simulation tick for this node.
     pub fn process_tick(self: *Self, network: *Network) void {
-        // Process incoming messages
         while (self.message_queue.items.len > 0) {
             const message = self.message_queue.orderedRemove(0);
             self.handle_message(message);
         }
 
-        // Advance filesystem time
         self.filesystem.advance_time(1);
 
         _ = network; // Future: Process network events

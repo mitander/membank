@@ -86,7 +86,6 @@ test "streaming recovery basic functionality" {
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
 
-    // Create WAL with test directory
     const test_dir = "test_wal_dir";
     try vfs_interface.mkdir(test_dir);
 
@@ -94,7 +93,6 @@ test "streaming recovery basic functionality" {
     defer test_wal.deinit();
     try test_wal.startup();
 
-    // Create test entries of different types
     const test_block1 = try create_test_block(allocator, 1);
     const test_block2 = try create_test_block(allocator, 2);
 
@@ -104,7 +102,6 @@ test "streaming recovery basic functionality" {
         .edge_type = EdgeType.references,
     };
 
-    // Write entries to WAL
     try test_wal.write_put_block(test_block1);
     try test_wal.write_put_block(test_block2);
     try test_wal.write_put_edge(test_edge);
@@ -164,7 +161,6 @@ test "streaming recovery large entries" {
     defer test_wal.deinit();
     try test_wal.startup();
 
-    // Create block with large content that exceeds typical buffer sizes
     var large_content = try allocator.alloc(u8, 64 * 1024); // 64KB content
     for (large_content, 0..) |*byte, i| {
         byte.* = @intCast(i % 256); // Recognizable pattern
@@ -174,7 +170,6 @@ test "streaming recovery large entries" {
     allocator.free(large_block.content);
     large_block.content = large_content;
 
-    // Write large block and some normal entries
     const normal_block = try create_test_block(allocator, 2);
 
     try test_wal.write_put_block(normal_block);
@@ -221,14 +216,12 @@ test "streaming recovery corruption resilience" {
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
 
-    // Create corrupted WAL file manually
     const corrupt_file = "corrupt_wal.log";
     var file = try vfs_interface.create(corrupt_file);
     defer file.close();
 
     var writer = file.writer();
 
-    // Write valid entry
     const valid_block = try create_test_block(allocator, 1);
     const valid_entry = try WALEntry.create_put_block(valid_block, allocator);
     defer valid_entry.deinit(allocator);
@@ -237,13 +230,11 @@ test "streaming recovery corruption resilience" {
     defer allocator.free(valid_data);
     try writer.writeAll(valid_data);
 
-    // Write corrupted entry with invalid payload size
     try writer.writeInt(u64, 0x1234567890ABCDEF, .little); // checksum
     try writer.writeByte(1); // valid type
     try writer.writeInt(u32, std.math.maxInt(u32), .little); // invalid huge size
     try writer.writeAll("garbage data");
 
-    // Write another valid entry after corruption
     const valid_block2 = try create_test_block(allocator, 2);
     const valid_entry2 = try WALEntry.create_put_block(valid_block2, allocator);
     defer valid_entry2.deinit(allocator);
@@ -252,7 +243,6 @@ test "streaming recovery corruption resilience" {
     defer allocator.free(valid_data2);
     try writer.writeAll(valid_data2);
 
-    // Create WAL instance for recovery
     const test_dir = "corrupt_test_dir";
     try vfs_interface.mkdir(test_dir);
 
@@ -292,7 +282,6 @@ test "streaming recovery memory efficiency" {
     defer test_wal.deinit();
     try test_wal.startup();
 
-    // Create many entries to fill a substantial WAL segment
     const num_entries = 1000;
     var expected_entries: u32 = 0;
 
@@ -337,7 +326,6 @@ test "streaming recovery empty segment" {
     var sim_vfs = try SimulationVFS.init(allocator);
     var vfs_interface = sim_vfs.vfs();
 
-    // Create empty WAL segment
     const empty_file = "empty_wal.log";
     var file = try vfs_interface.create(empty_file);
     file.close();
@@ -376,7 +364,6 @@ test "streaming recovery callback error propagation" {
     defer test_wal.deinit();
     try test_wal.startup();
 
-    // Write a test entry
     const test_block = try create_test_block(allocator, 1);
     try test_wal.write_put_block(test_block);
     try test_wal.flush();
@@ -418,7 +405,6 @@ test "streaming vs buffered recovery equivalence" {
     defer test_wal.deinit();
     try test_wal.startup();
 
-    // Create diverse set of entries to test both approaches
     const test_entries = [_]struct { block_id: u8, content_size: usize }{
         .{ .block_id = 1, .content_size = 100 },
         .{ .block_id = 2, .content_size = 8192 }, // Buffer boundary size
@@ -434,7 +420,6 @@ test "streaming vs buffered recovery equivalence" {
         expected_blocks.deinit();
     }
 
-    // Create and write test data
     for (test_entries) |entry_spec| {
         var test_block = try create_test_block(allocator, entry_spec.block_id);
 

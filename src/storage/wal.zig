@@ -54,7 +54,6 @@ const SimulationVFS = simulation_vfs.SimulationVFS;
 test "WAL entry serialization roundtrip" {
     const allocator = testing.allocator;
 
-    // Create test block
     const test_block = ContextBlock{
         .id = BlockId.from_hex("0123456789abcdeffedcba9876543210") catch unreachable,
         .version = 1,
@@ -99,7 +98,6 @@ test "WAL basic write and recovery" {
     var wal = try WAL.init(allocator, vfs_interface, wal_dir);
     defer wal.deinit();
 
-    // Create test block
     const test_block = ContextBlock{
         .id = BlockId.from_hex("1234567890abcdef1234567890abcdef") catch unreachable,
         .version = 1,

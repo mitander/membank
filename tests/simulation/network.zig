@@ -32,11 +32,9 @@ test "network partition: write succeeds after partition heals" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    // Initialize simulation with fixed seed for reproducibility
     var sim = try Simulation.init(allocator, 0xCAFE_BABE);
     defer sim.deinit();
 
-    // Create a 3-node cluster
     const node1 = try sim.add_node();
     const node2 = try sim.add_node();
     const node3 = try sim.add_node();
@@ -44,11 +42,9 @@ test "network partition: write succeeds after partition heals" {
     // Allow cluster to stabilize
     sim.tick_multiple(10);
 
-    // Write some initial data to node1
     const node1_ptr = sim.find_node(node1);
     var node1_vfs = node1_ptr.filesystem_interface();
 
-    // Create data directory first
     try node1_vfs.mkdir("data");
 
     var file = try node1_vfs.create("data/block_001.db");
@@ -61,7 +57,6 @@ test "network partition: write succeeds after partition heals" {
     // Verify data was written
     try testing.expect(node1_vfs.exists("data/block_001.db"));
 
-    // Create network partition isolating node3
     sim.partition_nodes(node1, node3);
     sim.partition_nodes(node2, node3);
 
@@ -89,11 +84,9 @@ test "simulation hostile_environment_comprehensive" {
 
     const start_time = std.time.milliTimestamp();
 
-    // Initialize simulation with hostile seed for reproducible failures
     var sim = try Simulation.init(allocator, 0xBADBADBAD);
     defer sim.deinit();
 
-    // Create multi-node cluster for comprehensive testing
     const nodes = [_]NodeId{
         try sim.add_node(),
         try sim.add_node(),
@@ -112,7 +105,6 @@ test "simulation hostile_environment_comprehensive" {
         const data_dir = try std.fmt.allocPrint(allocator, "node_{}_data", .{i});
         try node_vfs.mkdir_all(data_dir);
 
-        // Write initial data to each node
         const file_path = try std.fmt.allocPrint(allocator, "{s}/initial_block.db", .{data_dir});
         var file = try node_vfs.create(file_path);
         defer file.close();
@@ -184,7 +176,6 @@ test "simulation systematic_failure_cascade" {
     var sim = try Simulation.init(allocator, 0xCAFEBABE);
     defer sim.deinit();
 
-    // Create cluster for cascade failure testing
     const primary_node = try sim.add_node();
     const backup_nodes = [_]NodeId{
         try sim.add_node(),
@@ -200,7 +191,6 @@ test "simulation systematic_failure_cascade" {
     try primary_vfs.mkdir_all("primary/wal");
     try primary_vfs.mkdir_all("primary/data");
 
-    // Write critical data to primary
     var critical_file = try primary_vfs.create("primary/data/critical.db");
     defer critical_file.close();
     _ = try critical_file.write("Critical system data");
@@ -359,9 +349,7 @@ test "simulation performance_regression_detection" {
             const data = try std.fmt.allocPrint(allocator, "Stress test data {}", .{i});
             if (file.write(data)) |_| {
                 successful_ops += 1;
-            } else |_| {
-                // Write failures possible under stress
-            }
+            } else |_| {}
         } else |_| {
             // File creation failures possible under stress
         }

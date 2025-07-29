@@ -38,7 +38,6 @@ test "memory isolation: single test with 25 storage cycles" {
         const node_ptr = sim.find_node(node);
         const vfs = node_ptr.filesystem_interface();
 
-        // Create unique data directory for this cycle
         var data_dir_buf: [64]u8 = undefined;
         const data_dir = try std.fmt.bufPrint(&data_dir_buf, "isolation_test_{}", .{cycle});
         const data_dir_owned = try allocator.dupe(u8, data_dir);
@@ -49,10 +48,8 @@ test "memory isolation: single test with 25 storage cycles" {
 
         try engine.startup();
 
-        // Create and store multiple blocks per cycle (start from 1, all-zero BlockID invalid)
         var block_index: u32 = 1;
         while (block_index <= 5) : (block_index += 1) {
-            // Create unique block ID
             const combined_id = cycle * 100 + block_index;
             const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{combined_id});
             defer allocator.free(block_id_hex);
@@ -110,7 +107,6 @@ test "memory isolation: HashMap operations under stress" {
 
     try engine.startup();
 
-    // Create many blocks to trigger HashMap resizing (start from 1, all-zero BlockID invalid)
     var index: u32 = 1;
     while (index <= 100) : (index += 1) {
         const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{index});

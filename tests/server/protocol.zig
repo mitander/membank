@@ -144,7 +144,6 @@ test "client connection - initialization" {
 
     const allocator = testing.allocator;
 
-    // Create a mock stream
     const mock_stream = std.net.Stream{
         .handle = @as(std.posix.fd_t, -1),
     };
@@ -327,7 +326,6 @@ test "connection state machine - header reading with partial I/O" {
 
     const allocator = testing.allocator;
 
-    // Create a mock pipe pair to simulate async I/O
     const pipe_result = try std.posix.pipe();
     const read_fd = pipe_result[0];
     const write_fd = pipe_result[1];
@@ -380,7 +378,6 @@ test "connection state machine - payload reading with flow control" {
 
     const allocator = testing.allocator;
 
-    // Create a mock pipe pair
     const pipe_result = try std.posix.pipe();
     const read_fd = pipe_result[0];
     const write_fd = pipe_result[1];
@@ -451,7 +448,6 @@ test "connection state machine - response state transitions" {
 
     const allocator = testing.allocator;
 
-    // Create a mock pipe pair for successful write operations
     const pipe_result = try std.posix.pipe();
     const read_fd = pipe_result[0];
     const write_fd = pipe_result[1];
@@ -493,7 +489,6 @@ test "connection state machine - request size limits" {
 
     const allocator = testing.allocator;
 
-    // Create a mock pipe pair
     const pipe_result = try std.posix.pipe();
     const read_fd = pipe_result[0];
     const write_fd = pipe_result[1];
@@ -536,7 +531,6 @@ test "connection state machine - client disconnection handling" {
 
     const allocator = testing.allocator;
 
-    // Create a mock pipe pair
     const pipe_result = try std.posix.pipe();
     const read_fd = pipe_result[0];
     const write_fd = pipe_result[1];
@@ -566,7 +560,6 @@ test "connection state machine - arena memory isolation" {
 
     const allocator = testing.allocator;
 
-    // Create a mock pipe pair
     const pipe_result = try std.posix.pipe();
     const read_fd = pipe_result[0];
     const write_fd = pipe_result[1];

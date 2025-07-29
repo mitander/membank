@@ -426,15 +426,12 @@ test "semantic result sorting" {
 test "execute_find_blocks with storage engine" {
     const allocator = testing.allocator;
 
-    // Create test storage engine
     var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_operations");
     defer storage_engine.deinit();
     try storage_engine.startup();
-
-    // Add test blocks
     const test_id1 = try BlockId.from_hex("1111111111111111111111111111111111111111");
     const test_id2 = try BlockId.from_hex("2222222222222222222222222222222222222222");
     const missing_id = try BlockId.from_hex("3333333333333333333333333333333333333333");
@@ -483,7 +480,6 @@ test "execute_find_blocks with storage engine" {
 test "execute_keyword_query with word matching" {
     const allocator = testing.allocator;
 
-    // Create test storage engine
     var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -491,7 +487,6 @@ test "execute_keyword_query with word matching" {
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    // Add test blocks with varying similarity to query
     const blocks = [_]ContextBlock{
         .{
             .id = try BlockId.from_hex("1111111111111111111111111111111111111111"),
@@ -618,7 +613,6 @@ test "semantic query result operations" {
 test "block existence checking" {
     const allocator = testing.allocator;
 
-    // Create test storage engine
     var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -633,7 +627,6 @@ test "block existence checking" {
     try testing.expect(!block_exists(&storage_engine, existing_id));
     try testing.expect(!block_exists(&storage_engine, missing_id));
 
-    // Add a block
     const test_block = ContextBlock{
         .id = existing_id,
         .version = 1,
@@ -656,7 +649,6 @@ test "block existence checking" {
 test "find_block convenience function" {
     const allocator = testing.allocator;
 
-    // Create test storage engine
     var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -686,7 +678,6 @@ test "find_block convenience function" {
 test "large dataset query performance" {
     const allocator = testing.allocator;
 
-    // Create test storage engine
     var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -694,7 +685,6 @@ test "large dataset query performance" {
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    // Add multiple blocks
     const block_count = 50;
     var block_ids = try allocator.alloc(BlockId, block_count);
     defer allocator.free(block_ids);

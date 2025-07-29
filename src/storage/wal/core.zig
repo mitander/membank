@@ -78,7 +78,7 @@ pub const WAL = struct {
     pub fn startup(self: *WAL) WALError!void {
         concurrency.assert_main_thread();
 
-        // Create directory if it doesn't exist
+        // WAL persistence requires directory structure to exist
         self.vfs.mkdir(self.directory) catch |err| switch (err) {
             error.FileExists => {},
             error.AccessDenied => return WALError.AccessDenied,
@@ -150,10 +150,11 @@ pub const WAL = struct {
         defer write_arena.deinit();
         const write_allocator = write_arena.allocator();
 
-        // Allocate write buffer with isolation barriers
+        // Fill with distinctive pattern first to detect uninitialized writes,
+        // then zero-initialize for actual serialization use
         const write_buffer = try write_allocator.alloc(u8, serialized_size);
-        @memset(write_buffer, 0xDD); // Fill with distinctive pattern first
-        @memset(write_buffer, 0); // Then zero-initialize for actual use
+        @memset(write_buffer, 0xDD);
+        @memset(write_buffer, 0);
 
         const bytes_written = try entry.serialize(write_buffer);
         assert(bytes_written == serialized_size);
@@ -192,7 +193,7 @@ pub const WAL = struct {
 
     /// Write buffer to file with immediate verification
     fn write_and_verify(self: *WAL, entry: WALEntry, write_buffer: []const u8) WALError!usize {
-        // Write entire WAL entry as single atomic operation with validation
+        // Atomic write guarantees durability before transaction commits
         const written = self.active_file.?.write(write_buffer) catch return WALError.IoError;
         assert(written == write_buffer.len);
 
@@ -725,7 +726,6 @@ test "WAL statistics accuracy" {
     try testing.expectEqual(@as(u64, 0), initial_stats.entries_written);
     try testing.expectEqual(@as(u64, 0), initial_stats.bytes_written);
 
-    // Write test entry
     const test_block = create_test_block();
     const entry = try WALEntry.create_put_block(test_block, allocator);
     defer entry.deinit(allocator);

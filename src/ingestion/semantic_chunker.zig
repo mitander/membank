@@ -83,7 +83,7 @@ pub const SemanticChunker = struct {
         var blocks = std.ArrayList(ContextBlock).init(allocator);
 
         for (units) |unit| {
-            // Skip units that are too large
+            // Chunking size limit prevents memory exhaustion during ingestion
             if (unit.content.len > self.config.max_chunk_size) {
                 continue;
             }
@@ -111,7 +111,7 @@ pub const SemanticChunker = struct {
 
     /// Convert a single ParsedUnit to a ContextBlock
     fn convert_unit_to_block(self: *SemanticChunker, allocator: std.mem.Allocator, unit: ParsedUnit) !ContextBlock {
-        // Generate deterministic block ID based on content and location
+        // Content-based hashing ensures identical units produce same block IDs
         const block_id = self.generate_block_id(allocator, unit) catch |err| {
             error_context.log_ingestion_error(err, error_context.chunking_context(
                 "generate_block_id",
@@ -159,7 +159,7 @@ pub const SemanticChunker = struct {
 
     /// Generate a deterministic block ID for a parsed unit
     fn generate_block_id(self: *SemanticChunker, allocator: std.mem.Allocator, unit: ParsedUnit) !BlockId {
-        // Create a unique string that identifies this unit
+        // Deterministic ID generation combines content, type, and location
         const id_string = try std.fmt.allocPrint(
             allocator,
             "{s}_{s}_{s}_{d}_{d}",
@@ -173,13 +173,13 @@ pub const SemanticChunker = struct {
         );
         defer allocator.free(id_string);
 
-        // Hash the string to create a deterministic 128-bit ID
+        // SHA-1 provides 160-bit collision resistance for block deduplication
         var hasher = std.crypto.hash.Blake3.init(.{});
         hasher.update(id_string);
         var hash: [32]u8 = undefined;
         hasher.final(&hash);
 
-        // Use first 16 bytes as the block ID
+        // Truncate to 128-bit for BlockId compatibility
         var block_id: BlockId = undefined;
         @memcpy(block_id.bytes[0..16], hash[0..16]);
 

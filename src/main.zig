@@ -132,7 +132,6 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("✓ Query engine initialized\n\n", .{});
     log.info("Query engine initialization completed", .{});
 
-    // Create sample context blocks
     const block1_id = try BlockId.from_hex("0123456789abcdeffedcba9876543210");
     const block1 = ContextBlock{
         .id = block1_id,

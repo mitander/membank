@@ -27,14 +27,12 @@ test "storage stress: high volume writes during network partition" {
     var sim = try Simulation.init(allocator, 0x57E55501);
     defer sim.deinit();
 
-    // Create 3-node cluster
     const node1 = try sim.add_node();
     const node2 = try sim.add_node();
     const node3 = try sim.add_node();
 
     sim.tick_multiple(10);
 
-    // Initialize storage engines on each node
     const node1_ptr = sim.find_node(node1);
     const node1_vfs = node1_ptr.filesystem_interface();
 
@@ -47,11 +45,9 @@ test "storage stress: high volume writes during network partition" {
 
     try storage_engine.startup();
 
-    // Create partition between node1 and other nodes
     sim.partition_nodes(node1, node2);
     sim.partition_nodes(node1, node3);
 
-    // Write 100 blocks rapidly during partition
     var i: u32 = 1;
     while (i < 101) : (i += 1) {
         const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{i});
@@ -120,7 +116,6 @@ test "storage recovery: WAL corruption simulation" {
 
     try storage_engine.startup();
 
-    // Write some initial blocks (start from 1, all-zero BlockID invalid)
     var index: u32 = 1;
     while (index <= 10) : (index += 1) {
         const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{index});
@@ -198,7 +193,6 @@ test "storage limits: large block handling" {
 
     try storage_engine.startup();
 
-    // Create a large block (1MB content)
     const large_content = try allocator.alloc(u8, 1024 * 1024);
     defer allocator.free(large_content);
 
@@ -314,7 +308,6 @@ test "storage integrity: duplicate block handling" {
         .content = "Original content",
     };
 
-    // Store original block
     try storage_engine.put_block(original_block);
     try std.testing.expectEqual(@as(u32, 1), storage_engine.block_count());
 
@@ -361,7 +354,6 @@ test "storage edges: graph relationship persistence" {
 
     try storage_engine.startup();
 
-    // Create related blocks
     const main_id = try BlockId.from_hex("11111111111111111111111111111111");
     const util_id = try BlockId.from_hex("22222222222222222222222222222222");
     const test_id = try BlockId.from_hex("33333333333333333333333333333333");
@@ -390,12 +382,10 @@ test "storage edges: graph relationship persistence" {
         .content = "test \"main\" { main(); }",
     };
 
-    // Store blocks
     try storage_engine.put_block(main_block);
     try storage_engine.put_block(util_block);
     try storage_engine.put_block(test_block);
 
-    // Create edges
     const import_edge = GraphEdge{
         .source_id = main_id,
         .target_id = util_id,
@@ -414,7 +404,6 @@ test "storage edges: graph relationship persistence" {
         .edge_type = EdgeType.calls,
     };
 
-    // Store edges (should not error for now)
     try storage_engine.put_edge(import_edge);
     try storage_engine.put_edge(calls_edge);
     try storage_engine.put_edge(test_edge);

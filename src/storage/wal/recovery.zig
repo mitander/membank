@@ -307,7 +307,6 @@ test "recover_from_segment - single valid entry" {
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Create test block and serialize it
     const test_block = create_test_block();
     const serialized_block = try allocator.alloc(u8, test_block.serialized_size());
     defer allocator.free(serialized_block);
@@ -375,7 +374,6 @@ test "recover_from_segment - corrupted entry handling" {
 
     var file = try sim_vfs.vfs().create("corrupted.wal", .write);
 
-    // Write a valid entry first
     const valid_payload = "valid entry";
     const valid_entry = try create_test_wal_entry(0x01, valid_payload, allocator);
     defer allocator.free(valid_entry);
@@ -388,7 +386,6 @@ test "recover_from_segment - corrupted entry handling" {
     std.mem.writeInt(u32, bad_data[9..13], 0, .little);
     _ = try file.write(&bad_data);
 
-    // Write another valid entry after corruption
     const valid_payload2 = "second valid entry";
     const valid_entry2 = try create_test_wal_entry(0x02, valid_payload2, allocator);
     defer allocator.free(valid_entry2);
@@ -504,7 +501,6 @@ test "recover_from_segments - corrupted segment skipping" {
     _ = try file.write(&corrupted_data);
     file.close();
 
-    // Create another valid segment
     file = try sim_vfs.vfs().create("test_corrupted_segments/wal_0002.log", .write);
     const valid_entry2 = try create_test_wal_entry(0x02, "valid2", allocator);
     defer allocator.free(valid_entry2);

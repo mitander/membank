@@ -402,7 +402,6 @@ test "WALEntryStream read single complete entry" {
     var vfs_sim = SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
-    // Create test file with a single WAL entry
     const test_path = "single_entry.wal";
     var file = try vfs_sim.vfs().create(test_path);
 

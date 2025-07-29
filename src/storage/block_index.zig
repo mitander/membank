@@ -306,7 +306,6 @@ test "clear operation resets index to empty state efficiently" {
     var index = BlockIndex.init(testing.allocator);
     defer index.deinit();
 
-    // Add multiple blocks
     for (0..10) |i| {
         const block = ContextBlock{
             .id = BlockId.generate(),
@@ -378,7 +377,6 @@ test "large block content handling" {
     var index = BlockIndex.init(allocator);
     defer index.deinit();
 
-    // Create a moderately large block (1MB)
     const large_content = try allocator.alloc(u8, 1024 * 1024);
     defer allocator.free(large_content);
 

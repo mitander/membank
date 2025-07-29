@@ -702,7 +702,6 @@ test "filtered query result operations" {
 test "execute filtered query with storage engine" {
     const allocator = testing.allocator;
 
-    // Create test storage engine
     var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -710,7 +709,6 @@ test "execute filtered query with storage engine" {
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    // Add test blocks with varying content
     const blocks = [_]ContextBlock{
         .{
             .id = try BlockId.from_hex("1111111111111111111111111111111111111111"),
@@ -768,7 +766,6 @@ test "execute filtered query with storage engine" {
 test "filtered query with pagination" {
     const allocator = testing.allocator;
 
-    // Create test storage engine
     var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -776,7 +773,6 @@ test "filtered query with pagination" {
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    // Add multiple matching blocks
     for (0..10) |i| {
         var id_bytes: [16]u8 = undefined;
         std.mem.writeInt(u128, &id_bytes, @as(u128, i), .big);
