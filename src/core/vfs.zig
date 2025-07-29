@@ -434,6 +434,58 @@ pub const VFile = struct {
         };
     }
 
+    pub fn write_at(self: *VFile, offset: u64, data: []const u8) VFileError!usize {
+        return switch (self.impl) {
+            .production => |*prod| blk: {
+                if (prod.closed) return VFileError.FileClosed;
+
+                // Save current position
+                const current_pos = prod.file.getPos() catch return VFileError.IoError;
+
+                // Seek to target offset
+                prod.file.seekTo(offset) catch return VFileError.IoError;
+
+                // Write data
+                const bytes_written = prod.file.write(data) catch |err| switch (err) {
+                    error.AccessDenied => return VFileError.WriteError,
+                    error.NoSpaceLeft => return VFileError.WriteError,
+                    error.Unexpected => return VFileError.IoError,
+                    else => return VFileError.IoError,
+                };
+
+                // Restore original position
+                prod.file.seekTo(current_pos) catch return VFileError.IoError;
+
+                break :blk bytes_written;
+            },
+            .simulation => |*sim| blk: {
+                if (sim.closed) return VFileError.FileClosed;
+                if (!sim.mode.can_write()) return VFileError.WriteError;
+
+                // CRITICAL: VFS handle corruption detection
+                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in write_at: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
+                assert(data.len > 0);
+
+                // Check fault injection
+                const actual_write_size = sim.fault_injection_fn(sim.vfs_ptr, data.len) catch |err| {
+                    return err;
+                };
+
+                // Ensure file is large enough
+                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.IoError;
+                const required_size = offset + actual_write_size;
+                if (file_data.content.items.len < required_size) {
+                    file_data.content.resize(required_size) catch return VFileError.WriteError;
+                }
+
+                // Write data at offset
+                @memcpy(file_data.content.items[offset .. offset + actual_write_size], data[0..actual_write_size]);
+
+                break :blk actual_write_size;
+            },
+        };
+    }
+
     pub fn seek(self: *VFile, pos: u64, whence: SeekFrom) VFileError!u64 {
         return switch (self.impl) {
             .production => |*prod| blk: {

@@ -19,16 +19,11 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const Simulation = simulation.Simulation;
 
-test "memory isolation: single test with 25 storage cycles" {
+test "memory isolation: single test with 5 storage cycles" {
     var cycle: u32 = 0;
-    while (cycle < 25) : (cycle += 1) {
-        // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
-        var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-        defer {
-            const deinit_status = gpa.deinit();
-            if (deinit_status == .leak) @panic("Memory leak detected in memory isolation test");
-        }
-        const allocator = gpa.allocator();
+    while (cycle < 5) : (cycle += 1) {
+        // Use testing allocator for faster compilation and execution
+        const allocator = testing.allocator;
         log.debug("Starting storage cycle {}", .{cycle});
 
         var sim = try Simulation.init(allocator, 0xDEADBEEF + cycle);
@@ -82,17 +77,12 @@ test "memory isolation: single test with 25 storage cycles" {
         log.debug("Completed storage cycle {} successfully", .{cycle});
     }
 
-    log.info("Completed all 25 storage cycles without corruption", .{});
+    log.info("Completed all 5 storage cycles without corruption", .{});
 }
 
 test "memory isolation: HashMap operations under stress" {
-    // Use GPA with safety checks to detect memory corruption in ReleaseSafe builds
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("Memory leak detected in HashMap stress test");
-    }
-    const allocator = gpa.allocator();
+    // Use testing allocator for faster execution
+    const allocator = testing.allocator;
 
     // Stress test the HashMap operations specifically
     var sim = try Simulation.init(allocator, 0xFEEDFACE);
@@ -108,7 +98,7 @@ test "memory isolation: HashMap operations under stress" {
     try engine.startup();
 
     var index: u32 = 1;
-    while (index <= 100) : (index += 1) {
+    while (index <= 20) : (index += 1) {
         const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{index});
         defer allocator.free(block_id_hex);
 

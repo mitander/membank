@@ -115,7 +115,7 @@ test "debug_allocator torture test integration" {
     try testing.expectEqual(@as(u64, 0), debug_stats.alignment_violations);
     try testing.expectEqual(@as(u64, 0), debug_stats.invalid_frees);
 
-    const torture_stats = tester.get_stats();
+    const torture_stats = tester.stats();
     try testing.expect(torture_stats.successful_allocations > 0);
     try testing.expect(torture_stats.successful_frees > 0);
     try testing.expectEqual(@as(u64, 0), torture_stats.pattern_violations);
@@ -141,7 +141,7 @@ test "alignment stress testing" {
     try testing.expectEqual(@as(u64, 0), debug_stats.alignment_violations);
     try testing.expectEqual(@as(u64, 0), debug_stats.buffer_overflows);
 
-    const torture_stats = tester.get_stats();
+    const torture_stats = tester.stats();
     try testing.expectEqual(@as(u64, 0), torture_stats.alignment_violations);
 }
 
@@ -159,7 +159,7 @@ test "pattern validation memory integrity" {
     const debug_stats = debug_alloc.statistics();
     try testing.expectEqual(@as(u64, 0), debug_stats.buffer_overflows);
 
-    const torture_stats = tester.get_stats();
+    const torture_stats = tester.stats();
     try testing.expectEqual(@as(u64, 0), torture_stats.pattern_violations);
     try testing.expect(torture_stats.successful_allocations >= 100);
 }
@@ -183,7 +183,7 @@ test "comprehensive memory safety validation" {
     try testing.expectEqual(@as(u64, 0), debug_stats.alignment_violations);
     try testing.expectEqual(@as(u64, 0), debug_stats.invalid_frees);
 
-    const torture_stats = tester.get_stats();
+    const torture_stats = tester.stats();
     try testing.expectEqual(@as(u64, 0), torture_stats.pattern_violations);
     try testing.expectEqual(@as(u64, 0), torture_stats.alignment_violations);
 

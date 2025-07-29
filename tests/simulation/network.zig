@@ -465,10 +465,12 @@ test "deterministic replay: same seed produces identical results" {
 
         for (0..10) |i| {
             const file_path = try std.fmt.allocPrint(allocator, "replay_test/file_{}.dat", .{i});
+            defer allocator.free(file_path);
             if (node_vfs.create(file_path)) |file_result| {
                 var file = file_result;
                 defer file.close();
                 const data = try std.fmt.allocPrint(allocator, "Replay test {}", .{i});
+                defer allocator.free(data);
                 if (file.write(data)) |_| {
                     try results1.append(try allocator.dupe(u8, data));
                 } else |_| {
@@ -503,10 +505,12 @@ test "deterministic replay: same seed produces identical results" {
 
         for (0..10) |i| {
             const file_path = try std.fmt.allocPrint(allocator, "replay_test/file_{}.dat", .{i});
+            defer allocator.free(file_path);
             if (node_vfs.create(file_path)) |file_result| {
                 var file = file_result;
                 defer file.close();
                 const data = try std.fmt.allocPrint(allocator, "Replay test {}", .{i});
+                defer allocator.free(data);
                 if (file.write(data)) |_| {
                     try results2.append(try allocator.dupe(u8, data));
                 } else |_| {

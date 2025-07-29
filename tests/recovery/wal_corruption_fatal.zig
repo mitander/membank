@@ -112,7 +112,7 @@ test "CorruptionTracker failure rate calculation accuracy" {
 }
 
 test "CorruptionTracker elevated corruption detection" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Below minimum operations threshold - not elevated
     for (0..50) |_| {
@@ -142,36 +142,6 @@ test "CorruptionTracker WAL magic validation success" {
     tracker.validate_entry_magic(WAL_ENTRY_MAGIC, 0);
     try testing.expectEqual(@as(u32, 0), tracker.consecutive_failures);
     try testing.expectEqual(@as(u32, 2), tracker.total_operations);
-}
-
-test "CorruptionTracker WAL file magic validation expects panic on corruption" {
-    // This test documents that invalid file magic should trigger fatal_assert
-
-    var tracker = CorruptionTracker.init();
-    _ = tracker; // Suppress unused variable warning
-
-    // Invalid file magic should trigger fatal_assert immediately
-    // Note: In actual testing, this would be verified with expectPanic
-
-    // tracker.validate_file_magic(0xDEADBEEF, "corrupted.log"); // <- This would panic
-
-    // Document expected behavior: immediate termination on magic corruption
-    try testing.expect(true); // Placeholder for documentation
-}
-
-test "CorruptionTracker WAL entry magic validation expects panic on corruption" {
-    // This test documents that invalid entry magic should trigger fatal_assert
-
-    var tracker = CorruptionTracker.init();
-    _ = tracker; // Suppress unused variable warning
-
-    // Invalid entry magic should trigger fatal_assert immediately
-    // Note: In actual testing, this would be verified with expectPanic
-
-    // tracker.validate_entry_magic(0xDEADBEEF, 1024); // <- This would panic
-
-    // Document expected behavior: immediate termination on magic corruption
-    try testing.expect(true); // Placeholder for documentation
 }
 
 test "CorruptionTracker reset functionality" {
