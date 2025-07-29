@@ -169,7 +169,7 @@ test_job() {
     fi
 
     log_step "Running test suite"
-    if ! ./zig/zig build test -Doptimize="$OPTIMIZE"; then
+    if ! ./zig/zig build test-all -Doptimize="$OPTIMIZE"; then
         log_error "Test suite failed"
         return 1
     fi
@@ -337,7 +337,7 @@ memory_job() {
 
     if command -v valgrind &> /dev/null; then
         log_step "Running Valgrind memory error detection (abbreviated for local CI)"
-        if ! ./zig/zig build test -Doptimize="$OPTIMIZE"; then
+        if ! ./zig/zig build test-all -Doptimize="$OPTIMIZE"; then
             log_error "Test build failed for Valgrind analysis"
             return 1
         fi

@@ -47,7 +47,7 @@ jobs:
         run: ./zig/zig build -Doptimize=ReleaseSafe
 
       - name: Run tests
-        run: ./zig/zig build test -Doptimize=ReleaseSafe
+        run: ./zig/zig build test-all -Doptimize=ReleaseSafe
 
       - name: Run tidy checks
         run: ./zig/zig build tidy -Doptimize=ReleaseSafe
@@ -145,7 +145,7 @@ jobs:
             ${{ runner.os }}-zig-${{ steps.zig-version.outputs.version }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-
 
       - name: Generate coverage
-        run: ./zig/zig build test -Doptimize=ReleaseSafe -- --summary all
+        run: ./zig/zig build test-all -Doptimize=ReleaseSafe -- --summary all
 
   lint:
     name: Lint
@@ -437,7 +437,7 @@ jobs:
       - name: Valgrind memory error detection
         run: |
           echo "-> Building test executable for Valgrind analysis..."
-          ./zig/zig build test -Doptimize=ReleaseSafe
+          ./zig/zig build test-all -Doptimize=ReleaseSafe
 
           echo "-> Running Valgrind memory error detection..."
           # Run core memory tests through Valgrind

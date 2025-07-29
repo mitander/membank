@@ -9,10 +9,11 @@
 
 ## Core Workflow
 
-**Golden Rule**: `./zig/zig build test` must pass before every commit.
+**Golden Rule**: `./zig/zig build test` (fast unit tests) must pass before every commit. Full test suite runs in CI.
 
 ```bash
-./zig/zig build test         # Build + run all tests (unit/simulation/integration)
+./zig/zig build test         # Fast unit tests (< 30 seconds, development workflow)
+./zig/zig build test-all     # Full test suite (CI/validation, several minutes)
 ./zig/zig build run          # Start CortexDB server
 ./zig/zig build check        # Quick compilation + quality checks
 ```
@@ -135,7 +136,7 @@ Startup memory usage reduced from 200MB to <10MB for large WAL files.
 - Subject line <50 chars
 - Description explains WHY, bullet points explain WHAT
 - Never mention AI/Claude/assistants
-- Test locally with `./zig/zig build test` first
+- Test locally with `./zig/zig build test` (fast) or `./zig/zig build test-all` (comprehensive) first
 
 ## Code Standards
 

@@ -1,23 +1,40 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
+    // Build configuration options
+    const enable_statistics = b.option(bool, "enable-stats", "Enable runtime statistics collection (debug builds only)") orelse false;
+    const enable_detailed_logging = b.option(bool, "enable-detailed-logs", "Enable detailed debug logging") orelse false;
+    const enable_fault_injection = b.option(bool, "enable-fault-injection", "Enable fault injection testing") orelse false;
     const target = b.standardTargetOptions(.{});
-    const optimize_mode = b.standardOptimizeOption(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    // Create build options module
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "enable_statistics", enable_statistics);
+    build_options.addOption(bool, "enable_detailed_logging", enable_detailed_logging);
+    build_options.addOption(bool, "enable_fault_injection", enable_fault_injection);
+    build_options.addOption(bool, "is_debug_build", optimize == .Debug);
 
     // Create the cortexdb library module
     const cortexdb_module = b.createModule(.{
         .root_source_file = b.path("src/cortexdb.zig"),
+        .target = target,
+        .optimize = optimize,
     });
 
     // Main executable
+    // Add build options to cortexdb module
+    cortexdb_module.addImport("build_options", build_options.createModule());
+
     const exe = b.addExecutable(.{
         .name = "cortexdb",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
-            .optimize = optimize_mode,
+            .optimize = optimize,
         }),
     });
+    exe.root_module.addImport("cortexdb", cortexdb_module);
     b.installArtifact(exe);
 
     // Run command for main executable
@@ -168,7 +185,7 @@ pub fn build(b: *std.Build) void {
             .root_module = b.createModule(.{
                 .root_source_file = b.path(config.source_file),
                 .target = target,
-                .optimize = optimize_mode,
+                .optimize = optimize,
             }),
         });
         // Add cortexdb module to all tests
@@ -188,16 +205,26 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/dev/tidy.zig"),
             .target = target,
-            .optimize = optimize_mode,
+            .optimize = optimize,
         }),
     });
     tidy_tests.root_module.addImport("cortexdb", cortexdb_module);
     const run_tidy_tests = b.addRunArtifact(tidy_tests);
 
-    // Test step that runs all tests
-    const test_step = b.step("test", "Run all tests");
+    // Fast unit test step (developer default)
+    const unit_test_index = blk: {
+        for (test_configs, 0..) |config, i| {
+            if (std.mem.eql(u8, config.name, "unit")) break :blk i;
+        }
+        @panic("unit test config not found");
+    };
+    const test_step = b.step("test", "Run fast unit tests (developer default)");
+    test_step.dependOn(&test_steps[unit_test_index].step);
+
+    // Full test suite (CI and validation)
+    const test_all_step = b.step("test-all", "Run all tests including stress tests");
     for (test_steps) |run_test| {
-        test_step.dependOn(&run_test.step);
+        test_all_step.dependOn(&run_test.step);
     }
 
     // Code quality steps
@@ -226,7 +253,7 @@ pub fn build(b: *std.Build) void {
     check_step.dependOn(&run_tidy_tests.step);
 
     const ci_step = b.step("ci", "Run all CI checks (tests, tidy, format)");
-    ci_step.dependOn(test_step);
+    ci_step.dependOn(test_all_step);
     ci_step.dependOn(&run_tidy_tests.step);
     ci_step.dependOn(&fmt_check.step);
 
