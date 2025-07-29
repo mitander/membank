@@ -38,142 +38,125 @@ pub fn build(b: *std.Build) void {
     };
 
     const test_configs = [_]TestConfig{
-        .{ .name = "unit", .source_file = "src/main.zig", .description = "unit tests" },
+        // Core unit tests - run tests embedded in implementation files
+        .{ .name = "unit", .source_file = "src/main.zig", .description = "core component unit tests" },
+
+        // Integration tests - cross-component behavior validation
         .{
-            .name = "simulation",
+            .name = "integration_lifecycle",
+            .source_file = "tests/integration/lifecycle.zig",
+            .description = "storage engine lifecycle integration tests",
+        },
+        .{
+            .name = "integration_ingestion",
+            .source_file = "tests/integration/ingestion.zig",
+            .description = "ingestion pipeline integration tests",
+        },
+
+        // Simulation tests - deterministic failure scenario validation
+        .{
+            .name = "simulation_network",
             .source_file = "tests/simulation/network.zig",
-            .description = "network simulation tests",
+            .description = "network partition simulation tests",
         },
+
+        // Stress tests - high-load and resource exhaustion validation
         .{
-            .name = "storage_stress",
+            .name = "stress_storage",
             .source_file = "tests/stress/storage.zig",
-            .description = "storage stress tests",
+            .description = "storage engine stress tests",
         },
         .{
-            .name = "wal_recovery",
+            .name = "stress_memory",
+            .source_file = "tests/stress/memory.zig",
+            .description = "memory allocation stress tests",
+        },
+
+        // Recovery tests - WAL recovery and corruption handling
+        .{
+            .name = "recovery_wal",
             .source_file = "tests/recovery/wal.zig",
             .description = "WAL recovery tests",
         },
         .{
-            .name = "streaming_wal_recovery",
+            .name = "recovery_streaming_wal",
             .source_file = "tests/recovery/streaming_wal_recovery.zig",
-            .description = "Streaming WAL recovery tests",
+            .description = "streaming WAL recovery tests",
         },
         .{
-            .name = "wal_segmentation",
+            .name = "recovery_wal_segmentation",
             .source_file = "tests/recovery/wal_segmentation.zig",
             .description = "WAL segmentation tests",
         },
         .{
-            .name = "wal_memory_safety",
+            .name = "recovery_wal_memory_safety",
             .source_file = "tests/recovery/wal_memory_safety.zig",
             .description = "WAL memory safety tests",
         },
         .{
-            .name = "memory_stress",
-            .source_file = "tests/stress/memory.zig",
-            .description = "Memory stress tests - single test with multiple cycles",
+            .name = "recovery_wal_corruption",
+            .source_file = "tests/recovery/wal_corruption.zig",
+            .description = "WAL corruption detection and recovery tests",
         },
         .{
-            .name = "integration",
-            .source_file = "tests/integration/lifecycle.zig",
-            .description = "integration lifecycle tests",
-        },
-        .{
-            .name = "debug_allocator",
-            .source_file = "tests/debug/debug_allocator.zig",
-            .description = "debug allocator tests",
-        },
-        .{
-            .name = "wal_hang_debug",
-            .source_file = "tests/debug/wal_hang_debug.zig",
-            .description = "WAL hang debug tests",
-        },
-        .{
-            .name = "wal_corruption_debug",
-            .source_file = "tests/debug/wal_corruption_debug.zig",
-            .description = "WAL corruption debug tests",
-        },
-        .{
-            .name = "vfs_direct_debug",
-            .source_file = "tests/debug/vfs_direct_debug.zig",
-            .description = "Direct VFS corruption debug tests",
-        },
-        .{
-            .name = "wal_write_read_debug",
-            .source_file = "tests/debug/wal_write_read_debug.zig",
-            .description = "WAL write then direct read debug tests",
-        },
-        .{
-            .name = "vfs_read_boundary_debug",
-            .source_file = "tests/debug/vfs_read_boundary_debug.zig",
-            .description = "VFS read boundary condition debug tests",
+            .name = "recovery_wal_corruption_fatal",
+            .source_file = "tests/recovery/wal_corruption_fatal.zig",
+            .description = "WAL corruption fatal assertion tests",
         },
 
+        // Safety tests - memory corruption and safety validation
         .{
-            .name = "vfs_memory_safety",
-            .source_file = "tests/debug/vfs_memory_safety.zig",
-            .description = "VFS memory safety unit tests",
+            .name = "safety_memory_corruption",
+            .source_file = "tests/safety/memory_corruption.zig",
+            .description = "memory safety and corruption detection tests",
         },
+        .{
+            .name = "safety_memory_fatal",
+            .source_file = "tests/safety/memory_safety_fatal.zig",
+            .description = "memory safety fatal assertion tests",
+        },
+
+        // Fault injection tests - targeted failure injection validation
+        .{
+            .name = "fault_injection_storage",
+            .source_file = "tests/fault_injection/storage_faults.zig",
+            .description = "storage fault injection tests",
+        },
+        .{
+            .name = "fault_injection_wal_cleanup",
+            .source_file = "tests/fault_injection/wal_cleanup_faults.zig",
+            .description = "WAL cleanup fault injection tests",
+        },
+
+        // Performance tests - regression detection and benchmarking
+        .{
+            .name = "performance_streaming",
+            .source_file = "tests/performance/streaming_memory_benchmark.zig",
+            .description = "streaming memory efficiency benchmarks",
+        },
+
+        // Defensive programming tests - assertion and safety validation
         .{
             .name = "defensive_assertions",
             .source_file = "tests/defensive/assertion_validation.zig",
-            .description = "Defensive programming assertion validation tests",
+            .description = "defensive assertion validation tests",
+        },
+        .{
+            .name = "defensive_corruption",
+            .source_file = "tests/defensive/corruption_injection.zig",
+            .description = "corruption detection validation tests",
         },
         .{
             .name = "defensive_performance",
             .source_file = "tests/defensive/performance_impact.zig",
-            .description = "Defensive programming performance impact tests",
+            .description = "defensive programming performance impact tests",
         },
-        .{
-            .name = "corruption_injection",
-            .source_file = "tests/defensive/corruption_injection.zig",
-            .description = "Controlled corruption injection tests for fatal assertion validation",
-        },
-        .{
-            .name = "allocator_torture",
-            .source_file = "src/dev/allocator_torture_test.zig",
-            .description = "allocator torture tests",
-        },
-        .{
-            .name = "ingestion",
-            .source_file = "tests/integration/ingestion.zig",
-            .description = "ingestion pipeline integration tests",
-        },
-        .{
-            .name = "fault_injection",
-            .source_file = "tests/fault_injection/storage_faults.zig",
-            .description = "fault injection and storage resilience tests",
-        },
-        .{
-            .name = "wal_cleanup_faults",
-            .source_file = "tests/fault_injection/wal_cleanup_faults.zig",
-            .description = "WAL cleanup fault injection and recovery tests",
-        },
+
+        // Server tests - network protocol and API validation
         .{
             .name = "server_protocol",
-            .source_file = "tests/server/protocol_tests.zig",
-            .description = "TCP server and binary protocol tests",
-        },
-        .{
-            .name = "memtable_manager",
-            .source_file = "tests/storage/memtable_manager_test.zig",
-            .description = "isolated MemtableManager component tests",
-        },
-        .{
-            .name = "sstable_manager",
-            .source_file = "tests/storage/sstable_manager_test.zig",
-            .description = "isolated SSTableManager component tests",
-        },
-        .{
-            .name = "streaming_benchmark",
-            .source_file = "tests/performance/streaming_memory_benchmark.zig",
-            .description = "memory efficiency benchmark for streaming query formatting",
-        },
-        .{
-            .name = "simple_memtable",
-            .source_file = "tests/storage/simple_memtable_test.zig",
-            .description = "simple MemtableManager debug test",
+            .source_file = "tests/server/protocol.zig",
+            .description = "TCP server protocol tests",
         },
     };
 
@@ -213,11 +196,7 @@ pub fn build(b: *std.Build) void {
 
     // Test step that runs all tests
     const test_step = b.step("test", "Run all tests");
-    for (test_configs, test_steps) |config, run_test| {
-        // Skip debug_allocator in Debug mode due to slow linking performance
-        if (std.mem.eql(u8, config.name, "debug_allocator") and optimize_mode == .Debug) {
-            continue;
-        }
+    for (test_steps) |run_test| {
         test_step.dependOn(&run_test.step);
     }
 

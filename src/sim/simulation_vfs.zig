@@ -953,3 +953,182 @@ test "SimulationVFS deterministic behavior" {
     // Both runs should produce identical results
     try testing.expectEqual(results[0], results[1]);
 }
+
+test "simulation_vfs_memory_safety_arraylist_expansion_resilience" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+    const vfs_interface = sim_vfs.vfs();
+
+    // Create file and establish initial small allocation
+    var file = try vfs_interface.create("expansion_test.log");
+    defer {
+        file.close();
+        file.deinit();
+        vfs_interface.remove("expansion_test.log") catch {};
+    }
+
+    // Small write to establish baseline allocation pattern
+    const header_data = "HDR12345";
+    const written_header = try file.write(header_data);
+    try testing.expectEqual(header_data.len, written_header);
+
+    // Verify integrity before expansion
+    _ = try file.seek(0, .start);
+    var verify_header: [8]u8 = undefined;
+    const read_header = try file.read(&verify_header);
+    try testing.expectEqual(header_data.len, read_header);
+    try testing.expect(std.mem.eql(u8, header_data, verify_header[0..read_header]));
+
+    // Force ArrayList expansion with large write that exceeds typical initial capacity
+    var large_buffer: [32768]u8 = undefined; // 32KB to trigger multiple reallocations
+    @memset(&large_buffer, 0xCC);
+
+    _ = try file.seek(8, .start);
+    const written_large = try file.write(&large_buffer);
+    try testing.expectEqual(large_buffer.len, written_large);
+
+    // Critical verification: original data must survive ArrayList expansion
+    _ = try file.seek(0, .start);
+    var verify_after_expansion: [8]u8 = undefined;
+    const read_after = try file.read(&verify_after_expansion);
+    try testing.expectEqual(8, read_after);
+
+    // Memory corruption detection - original header must be intact
+    if (!std.mem.eql(u8, header_data, verify_after_expansion)) {
+        // In production code, this would use error_context for rich diagnostics
+        return VFileError.CorruptedData;
+    }
+
+    // Verify large data integrity to ensure no cross-contamination
+    _ = try file.seek(8, .start);
+    var sample_verify: [256]u8 = undefined;
+    const read_sample = try file.read(&sample_verify);
+    try testing.expectEqual(256, read_sample);
+
+    for (sample_verify) |byte| {
+        try testing.expectEqual(@as(u8, 0xCC), byte);
+    }
+}
+
+test "simulation_vfs_memory_safety_concurrent_file_creation_stress" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+    const vfs_interface = sim_vfs.vfs();
+
+    // Stress test file storage HashMap expansion resilience
+    const num_files = 64; // Chosen to trigger HashMap expansion
+    var file_patterns: [num_files][24]u8 = undefined;
+
+    // Create many files with unique patterns to trigger storage expansion
+    for (0..num_files) |i| {
+        const file_name = try std.fmt.allocPrint(allocator, "stress_file_{}.dat", .{i});
+        defer allocator.free(file_name);
+
+        var file = try vfs_interface.create(file_name);
+        defer {
+            file.close();
+            file.deinit();
+            vfs_interface.remove(file_name) catch {};
+        }
+
+        // Create unique, verifiable pattern for each file
+        const pattern_base = @as(u64, i) ^ 0xFEEDFACE;
+        std.mem.writeInt(u64, file_patterns[i][0..8], pattern_base, .little);
+        std.mem.writeInt(u64, file_patterns[i][8..16], pattern_base ^ 0xDEADBEEF, .little);
+        std.mem.writeInt(u64, file_patterns[i][16..24], pattern_base ^ 0xCAFEBABE, .little);
+
+        const written = try file.write(&file_patterns[i]);
+        try testing.expectEqual(24, written);
+    }
+
+    // Verification phase: all files must retain correct unique patterns
+    // This detects memory corruption from HashMap expansion or file cross-contamination
+    for (0..num_files) |i| {
+        const file_name = try std.fmt.allocPrint(allocator, "stress_file_{}.dat", .{i});
+        defer allocator.free(file_name);
+
+        var file = try vfs_interface.open(file_name, .read);
+        defer {
+            file.close();
+            file.deinit();
+        }
+
+        var read_pattern: [24]u8 = undefined;
+        const bytes_read = try file.read(&read_pattern);
+        try testing.expectEqual(24, bytes_read);
+
+        // Pattern integrity verification - any corruption indicates system failure
+        if (!std.mem.eql(u8, &file_patterns[i], &read_pattern)) {
+            // In production, this would use error_context with file details
+            return VFileError.CorruptedData;
+        }
+
+        // Additional verification: decode pattern to ensure uniqueness preservation
+        const read_base = std.mem.readInt(u64, read_pattern[0..8], .little);
+        const expected_base = @as(u64, i) ^ 0xFEEDFACE;
+        try testing.expectEqual(expected_base, read_base);
+    }
+}
+
+test "simulation_vfs_memory_safety_zero_initialization_gap_filling" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+    const vfs_interface = sim_vfs.vfs();
+
+    var file = try vfs_interface.create("gap_fill_test.dat");
+    defer {
+        file.close();
+        file.deinit();
+        vfs_interface.remove("gap_fill_test.dat") catch {};
+    }
+
+    // Write initial data at position 0
+    const initial_data = "INITIAL_DATA";
+    const written_initial = try file.write(initial_data);
+    try testing.expectEqual(initial_data.len, written_initial);
+
+    // Seek beyond current file size to create a gap
+    const gap_start = 1000;
+    _ = try file.seek(gap_start, .start);
+
+    // Write data after the gap
+    const final_data = "FINAL_DATA";
+    const written_final = try file.write(final_data);
+    try testing.expectEqual(final_data.len, written_final);
+
+    // Verify file expansion with zero-initialization of gap
+    _ = try file.seek(0, .start);
+    const total_size = initial_data.len + (gap_start - initial_data.len) + final_data.len;
+    var full_buffer = try allocator.alloc(u8, total_size);
+    defer allocator.free(full_buffer);
+
+    const total_read = try file.read(full_buffer);
+    try testing.expectEqual(total_size, total_read);
+
+    // Verify initial data integrity
+    try testing.expect(std.mem.eql(u8, initial_data, full_buffer[0..initial_data.len]));
+
+    // Critical: gap must be zero-initialized, not contain stale memory
+    var gap_corruption_count: u32 = 0;
+    for (full_buffer[initial_data.len..gap_start]) |byte| {
+        if (byte != 0) {
+            gap_corruption_count += 1;
+        }
+    }
+
+    // Zero gap corruption indicates proper memory management
+    if (gap_corruption_count > 0) {
+        return VFileError.CorruptedData;
+    }
+
+    // Verify final data integrity
+    const final_start = gap_start;
+    const final_end = final_start + final_data.len;
+    try testing.expect(std.mem.eql(u8, final_data, full_buffer[final_start..final_end]));
+}

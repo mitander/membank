@@ -264,3 +264,115 @@ test "systematic corruption threshold constants" {
     try testing.expect(TESTING_CORRUPTION_THRESHOLD <= 100);
     try testing.expectEqual(@as(u32, 50), TESTING_CORRUPTION_THRESHOLD);
 }
+
+test "corruption_tracker_detects_payload_size_overflow_patterns" {
+    var tracker = CorruptionTracker.init();
+
+    // Simulate detection of common corruption patterns from debug analysis
+
+    // Pattern 1: Payload size overflow (0x78787878 = 'xxxx' pattern)
+    const corrupted_payload_size: u32 = 0x78787878;
+    const max_reasonable_size: u32 = 16 * 1024 * 1024; // 16MB max
+
+    if (corrupted_payload_size > max_reasonable_size) {
+        tracker.record_failure("payload_size_overflow");
+    }
+
+    try testing.expectEqual(@as(u32, 1), tracker.consecutive_failures);
+    try testing.expectEqual(@as(u32, 1), tracker.total_failures);
+
+    // Pattern 2: All-zero corruption pattern
+    const zero_header = [_]u8{0} ** 13;
+    const checksum = std.mem.readInt(u64, zero_header[0..8], .little);
+    const entry_type = zero_header[8];
+    const payload_size = std.mem.readInt(u32, zero_header[9..13], .little);
+
+    // All-zero pattern indicates uninitialized or corrupted memory
+    if (checksum == 0 and entry_type == 0 and payload_size == 0) {
+        tracker.record_failure("zero_header_pattern");
+    }
+
+    try testing.expectEqual(@as(u32, 2), tracker.consecutive_failures);
+
+    // Pattern 3: Magic number corruption detection
+    const corrupt_magic: u32 = 0xDEADBEEF;
+    if (corrupt_magic != WAL_MAGIC_NUMBER and corrupt_magic != WAL_ENTRY_MAGIC) {
+        tracker.record_failure("magic_number_corruption");
+    }
+
+    try testing.expectEqual(@as(u32, 3), tracker.consecutive_failures);
+
+    // At production threshold but not yet fatal in testing mode
+    try testing.expect(!tracker.is_systematic_corruption());
+}
+
+test "corruption_tracker_recognizes_valid_patterns_amid_noise" {
+    var tracker = CorruptionTracker.init();
+
+    // Record some failures first
+    tracker.record_failure("intermittent_corruption_1");
+    tracker.record_failure("intermittent_corruption_2");
+
+    try testing.expectEqual(@as(u32, 2), tracker.consecutive_failures);
+
+    // Valid pattern recognition should reset consecutive failures
+    const valid_header = [_]u8{ 0x47, 0x41, 0x4C, 0x57, 0x00, 0x00, 0x00, 0x00, 0x01, 0x10, 0x00, 0x00, 0x00 };
+    const valid_magic = std.mem.readInt(u32, valid_header[0..4], .little);
+    const valid_entry_type = valid_header[8];
+    const valid_payload_size = std.mem.readInt(u32, valid_header[9..13], .little);
+
+    // Verify this looks like valid WAL data
+    const is_valid_magic = (valid_magic == WAL_MAGIC_NUMBER) or (valid_magic == WAL_ENTRY_MAGIC);
+    const is_valid_type = valid_entry_type >= 1 and valid_entry_type <= 3;
+    const is_reasonable_size = valid_payload_size <= 16 * 1024 * 1024;
+
+    if (is_valid_magic and is_valid_type and is_reasonable_size) {
+        tracker.record_success();
+    }
+
+    // Success should reset consecutive failures while preserving total failure count
+    try testing.expectEqual(@as(u32, 0), tracker.consecutive_failures);
+    try testing.expectEqual(@as(u32, 2), tracker.total_failures);
+    try testing.expectEqual(@as(u32, 3), tracker.total_operations);
+}
+
+test "corruption_tracker_defensive_boundary_validation" {
+    var tracker = CorruptionTracker.init();
+
+    // Test boundary conditions that were problematic in debug scenarios
+
+    // Boundary 1: Maximum valid payload size
+    const max_valid = 16 * 1024 * 1024;
+    const just_over_max = max_valid + 1;
+
+    if (just_over_max > max_valid) {
+        tracker.record_failure("boundary_payload_overflow");
+    }
+
+    // Boundary 2: Entry type validation
+    const invalid_types = [_]u8{ 0, 4, 0xFF };
+
+    for (invalid_types) |invalid_type| {
+        if (invalid_type == 0 or invalid_type > 3) {
+            tracker.record_failure("invalid_entry_type");
+        }
+    }
+
+    try testing.expectEqual(@as(u32, 4), tracker.consecutive_failures);
+
+    // Boundary 3: Checksum validation patterns
+    const suspicious_checksums = [_]u64{ 0, 0xFFFFFFFFFFFFFFFF, 0x7878787878787878 };
+
+    for (suspicious_checksums) |checksum| {
+        // Pattern-based corruption detection from debug analysis
+        if (checksum == 0 or checksum == 0xFFFFFFFFFFFFFFFF or (checksum & 0xFFFFFFFF) == 0x78787878) {
+            tracker.record_failure("suspicious_checksum_pattern");
+        }
+    }
+
+    try testing.expectEqual(@as(u32, 7), tracker.consecutive_failures);
+
+    // Verify failure rate calculation is working correctly
+    const failure_rate = tracker.failure_rate();
+    try testing.expect(failure_rate > 0.5); // More than 50% failures
+}

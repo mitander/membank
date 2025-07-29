@@ -577,3 +577,259 @@ pub const SimulationFileData = struct {
     modified_time: i64,
     is_directory: bool,
 };
+
+// ============================================================================
+// VFS Memory Safety Tests
+// ============================================================================
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const SimulationVFS = simulation_vfs.SimulationVFS;
+
+test "vfs memory expansion safety" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+    const test_vfs = sim_vfs.vfs();
+
+    var file = try test_vfs.create("expansion_test.log");
+    defer file.close();
+
+    // Write small amount to establish initial allocation
+    const header = "HEADER01";
+    const written_header = try file.write(header);
+    try testing.expectEqual(header.len, written_header);
+
+    // Force ArrayList expansion with large write
+    var large_buffer: [32768]u8 = undefined;
+    @memset(&large_buffer, 0xAB);
+
+    _ = try file.seek(header.len, .start);
+    const written_large = try file.write(&large_buffer);
+    try testing.expectEqual(large_buffer.len, written_large);
+
+    // Verify original data remains intact after expansion
+    _ = try file.seek(0, .start);
+    var header_verify: [8]u8 = undefined;
+    const read_header = try file.read(&header_verify);
+    try testing.expectEqual(header.len, read_header);
+    try testing.expect(std.mem.eql(u8, header, header_verify[0..read_header]));
+
+    // Verify expanded data integrity
+    _ = try file.seek(header.len, .start);
+    var large_verify: [1024]u8 = undefined;
+    const read_large = try file.read(&large_verify);
+    try testing.expectEqual(1024, read_large);
+
+    for (large_verify) |byte| {
+        try testing.expectEqual(@as(u8, 0xAB), byte);
+    }
+}
+
+test "vfs multiple file handle stability" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+    const test_vfs = sim_vfs.vfs();
+
+    const num_files = 50;
+    var files: [num_files]VFile = undefined;
+    var file_data: [num_files][16]u8 = undefined;
+
+    // Create many files to trigger internal reallocation
+    for (0..num_files) |i| {
+        const file_name = try std.fmt.allocPrint(allocator, "stress_file_{}.log", .{i});
+        defer allocator.free(file_name);
+        files[i] = try test_vfs.create(file_name);
+
+        // Write unique pattern to each file
+        std.mem.writeInt(u64, file_data[i][0..8], @as(u64, i), .little);
+        std.mem.writeInt(u64, file_data[i][8..16], @as(u64, i) ^ 0xDEADBEEF, .little);
+
+        const written = try files[i].write(&file_data[i]);
+        try testing.expectEqual(16, written);
+    }
+
+    // Verify all files retain correct data after potential reallocation
+    for (0..num_files) |i| {
+        _ = try files[i].seek(0, .start);
+        var read_data: [16]u8 = undefined;
+        const read_bytes = try files[i].read(&read_data);
+        try testing.expectEqual(16, read_bytes);
+        try testing.expect(std.mem.eql(u8, &file_data[i], &read_data));
+        files[i].close();
+    }
+}
+
+test "vfs sparse file handling" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+    const test_vfs = sim_vfs.vfs();
+
+    var file = try test_vfs.create("sparse_test.log");
+    defer file.close();
+
+    // Write header at beginning
+    const header = "HEADER01";
+    _ = try file.write(header);
+
+    // Seek far ahead creating a gap
+    _ = try file.seek(4096, .start);
+    const footer = "FOOTER01";
+    _ = try file.write(footer);
+
+    // Verify file size accounts for gap
+    const file_size = try file.file_size();
+    try testing.expectEqual(4096 + footer.len, file_size);
+
+    // Verify header integrity
+    _ = try file.seek(0, .start);
+    var header_buffer: [8]u8 = undefined;
+    const read_header = try file.read(&header_buffer);
+    try testing.expectEqual(header.len, read_header);
+    try testing.expect(std.mem.eql(u8, header, header_buffer[0..read_header]));
+
+    // Verify gap is properly zeroed
+    _ = try file.seek(header.len, .start);
+    var gap_buffer: [100]u8 = undefined;
+    const read_gap = try file.read(&gap_buffer);
+    try testing.expectEqual(100, read_gap);
+
+    for (gap_buffer) |byte| {
+        try testing.expectEqual(@as(u8, 0), byte);
+    }
+
+    // Verify footer integrity
+    _ = try file.seek(4096, .start);
+    var footer_buffer: [8]u8 = undefined;
+    const read_footer = try file.read(&footer_buffer);
+    try testing.expectEqual(footer.len, read_footer);
+    try testing.expect(std.mem.eql(u8, footer, footer_buffer[0..read_footer]));
+}
+
+test "vfs capacity boundary conditions" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+    const test_vfs = sim_vfs.vfs();
+
+    var file = try test_vfs.create("boundary_test.log");
+    defer file.close();
+
+    // Test writes at common capacity boundaries
+    const boundary_sizes = [_]usize{ 127, 128, 129, 255, 256, 257, 511, 512, 513, 1023, 1024, 1025 };
+
+    for (boundary_sizes) |size| {
+        const write_buffer = try allocator.alloc(u8, size);
+        defer allocator.free(write_buffer);
+        @memset(write_buffer, @intCast(size & 0xFF));
+
+        const written = try file.write(write_buffer);
+        try testing.expectEqual(size, written);
+
+        // Immediate verification to catch boundary corruption
+        const pos = try file.tell();
+        _ = try file.seek(pos - size, .start);
+
+        const read_buffer = try allocator.alloc(u8, size);
+        defer allocator.free(read_buffer);
+        const read_bytes = try file.read(read_buffer);
+        try testing.expectEqual(size, read_bytes);
+        try testing.expect(std.mem.eql(u8, write_buffer, read_buffer));
+
+        _ = try file.seek(pos, .start);
+    }
+}
+
+test "vfs data integrity with checksums" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+    const test_vfs = sim_vfs.vfs();
+
+    var file = try test_vfs.create("checksum_test.log");
+    defer file.close();
+
+    const test_data = "CortexDB deterministic checksum validation pattern";
+    const expected_checksum = blk: {
+        var hasher = std.hash.Crc32.init();
+        hasher.update(test_data);
+        break :blk hasher.final();
+    };
+
+    _ = try file.write(test_data);
+
+    // Multiple read-back verifications with checksum validation
+    for (0..5) |_| {
+        _ = try file.seek(0, .start);
+
+        var read_buffer: [test_data.len]u8 = undefined;
+        const read_bytes = try file.read(&read_buffer);
+        try testing.expectEqual(test_data.len, read_bytes);
+        try testing.expect(std.mem.eql(u8, test_data, &read_buffer));
+
+        // Verify checksum remains consistent across reads
+        var hasher = std.hash.Crc32.init();
+        hasher.update(&read_buffer);
+        const actual_checksum = hasher.final();
+        try testing.expectEqual(expected_checksum, actual_checksum);
+    }
+}
+
+test "vfs directory operations" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+    const test_vfs = sim_vfs.vfs();
+
+    // Test directory creation
+    try test_vfs.mkdir("test_dir");
+    try testing.expect(test_vfs.exists("test_dir"));
+
+    // Test nested directory creation
+    try test_vfs.mkdir_all("nested/deep/structure");
+    try testing.expect(test_vfs.exists("nested"));
+    try testing.expect(test_vfs.exists("nested/deep"));
+    try testing.expect(test_vfs.exists("nested/deep/structure"));
+
+    // Test file creation within directories
+    var nested_file = try test_vfs.create("nested/deep/test_file.log");
+    defer nested_file.close();
+
+    const nested_data = "Nested file data";
+    _ = try nested_file.write(nested_data);
+
+    // Verify file exists and contains correct data
+    try testing.expect(test_vfs.exists("nested/deep/test_file.log"));
+
+    _ = try nested_file.seek(0, .start);
+    var verify_buffer: [16]u8 = undefined;
+    const read_bytes = try nested_file.read(&verify_buffer);
+    try testing.expectEqual(nested_data.len, read_bytes);
+    try testing.expect(std.mem.eql(u8, nested_data, verify_buffer[0..read_bytes]));
+}
+
+test "vfs error handling patterns" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+    const test_vfs = sim_vfs.vfs();
+
+    // Test reading from non-existent file
+    const open_result = test_vfs.open("non_existent.log");
+    try testing.expectError(error.FileNotFound, open_result);
+
+    // Test operations on closed file
+    var file = try test_vfs.create("close_test.log");
+    _ = try file.write("test");
+    file.close();
+
+    // Verify file was created successfully before close
+    try testing.expect(test_vfs.exists("close_test.log"));
+}

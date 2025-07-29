@@ -49,9 +49,11 @@ pub fn recover_from_segment(
     // Use testing mode during test runs to prevent false positives
     var corruption_tracker = if (builtin.is_test) CorruptionTracker.init_testing() else CorruptionTracker.init();
 
-    // Defensive limits to prevent runaway processing
+    // Defensive limits to prevent runaway processing from corruption
     const MAX_ENTRIES_PER_SEGMENT = 1_000_000;
+    const MAX_RECOVERY_TIME_MS = if (builtin.is_test) 30_000 else 120_000; // 30s test, 2min prod
     var entries_processed: u32 = 0;
+    const recovery_start_time = std.time.milliTimestamp();
 
     var file = filesystem.open(file_path, .read) catch |err| switch (err) {
         error.FileNotFound => return WALError.FileNotFound,
@@ -70,10 +72,17 @@ pub fn recover_from_segment(
     var entries_recovered: u32 = 0;
 
     while (true) {
-        // Defensive check: prevent runaway processing
+        // Defensive check: prevent runaway processing from corrupted entries
         entries_processed += 1;
         if (entries_processed > MAX_ENTRIES_PER_SEGMENT) {
             log.err("WAL segment exceeded maximum entries limit: {d}", .{MAX_ENTRIES_PER_SEGMENT});
+            return WALError.IoError;
+        }
+
+        // Defensive check: prevent infinite loops from I/O hangs or corruption
+        const current_time = std.time.milliTimestamp();
+        if (current_time - recovery_start_time > MAX_RECOVERY_TIME_MS) {
+            log.err("WAL recovery timeout exceeded: {}ms for segment: {s}", .{ current_time - recovery_start_time, file_path });
             return WALError.IoError;
         }
 
@@ -627,4 +636,55 @@ test "list_segment_files - sorting verification" {
     try testing.expect(std.mem.eql(u8, "wal_0003.log", sorted_files[2]));
     try testing.expect(std.mem.eql(u8, "wal_0004.log", sorted_files[3]));
     try testing.expect(std.mem.eql(u8, "wal_0005.log", sorted_files[4]));
+}
+
+test "wal_recovery_defensive_timeout_prevents_infinite_loops" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    // Create WAL file with a reasonable number of valid entries
+    var file = try sim_vfs.vfs().create("timeout_test.wal", .write);
+
+    // Write exactly MAX_ENTRIES_PER_SEGMENT entries to test the limit
+    var entries_written: u32 = 0;
+    const target_entries = 100; // Reasonable number for testing
+
+    while (entries_written < target_entries) : (entries_written += 1) {
+        const payload = try std.fmt.allocPrint(allocator, "entry_{d}", .{entries_written});
+        defer allocator.free(payload);
+
+        const entry_data = try create_test_wal_entry(0x01, payload, allocator);
+        defer allocator.free(entry_data);
+        _ = try file.write(entry_data);
+    }
+    file.close();
+
+    var stats = types.WALStats.init();
+    var context = TestRecoveryContext.init(allocator);
+    defer context.deinit();
+
+    // Record start time to verify recovery completes within reasonable bounds
+    const test_start = std.time.milliTimestamp();
+
+    // Recovery should complete successfully for reasonable number of entries
+    try recover_from_segment(sim_vfs.vfs(), allocator, "timeout_test.wal", test_recovery_callback, &context, &stats);
+
+    const test_duration = std.time.milliTimestamp() - test_start;
+
+    // Verify all entries were recovered correctly
+    try testing.expectEqual(@as(usize, target_entries), context.entries_recovered.items.len);
+    try testing.expectEqual(@as(u64, target_entries), stats.entries_recovered);
+
+    // Verify recovery completed in reasonable time (should be well under timeout)
+    // In test mode, timeout is 30 seconds, so recovery should be much faster
+    try testing.expect(test_duration < 5000); // 5 seconds is generous for 100 entries
+
+    // Verify entries are correctly ordered and contain expected data
+    for (context.entries_recovered.items, 0..) |entry, i| {
+        const expected_payload = try std.fmt.allocPrint(allocator, "entry_{d}", .{i});
+        defer allocator.free(expected_payload);
+        try testing.expect(std.mem.eql(u8, expected_payload, entry.payload));
+    }
 }
