@@ -294,6 +294,19 @@ pub fn build(b: *std.Build) void {
     const fuzz_debug_step = b.step("fuzz-debug", "Build and install debug fuzz tester with enhanced debugging");
     fuzz_debug_step.dependOn(&install_fuzz_debug.step);
 
+    const commit_msg_validator = b.addExecutable(.{
+        .name = "commit-msg-validator",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/dev/commit_msg_validator.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        }),
+    });
+
+    const install_commit_validator = b.addInstallArtifact(commit_msg_validator, .{});
+    const commit_validator_step = b.step("commit-msg-validator", "Build and install Zig-based commit message validator");
+    commit_validator_step.dependOn(&install_commit_validator.step);
+
     // Sanitizer test target for enhanced memory safety
     const sanitizer_tests = b.addTest(.{
         .root_module = b.createModule(.{

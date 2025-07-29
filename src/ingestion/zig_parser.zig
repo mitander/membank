@@ -159,8 +159,7 @@ pub const ZigParser = struct {
     }
 
     /// Clean up parser resources
-    pub fn deinit(self: *ZigParser, allocator: std.mem.Allocator) void {
-        _ = allocator; // unused in this implementation
+    pub fn deinit(self: *ZigParser) void {
         self.arena.deinit();
     }
 
@@ -652,8 +651,9 @@ pub const ZigParser = struct {
     }
 
     fn deinit_impl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
+        _ = allocator;
         const self: *ZigParser = @ptrCast(@alignCast(ptr));
-        self.deinit(allocator);
+        self.deinit();
     }
 };
 
@@ -824,7 +824,7 @@ test "zig parser creation and cleanup" {
 
     const config = ZigParserConfig{};
     var zig_parser = ZigParser.init(allocator, config);
-    defer zig_parser.deinit(allocator);
+    defer zig_parser.deinit();
 
     const parser = zig_parser.parser();
     try testing.expect(parser.supports("text/zig"));

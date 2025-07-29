@@ -86,7 +86,7 @@ test "complete ingestion pipeline - git to storage" {
         .include_tests = true,
     };
     var zig_psr = ZigParser.init(allocator, zig_config);
-    defer zig_psr.deinit(allocator);
+    defer zig_psr.deinit();
     try pipeline.register_parser(zig_psr.parser());
 
     // Setup semantic chunker with pipeline's allocator
@@ -223,7 +223,7 @@ test "zig parser extracts semantic units correctly" {
         .include_tests = true,
     };
     var zig_psr = ZigParser.init(allocator, zig_config);
-    defer zig_psr.deinit(allocator);
+    defer zig_psr.deinit();
 
     // Parse content with isolated parser instance
     const units = try zig_psr.parser().parse(allocator, source_content);
@@ -394,7 +394,7 @@ test "pipeline handles parsing errors gracefully" {
     // Setup Zig parser (which won't support .bin files)
     const zig_config = ZigParserConfig{};
     var zig_psr = ZigParser.init(allocator, zig_config);
-    defer zig_psr.deinit(allocator);
+    defer zig_psr.deinit();
     try pipeline.register_parser(zig_psr.parser());
 
     // Setup semantic chunker
