@@ -214,8 +214,9 @@ pub fn execute_find_blocks(
     return QueryResult.init(allocator, found_blocks.items);
 }
 
-/// Execute semantic search query (placeholder implementation)
-pub fn execute_semantic_query(
+/// Execute keyword search query with basic text matching
+/// NOTE: This is NOT semantic search - it's simple keyword matching
+pub fn execute_keyword_query(
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
     query: SemanticQuery,
@@ -229,7 +230,7 @@ pub fn execute_semantic_query(
 
     var matches_found: u32 = 0;
     while (try iterator.next()) |block| {
-        const similarity = calculate_text_similarity(block.content, query.query_text);
+        const similarity = calculate_keyword_similarity(block.content, query.query_text);
 
         if (similarity >= query.similarity_threshold) {
             matches_found += 1;
@@ -278,8 +279,9 @@ pub fn count_existing_blocks(
     return count;
 }
 
-/// Simple text similarity calculation (placeholder for proper semantic search)
-fn calculate_text_similarity(content: []const u8, query: []const u8) f32 {
+/// Simple keyword similarity calculation using word matching
+/// Returns ratio of query words found in content (0.0-1.0)
+fn calculate_keyword_similarity(content: []const u8, query: []const u8) f32 {
     if (content.len == 0 or query.len == 0) return 0.0;
 
     var query_words = std.mem.split(u8, query, " ");
@@ -358,14 +360,14 @@ test "semantic query validation" {
     try testing.expectError(QueryError.TooManyResults, query.validate());
 }
 
-test "text similarity calculation" {
-    try testing.expect(calculate_text_similarity("hello world", "hello") > 0.0);
+test "keyword similarity calculation" {
+    try testing.expect(calculate_keyword_similarity("hello world", "hello") > 0.0);
     try testing
-        .expect(calculate_text_similarity("hello world", "world") > 0.0);
-    try testing.expect(calculate_text_similarity("hello world", "hello world") == 1.0);
-    try testing.expect(calculate_text_similarity("hello world", "goodbye") == 0.0);
-    try testing.expect(calculate_text_similarity("", "test") == 0.0);
-    try testing.expect(calculate_text_similarity("test", "") == 0.0);
+        .expect(calculate_keyword_similarity("hello world", "world") > 0.0);
+    try testing.expect(calculate_keyword_similarity("hello world", "hello world") == 1.0);
+    try testing.expect(calculate_keyword_similarity("hello world", "goodbye") == 0.0);
+    try testing.expect(calculate_keyword_similarity("", "test") == 0.0);
+    try testing.expect(calculate_keyword_similarity("test", "") == 0.0);
 }
 
 test "query result formatting" {
@@ -478,7 +480,7 @@ test "execute_find_blocks with storage engine" {
     try testing.expectEqual(@as(u32, 2), partial_result.count); // Only found blocks returned
 }
 
-test "execute_semantic_query with mock similarity" {
+test "execute_keyword_query with word matching" {
     const allocator = testing.allocator;
 
     // Create test storage engine
@@ -525,7 +527,7 @@ test "execute_semantic_query with mock similarity" {
         .similarity_threshold = 0.3,
     };
 
-    const result = try execute_semantic_query(allocator, &storage_engine, query);
+    const result = try execute_keyword_query(allocator, &storage_engine, query);
     defer result.deinit();
 
     // Should find blocks with sufficient similarity

@@ -11,11 +11,13 @@
 //! - Single-threaded execution model
 
 const std = @import("std");
+const testing = std.testing;
 const ingestion = @import("pipeline.zig");
 const vfs = @import("../core/vfs.zig");
 const assert = @import("../core/assert.zig");
 const concurrency = @import("../core/concurrency.zig");
 const error_context = @import("../core/error_context.zig");
+const glob_matcher = @import("glob_matcher.zig");
 
 const IngestionError = ingestion.IngestionError;
 const SourceContent = ingestion.SourceContent;
@@ -437,20 +439,20 @@ pub const GitSource = struct {
         }
     }
 
-    /// Check if file path matches include patterns
+    /// Check if file path matches include patterns using robust glob matching
     fn is_included(self: *GitSource, file_path: []const u8) bool {
         for (self.config.include_patterns) |pattern| {
-            if (matches_pattern(file_path, pattern)) {
+            if (glob_matcher.matches_pattern(pattern, file_path)) {
                 return true;
             }
         }
         return false;
     }
 
-    /// Check if file path matches exclude patterns
+    /// Check if file path matches exclude patterns using robust glob matching
     fn is_excluded(self: *GitSource, file_path: []const u8) bool {
         for (self.config.exclude_patterns) |pattern| {
-            if (matches_pattern(file_path, pattern)) {
+            if (glob_matcher.matches_pattern(pattern, file_path)) {
                 return true;
             }
         }
@@ -502,38 +504,6 @@ pub const GitSource = struct {
     }
 };
 
-/// Simple pattern matching for file paths
-fn matches_pattern(path: []const u8, pattern: []const u8) bool {
-    if (std.mem.startsWith(u8, pattern, "*")) {
-        // Suffix matching (e.g., "*.zig") - check if path ends with the suffix after *
-        const suffix = pattern[1..];
-        return std.mem.endsWith(u8, path, suffix);
-    } else if (std.mem.endsWith(u8, pattern, "*")) {
-        // Prefix matching (e.g., ".git/*") - check if path starts with the prefix before *
-        const prefix = pattern[0 .. pattern.len - 1];
-        return std.mem.startsWith(u8, path, prefix);
-    } else if (std.mem.indexOf(u8, pattern, "*")) |_| {
-        // Contains wildcard - simple contains check
-        const parts = std.mem.splitSequence(u8, pattern, "*");
-        var part_iter = parts;
-        var search_start: usize = 0;
-
-        while (part_iter.next()) |part| {
-            if (part.len == 0) continue;
-
-            if (std.mem.indexOf(u8, path[search_start..], part)) |pos| {
-                search_start += pos + part.len;
-            } else {
-                return false;
-            }
-        }
-        return true;
-    } else {
-        // Exact match
-        return std.mem.eql(u8, path, pattern);
-    }
-}
-
 /// Detect content type from file extension
 fn detect_content_type(file_path: []const u8) []const u8 {
     if (std.mem.endsWith(u8, file_path, ".zig")) return "text/zig";
@@ -552,7 +522,6 @@ fn detect_content_type(file_path: []const u8) []const u8 {
 }
 
 test "git source creation and cleanup" {
-    const testing = std.testing;
     const allocator = testing.allocator;
 
     var config = try GitSourceConfig.init(allocator, "/test/repo");
@@ -566,24 +535,26 @@ test "git source creation and cleanup" {
 }
 
 test "pattern matching" {
-    const testing = std.testing;
 
     // Test exact matches
-    try testing.expect(matches_pattern("file.zig", "file.zig"));
-    try testing.expect(!matches_pattern("file.zig", "other.zig"));
+    try testing.expect(glob_matcher.matches_pattern("file.zig", "file.zig"));
+    try testing.expect(!glob_matcher.matches_pattern("other.zig", "file.zig"));
 
     // Test suffix patterns
-    try testing.expect(matches_pattern("src/main.zig", "*.zig"));
-    try testing.expect(!matches_pattern("src/main.rs", "*.zig"));
+    try testing.expect(glob_matcher.matches_pattern("*.zig", "src/main.zig"));
+    try testing.expect(!glob_matcher.matches_pattern("*.zig", "src/main.rs"));
 
     // Test prefix patterns (directory exclusions)
-    try testing.expect(matches_pattern(".git/config", ".git/*"));
-    try testing.expect(!matches_pattern("src/.git", ".git/*"));
+    try testing.expect(glob_matcher.matches_pattern(".git/*", ".git/config"));
+    try testing.expect(!glob_matcher.matches_pattern(".git/*", "src/.git"));
+
+    // Test advanced glob patterns
+    try testing.expect(glob_matcher.matches_pattern("src/**/*.zig", "src/parser/lexer.zig"));
+    try testing.expect(glob_matcher.matches_pattern("test[0-9].zig", "test1.zig"));
+    try testing.expect(!glob_matcher.matches_pattern("src/**/*.zig", "tests/main.zig"));
 }
 
 test "content type detection" {
-    const testing = std.testing;
-
     try testing.expectEqualStrings("text/zig", detect_content_type("main.zig"));
     try testing.expectEqualStrings("text/markdown", detect_content_type("README.md"));
     try testing.expectEqualStrings("application/json", detect_content_type("package.json"));

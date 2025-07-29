@@ -559,9 +559,9 @@ pub const QueryEngine = struct {
             .index_lookup => if (plan.optimization_hints.use_index)
                 self.execute_semantic_query_indexed(query, &context)
             else
-                operations.execute_semantic_query(self.allocator, self.storage_engine, query),
+                operations.execute_keyword_query(self.allocator, self.storage_engine, query),
             .streaming_scan => self.execute_semantic_query_streaming(query, &context),
-            else => operations.execute_semantic_query(self.allocator, self.storage_engine, query),
+            else => operations.execute_keyword_query(self.allocator, self.storage_engine, query),
         } catch |err| {
             error_context.log_storage_error(err, error_context.StorageContext{
                 .operation = "execute_semantic_query",
@@ -657,7 +657,7 @@ pub const QueryEngine = struct {
         context.metrics.index_lookups += 1;
         context.metrics.optimization_applied = true;
 
-        return operations.execute_semantic_query(
+        return operations.execute_keyword_query(
             self.allocator,
             self.storage_engine,
             query,
@@ -670,7 +670,7 @@ pub const QueryEngine = struct {
         var processed_blocks: u32 = 0;
 
         // Get standard result for chunked processing
-        const full_result = try operations.execute_semantic_query(
+        const full_result = try operations.execute_keyword_query(
             self.allocator,
             self.storage_engine,
             query,
