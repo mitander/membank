@@ -41,15 +41,15 @@ pub const GitSourceConfig = struct {
     follow_symlinks: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, repository_path: []const u8) !GitSourceConfig {
-        // Default include patterns for common text files
+        // Default include patterns for common text files - use ** to match in subdirectories
         var include_patterns = std.ArrayList([]const u8).init(allocator);
-        try include_patterns.append(try allocator.dupe(u8, "*.zig"));
-        try include_patterns.append(try allocator.dupe(u8, "*.md"));
-        try include_patterns.append(try allocator.dupe(u8, "*.txt"));
-        try include_patterns.append(try allocator.dupe(u8, "*.json"));
-        try include_patterns.append(try allocator.dupe(u8, "*.toml"));
-        try include_patterns.append(try allocator.dupe(u8, "*.yaml"));
-        try include_patterns.append(try allocator.dupe(u8, "*.yml"));
+        try include_patterns.append(try allocator.dupe(u8, "**/*.zig"));
+        try include_patterns.append(try allocator.dupe(u8, "**/*.md"));
+        try include_patterns.append(try allocator.dupe(u8, "**/*.txt"));
+        try include_patterns.append(try allocator.dupe(u8, "**/*.json"));
+        try include_patterns.append(try allocator.dupe(u8, "**/*.toml"));
+        try include_patterns.append(try allocator.dupe(u8, "**/*.yaml"));
+        try include_patterns.append(try allocator.dupe(u8, "**/*.yml"));
 
         // Default exclude patterns
         var exclude_patterns = std.ArrayList([]const u8).init(allocator);
