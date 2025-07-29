@@ -2,11 +2,13 @@
 #
 # CortexDB pre-commit hook
 #
-# This script runs code quality checks before allowing commits.
-# It ensures that all code meets CortexDB's standards for:
+# This script runs fast code quality checks before allowing commits.
+# By default, it runs only fast checks to encourage frequent commits:
 # - Code formatting (zig fmt)
 # - Code quality and style (tidy checks)
-# - Basic functionality (tests)
+# - Unit tests are skipped by default (CI runs full test suite)
+#
+# To run tests locally before commit: RUN_TESTS=1 git commit
 
 set -e
 
@@ -67,8 +69,8 @@ else
     CHECKS_PASSED=false
 fi
 
-# 3. Run unit tests (optional, can be disabled with SKIP_TESTS=1)
-if [ "${SKIP_TESTS:-0}" != "1" ]; then
+# 3. Run unit tests (optional, enabled with RUN_TESTS=1)
+if [ "${RUN_TESTS:-0}" = "1" ]; then
     print_status "INFO" "Running unit tests..."
     if ./zig/zig build test >/dev/null 2>&1; then
         print_status "OK" "Unit tests passed"
@@ -77,11 +79,13 @@ if [ "${SKIP_TESTS:-0}" != "1" ]; then
         echo ""
         echo "Please fix failing tests before committing."
         echo "Run './zig/zig build test' to see detailed test results."
-        echo "Or set SKIP_TESTS=1 to skip tests in pre-commit hook."
+        echo "Or remove RUN_TESTS=1 to skip tests in pre-commit hook."
         CHECKS_PASSED=false
     fi
 else
-    print_status "INFO" "Unit tests skipped (SKIP_TESTS=1)"
+    print_status "INFO" "Unit tests skipped (set RUN_TESTS=1 to enable)"
+    echo "         Fast commit mode: only formatting and quality checks run"
+    echo "         Full test suite runs in CI to ensure code quality"
 fi
 
 # Final result

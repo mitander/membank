@@ -70,8 +70,17 @@ install_hooks() {
     mkdir -p "$GIT_HOOKS_DIR"
 
     # Install pre-commit hook
-    local source_hook="$HOOKS_DIR/pre-commit"
-    local target_hook="$GIT_HOOKS_DIR/pre-commit"
+    install_hook "pre-commit"
+
+    # Install commit-msg hook
+    install_hook "commit-msg"
+}
+
+# Helper function to install a specific hook
+install_hook() {
+    local hook_name="$1"
+    local source_hook="$HOOKS_DIR/$hook_name"
+    local target_hook="$GIT_HOOKS_DIR/$hook_name"
 
     if [ ! -f "$source_hook" ]; then
         print_status "FAIL" "Source hook not found: $source_hook"
@@ -82,51 +91,86 @@ install_hooks() {
     if [ -f "$target_hook" ]; then
         local backup_file="$target_hook.backup.$(date +%s)"
         cp "$target_hook" "$backup_file"
-        print_status "INFO" "Backed up existing hook to: $backup_file"
+        print_status "INFO" "Backed up existing $hook_name hook to: $backup_file"
     fi
 
     # Copy and make executable
     cp "$source_hook" "$target_hook"
     chmod +x "$target_hook"
 
-    print_status "OK" "Pre-commit hook installed"
-}
+    print_status "OK" "$hook_name hook installed"
 
 test_hooks() {
     print_status "INFO" "Testing hook installation..."
 
-    local hook_file="$GIT_HOOKS_DIR/pre-commit"
+    # Test pre-commit hook
+    test_hook "pre-commit"
+
+    # Test commit-msg hook
+    test_hook "commit-msg"
+}
+
+# Helper function to test a specific hook
+test_hook() {
+    local hook_name="$1"
+    local hook_file="$GIT_HOOKS_DIR/$hook_name"
 
     if [ ! -f "$hook_file" ]; then
-        print_status "FAIL" "Hook file not found after installation"
+        print_status "FAIL" "$hook_name hook file not found after installation"
         return 1
     fi
 
     if [ ! -x "$hook_file" ]; then
-        print_status "FAIL" "Hook file is not executable"
+        print_status "FAIL" "$hook_name hook file is not executable"
         return 1
     fi
 
-    # Test if hook can run (dry run)
-    print_status "INFO" "Running hook test..."
-    if cd "$PROJECT_ROOT" && SKIP_TESTS=1 "$hook_file" >/dev/null 2>&1; then
-        print_status "OK" "Hook test passed"
-    else
-        print_status "WARN" "Hook test failed - check your development environment"
-        print_status "INFO" "Run './zig/zig build tidy' manually to diagnose issues"
-    fi
+    # Test specific hook functionality
+    case "$hook_name" in
+        "pre-commit")
+            print_status "INFO" "Testing pre-commit hook (fast mode)..."
+            if cd "$PROJECT_ROOT" && "$hook_file" >/dev/null 2>&1; then
+                print_status "OK" "Pre-commit hook test passed"
+            else
+                print_status "WARN" "Pre-commit hook test failed - check your development environment"
+                print_status "INFO" "Run './zig/zig build tidy' manually to diagnose issues"
+            fi
+            ;;
+        "commit-msg")
+            print_status "INFO" "Testing commit-msg hook..."
+            # Create a temporary commit message for testing
+            local temp_msg=$(mktemp)
+            echo "feat(test): sample commit message" > "$temp_msg"
+            if cd "$PROJECT_ROOT" && "$hook_file" "$temp_msg" >/dev/null 2>&1; then
+                print_status "OK" "Commit-msg hook test passed"
+            else
+                print_status "WARN" "Commit-msg hook test failed"
+            fi
+            rm -f "$temp_msg"
+            ;;
+    esac
 }
 
 uninstall_hooks() {
     print_status "INFO" "Uninstalling git hooks..."
 
-    local hook_file="$GIT_HOOKS_DIR/pre-commit"
+    # Remove pre-commit hook
+    uninstall_hook "pre-commit"
+
+    # Remove commit-msg hook
+    uninstall_hook "commit-msg"
+}
+
+# Helper function to uninstall a specific hook
+uninstall_hook() {
+    local hook_name="$1"
+    local hook_file="$GIT_HOOKS_DIR/$hook_name"
 
     if [ -f "$hook_file" ]; then
         rm "$hook_file"
-        print_status "OK" "Pre-commit hook removed"
+        print_status "OK" "$hook_name hook removed"
     else
-        print_status "INFO" "No pre-commit hook found to remove"
+        print_status "INFO" "No $hook_name hook found to remove"
     fi
 }
 
@@ -134,21 +178,31 @@ show_status() {
     print_status "INFO" "Git hooks status:"
     echo ""
 
-    local hook_file="$GIT_HOOKS_DIR/pre-commit"
+    # Check pre-commit hook
+    show_hook_status "pre-commit"
+
+    # Check commit-msg hook
+    show_hook_status "commit-msg"
+
+    echo ""
+    print_status "INFO" "Hooks directory: $GIT_HOOKS_DIR"
+    print_status "INFO" "Source hooks directory: $HOOKS_DIR"
+}
+
+# Helper function to show status of a specific hook
+show_hook_status() {
+    local hook_name="$1"
+    local hook_file="$GIT_HOOKS_DIR/$hook_name"
 
     if [ -f "$hook_file" ]; then
         if [ -x "$hook_file" ]; then
-            print_status "OK" "Pre-commit hook: installed and executable"
+            print_status "OK" "$hook_name hook: installed and executable"
         else
-            print_status "WARN" "Pre-commit hook: installed but not executable"
+            print_status "WARN" "$hook_name hook: installed but not executable"
         fi
     else
-        print_status "FAIL" "Pre-commit hook: not installed"
+        print_status "FAIL" "$hook_name hook: not installed"
     fi
-
-    echo ""
-    print_status "INFO" "Hook file location: $hook_file"
-    print_status "INFO" "Source hooks directory: $HOOKS_DIR"
 }
 
 show_help() {
@@ -170,7 +224,7 @@ show_help() {
     echo "  $0 status          # Check status"
     echo ""
     echo "Environment Variables:"
-    echo "  SKIP_TESTS=1       Skip unit tests in pre-commit hook"
+    echo "  RUN_TESTS=1        Enable unit tests in pre-commit hook (disabled by default)"
     echo ""
 }
 
@@ -189,11 +243,12 @@ main() {
             echo ""
             print_status "OK" "Git hooks installation completed!"
             echo ""
-            echo "The pre-commit hook will now run automatically before each commit."
-            echo "It will check code formatting, run tidy checks, and run tests."
+            echo "Git hooks will now run automatically:"
+            echo "  - Pre-commit: fast checks (formatting, tidy) - tests skipped by default"
+            echo "  - Commit-msg: validates conventional commit format"
             echo ""
-            echo "To bypass the hook temporarily, use: git commit --no-verify"
-            echo "To disable tests in the hook, set: SKIP_TESTS=1"
+            echo "To bypass hooks temporarily, use: git commit --no-verify"
+            echo "To run tests in pre-commit hook, set: RUN_TESTS=1"
             ;;
         "uninstall")
             uninstall_hooks
