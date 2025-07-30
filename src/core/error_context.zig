@@ -267,13 +267,14 @@ fn increment_validation_errors() void {
     }
 }
 
-/// Log a storage error with context in debug builds or when verbose mode is enabled.
+/// Log a storage error with context in verbose mode only.
+/// Counts validation errors for statistics but only logs details when verbose enabled.
 pub fn log_storage_error(err: anyerror, context: StorageContext) void {
     // Always count validation errors for summary statistics
     increment_validation_errors();
 
-    // Only log details in verbose mode or debug builds
-    if (builtin.mode == .Debug or is_verbose_mode()) {
+    // Only log details in verbose mode (for fuzzing compatibility)
+    if (is_verbose_mode()) {
         log.warn("Storage operation failed: {any} - {any}", .{ err, context });
     }
 }
