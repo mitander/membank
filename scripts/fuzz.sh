@@ -135,7 +135,7 @@ build_project() {
     info "Building CortexDB fuzzer..."
     cd "$CORTEXDB_ROOT" || return 1
 
-    if ./zig/zig build fuzz fuzz-debug; then
+    if ./zig/zig build fuzz fuzz-debug -Doptimize=ReleaseSafe; then
         info "Build successful"
         return 0
     else
@@ -146,14 +146,19 @@ build_project() {
 
 # Function to run fuzzer with always-fresh code
 run_fuzzer() {
-    local target="$1"
-    local iterations="$2"
-    local seed="$3"
-    
+    local verbose_flag="$1"
+    local target="$2"
+    local iterations="$3"
+    local seed="$4"
+
     cd "$CORTEXDB_ROOT" || return 1
-    
+
     # Build and run with fresh code - faster than persistent binary for development
-    ./zig/zig build fuzz && ./zig-out/bin/fuzz "$target" "$iterations" "$seed"
+    if [[ "$verbose_flag" == "--verbose" ]]; then
+        ./zig/zig build fuzz -Doptimize=ReleaseSafe && ./zig-out/bin/fuzz --verbose "$target" "$iterations" "$seed"
+    else
+        ./zig/zig build fuzz -Doptimize=ReleaseSafe && ./zig-out/bin/fuzz "$target" "$iterations" "$seed"
+    fi
 }
 
 # Function to analyze crash reports
@@ -191,7 +196,7 @@ run_quick_fuzz() {
     trap 'echo ""; info "Stopping fuzzer..."; exit 130' SIGINT
 
     # Run fuzzer with fresh code
-    run_fuzzer "$target" "$iterations" "$seed"
+    run_fuzzer "$VERBOSE_FLAG" "$target" "$iterations" "$seed"
 
     # Check for crashes
     analyze_crashes
@@ -351,6 +356,13 @@ show_usage() {
 if [[ $# -eq 0 ]]; then
     show_usage
     exit 1
+fi
+
+# Check for verbose flag first
+VERBOSE_FLAG=""
+if [[ "$1" == "--verbose" || "$1" == "-v" ]]; then
+    VERBOSE_FLAG="--verbose"
+    shift
 fi
 
 PROFILE="$1"

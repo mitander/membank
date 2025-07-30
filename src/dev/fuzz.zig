@@ -25,6 +25,12 @@ const SourceContent = cortexdb.SourceContent;
 const FUZZ_ITERATIONS_DEFAULT = 100_000;
 const FUZZ_ITERATIONS_CONTINUOUS = std.math.maxInt(u64);
 const FUZZ_SEED_DEFAULT = 42;
+
+// Global verbose flag for detailed error logging
+var global_verbose_mode = std.atomic.Value(bool).init(false);
+
+// Global validation error counter for summary statistics
+var global_validation_errors = std.atomic.Value(u64).init(0);
 const CRASH_REPORT_DIR = "fuzz_reports";
 const PROGRESS_INTERVAL_SEC = 60;
 const GIT_CHECK_INTERVAL_SEC = 600; // 10 minutes
@@ -73,18 +79,40 @@ pub fn main() !void {
         return;
     }
 
-    const target = args[1];
-    const iterations = if (args.len > 2) blk: {
-        if (std.mem.eql(u8, args[2], "continuous")) {
-            break :blk FUZZ_ITERATIONS_CONTINUOUS;
-        }
-        break :blk try std.fmt.parseInt(u64, args[2], 10);
-    } else FUZZ_ITERATIONS_DEFAULT;
+    // Parse arguments, handling flags
+    var target: []const u8 = undefined;
+    var iterations: u64 = FUZZ_ITERATIONS_DEFAULT;
+    var seed: u64 = FUZZ_SEED_DEFAULT;
+    var arg_index: u32 = 1;
 
-    const seed = if (args.len > 3)
-        try std.fmt.parseInt(u64, args[3], 10)
-    else
-        FUZZ_SEED_DEFAULT;
+    // Check for verbose flag
+    if (arg_index < args.len and (std.mem.eql(u8, args[arg_index], "--verbose") or std.mem.eql(u8, args[arg_index], "-v"))) {
+        global_verbose_mode.store(true, .seq_cst);
+        arg_index += 1;
+    }
+
+    // Parse target
+    if (arg_index >= args.len) {
+        try print_usage();
+        return;
+    }
+    target = args[arg_index];
+    arg_index += 1;
+
+    // Parse iterations
+    if (arg_index < args.len) {
+        if (std.mem.eql(u8, args[arg_index], "continuous")) {
+            iterations = FUZZ_ITERATIONS_CONTINUOUS;
+        } else {
+            iterations = try std.fmt.parseInt(u64, args[arg_index], 10);
+        }
+        arg_index += 1;
+    }
+
+    // Parse seed
+    if (arg_index < args.len) {
+        seed = try std.fmt.parseInt(u64, args[arg_index], 10);
+    }
 
     // Setup crash reporting
     try setup_crash_reporting(allocator);
@@ -111,7 +139,11 @@ fn print_usage() !void {
         \\CortexDB Production Fuzzer
         \\
         \\Usage:
-        \\  fuzz <target> [iterations|continuous] [seed]
+        \\  fuzz [--verbose|-v] <target> [iterations|continuous] [seed]
+        \\
+        \\Flags:
+        \\  --verbose, -v   Show detailed progress with timing, rates, validation errors
+        \\                  (default: summary mode shows only iteration counts and crashes)
         \\
         \\Targets:
         \\  storage         Fuzz storage engine (WAL, SSTables, BlockIndex)
@@ -125,9 +157,15 @@ fn print_usage() !void {
         \\  continuous      Run until manually stopped (24/7 fuzzing)
         \\
         \\Examples:
-        \\  fuzz storage 1000000 42          # 1M iterations with seed 42
-        \\  fuzz query continuous            # Run forever with random seeds
+        \\  fuzz storage 1000000 42          # 1M iterations with seed 42 (summary mode)
+        \\  fuzz --verbose storage 50000     # Detailed timing and error metrics
+        \\  fuzz -v query continuous         # Verbose continuous with full stats
+        \\  fuzz query continuous            # Clean output, crashes only
         \\  fuzz all continuous 12345        # Continuous fuzzing of all targets
+        \\
+        \\Output Modes:
+        \\  Summary (default): Clean progress reports showing iteration counts and crashes
+        \\  Verbose (--verbose): Detailed timing, rates, validation errors, and full stats
         \\
         \\Crash reports are saved to: {s}/
         \\
@@ -169,6 +207,7 @@ const FuzzResult = enum {
 const FuzzStats = struct {
     iterations: u64 = 0,
     failures: u64 = 0,
+    validation_errors: u64 = 0,
     start_time: i128,
     last_progress_time: i128,
     last_git_check: i128,
@@ -269,8 +308,13 @@ fn fuzz_storage_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64)
             const rate = stats.rate();
             const elapsed = std.time.nanoTimestamp() - stats.start_time;
             const elapsed_sec = @as(f64, @floatFromInt(elapsed)) / 1_000_000_000.0;
+            const current_validation_errors = global_validation_errors.load(.seq_cst);
 
-            std.debug.print("  [{d:>7.1}s] {} iters @ {d:.0}/sec | {} unique crashes\n", .{ elapsed_sec, stats.iterations, rate, stats.failures });
+            if (global_verbose_mode.load(.seq_cst)) {
+                std.debug.print("  [{d:>7.1}s] {} iters @ {d:.0}/sec | {} validation errors, {} crashes\n", .{ elapsed_sec, stats.iterations, rate, current_validation_errors, stats.failures });
+            } else {
+                std.debug.print("  Storage: {} iters ({d:.0}/sec), {} crashes\n", .{ stats.iterations, rate, stats.failures });
+            }
         }
 
         if (is_continuous and stats.should_check_git()) {
@@ -282,10 +326,19 @@ fn fuzz_storage_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64)
     }
 
     const final_rate = stats.rate();
-    if (is_continuous) {
-        std.debug.print("  Continuous fuzzing stopped: {} iterations @ {d:.0}/sec, {} unique crashes\n", .{ stats.iterations, final_rate, stats.failures });
+    const final_validation_errors = global_validation_errors.load(.seq_cst);
+    if (global_verbose_mode.load(.seq_cst)) {
+        if (is_continuous) {
+            std.debug.print("  Continuous fuzzing stopped: {} iterations @ {d:.0}/sec | {} validation errors, {} crashes\n", .{ stats.iterations, final_rate, final_validation_errors, stats.failures });
+        } else {
+            std.debug.print("  Completed: {} iterations @ {d:.0}/sec | {} validation errors, {} crashes\n", .{ iterations, final_rate, final_validation_errors, stats.failures });
+        }
     } else {
-        std.debug.print("  Completed: {} unique crashes out of {} iterations @ {d:.0}/sec\n", .{ stats.failures, iterations, final_rate });
+        if (is_continuous) {
+            std.debug.print("  Storage fuzzing stopped: {} iterations, {} crashes\n", .{ stats.iterations, stats.failures });
+        } else {
+            std.debug.print("  Storage completed: {} iterations, {} crashes\n", .{ iterations, stats.failures });
+        }
     }
 }
 
@@ -389,8 +442,13 @@ fn fuzz_query_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64) !
             const rate = stats.rate();
             const elapsed = std.time.nanoTimestamp() - stats.start_time;
             const elapsed_sec = @as(f64, @floatFromInt(elapsed)) / 1_000_000_000.0;
+            const current_validation_errors = global_validation_errors.load(.seq_cst);
 
-            std.debug.print("  [{d:>7.1}s] {} iters @ {d:.0}/sec | {} unique crashes\n", .{ elapsed_sec, stats.iterations, rate, stats.failures });
+            if (global_verbose_mode.load(.seq_cst)) {
+                std.debug.print("  [{d:>7.1}s] {} iters @ {d:.0}/sec | {} validation errors, {} crashes\n", .{ elapsed_sec, stats.iterations, rate, current_validation_errors, stats.failures });
+            } else {
+                std.debug.print("  Query: {} iters ({d:.0}/sec), {} crashes\n", .{ stats.iterations, rate, stats.failures });
+            }
         }
 
         if (is_continuous and stats.should_check_git()) {
@@ -402,10 +460,19 @@ fn fuzz_query_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64) !
     }
 
     const final_rate = stats.rate();
-    if (is_continuous) {
-        std.debug.print("  Continuous fuzzing stopped: {} iterations @ {d:.0}/sec, {} unique crashes\n", .{ stats.iterations, final_rate, stats.failures });
+    const final_validation_errors = global_validation_errors.load(.seq_cst);
+    if (global_verbose_mode.load(.seq_cst)) {
+        if (is_continuous) {
+            std.debug.print("  Continuous fuzzing stopped: {} iterations @ {d:.0}/sec | {} validation errors, {} crashes\n", .{ stats.iterations, final_rate, final_validation_errors, stats.failures });
+        } else {
+            std.debug.print("  Completed: {} iterations @ {d:.0}/sec | {} validation errors, {} crashes\n", .{ iterations, final_rate, final_validation_errors, stats.failures });
+        }
     } else {
-        std.debug.print("  Completed: {} unique crashes out of {} iterations @ {d:.0}/sec\n", .{ stats.failures, iterations, final_rate });
+        if (is_continuous) {
+            std.debug.print("  Query fuzzing stopped: {} iterations, {} crashes\n", .{ stats.iterations, stats.failures });
+        } else {
+            std.debug.print("  Query completed: {} iterations, {} crashes\n", .{ iterations, stats.failures });
+        }
     }
 }
 
@@ -499,17 +566,33 @@ fn fuzz_zig_parser(allocator: std.mem.Allocator, iterations: u64, seed: u64) !vo
 
         if (is_continuous) {
             if (i > 0 and i % 10_000 == 0) {
-                std.debug.print("  Progress: {} iterations completed, {} failures\n", .{ i + 1, failures });
+                if (global_verbose_mode.load(.seq_cst)) {
+                    std.debug.print("  Progress: {} iterations completed, {} failures\n", .{ i + 1, failures });
+                } else {
+                    std.debug.print("  Parser: {} iters, {} crashes\n", .{ i + 1, failures });
+                }
             }
         } else if (i > 0 and i % 1_000 == 0) {
-            std.debug.print("  Progress: {}/{} ({d:.1}%)\n", .{ i + 1, iterations, @as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(iterations)) * 100.0 });
+            if (global_verbose_mode.load(.seq_cst)) {
+                std.debug.print("  Progress: {}/{} ({d:.1}%)\n", .{ i + 1, iterations, @as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(iterations)) * 100.0 });
+            } else {
+                std.debug.print("  Parser: {}/{} ({d:.0}%)\n", .{ i + 1, iterations, @as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(iterations)) * 100.0 });
+            }
         }
     }
 
-    if (is_continuous) {
-        std.debug.print("  Continuous fuzzing stopped after {} iterations: {} failures\n", .{ total_completed, failures });
+    if (global_verbose_mode.load(.seq_cst)) {
+        if (is_continuous) {
+            std.debug.print("  Continuous fuzzing stopped after {} iterations: {} failures\n", .{ total_completed, failures });
+        } else {
+            std.debug.print("  Completed: {} failures out of {} iterations\n", .{ failures, iterations });
+        }
     } else {
-        std.debug.print("  Completed: {} failures out of {} iterations\n", .{ failures, iterations });
+        if (is_continuous) {
+            std.debug.print("  Parser fuzzing stopped: {} iterations, {} crashes\n", .{ total_completed, failures });
+        } else {
+            std.debug.print("  Parser completed: {} iterations, {} crashes\n", .{ iterations, failures });
+        }
     }
 }
 
@@ -582,17 +665,33 @@ fn fuzz_serialization(allocator: std.mem.Allocator, iterations: u64, seed: u64) 
 
         if (is_continuous) {
             if (i > 0 and i % 10_000 == 0) {
-                std.debug.print("  Progress: {} iterations completed, {} failures\n", .{ i + 1, failures });
+                if (global_verbose_mode.load(.seq_cst)) {
+                    std.debug.print("  Progress: {} iterations completed, {} failures\n", .{ i + 1, failures });
+                } else {
+                    std.debug.print("  Serialization: {} iters, {} crashes\n", .{ i + 1, failures });
+                }
             }
         } else if (i > 0 and i % 1_000 == 0) {
-            std.debug.print("  Progress: {}/{} ({d:.1}%)\n", .{ i + 1, iterations, @as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(iterations)) * 100.0 });
+            if (global_verbose_mode.load(.seq_cst)) {
+                std.debug.print("  Progress: {}/{} ({d:.1}%)\n", .{ i + 1, iterations, @as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(iterations)) * 100.0 });
+            } else {
+                std.debug.print("  Serialization: {}/{} ({d:.0}%)\n", .{ i + 1, iterations, @as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(iterations)) * 100.0 });
+            }
         }
     }
 
-    if (is_continuous) {
-        std.debug.print("  Continuous fuzzing stopped after {} iterations: {} failures\n", .{ total_completed, failures });
+    if (global_verbose_mode.load(.seq_cst)) {
+        if (is_continuous) {
+            std.debug.print("  Continuous fuzzing stopped after {} iterations: {} failures\n", .{ total_completed, failures });
+        } else {
+            std.debug.print("  Completed: {} failures out of {} iterations\n", .{ failures, iterations });
+        }
     } else {
-        std.debug.print("  Completed: {} failures out of {} iterations\n", .{ failures, iterations });
+        if (is_continuous) {
+            std.debug.print("  Serialization fuzzing stopped: {} iterations, {} crashes\n", .{ total_completed, failures });
+        } else {
+            std.debug.print("  Serialization completed: {} iterations, {} crashes\n", .{ iterations, failures });
+        }
     }
 }
 

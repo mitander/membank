@@ -205,9 +205,31 @@ pub fn log_buffer_error(err: anyerror, context: BufferContext) void {
     }
 }
 
-/// Log a storage error with context in debug builds only.
+/// Check if we're in verbose mode (used by fuzz testing)
+fn is_verbose_mode() bool {
+    // Check if we're in a fuzz testing context with verbose enabled
+    if (@hasDecl(@import("root"), "global_verbose_mode")) {
+        const root = @import("root");
+        return root.global_verbose_mode.load(.seq_cst);
+    }
+    return false;
+}
+
+/// Increment global validation error counter if available
+fn increment_validation_errors() void {
+    if (@hasDecl(@import("root"), "global_validation_errors")) {
+        const root = @import("root");
+        _ = root.global_validation_errors.fetchAdd(1, .seq_cst);
+    }
+}
+
+/// Log a storage error with context in debug builds or when verbose mode is enabled.
 pub fn log_storage_error(err: anyerror, context: StorageContext) void {
-    if (builtin.mode == .Debug) {
+    // Always count validation errors for summary statistics
+    increment_validation_errors();
+
+    // Only log details in verbose mode or debug builds
+    if (builtin.mode == .Debug or is_verbose_mode()) {
         log.warn("Storage operation failed: {any} - {any}", .{ err, context });
     }
 }
