@@ -178,6 +178,7 @@ pub fn build(b: *std.Build) void {
     };
 
     var test_steps: [test_configs.len]*std.Build.Step.Run = undefined;
+    var test_install_steps: [test_configs.len]*std.Build.Step.InstallArtifact = undefined;
 
     // Create all test executables
     for (test_configs, 0..) |config, i| {
@@ -190,6 +191,10 @@ pub fn build(b: *std.Build) void {
         });
         // Add cortexdb module to all tests
         test_exe.root_module.addImport("cortexdb", cortexdb_module);
+
+        // Install test executable for Valgrind analysis
+        test_install_steps[i] = b.addInstallArtifact(test_exe, .{});
+
         test_steps[i] = b.addRunArtifact(test_exe);
     }
 
@@ -222,15 +227,20 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&test_steps[unit_test_index].step);
 
     // Comprehensive test suite (all working tests)
+    // Combined test target for CI (comprehensive but fast)
     const test_fast_step = b.step("test-fast", "Run comprehensive tests (fast CI validation)");
     for (test_steps) |run_test| {
         test_fast_step.dependOn(&run_test.step);
     }
 
-    // Full test suite (everything including problematic tests)
+    // All tests including problematic ones
     const test_all_step = b.step("test-all", "Run all tests including problematic ones");
     for (test_steps) |run_test| {
         test_all_step.dependOn(&run_test.step);
+    }
+    // Install test executables for Valgrind analysis
+    for (test_install_steps) |install_step| {
+        test_all_step.dependOn(&install_step.step);
     }
 
     // Code quality steps

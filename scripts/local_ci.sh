@@ -349,9 +349,15 @@ memory_job() {
         return 1
     fi
 
+    log_step "Running storage engine stress test with memory monitoring"
+    if ! timeout 300s ./zig/zig build integration_lifecycle -Doptimize="$OPTIMIZE"; then
+        log_error "Storage engine stress test failed"
+        return 1
+    fi
+
     if command -v valgrind &> /dev/null; then
         log_step "Running Valgrind memory error detection (abbreviated for local CI)"
-        if ! ./zig/zig build test-fast -Doptimize="$OPTIMIZE"; then
+        if ! ./zig/zig build test-all -Doptimize="$OPTIMIZE"; then
             log_error "Test build failed for Valgrind analysis"
             return 1
         fi
@@ -360,7 +366,7 @@ memory_job() {
         timeout 60s valgrind --tool=memcheck --error-exitcode=1 --leak-check=full \
                      --show-leak-kinds=all --errors-for-leak-kinds=all \
                      --track-origins=yes \
-                     ./zig-out/bin/unit-test 2>&1 | tee valgrind-output.log || {
+                     ./zig-out/bin/test 2>&1 | tee valgrind-output.log || {
             log_error "Valgrind detected memory errors!"
             cat valgrind-output.log
             return 1
@@ -373,6 +379,23 @@ memory_job() {
         fi
 
         rm -f valgrind-output.log
+    else
+        log_step "Running memory safety validation with built-in tools (Valgrind not available)"
+        if ! ./zig/zig build test-sanitizer; then
+            log_error "Sanitizer tests failed"
+            return 1
+        fi
+
+        log_step "Running additional memory safety focused tests"
+        if ! ./zig/zig build safety_memory_corruption -Doptimize="$OPTIMIZE"; then
+            log_error "Memory corruption safety tests failed"
+            return 1
+        fi
+
+        if ! ./zig/zig build safety_memory_fatal -Doptimize="$OPTIMIZE"; then
+            log_error "Memory fatal safety tests failed"
+            return 1
+        fi
     fi
 
     return 0
