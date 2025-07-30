@@ -237,6 +237,33 @@ run_continuous_fuzz() {
             esac
         fi
 
+        # Check if we need to rebuild (any source files newer than binary)
+        local rebuild_needed=false
+        if [[ ! -f "$FUZZ_BINARY" ]]; then
+            rebuild_needed=true
+            debug "Fuzz binary not found"
+        else
+            # Check all relevant source directories and build files
+            for dir in "src" "tests" "build.zig"; do
+                if [[ -d "$CORTEXDB_ROOT/$dir" ]] || [[ -f "$CORTEXDB_ROOT/$dir" ]]; then
+                    if find "$CORTEXDB_ROOT/$dir" -newer "$FUZZ_BINARY" -print -quit 2>/dev/null | grep -q .; then
+                        rebuild_needed=true
+                        debug "Changes detected in $dir"
+                        break
+                    fi
+                fi
+            done
+        fi
+
+        if [[ "$rebuild_needed" == "true" ]]; then
+            info "Source files changed, rebuilding fuzzer binary..."
+            if ! build_project; then
+                error "Build failed, sleeping 1 minute before retry..."
+                sleep 60
+                continue
+            fi
+        fi
+
         # Run fuzzer
         info "Starting fuzzer (target: $target, seed: $seed)"
         "$FUZZ_BINARY" "$target" continuous "$seed"
