@@ -157,7 +157,7 @@ pub const StorageEngine = struct {
             };
         }
 
-        // Start up SSTable manager (creates sst dir and discovers existing files)
+        // SSTable discovery must happen before WAL recovery to establish baseline state
         self.sstable_manager.startup() catch |err| {
             error_context.log_storage_error(err, error_context.file_context("sstable_manager_startup", self.data_dir));
             return err;

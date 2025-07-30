@@ -1,9 +1,8 @@
 //! Memory Isolation Test
 //!
-//! Comprehensive test to demonstrate that storage operations work correctly
-//! when run in isolation without cumulative memory corruption from test framework.
-//! This test runs many storage operations within a single test to avoid the
-//! HashMap alignment corruption that occurs after ~15 separate tests.
+//! Validates arena-per-subsystem memory model under stress conditions.
+//! Demonstrates that multiple storage operations within a single test context
+//! maintain memory isolation and prevent cross-contamination between cycles.
 
 const cortexdb = @import("cortexdb");
 const std = @import("std");

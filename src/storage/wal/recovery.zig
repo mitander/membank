@@ -123,7 +123,13 @@ pub fn recover_from_segment(
     }
 
     stats.entries_recovered += entries_recovered;
-    log.info("Recovered {d} entries from segment: {s}", .{ entries_recovered, file_path });
+
+    // Only log when entries are actually recovered to avoid spam from empty segments
+    if (entries_recovered > 0) {
+        log.info("Recovered {d} entries from segment: {s}", .{ entries_recovered, file_path });
+    } else {
+        log.debug("No entries found in segment: {s}", .{file_path});
+    }
 }
 
 /// Recover entries from multiple WAL segments in chronological order
