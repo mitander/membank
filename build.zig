@@ -21,8 +21,16 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Testing module with internal APIs for test files
+    const membank_test_module = b.createModule(.{
+        .root_source_file = b.path("src/membank_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Add build options to core module for configuration access
     membank_module.addImport("build_options", build_options.createModule());
+    membank_test_module.addImport("build_options", build_options.createModule());
 
     const exe = b.addExecutable(.{
         .name = "membank",
@@ -197,8 +205,8 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        // Provide core database module to enable integration testing
-        test_exe.root_module.addImport("membank", membank_module);
+        // Provide both public API and internal testing APIs
+        test_exe.root_module.addImport("membank", membank_test_module);
 
         test_install_steps[i] = b.addInstallArtifact(test_exe, .{});
 
@@ -219,7 +227,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    tidy_tests.root_module.addImport("membank", membank_module);
+    tidy_tests.root_module.addImport("membank", membank_test_module);
+    tidy_tests.root_module.addImport("membank_test", membank_test_module);
     const run_tidy_tests = b.addRunArtifact(tidy_tests);
 
     // Fast developer workflow: core functionality validation only
@@ -284,7 +293,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
-    benchmark.root_module.addImport("membank", membank_module);
+    benchmark.root_module.addImport("membank", membank_test_module);
 
     const install_benchmark = b.addInstallArtifact(benchmark, .{});
     const benchmark_step = b.step("benchmark", "Build and install benchmark");
@@ -298,7 +307,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
         }),
     });
-    allocator_torture.root_module.addImport("membank", membank_module);
+    allocator_torture.root_module.addImport("membank", membank_test_module);
 
     const install_allocator_torture = b.addInstallArtifact(allocator_torture, .{});
     const allocator_torture_step = b.step("allocator_torture", "Build and install allocator torture tester");
@@ -312,7 +321,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
-    fuzz.root_module.addImport("membank", membank_module);
+    fuzz.root_module.addImport("membank", membank_test_module);
 
     const install_fuzz = b.addInstallArtifact(fuzz, .{});
     const fuzz_step = b.step("fuzz", "Build and install fuzz tester");
@@ -326,7 +335,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .Debug,
         }),
     });
-    fuzz_debug.root_module.addImport("membank", membank_module);
+    fuzz_debug.root_module.addImport("membank", membank_test_module);
 
     const install_fuzz_debug = b.addInstallArtifact(fuzz_debug, .{});
     const fuzz_debug_step = b.step("fuzz-debug", "Build and install debug fuzz tester with enhanced debugging");

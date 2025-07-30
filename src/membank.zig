@@ -1,81 +1,33 @@
-//! Membank Core Library
+//! Membank Public API
 //!
-//! This module exports the public API for the Membank engine.
-//! All internal implementation details are encapsulated and not exposed here.
-//!
-//! Membank is a high-performance, mission-critical database built on principles of:
-//! - Simplicity is the Prerequisite for Reliability
-//! - Correctness is Not Negotiable
-//! - Explicitness Over Magic
-//! - Determinism & Testability
+//! Clean, minimal interface for the knowledge graph database.
+//! For testing and internal APIs, use @import("membank_test.zig").
 
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const simulation = @import("sim/simulation.zig");
-pub const simulation_vfs = @import("sim/simulation_vfs.zig");
-
-pub const Simulation = simulation.Simulation;
-pub const SimulationVFS = simulation_vfs.SimulationVFS;
-
-pub const VFS = @import("core/vfs.zig").VFS;
-pub const VFile = @import("core/vfs.zig").VFile;
-
-pub const assert = @import("core/assert.zig");
-pub const concurrency = @import("core/concurrency.zig");
-pub const error_context = @import("core/error_context.zig");
-pub const stdx = @import("core/stdx.zig");
-pub const production_vfs = @import("core/production_vfs.zig");
-
-pub const bloom_filter = @import("storage/bloom_filter.zig");
-pub const sstable = @import("storage/sstable.zig");
-pub const tiered_compaction = @import("storage/tiered_compaction.zig");
-pub const storage = @import("storage/engine.zig");
-
-pub const wal = struct {
-    pub const corruption_tracker = @import("storage/wal/corruption_tracker.zig");
-    pub const entry = @import("storage/wal/entry.zig");
-    pub const recovery = @import("storage/wal/recovery.zig");
-    pub const types = @import("storage/wal/types.zig");
-};
-
-pub const query = struct {
-    pub const engine = @import("query/engine.zig");
-    pub const operations = @import("query/operations.zig");
-    pub const traversal = @import("query/traversal.zig");
-    pub const filtering = @import("query/filtering.zig");
-};
-
-pub const query_engine = @import("query/engine.zig");
-pub const query_operations = @import("query/operations.zig");
-pub const query_traversal = @import("query/traversal.zig");
-pub const query_filtering = @import("query/filtering.zig");
-
-pub const pipeline = @import("ingestion/pipeline.zig");
-pub const git_source = @import("ingestion/git_source.zig");
-pub const zig_parser = @import("ingestion/zig_parser.zig");
-pub const semantic_chunker = @import("ingestion/semantic_chunker.zig");
-
-pub const debug_allocator = @import("dev/debug_allocator.zig");
-
-pub const handler = @import("server/handler.zig");
-
+// Core knowledge graph data structures
 pub const types = @import("core/types.zig");
-pub const vfs = @import("core/vfs.zig");
-
 pub const ContextBlock = types.ContextBlock;
 pub const BlockId = types.BlockId;
 pub const GraphEdge = types.GraphEdge;
 pub const EdgeType = types.EdgeType;
 
+// Database storage and configuration
+pub const storage = @import("storage/engine.zig");
+pub const Database = storage.StorageEngine;
 pub const StorageEngine = storage.StorageEngine;
+pub const Config = storage.StorageEngine.Config;
+pub const Error = storage.StorageEngine.StorageError;
+
+// Query engine for knowledge graph traversal
+pub const query_engine = @import("query/engine.zig");
 pub const QueryEngine = query_engine.QueryEngine;
 pub const QueryResult = query_engine.QueryResult;
-pub const FindBlocksQuery = query_engine.FindBlocksQuery;
-
-pub const TraversalQuery = query_engine.TraversalQuery;
-pub const TraversalResult = query_engine.TraversalResult;
 pub const TraversalDirection = query_engine.TraversalDirection;
+pub const TraversalResult = query_engine.TraversalResult;
+pub const FindBlocksQuery = query_engine.FindBlocksQuery;
+pub const TraversalQuery = query_engine.TraversalQuery;
 pub const TraversalAlgorithm = query_engine.TraversalAlgorithm;
 pub const SemanticQuery = query_engine.SemanticQuery;
 pub const SemanticQueryResult = query_engine.SemanticQueryResult;
@@ -87,6 +39,8 @@ pub const FilterExpression = query_engine.FilterExpression;
 pub const FilterOperator = query_engine.FilterOperator;
 pub const FilterTarget = query_engine.FilterTarget;
 
+// Content ingestion and parsing pipeline
+pub const pipeline = @import("ingestion/pipeline.zig");
 pub const IngestionPipeline = pipeline.IngestionPipeline;
 pub const PipelineConfig = pipeline.PipelineConfig;
 pub const Source = pipeline.Source;
@@ -95,30 +49,36 @@ pub const Chunker = pipeline.Chunker;
 pub const SourceContent = pipeline.SourceContent;
 pub const ParsedUnit = pipeline.ParsedUnit;
 
+pub const git_source = @import("ingestion/git_source.zig");
 pub const GitSource = git_source.GitSource;
 pub const GitSourceConfig = git_source.GitSourceConfig;
 
+pub const zig_parser = @import("ingestion/zig_parser.zig");
 pub const ZigParser = zig_parser.ZigParser;
 pub const ZigParserConfig = zig_parser.ZigParserConfig;
 
+pub const semantic_chunker = @import("ingestion/semantic_chunker.zig");
 pub const SemanticChunker = semantic_chunker.SemanticChunker;
 pub const SemanticChunkerConfig = semantic_chunker.SemanticChunkerConfig;
 
+// TCP server for database access
+pub const handler = @import("server/handler.zig");
 pub const Server = handler.Server;
 
+// Standard allocator type alias
 pub const Allocator = std.mem.Allocator;
-pub const Database = StorageEngine;
 
+// Version information
 pub const version = .{
     .major = 0,
     .minor = 1,
     .patch = 0,
 };
 
-pub const Config = StorageEngine.Config;
-pub const Error = StorageEngine.StorageError;
-
-/// Initialize Membank with the given configuration
+/// Initialize a new Membank database instance
+///
+/// Creates the storage engine with the provided configuration.
+/// The database handles knowledge graph storage and querying.
 pub fn init(allocator: Allocator, config: Config) !Database {
     return Database.init(allocator, config);
 }
