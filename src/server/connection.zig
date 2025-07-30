@@ -9,7 +9,7 @@
 //!
 //! Follows CortexDB architectural principles:
 //! - Arena-per-connection memory management
-//! - Explicit error handling with context
+//! - Explicit error handling with ctx
 //! - Non-blocking I/O with proper state transitions
 
 const std = @import("std");
@@ -18,11 +18,12 @@ const assert = custom_assert.assert;
 const comptime_assert = custom_assert.comptime_assert;
 const comptime_no_padding = custom_assert.comptime_no_padding;
 const log = std.log.scoped(.connection);
-const context_block = @import("../core/types.zig");
+const ctx_block = @import("../core/types.zig");
 const query_engine = @import("../query/engine.zig");
+const error_context = @import("../core/error_context.zig");
 
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = ctx_block.ContextBlock;
+const BlockId = ctx_block.BlockId;
 
 /// Binary protocol message types
 pub const MessageType = enum(u8) {
@@ -186,7 +187,11 @@ pub const ClientConnection = struct {
         const n = self.stream.read(self.read_buffer[self.header_bytes_read .. self.header_bytes_read + header_remaining]) catch |err| switch (err) {
             error.WouldBlock => return true, // No data available, try again later
             error.ConnectionResetByPeer, error.BrokenPipe => return false, // Client disconnected
-            else => return err,
+            else => {
+                const ctx = error_context.server_io_context("read_header", self.connection_id, self.header_bytes_read);
+                error_context.log_server_error(err, ctx);
+                return err;
+            },
         };
 
         if (n == 0) return false; // Client disconnected
@@ -228,7 +233,11 @@ pub const ClientConnection = struct {
         const n = self.stream.read(payload[self.payload_bytes_read..]) catch |err| switch (err) {
             error.WouldBlock => return true, // No data available, try again later
             error.ConnectionResetByPeer, error.BrokenPipe => return false, // Client disconnected
-            else => return err,
+            else => {
+                const ctx = error_context.server_io_context("read_payload", self.connection_id, self.payload_bytes_read);
+                error_context.log_server_error(err, ctx);
+                return err;
+            },
         };
 
         if (n == 0) return false; // Client disconnected
@@ -249,7 +258,11 @@ pub const ClientConnection = struct {
         const n = self.stream.write(response[self.response_bytes_written..]) catch |err| switch (err) {
             error.WouldBlock => return true, // Socket buffer full, try again later
             error.ConnectionResetByPeer, error.BrokenPipe => return false, // Client disconnected
-            else => return err,
+            else => {
+                const ctx = error_context.server_io_context("write_response", self.connection_id, self.response_bytes_written);
+                error_context.log_server_error(err, ctx);
+                return err;
+            },
         };
 
         self.response_bytes_written += n;

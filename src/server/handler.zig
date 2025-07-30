@@ -18,7 +18,8 @@ const log = std.log.scoped(.server);
 const concurrency = @import("../core/concurrency.zig");
 const storage = @import("../storage/engine.zig");
 const query_engine = @import("../query/engine.zig");
-const context_block = @import("../core/types.zig");
+const ctx_block = @import("../core/types.zig");
+const error_context = @import("../core/error_context.zig");
 
 const conn = @import("connection.zig");
 pub const ClientConnection = conn.ClientConnection;
@@ -29,8 +30,8 @@ pub const ConnectionState = conn.ConnectionState;
 const StorageEngine = storage.StorageEngine;
 const QueryResult = query_engine.QueryResult;
 const QueryEngine = query_engine.QueryEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = ctx_block.ContextBlock;
+const BlockId = ctx_block.BlockId;
 
 /// Server configuration
 pub const ServerConfig = struct {
@@ -236,6 +237,8 @@ pub const CortexServer = struct {
             }
 
             const keep_alive = connection.process_io(self.config.to_connection_config()) catch |err| blk: {
+                const ctx = error_context.connection_context("process_io", connection.connection_id);
+                error_context.log_server_error(err, ctx);
                 log.err("Connection {d}: I/O error: {any}", .{ connection.connection_id, err });
                 break :blk false;
             };
@@ -259,7 +262,11 @@ pub const CortexServer = struct {
             const tcp_connection = self.listener.?.accept() catch |err| switch (err) {
                 error.WouldBlock => break, // No more connections to accept
                 error.ConnectionAborted => continue, // Client canceled, try next
-                else => return err,
+                else => {
+                    const ctx = error_context.ServerContext{ .operation = "accept_connection" };
+                    error_context.log_server_error(err, ctx);
+                    return err;
+                },
             };
 
             if (self.connections.items.len >= self.config.max_connections) {
@@ -390,15 +397,21 @@ pub const CortexServer = struct {
             return;
         }
 
-        var block_ids = try allocator.alloc(context_block.BlockId, block_count);
+        var block_ids = try allocator.alloc(ctx_block.BlockId, block_count);
         for (0..block_count) |i| {
             const id_start = 4 + (i * 16);
             const id_bytes = payload[id_start .. id_start + 16];
-            block_ids[i] = context_block.BlockId{ .bytes = id_bytes[0..16].* };
+            block_ids[i] = ctx_block.BlockId{ .bytes = id_bytes[0..16].* };
         }
 
         const query = query_engine.FindBlocksQuery{ .block_ids = block_ids };
         const result = self.query_engine.execute_find_blocks(query) catch |err| {
+            const ctx = error_context.ServerContext{
+                .operation = "execute_find_blocks",
+                .connection_id = connection.connection_id,
+                .message_size = block_count,
+            };
+            error_context.log_server_error(err, ctx);
             const error_msg = try std.fmt.allocPrint(allocator, "Query execution failed: {any}", .{err});
             connection.send_response(error_msg);
             self.stats.errors_encountered += 1;
@@ -453,7 +466,7 @@ pub const CortexServer = struct {
         }
 
         const start_id_bytes = payload[4..20];
-        const start_id = context_block.BlockId{ .bytes = start_id_bytes[0..16].* };
+        const start_id = ctx_block.BlockId{ .bytes = start_id_bytes[0..16].* };
 
         var result_blocks = std.ArrayList(ContextBlock).init(allocator);
         defer result_blocks.deinit();

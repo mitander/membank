@@ -198,6 +198,50 @@ pub const IngestionContext = struct {
     }
 };
 
+/// Context information for server operations that can fail.
+pub const ServerContext = struct {
+    operation: []const u8,
+    connection_id: ?u32 = null,
+    client_address: ?[]const u8 = null,
+    message_type: ?u8 = null,
+    message_size: ?usize = null,
+    bytes_processed: ?usize = null,
+    error_code: ?u32 = null,
+
+    pub fn format(
+        self: ServerContext,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("ServerContext{{ operation=\"{s}\"", .{self.operation});
+
+        if (self.connection_id) |id| {
+            try writer.print(", connection_id={}", .{id});
+        }
+        if (self.client_address) |addr| {
+            try writer.print(", client=\"{s}\"", .{addr});
+        }
+        if (self.message_type) |msg_type| {
+            try writer.print(", message_type={}", .{msg_type});
+        }
+        if (self.message_size) |size| {
+            try writer.print(", message_size={}", .{size});
+        }
+        if (self.bytes_processed) |bytes| {
+            try writer.print(", bytes_processed={}", .{bytes});
+        }
+        if (self.error_code) |code| {
+            try writer.print(", error_code={}", .{code});
+        }
+
+        try writer.print(" }}", .{});
+    }
+};
+
 /// Log a buffer error with context in debug builds only.
 pub fn log_buffer_error(err: anyerror, context: BufferContext) void {
     if (builtin.mode == .Debug) {
@@ -248,6 +292,13 @@ pub fn log_ingestion_error(err: anyerror, context: IngestionContext) void {
     }
 }
 
+/// Log a server error with context in debug builds only.
+pub fn log_server_error(err: anyerror, context: ServerContext) void {
+    if (builtin.mode == .Debug) {
+        log.warn("Server operation failed: {any} - {any}", .{ err, context });
+    }
+}
+
 /// Helper to create storage context for block operations.
 pub fn block_context(operation: []const u8, block_id: BlockId) StorageContext {
     return StorageContext{
@@ -261,6 +312,23 @@ pub fn file_context(operation: []const u8, file_path: []const u8) StorageContext
     return StorageContext{
         .operation = operation,
         .file_path = file_path,
+    };
+}
+
+/// Helper to create server context for connection operations.
+pub fn connection_context(operation: []const u8, connection_id: u32) ServerContext {
+    return ServerContext{
+        .operation = operation,
+        .connection_id = connection_id,
+    };
+}
+
+/// Helper to create server context for I/O operations.
+pub fn server_io_context(operation: []const u8, connection_id: u32, bytes_processed: ?usize) ServerContext {
+    return ServerContext{
+        .operation = operation,
+        .connection_id = connection_id,
+        .bytes_processed = bytes_processed,
     };
 }
 
