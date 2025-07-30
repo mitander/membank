@@ -1,9 +1,10 @@
-# Membank
+# membank
 
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI Status](https://github.com/mitander/membank/actions/workflows/ci.yml/badge.svg)](https://github.com/mitander/membank/actions)
 
 **The knowledge graph database built for LLMs.**
+> *"Your LLM finally has a memory that doesn't suck. We're as excited about this as you should be."*
 
 Stop feeding your LLM random text chunks. Membank gives you **structured, interconnected knowledge** with sub-millisecond queries. Your AI finally knows what's connected to what.
 
@@ -23,17 +24,15 @@ Stop feeding your LLM random text chunks. Membank gives you **structured, interc
 
 ## The Problem
 
-**Your LLM is flying blind.** It gets 50 random functions in a prompt and hopes the right ones are there. No understanding of what calls what, no knowledge of dependencies, no grasp of the bigger picture.
+**Your LLM doesn't know what's connected to what.** You dump 50 functions into a prompt hoping the relevant ones are included. When your LLM suggests changing `authenticate_user()`, it has no idea what breaks.
 
-**Result:** Suggestions that break your authentication system because the LLM didn't know what depends on it.
+**Membank gives your LLM a knowledge graph** instead of random text chunks:
 
-Membank fixes this with **knowledge graphs**:
+- **Context Blocks** with metadata and relationships
+- **Graph Traversal** to find exactly what matters
+- **Complete picture** of dependencies and callers
 
-- **Context Blocks**: Logical units (functions, classes, docs) with metadata
-- **Typed Relationships**: `CALLS`, `IMPORTS`, `REFERENCES` — your LLM knows the connections
-- **Graph Traversal**: Get exactly what matters, not random text
-
-**Goal**: Give your LLM the **right context**, not just **more context**.
+**Goal**: Right context, not more context.
 
 ```zig
 // Someone changed authentication logic
@@ -52,27 +51,20 @@ var review = try llm.prompt(
 );
 ```
 
-**The difference:** Your LLM isn't guessing anymore. It **knows** exactly what `authenticate_user()` touches — the login endpoint, session middleware, API gateway. **No more broken suggestions. No more missed dependencies.**
+**The difference:** Your LLM isn't guessing anymore. It **knows** exactly what `authenticate_user()` touches - the login endpoint, session middleware, API gateway.
 
-## Why Membank?
+**No more broken suggestions. No more missed dependencies.**
 
-- **Sub-millisecond queries** — Real-time context injection that doesn't slow down your LLM
-- **Actually reliable** — 500+ deterministic tests simulate network failures, disk corruption, memory pressure
-- **Production-ready** — Arena memory model eliminates entire bug classes, zero hidden allocations
+## Built to be Fast and Reliable
+
+**Deterministic by design. Built like financial trading systems.**
+
+- **Sub-millisecond queries** via LSM-tree storage optimized for write-heavy ingestion
+- **Actually reliable** with 500+ deterministic tests simulating network failures and corruption
+- **Zero data races** with single-threaded core architecture
+- **Memory safe** using arena allocation model that eliminates entire bug classes
 - **Zero dependencies** — Pure Zig, single binary, no complex deployment
-- **Proven patterns** — Built like financial trading systems (because they have to work)
-
-## Architecture
-
-**Built like financial trading systems — fast, reliable, deterministic.**
-
-- **LSM-tree storage** — Optimized for write-heavy ingestion with blazing fast reads
-- **Single-threaded core** — Data races are impossible by design
-- **Arena memory model** — Bulk allocation/deallocation eliminates memory bugs
-- **Virtual file system** — Same production code runs in deterministic tests
-- **Simulation testing** — Reproduce catastrophic failures deterministically
-
-> *"Your LLM finally has a memory that doesn't suck. We're as excited about this as you should be."*
+- **Simulation tested** — Same production code runs in deterministic failure scenarios
 
 ## Development
 
@@ -90,10 +82,7 @@ var review = try llm.prompt(
 
 ## Documentation
 
-- **[DESIGN.md](docs/DESIGN.md)**: Architecture and philosophy
-- **[DEVELOPMENT.md](docs/DEVELOPMENT.md)**: Build system and debugging
-- **[STYLE.md](docs/STYLE.md)**: Code standards and patterns
+- **[DESIGN](docs/DESIGN.md)**: Architecture and philosophy
+- **[DEVELOPMENT](docs/DEVELOPMENT.md)**: Build system and debugging
+- **[STYLE](docs/STYLE.md)**: Code standards and patterns
 
-## License
-
-[MIT](LICENSE)
