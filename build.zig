@@ -278,6 +278,20 @@ pub fn build(b: *std.Build) void {
     const benchmark_step = b.step("benchmark", "Build and install benchmark");
     benchmark_step.dependOn(&install_benchmark.step);
 
+    const allocator_torture = b.addExecutable(.{
+        .name = "allocator_torture",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/dev/allocator_torture_test.zig"),
+            .target = target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    allocator_torture.root_module.addImport("cortexdb", cortexdb_module);
+
+    const install_allocator_torture = b.addInstallArtifact(allocator_torture, .{});
+    const allocator_torture_step = b.step("allocator_torture", "Build and install allocator torture tester");
+    allocator_torture_step.dependOn(&install_allocator_torture.step);
+
     const fuzz = b.addExecutable(.{
         .name = "fuzz",
         .root_module = b.createModule(.{

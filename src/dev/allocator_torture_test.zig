@@ -85,14 +85,14 @@ pub const TortureTestStats = struct {
         }
     }
 
-    pub fn print_summary(self: *const TortureTestStats, writer: anytype) !void {
-        try writer.print("=== Allocator Torture Test Results ===\n");
+    pub fn print_summary(self: *const TortureTestStats) void {
+        std.debug.print("=== Allocator Torture Test Results ===\n", .{});
         const alloc_success_rate = if (self.total_allocations > 0)
             @as(f64, @floatFromInt(self.successful_allocations)) * 100.0 /
                 @as(f64, @floatFromInt(self.total_allocations))
         else
             0.0;
-        try writer.print("Allocations: {}/{} ({d:.1}% success)\n", .{
+        std.debug.print("Allocations: {}/{} ({d:.1}% success)\n", .{
             self.successful_allocations,
             self.total_allocations,
             alloc_success_rate,
@@ -103,15 +103,15 @@ pub const TortureTestStats = struct {
                 @as(f64, @floatFromInt(self.total_frees))
         else
             0.0;
-        try writer.print("Frees: {}/{} ({d:.1}% success)\n", .{
+        std.debug.print("Frees: {}/{} ({d:.1}% success)\n", .{
             self.successful_frees,
             self.total_frees,
             free_success_rate,
         });
-        try writer.print("Peak Concurrent: {} allocations\n", .{self.max_concurrent_allocations});
-        try writer.print("Peak Memory: {} bytes\n", .{self.peak_bytes_allocated});
-        try writer.print("Size Distribution: {} small, {} medium, {} large\n", .{ self.small_allocations, self.medium_allocations, self.large_allocations });
-        try writer.print("Violations: {} pattern, {} alignment, {} double-free\n", .{ self.pattern_violations, self.alignment_violations, self.double_free_attempts });
+        std.debug.print("Peak Concurrent: {} allocations\n", .{self.max_concurrent_allocations});
+        std.debug.print("Peak Memory: {} bytes\n", .{self.peak_bytes_allocated});
+        std.debug.print("Size Distribution: {} small, {} medium, {} large\n", .{ self.small_allocations, self.medium_allocations, self.large_allocations });
+        std.debug.print("Violations: {} pattern, {} alignment, {} double-free\n", .{ self.pattern_violations, self.alignment_violations, self.double_free_attempts });
     }
 };
 
@@ -512,24 +512,24 @@ pub fn run_allocator_torture_test(allocator: std.mem.Allocator, config: TortureT
 }
 
 /// Run comprehensive torture test suite with different configurations
-pub fn run_comprehensive_torture_tests(allocator: std.mem.Allocator, writer: anytype) !void {
-    try writer.print("Starting comprehensive allocator torture tests...\n", .{});
+pub fn run_comprehensive_torture_tests(allocator: std.mem.Allocator) !void {
+    std.debug.print("Starting comprehensive allocator torture tests...\n", .{});
 
     // Test 1: Basic stress test
     {
-        try writer.print("\n=== Test 1: Basic Stress Test ===\n", .{});
+        std.debug.print("\n=== Test 1: Basic Stress Test ===\n", .{});
         const config = TortureTestConfig{
             .allocation_cycles = 1000,
             .max_allocation_size = 8192,
             .random_seed = 12345,
         };
         const stats = try run_allocator_torture_test(allocator, config);
-        try stats.print_summary(writer);
+        stats.print_summary();
     }
 
     // Test 2: Alignment stress test
     {
-        try writer.print("\n=== Test 2: Alignment Stress Test ===\n", .{});
+        std.debug.print("\n=== Test 2: Alignment Stress Test ===\n", .{});
         const config = TortureTestConfig{
             .allocation_cycles = 500,
             .max_allocation_size = 4096,
@@ -537,12 +537,12 @@ pub fn run_comprehensive_torture_tests(allocator: std.mem.Allocator, writer: any
             .enable_alignment_stress = true,
         };
         const stats = try run_allocator_torture_test(allocator, config);
-        try stats.print_summary(writer);
+        stats.print_summary();
     }
 
     // Test 3: Boundary testing
     {
-        try writer.print("\n=== Test 3: Size Boundary Test ===\n", .{});
+        std.debug.print("\n=== Test 3: Size Boundary Test ===\n", .{});
         const config = TortureTestConfig{
             .allocation_cycles = 300,
             .max_allocation_size = 100000,
@@ -550,8 +550,16 @@ pub fn run_comprehensive_torture_tests(allocator: std.mem.Allocator, writer: any
             .enable_boundary_testing = true,
         };
         const stats = try run_allocator_torture_test(allocator, config);
-        try stats.print_summary(writer);
+        stats.print_summary();
     }
 
-    try writer.print("\nComprehensive torture tests completed!\n", .{});
+    std.debug.print("\nComprehensive torture tests completed!\n", .{});
+}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    try run_comprehensive_torture_tests(allocator);
 }
