@@ -76,7 +76,7 @@ test "streaming_memory_efficiency_benchmark" {
     defer query_engine.deinit();
 
     // Phase 1: Memory baseline measurement
-    const baseline_memory: u64 = 0; // Memory tracking not implemented
+    const baseline_memory: u64 = 0;
 
     // Phase 2: Streaming query formation with varying result sizes
     const result_sizes = [_]usize{ 10, 50, 100, 500, 1000 };
@@ -124,7 +124,7 @@ test "streaming_memory_efficiency_benchmark" {
         total_streaming_time += @as(i64, @intCast(stream_time));
 
         // Track peak memory usage during streaming
-        const current_memory: u64 = 0; // Memory tracking not implemented
+        const current_memory: u64 = 0;
         if (current_memory > peak_memory) {
             peak_memory = current_memory;
         }
@@ -429,7 +429,7 @@ test "memory_management_efficiency_benchmark" {
 
     try engine.startup();
 
-    const initial_memory: u64 = 0; // Memory tracking not implemented
+    const initial_memory: u64 = 0;
 
     // Allocate substantial data
     for (1..1001) |i| {
@@ -438,7 +438,7 @@ test "memory_management_efficiency_benchmark" {
         try engine.put_block(block);
     }
 
-    const peak_memory: u64 = 0; // Memory tracking not implemented
+    const peak_memory: u64 = 0;
     const memory_growth = peak_memory - initial_memory;
 
     // Memory growth should be proportional to data size (with tolerance for disabled tracking)

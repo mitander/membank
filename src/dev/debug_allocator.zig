@@ -24,7 +24,7 @@ const GUARD_MAGIC: u64 = 0xCAFE_BABE_DEAD_BEEF;
 const GUARD_SIZE: usize = 32;
 
 /// Maximum number of allocation entries to track
-const MAX_TRACKED_ALLOCATIONS: usize = if (builtin.mode == .Debug) 16384 else 1024;
+const MAX_TRACKED_ALLOCATIONS: usize = if (builtin.mode == .Debug) 512 else 256;
 
 /// Enable stack trace capture (can be disabled to avoid slow Debug linking)
 // Stack traces disabled in ReleaseSafe due to Zig linking performance constraints.

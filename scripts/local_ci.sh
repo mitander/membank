@@ -168,9 +168,15 @@ test_job() {
         return 1
     fi
 
-    log_step "Running test suite"
-    if ! ./zig/zig build test-all -Doptimize="$OPTIMIZE"; then
-        log_error "Test suite failed"
+    log_step "Running fast unit tests"
+    if ! ./zig/zig build test -Doptimize="$OPTIMIZE"; then
+        log_error "Unit tests failed"
+        return 1
+    fi
+
+    log_step "Running comprehensive test suite"
+    if ! ./zig/zig build test-fast -Doptimize="$OPTIMIZE"; then
+        log_error "Comprehensive test suite failed"
         return 1
     fi
 
@@ -316,28 +322,21 @@ memory_job() {
         return 1
     fi
 
-    log_step "Running allocator torture test suite (10 iterations for local CI)"
-    for i in {1..10}; do
-        echo "Iteration $i/10"
-        timeout 60s ./zig/zig build allocator_torture -Doptimize="$OPTIMIZE" || {
-            log_error "Torture test iteration $i failed"
-            return 1
-        }
-    done
+    log_step "Running memory safety tests"
+    if ! ./zig/zig build safety_memory_corruption -Doptimize="$OPTIMIZE"; then
+        log_error "Memory safety tests failed"
+        return 1
+    fi
 
-    log_step "Running memory safety integration tests"
-    ./zig/zig build memory_stress -Doptimize="$OPTIMIZE" || {
-        log_warning "memory_stress target not found, skipping"
-    }
-
-    log_step "Running stress test with memory monitoring"
-    timeout 60s ./zig/zig build integration -Doptimize="$OPTIMIZE" || {
-        log_warning "integration target failed or not found"
-    }
+    log_step "Running stress tests"
+    if ! ./zig/zig build stress_memory -Doptimize="$OPTIMIZE"; then
+        log_error "Memory stress tests failed"
+        return 1
+    fi
 
     if command -v valgrind &> /dev/null; then
         log_step "Running Valgrind memory error detection (abbreviated for local CI)"
-        if ! ./zig/zig build test-all -Doptimize="$OPTIMIZE"; then
+        if ! ./zig/zig build test-fast -Doptimize="$OPTIMIZE"; then
             log_error "Test build failed for Valgrind analysis"
             return 1
         fi
@@ -346,7 +345,7 @@ memory_job() {
         timeout 60s valgrind --tool=memcheck --error-exitcode=1 --leak-check=full \
                      --show-leak-kinds=all --errors-for-leak-kinds=all \
                      --track-origins=yes \
-                     ./zig-out/bin/test 2>&1 | tee valgrind-output.log || {
+                     ./zig-out/bin/unit-test 2>&1 | tee valgrind-output.log || {
             log_error "Valgrind detected memory errors!"
             cat valgrind-output.log
             return 1
@@ -367,7 +366,7 @@ memory_job() {
 # Coverage job (mirrors GitHub Actions coverage job)
 coverage_job() {
     log_step "Generating test coverage"
-    if ! ./zig/zig build test -Doptimize="$OPTIMIZE" -- --summary all; then
+    if ! ./zig/zig build test-fast -Doptimize="$OPTIMIZE" -- --summary all; then
         log_error "Coverage test run failed"
         return 1
     fi

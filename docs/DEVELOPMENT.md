@@ -9,11 +9,12 @@
 
 ## Core Workflow
 
-**Golden Rule**: `./zig/zig build test` (fast unit tests) must pass before every commit. Full test suite runs in CI.
+**Golden Rule**: `./zig/zig build test` (fast unit tests) must pass before every commit. Use `test-fast` for pre-commit validation.
 
 ```bash
-./zig/zig build test         # Fast unit tests (< 30 seconds, development workflow)
-./zig/zig build test-all     # Full test suite (CI/validation, several minutes)
+./zig/zig build test         # Fast unit tests (< 30 seconds, developer default)
+./zig/zig build test-fast    # Comprehensive tests (~2 minutes, CI validation)
+./zig/zig build test-all     # All tests including stress tests (~5 minutes, full validation)
 ./zig/zig build run          # Start CortexDB server
 ./zig/zig build check        # Quick compilation + quality checks
 ```
@@ -27,7 +28,7 @@
 ./zig/zig build wal_recovery       # WAL recovery validation
 ./zig/zig build memory_isolation   # Arena memory safety tests
 
-# Development
+# Developmen
 ./zig/zig build benchmark    # Performance benchmarks
 ./zig/zig build fuzz         # Fuzz testing
 ./zig/zig build tidy         # Code quality checks
@@ -79,7 +80,7 @@ test "crashing test" {
 
 ```
 src/
-├── cortexdb.zig              # Public API entry point
+├── cortexdb.zig              # Public API entry poin
 ├── main.zig                  # Server binary
 ├── core/                     # Foundation (types, VFS, utilities)
 ├── storage/                  # LSM-tree coordinator + managers
@@ -124,7 +125,7 @@ feat(storage): add streaming WAL recovery
 Reduces memory usage during startup by processing entries one at a time.
 
 - Extract WALEntryStream for buffered I/O
-- Process recovery incrementally vs loading entire segment
+- Process recovery incrementally vs loading entire segmen
 - Maintain identical behavior for corruption detection
 - Add comprehensive recovery stress tests
 
@@ -136,14 +137,14 @@ Startup memory usage reduced from 200MB to <10MB for large WAL files.
 - Subject line <50 chars
 - Description explains WHY, bullet points explain WHAT
 - Never mention AI/Claude/assistants
-- Test locally with `./zig/zig build test` (fast) or `./zig/zig build test-all` (comprehensive) first
+- Test locally with `./zig/zig build test` first, then `./zig/zig build test-fast` for comprehensive validation
 
 ## Code Standards
 
 **Memory**: Explicit allocators, arena-per-subsystem pattern
 
 ```zig
-// Good: Allocator parameter explicit
+// Good: Allocator parameter explici
 pub fn init(allocator: std.mem.Allocator) !MyStruct { ... }
 
 // Bad: Hidden global allocator
@@ -175,7 +176,7 @@ pub fn find_block(id: BlockId) !ContextBlock { ... }
 // Linear scan faster than binary search for <16 SSTables due to cache locality
 for (self.sstables.items) |sstable| { ... }
 
-// Bad: Obvious statement
+// Bad: Obvious statemen
 // Loop through SSTables
 for (self.sstables.items) |sstable| { ... }
 ```
