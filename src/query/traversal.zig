@@ -651,7 +651,7 @@ test "traversal result memory management" {
     var result = try TraversalResult.init(allocator, &[_]ContextBlock{test_block}, 1, 1);
     defer result.deinit();
 
-    try testing.expectEqual(@as(u32, 1), result.count());
+    try testing.expectEqual(@as(usize, 1), result.count());
     try testing.expect(!result.is_empty());
     try testing.expectEqual(@as(u32, 1), result.blocks_traversed);
     try testing.expectEqual(@as(u32, 1), result.max_depth_reached);
@@ -673,7 +673,7 @@ test "basic traversal with empty graph" {
     defer result.deinit();
 
     // Should only find the starting block
-    try testing.expectEqual(@as(u32, 1), result.count());
+    try testing.expectEqual(@as(usize, 1), result.count());
     try testing.expect(result.blocks[0].id.eql(start_id));
     try testing.expectEqual(@as(u32, 0), result.max_depth_reached);
 }
@@ -715,7 +715,7 @@ test "outgoing traversal with linear chain" {
     defer result.deinit();
 
     // Should find A, B, C (depth 0, 1, 2)
-    try testing.expectEqual(@as(u32, 3), result.count());
+    try testing.expectEqual(@as(usize, 3), result.count());
     try testing.expectEqual(@as(u32, 2), result.max_depth_reached);
 
     // Verify blocks are in the result
@@ -758,7 +758,7 @@ test "incoming traversal" {
     defer result.deinit();
 
     // Should find C, B, A (following edges backwards)
-    try testing.expectEqual(@as(u32, 3), result.count());
+    try testing.expectEqual(@as(usize, 3), result.count());
 
     var found_a = false;
     var found_b = false;
@@ -799,7 +799,7 @@ test "bidirectional traversal" {
     defer result.deinit();
 
     // Should find A, B, C
-    try testing.expectEqual(@as(u32, 3), result.count());
+    try testing.expectEqual(@as(usize, 3), result.count());
 
     var found_a = false;
     var found_b = false;
@@ -850,7 +850,7 @@ test "edge type filtering" {
     defer result_calls.deinit();
 
     // Should find A and B only (not C)
-    try testing.expectEqual(@as(u32, 2), result_calls.count());
+    try testing.expectEqual(@as(usize, 2), result_calls.count());
 
     var found_a = false;
     var found_b = false;
@@ -909,7 +909,7 @@ test "max depth limit enforcement" {
     defer result.deinit();
 
     // Should find A, B, C but not D (depth 0, 1, 2 but not 3)
-    try testing.expectEqual(@as(u32, 3), result.count());
+    try testing.expectEqual(@as(usize, 3), result.count());
     try testing.expectEqual(@as(u32, 2), result.max_depth_reached);
 
     var found_d = false;
@@ -968,7 +968,7 @@ test "max results limit enforcement" {
     defer result.deinit();
 
     // Should find exactly 3 blocks (limited by max_results)
-    try testing.expectEqual(@as(u32, 3), result.count());
+    try testing.expectEqual(@as(usize, 3), result.count());
 }
 
 test "breadth-first vs depth-first traversal ordering" {
@@ -1038,8 +1038,8 @@ test "breadth-first vs depth-first traversal ordering" {
     defer dfs_result.deinit();
 
     // Both should find all 5 blocks
-    try testing.expectEqual(@as(u32, 5), bfs_result.count());
-    try testing.expectEqual(@as(u32, 5), dfs_result.count());
+    try testing.expectEqual(@as(usize, 5), bfs_result.count());
+    try testing.expectEqual(@as(usize, 5), dfs_result.count());
 
     // Verify both approaches visit the same blocks
     var bfs_ids = std.ArrayList(BlockId).init(allocator);
@@ -1073,7 +1073,7 @@ test "traversal error handling" {
 
     // Should return empty result for missing start block
     try testing.expect(result.is_empty());
-    try testing.expectEqual(@as(u32, 0), result.count());
+    try testing.expectEqual(@as(usize, 0), result.count());
 }
 
 test "convenience traversal functions" {
@@ -1101,7 +1101,7 @@ test "convenience traversal functions" {
     try testing.expect(!incoming_result.is_empty());
     try testing.expect(!bidirectional_result.is_empty());
 
-    try testing.expectEqual(@as(u32, 1), outgoing_result.count());
-    try testing.expectEqual(@as(u32, 1), incoming_result.count());
-    try testing.expectEqual(@as(u32, 1), bidirectional_result.count());
+    try testing.expectEqual(@as(usize, 1), outgoing_result.count());
+    try testing.expectEqual(@as(usize, 1), incoming_result.count());
+    try testing.expectEqual(@as(usize, 1), bidirectional_result.count());
 }

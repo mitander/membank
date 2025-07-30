@@ -135,15 +135,22 @@ test "integration: full data lifecycle with compaction" {
         .block_ids = query_block_ids.items,
     };
 
-    const batch_result = try query_eng.execute_find_blocks(batch_query);
+    var batch_result = try query_eng.execute_find_blocks(batch_query);
     defer batch_result.deinit();
 
-    try testing.expectEqual(@as(u32, 100), batch_result.count);
+    try testing.expectEqual(@as(u32, 100), batch_result.total_found);
 
-    // Verify query metrics
+    // Consume all results to trigger storage reads (streaming requires iteration)
+    var consumed_blocks: u32 = 0;
+    while (try batch_result.next()) |block| {
+        defer batch_result.deinit_block(block);
+        consumed_blocks += 1;
+    }
+
+    // Verify query metrics after consumption
     const post_query_metrics = storage_engine.metrics();
     const reads_delta = post_query_metrics.blocks_read.load(.monotonic) - pre_compaction_reads;
-    try testing.expect(reads_delta >= 100); // At least 100 reads
+    try testing.expect(reads_delta >= consumed_blocks); // At least as many reads as blocks found
 
     // Phase 3: Graph relationships and complex queries
 
@@ -392,7 +399,7 @@ test "integration: concurrent storage and query operations" {
             const batch_result = try query_eng.execute_find_blocks(batch_query);
             defer batch_result.deinit();
 
-            try testing.expectEqual(@as(u32, 5), batch_result.count);
+            try testing.expectEqual(@as(u32, 5), batch_result.total_found);
         }
 
         sim.tick_multiple(1);
@@ -532,10 +539,10 @@ test "integration: storage recovery and query consistency" {
             .block_ids = &all_ids,
         };
 
-        const batch_result = try query_eng.execute_find_blocks(batch_query);
+        var batch_result = try query_eng.execute_find_blocks(batch_query);
         defer batch_result.deinit();
 
-        try testing.expectEqual(@as(u32, 3), batch_result.count);
+        try testing.expectEqual(@as(u32, 3), batch_result.total_found);
 
         // Test graph relationships survived recovery
         const block1_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1");

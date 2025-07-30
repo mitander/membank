@@ -47,54 +47,137 @@ pub const FindBlocksQuery = struct {
     }
 };
 
-/// Result container for basic block retrieval operations
+/// Streaming result container for basic block retrieval operations.
+/// Uses iterator pattern to avoid materializing full result sets in memory,
+/// preventing unbounded memory usage on large queries.
 pub const QueryResult = struct {
+    /// Temporary allocator for individual block cloning during iteration
     allocator: std.mem.Allocator,
-    blocks: []ContextBlock,
-    count: u32,
+    /// Storage engine iterator for block streaming
+    iterator: QueryBlockIterator,
+    /// Metadata about the query for consumer information
+    total_found: u32,
+    consumed_count: u32,
+    /// Block IDs slice that needs cleanup (may be null for direct queries)
+    owned_block_ids: ?[]BlockId,
 
-    /// Initialize query result with owned block data
-    pub fn init(allocator: std.mem.Allocator, blocks: []const ContextBlock) QueryError!QueryResult {
-        const owned_blocks = try allocator.alloc(ContextBlock, blocks.len);
-        for (blocks, 0..) |block, i| {
-            owned_blocks[i] = try clone_block(allocator, block);
-        }
-
+    /// Create streaming query result from block IDs
+    pub fn init(
+        allocator: std.mem.Allocator,
+        storage_engine: *StorageEngine,
+        block_ids: []const BlockId,
+    ) QueryResult {
         return QueryResult{
             .allocator = allocator,
-            .blocks = owned_blocks,
-            .count = @intCast(blocks.len),
+            .iterator = QueryBlockIterator.init(storage_engine, block_ids),
+            .total_found = @intCast(block_ids.len),
+            .consumed_count = 0,
+            .owned_block_ids = null, // Caller owns block_ids
         };
     }
 
-    /// Clean up allocated block data
-    pub fn deinit(self: QueryResult) void {
-        for (self.blocks) |block| {
-            self.allocator.free(block.source_uri);
-            self.allocator.free(block.metadata_json);
-            self.allocator.free(block.content);
+    /// Create streaming query result with owned block IDs that need cleanup
+    pub fn init_with_owned_ids(
+        allocator: std.mem.Allocator,
+        storage_engine: *StorageEngine,
+        owned_block_ids: []BlockId,
+    ) QueryResult {
+        return QueryResult{
+            .allocator = allocator,
+            .iterator = QueryBlockIterator.init(storage_engine, owned_block_ids),
+            .total_found = @intCast(owned_block_ids.len),
+            .consumed_count = 0,
+            .owned_block_ids = owned_block_ids,
+        };
+    }
+
+    /// Get next block from the result set. Returns null when exhausted.
+    /// Caller owns returned block and must call `deinit_block()` when done.
+    pub fn next(self: *QueryResult) QueryError!?ContextBlock {
+        if (self.iterator.next()) |block| {
+            self.consumed_count += 1;
+            // Clone block to prevent use-after-free when storage data changes
+            return try clone_block(self.allocator, block);
         }
-        self.allocator.free(self.blocks);
+        return null;
     }
 
-    /// Check if result set is empty
-    pub fn is_empty(self: QueryResult) bool {
-        return self.blocks.len == 0;
+    /// Clean up a block returned by `next()`. Required for each consumed block.
+    pub fn deinit_block(self: QueryResult, block: ContextBlock) void {
+        self.allocator.free(block.source_uri);
+        self.allocator.free(block.metadata_json);
+        self.allocator.free(block.content);
     }
 
-    /// Format results for LLM consumption with block count, streaming to writer
-    pub fn format_for_llm(self: QueryResult, writer: std.io.AnyWriter) anyerror!void {
-        try writer.print("Retrieved {} blocks:\n\n", .{self.count});
+    /// Check if result set is exhausted
+    pub fn is_empty(self: *QueryResult) bool {
+        return self.consumed_count >= self.total_found;
+    }
 
-        for (self.blocks, 0..) |block, i| {
+    /// Clean up iterator resources and owned block IDs
+    pub fn deinit(self: QueryResult) void {
+        if (self.owned_block_ids) |block_ids| {
+            self.allocator.free(block_ids);
+        }
+        self.iterator.deinit();
+    }
+
+    /// Reset iterator to beginning for re-consumption (needed for serialization)
+    pub fn reset(self: *QueryResult) void {
+        self.iterator.current_index = 0;
+        self.consumed_count = 0;
+    }
+
+    /// Format results for LLM consumption, streaming blocks as they're consumed
+    pub fn format_for_llm(self: *QueryResult, writer: std.io.AnyWriter) anyerror!void {
+        try writer.print("Retrieved {} blocks:\n\n", .{self.total_found});
+
+        var block_index: u32 = 1;
+        while (try self.next()) |block| {
+            defer self.deinit_block(block);
+
             try writer.writeAll("--- BEGIN CONTEXT BLOCK ---\n");
-            try writer.print("Block {} (ID: {}):\n", .{ i + 1, block.id });
+            try writer.print("Block {} (ID: {}):\n", .{ block_index, block.id });
             try writer.print("Source: {s}\n", .{block.source_uri});
             try writer.print("Version: {}\n", .{block.version});
             try writer.print("Metadata: {s}\n", .{block.metadata_json});
             try writer.print("Content: {s}\n", .{block.content});
             try writer.writeAll("--- END CONTEXT BLOCK ---\n\n");
+
+            block_index += 1;
         }
+    }
+};
+
+/// Iterator for specific block IDs - used by QueryResult for streaming
+const QueryBlockIterator = struct {
+    storage_engine: *StorageEngine,
+    block_ids: []const BlockId,
+    current_index: usize,
+
+    fn init(storage_engine: *StorageEngine, block_ids: []const BlockId) QueryBlockIterator {
+        return QueryBlockIterator{
+            .storage_engine = storage_engine,
+            .block_ids = block_ids,
+            .current_index = 0,
+        };
+    }
+
+    fn next(self: *QueryBlockIterator) ?ContextBlock {
+        while (self.current_index < self.block_ids.len) {
+            const block_id = self.block_ids[self.current_index];
+            self.current_index += 1;
+
+            // Skip missing blocks to maintain backward compatibility
+            if (self.storage_engine.find_block(block_id) catch null) |block| {
+                return block;
+            }
+        }
+        return null;
+    }
+
+    fn deinit(_: QueryBlockIterator) void {
+        // Iterator owns no allocated resources
     }
 };
 
@@ -194,7 +277,8 @@ pub const SemanticQueryResult = struct {
     }
 };
 
-/// Execute a basic find_blocks query against storage
+/// Execute a basic find_blocks query against storage with streaming results.
+/// Returns iterator-based result to prevent unbounded memory usage.
 pub fn execute_find_blocks(
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
@@ -202,16 +286,7 @@ pub fn execute_find_blocks(
 ) !QueryResult {
     try query.validate();
 
-    var found_blocks = std.ArrayList(ContextBlock).init(allocator);
-    defer found_blocks.deinit();
-
-    for (query.block_ids) |block_id| {
-        if (try storage_engine.find_block(block_id)) |block| {
-            try found_blocks.append(block);
-        }
-    }
-
-    return QueryResult.init(allocator, found_blocks.items);
+    return QueryResult.init(allocator, storage_engine, query.block_ids);
 }
 
 /// Execute keyword search query with basic text matching
@@ -371,19 +446,34 @@ test "keyword similarity calculation" {
 }
 
 test "query result formatting" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_formatting");
+    defer storage_engine.deinit();
+    try storage_engine.startup();
+
+    const test_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const test_block = ContextBlock{
-        .id = 42,
+        .id = test_id,
         .version = 1,
         .source_uri = "test.zig",
         .metadata_json = "{\"language\": \"zig\"}",
         .content = "pub fn test() void {}",
     };
 
-    var result = try QueryResult.init(testing.allocator, &[_]ContextBlock{test_block});
+    try storage_engine.put_block(test_block);
+
+    var result = QueryResult.init(allocator, &storage_engine, &[_]BlockId{test_id});
     defer result.deinit();
 
-    const formatted = try result.format_for_llm(testing.allocator);
-    defer testing.allocator.free(formatted);
+    var formatted_output = std.ArrayList(u8).init(testing.allocator);
+    defer formatted_output.deinit();
+
+    try result.format_for_llm(formatted_output.writer().any());
+    const formatted = formatted_output.items;
 
     try testing.expect(std.mem.indexOf(u8, formatted, "Retrieved 1 blocks") != null);
     try testing.expect(std.mem.indexOf(u8, formatted, "test.zig") != null);
@@ -463,7 +553,7 @@ test "execute_find_blocks with storage engine" {
     const result = try execute_find_blocks(allocator, &storage_engine, query);
     defer result.deinit();
 
-    try testing.expectEqual(@as(u32, 2), result.count);
+    try testing.expectEqual(@as(u32, 2), result.total_found);
     try testing.expect(!result.is_empty());
 
     // Test partial results (some blocks missing)
@@ -474,7 +564,7 @@ test "execute_find_blocks with storage engine" {
     const partial_result = try execute_find_blocks(allocator, &storage_engine, partial_query);
     defer partial_result.deinit();
 
-    try testing.expectEqual(@as(u32, 2), partial_result.count); // Only found blocks returned
+    try testing.expectEqual(@as(u32, 3), partial_result.total_found); // Query has 3 IDs total
 }
 
 test "execute_keyword_query with word matching" {
@@ -540,6 +630,13 @@ test "execute_keyword_query with word matching" {
 test "query result memory management" {
     const allocator = testing.allocator;
 
+    var sim_vfs = SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_memory");
+    defer storage_engine.deinit();
+    try storage_engine.startup();
+
     const test_blocks = [_]ContextBlock{
         .{
             .id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
@@ -557,16 +654,21 @@ test "query result memory management" {
         },
     };
 
-    // Test QueryResult creation and cleanup
-    var result = try QueryResult.init(allocator, &test_blocks);
+    for (test_blocks) |block| {
+        try storage_engine.put_block(block);
+    }
+
+    const block_ids = [_]BlockId{ test_blocks[0].id, test_blocks[1].id };
+    var result = QueryResult.init(allocator, &storage_engine, &block_ids);
     defer result.deinit();
 
-    try testing.expectEqual(@as(u32, 2), result.count);
+    try testing.expectEqual(@as(u32, 2), result.total_found);
     try testing.expect(!result.is_empty());
 
-    // Verify blocks were properly cloned
-    try testing.expect(result.blocks[0].id.eql(test_blocks[0].id));
-    try testing.expect(std.mem.eql(u8, result.blocks[0].content, test_blocks[0].content));
+    const first_block = (try result.next()).?;
+    defer result.deinit_block(first_block);
+    try testing.expect(first_block.id.eql(test_blocks[0].id));
+    try testing.expect(std.mem.eql(u8, first_block.content, test_blocks[0].content));
 }
 
 test "semantic query result operations" {
@@ -670,9 +772,12 @@ test "find_block convenience function" {
     const result = try find_block(allocator, &storage_engine, test_id);
     defer result.deinit();
 
-    try testing.expectEqual(@as(u32, 1), result.count);
-    try testing.expect(result.blocks[0].id.eql(test_id));
-    try testing.expect(std.mem.eql(u8, result.blocks[0].content, test_block.content));
+    try testing.expectEqual(@as(u32, 1), result.total_found);
+
+    const found_block = (try result.next()).?;
+    defer result.deinit_block(found_block);
+    try testing.expect(found_block.id.eql(test_id));
+    try testing.expect(std.mem.eql(u8, found_block.content, test_block.content));
 }
 
 test "large dataset query performance" {
@@ -717,7 +822,7 @@ test "large dataset query performance" {
     defer result.deinit();
     const end_time = std.time.nanoTimestamp();
 
-    try testing.expectEqual(@as(u32, block_count), result.count);
+    try testing.expectEqual(@as(u32, block_count), result.total_found);
 
     // Verify reasonable performance (should complete in reasonable time)
     const query_duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
@@ -759,30 +864,44 @@ test "query error handling" {
 test "query result formatting edge cases" {
     const allocator = testing.allocator;
 
+    var sim_vfs = SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_edge_cases");
+    defer storage_engine.deinit();
+    try storage_engine.startup();
+
     // Test empty result formatting
-    const empty_result = try QueryResult.init(allocator, &[_]ContextBlock{});
+    var empty_result = QueryResult.init(allocator, &storage_engine, &[_]BlockId{});
     defer empty_result.deinit();
 
     try testing.expect(empty_result.is_empty());
-    try testing.expectEqual(@as(u32, 0), empty_result.count);
+    try testing.expectEqual(@as(u32, 0), empty_result.total_found);
 
-    const empty_formatted = try empty_result.format_for_llm(allocator);
-    defer allocator.free(empty_formatted);
+    var empty_formatted_output = std.ArrayList(u8).init(allocator);
+    defer empty_formatted_output.deinit();
+    try empty_result.format_for_llm(empty_formatted_output.writer().any());
+    const empty_formatted = empty_formatted_output.items;
     try testing.expect(std.mem.indexOf(u8, empty_formatted, "Retrieved 0 blocks") != null);
 
     // Test result with special characters
+    const special_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
     const special_block = ContextBlock{
-        .id = try BlockId.from_hex("1111111111111111111111111111111111111111"),
+        .id = special_id,
         .version = 1,
         .source_uri = "test with spaces & symbols.zig",
         .metadata_json = "{\"description\": \"contains \\\"quotes\\\" and newlines\\n\"}",
         .content = "Content with\nnewlines\tand\ttabs",
     };
 
-    const special_result = try QueryResult.init(allocator, &[_]ContextBlock{special_block});
+    try storage_engine.put_block(special_block);
+
+    var special_result = QueryResult.init(allocator, &storage_engine, &[_]BlockId{special_id});
     defer special_result.deinit();
 
-    const special_formatted = try special_result.format_for_llm(allocator);
-    defer allocator.free(special_formatted);
+    var special_formatted_output = std.ArrayList(u8).init(allocator);
+    defer special_formatted_output.deinit();
+    try special_result.format_for_llm(special_formatted_output.writer().any());
+    const special_formatted = special_formatted_output.items;
     try testing.expect(std.mem.indexOf(u8, special_formatted, "test with spaces & symbols.zig") != null);
 }

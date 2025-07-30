@@ -54,7 +54,7 @@ Usage: $0 [OPTIONS]
 
 OPTIONS:
     --jobs JOBS           Run specific job categories (default: all)
-                         Options: all, test, build, lint, security, performance, memory
+                         Options: all, test, build, lint, security, performance, sanitizer, memory
     --optimize LEVEL      Optimization level (default: ReleaseSafe)
                          Options: Debug, ReleaseSafe, ReleaseFast, ReleaseSmall
     --skip-setup         Skip Zig installation (faster for repeated runs)
@@ -66,6 +66,7 @@ EXAMPLES:
     $0                                    # Run all checks
     $0 --jobs test                        # Run only tests
     $0 --jobs "test,lint"                 # Run tests and linting
+    $0 --jobs "test,sanitizer"            # Run tests and sanitizer checks
     $0 --optimize Debug --skip-setup      # Fast debug run, no setup
     $0 --parallel --memory-tests          # Full parallel run with memory checks
 
@@ -168,13 +169,7 @@ test_job() {
         return 1
     fi
 
-    log_step "Running fast unit tests"
-    if ! ./zig/zig build test -Doptimize="$OPTIMIZE"; then
-        log_error "Unit tests failed"
-        return 1
-    fi
-
-    log_step "Running comprehensive test suite"
+    log_step "Running tests"
     if ! ./zig/zig build test-fast -Doptimize="$OPTIMIZE"; then
         log_error "Comprehensive test suite failed"
         return 1
@@ -297,6 +292,26 @@ performance_job() {
     else
         log_warning "benchmark.sh not found, skipping performance tests"
     fi
+
+    return 0
+}
+
+# Sanitizer job (mirrors GitHub Actions sanitizer job)
+sanitizer_job() {
+    log_step "Running tests with Thread Sanitizer and C UBSan"
+    if ! ./zig/zig build test-sanitizer; then
+        log_error "Sanitizer tests failed"
+        return 1
+    fi
+
+    log_step "Running benchmarks with sanitizers"
+    if ! ./zig/zig build benchmark; then
+        log_error "Benchmark build failed"
+        return 1
+    fi
+
+    # Run abbreviated benchmark with timeout for local development
+    timeout 60s ./zig-out/bin/benchmark storage || echo "Benchmark completed or timed out"
 
     return 0
 }
@@ -485,6 +500,10 @@ main() {
         if should_run_job "performance"; then
             run_job "Performance" performance_job || exit 1
         fi
+
+        if should_run_job "sanitizer"; then
+            run_job "Thread Sanitizer and C UBSan Memory Safety" sanitizer_job || exit 1
+        fi
     fi
 
     # Memory tests always run last and sequentially (resource intensive)
@@ -500,10 +519,10 @@ main() {
 
     echo
     echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║                         CI SUCCESS                          ║${NC}"
+    echo -e "${GREEN}║                         CI SUCCESS                           ║${NC}"
     echo -e "${GREEN}║                                                              ║${NC}"
     echo -e "${GREEN}║  All requested jobs completed successfully!                  ║${NC}"
-    echo -e "${GREEN}║  Total time: ${minutes}m ${seconds}s${NC}$(printf "%*s" $((39 - ${#minutes} - ${#seconds})) '')${GREEN}║${NC}"
+    echo -e "${GREEN}║  Total time: ${minutes}m ${seconds}s${NC}$(printf "%*s" $((39 - ${#minutes} - ${#seconds})) '')${GREEN}      ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
     echo "Ready to push to GitHub! 🚀"

@@ -169,11 +169,14 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("✓ Stored {} blocks\n\n", .{stats.total_blocks_stored});
 
     std.debug.print("Querying single block by ID...\n", .{});
-    const single_result = try query_eng.find_block(block1_id);
+    var single_result = try query_eng.find_block(block1_id);
     defer single_result.deinit();
 
-    if (single_result.count > 0) {
-        std.debug.print("✓ Found block: {s}\n", .{single_result.blocks[0].source_uri});
+    if (single_result.total_found > 0) {
+        if (try single_result.next()) |block| {
+            defer single_result.deinit_block(block);
+            std.debug.print("✓ Found block: {s}\n", .{block.source_uri});
+        }
     }
 
     std.debug.print("\nQuerying multiple blocks...\n", .{});
@@ -181,10 +184,10 @@ fn run_demo(allocator: std.mem.Allocator) !void {
         .block_ids = &[_]BlockId{ block1_id, block2_id },
     };
 
-    const multi_result = try query_eng.execute_find_blocks(query);
+    var multi_result = try query_eng.execute_find_blocks(query);
     defer multi_result.deinit();
 
-    std.debug.print("✓ Found {} blocks\n\n", .{multi_result.count});
+    std.debug.print("✓ Found {} blocks\n\n", .{multi_result.total_found});
 
     std.debug.print("Formatting results for LLM consumption:\n", .{});
     std.debug.print("=====================================\n", .{});

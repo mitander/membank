@@ -647,7 +647,13 @@ pub const QueryEngine = struct {
         context.metrics.sstable_reads = sstable_reads;
         context.metrics.optimization_applied = true;
 
-        return operations.QueryResult.init(self.allocator, result_blocks.items);
+        // Bridge optimized materialization to streaming interface
+        const block_ids = try self.allocator.alloc(BlockId, result_blocks.items.len);
+        for (result_blocks.items, 0..) |block, i| {
+            block_ids[i] = block.id;
+        }
+
+        return operations.QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, block_ids);
     }
 
     /// Execute semantic query using index optimization
@@ -916,7 +922,7 @@ test "query engine find_blocks execution" {
     const result = try query_engine.execute_find_blocks(query);
     defer result.deinit();
 
-    try testing.expectEqual(@as(u32, 2), result.count);
+    try testing.expectEqual(@as(u32, 2), result.total_found);
     try testing.expect(!result.is_empty());
 }
 
@@ -937,8 +943,11 @@ test "query engine find_block convenience method" {
     const result = try query_engine.find_block(test_id);
     defer result.deinit();
 
-    try testing.expectEqual(@as(u32, 1), result.count);
-    try testing.expect(result.blocks[0].id.eql(test_id));
+    try testing.expectEqual(@as(u32, 1), result.total_found);
+
+    const found_block = (try result.next()).?;
+    defer result.deinit_block(found_block);
+    try testing.expect(found_block.id.eql(test_id));
 }
 
 test "query engine block_exists check" {

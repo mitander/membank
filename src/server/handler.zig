@@ -406,12 +406,13 @@ pub const CortexServer = struct {
         };
         defer result.deinit();
 
-        const response_data = try self.serialize_blocks_response(allocator, result);
+        var mutable_result = result;
+        const response_data = try self.serialize_blocks_response(allocator, &mutable_result);
         connection.send_response(response_data);
         self.stats.bytes_sent += response_data.len + MessageHeader.HEADER_SIZE;
 
         if (self.config.enable_logging) {
-            log.debug("Connection {d}: handled find_blocks request, returned {d} blocks", .{ connection.connection_id, result.count });
+            log.debug("Connection {d}: handled find_blocks request, returned {d} blocks", .{ connection.connection_id, result.total_found });
         }
     }
 
@@ -420,14 +421,15 @@ pub const CortexServer = struct {
         _ = payload;
         const allocator = connection.arena.allocator();
 
-        const empty_blocks: []const ContextBlock = &[_]ContextBlock{};
-        const common_result = try QueryResult.init(allocator, empty_blocks);
-        const response_data = try self.serialize_blocks_response(allocator, common_result);
+        const empty_block_ids: []const BlockId = &[_]BlockId{};
+        const common_result = QueryResult.init(allocator, self.storage_engine, empty_block_ids);
+        var mutable_result = common_result;
+        const response_data = try self.serialize_blocks_response(allocator, &mutable_result);
         connection.send_response(response_data);
         self.stats.bytes_sent += response_data.len + MessageHeader.HEADER_SIZE;
 
         if (self.config.enable_logging) {
-            log.debug("Connection {d}: handled filtered query (placeholder), returned {d} blocks", .{ connection.connection_id, common_result.count });
+            log.debug("Connection {d}: handled filtered query (placeholder), returned {d} blocks", .{ connection.connection_id, common_result.total_found });
         }
     }
 
@@ -464,23 +466,33 @@ pub const CortexServer = struct {
         };
 
         try result_blocks.append(start_block);
-        const common_result = try QueryResult.init(allocator, result_blocks.items);
-        const response_data = try self.serialize_blocks_response(allocator, common_result);
+        // Convert ArrayList back to block IDs for streaming result
+        const block_ids = try allocator.alloc(BlockId, result_blocks.items.len);
+        for (result_blocks.items, 0..) |block, i| {
+            block_ids[i] = block.id;
+        }
+        const common_result = QueryResult.init_with_owned_ids(allocator, self.storage_engine, block_ids);
+        var mutable_result = common_result;
+        const response_data = try self.serialize_blocks_response(allocator, &mutable_result);
         connection.send_response(response_data);
         self.stats.bytes_sent += response_data.len + MessageHeader.HEADER_SIZE;
 
         if (self.config.enable_logging) {
-            log.debug("Connection {d}: handled traversal query, returned {d} blocks", .{ connection.connection_id, common_result.count });
+            log.debug("Connection {d}: handled traversal query, returned {d} blocks", .{ connection.connection_id, common_result.total_found });
         }
     }
 
-    /// Serialize query results into binary format for network transmission
-    fn serialize_blocks_response(self: *CortexServer, allocator: std.mem.Allocator, result: QueryResult) ![]u8 {
+    /// Serialize query results into binary format for network transmission using streaming
+    fn serialize_blocks_response(self: *CortexServer, allocator: std.mem.Allocator, result_ptr: *QueryResult) ![]u8 {
         _ = self; // Suppress unused parameter warning
 
+        // First pass: calculate total size by streaming through blocks
         var total_size: usize = 4; // 4 bytes for block count
-        for (0..result.count) |i| {
-            const block = result.blocks[i];
+        var block_count: u32 = 0;
+
+        while (try result_ptr.next()) |block| {
+            defer result_ptr.deinit_block(block);
+            block_count += 1;
             total_size += 16; // Block ID
             total_size += 4 + block.source_uri.len; // URI length + URI
             total_size += 4 + block.metadata_json.len; // Metadata length + metadata
@@ -490,11 +502,14 @@ pub const CortexServer = struct {
         const buffer = try allocator.alloc(u8, total_size);
         var offset: usize = 0;
 
-        std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(result.count), .little);
+        std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], block_count, .little);
         offset += 4;
 
-        for (0..result.count) |i| {
-            const block = result.blocks[i];
+        // Second pass: serialize blocks by streaming
+        result_ptr.reset();
+
+        while (try result_ptr.next()) |block| {
+            defer result_ptr.deinit_block(block);
 
             @memcpy(buffer[offset .. offset + 16], &block.id.bytes);
             offset += 16;

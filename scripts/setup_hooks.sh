@@ -99,6 +99,7 @@ install_hook() {
     chmod +x "$target_hook"
 
     print_status "OK" "$hook_name hook installed"
+}
 
 test_hooks() {
     print_status "INFO" "Testing hook installation..."
