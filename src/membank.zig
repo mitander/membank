@@ -1,9 +1,9 @@
-//! CortexDB Core Library
+//! Membank Core Library
 //!
-//! This module exports the public API for the CortexDB engine.
+//! This module exports the public API for the Membank engine.
 //! All internal implementation details are encapsulated and not exposed here.
 //!
-//! CortexDB is a high-performance, mission-critical database built on principles of:
+//! Membank is a high-performance, mission-critical database built on principles of:
 //! - Simplicity is the Prerequisite for Reliability
 //! - Correctness is Not Negotiable
 //! - Explicitness Over Magic
@@ -118,14 +118,14 @@ pub const version = .{
 pub const Config = StorageEngine.Config;
 pub const Error = StorageEngine.StorageError;
 
-/// Initialize CortexDB with the given configuration
+/// Initialize Membank with the given configuration
 pub fn init(allocator: Allocator, config: Config) !Database {
     return Database.init(allocator, config);
 }
 
 comptime {
     if (builtin.zig_version.major != 0 or builtin.zig_version.minor < 13) {
-        @compileError("CortexDB requires Zig 0.13.0 or later");
+        @compileError("Membank requires Zig 0.13.0 or later");
     }
 }
 

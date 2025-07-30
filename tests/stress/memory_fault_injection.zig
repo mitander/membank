@@ -1,4 +1,4 @@
-//! Memory safety stress testing with fault injection for CortexDB.
+//! Memory safety stress testing with fault injection for Membank.
 //!
 //! Tests arena-per-subsystem patterns under hostile conditions including:
 //! - Memory allocation failures during operations
@@ -8,17 +8,17 @@
 //! - Arena reset safety under failure conditions
 
 const std = @import("std");
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const testing = std.testing;
-const assert = cortexdb.assert.assert;
+const assert = membank.assert.assert;
 
-const Simulation = cortexdb.simulation.Simulation;
-const StorageEngine = cortexdb.storage.StorageEngine;
-const MemtableManager = cortexdb.storage.MemtableManager;
-const ContextBlock = cortexdb.types.ContextBlock;
-const BlockId = cortexdb.types.BlockId;
-const GraphEdge = cortexdb.types.GraphEdge;
-const EdgeType = cortexdb.types.EdgeType;
+const Simulation = membank.simulation.Simulation;
+const StorageEngine = membank.storage.StorageEngine;
+const MemtableManager = membank.storage.MemtableManager;
+const ContextBlock = membank.types.ContextBlock;
+const BlockId = membank.types.BlockId;
+const GraphEdge = membank.types.GraphEdge;
+const EdgeType = membank.types.EdgeType;
 
 const log = std.log.scoped(.memory_fault_injection);
 

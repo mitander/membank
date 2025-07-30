@@ -15,26 +15,24 @@ pub fn build(b: *std.Build) void {
     build_options.addOption(bool, "enable_fault_injection", enable_fault_injection);
     build_options.addOption(bool, "is_debug_build", optimize == .Debug);
 
-    // Create the cortexdb library module
-    const cortexdb_module = b.createModule(.{
-        .root_source_file = b.path("src/cortexdb.zig"),
+    const membank_module = b.createModule(.{
+        .root_source_file = b.path("src/membank.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Main executable
-    // Add build options to cortexdb module
-    cortexdb_module.addImport("build_options", build_options.createModule());
+    // Add build options to core module for configuration access
+    membank_module.addImport("build_options", build_options.createModule());
 
     const exe = b.addExecutable(.{
-        .name = "cortexdb",
+        .name = "membank",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
-    exe.root_module.addImport("cortexdb", cortexdb_module);
+    exe.root_module.addImport("membank", membank_module);
     b.installArtifact(exe);
 
     // Run command for main executable
@@ -44,7 +42,7 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    const run_step = b.step("run", "Run CortexDB");
+    const run_step = b.step("run", "Run Membank");
     run_step.dependOn(&run_cmd.step);
 
     // Test configuration
@@ -199,16 +197,14 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        // Add cortexdb module to all tests
-        test_exe.root_module.addImport("cortexdb", cortexdb_module);
+        // Provide core database module to enable integration testing
+        test_exe.root_module.addImport("membank", membank_module);
 
-        // Install test executable for Valgrind analysis
         test_install_steps[i] = b.addInstallArtifact(test_exe, .{});
 
         test_steps[i] = b.addRunArtifact(test_exe);
     }
 
-    // Create individual test steps
     for (test_configs, test_steps) |config, run_test| {
         const step_name = if (std.mem.eql(u8, config.name, "unit")) "unit-test" else config.name;
         const individual_step = b.step(step_name, b.fmt("Run {s}", .{config.description}));
@@ -223,10 +219,10 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    tidy_tests.root_module.addImport("cortexdb", cortexdb_module);
+    tidy_tests.root_module.addImport("membank", membank_module);
     const run_tidy_tests = b.addRunArtifact(tidy_tests);
 
-    // Fast unit test step (developer default)
+    // Fast developer workflow: core functionality validation only
     const unit_test_index = blk: {
         for (test_configs, 0..) |config, i| {
             if (std.mem.eql(u8, config.name, "unit")) break :blk i;
@@ -236,24 +232,22 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run fast unit tests (developer default)");
     test_step.dependOn(&test_steps[unit_test_index].step);
 
-    // Comprehensive test suite (all working tests)
-    // Combined test target for CI (comprehensive but fast)
+    // CI validation: comprehensive coverage with reasonable runtime
     const test_fast_step = b.step("test-fast", "Run comprehensive tests (fast CI validation)");
     for (test_steps) |run_test| {
         test_fast_step.dependOn(&run_test.step);
     }
 
-    // All tests including problematic ones
+    // Complete validation: includes memory stress and edge cases
     const test_all_step = b.step("test-all", "Run all tests including problematic ones");
     for (test_steps) |run_test| {
         test_all_step.dependOn(&run_test.step);
     }
-    // Install test executables for Valgrind analysis
+    // Enable memory debugging with external tools like Valgrind
     for (test_install_steps) |install_step| {
         test_all_step.dependOn(&install_step.step);
     }
 
-    // Code quality steps
     const tidy_step = b.step("tidy", "Run code quality checks");
     tidy_step.dependOn(&run_tidy_tests.step);
 
@@ -273,7 +267,6 @@ pub fn build(b: *std.Build) void {
     const fmt_fix_step = b.step("fmt-fix", "Fix code formatting");
     fmt_fix_step.dependOn(&fmt_fix.step);
 
-    // Combined steps
     const check_step = b.step("check", "Run tests and code quality checks");
     check_step.dependOn(test_step);
     check_step.dependOn(&run_tidy_tests.step);
@@ -283,7 +276,6 @@ pub fn build(b: *std.Build) void {
     ci_step.dependOn(&run_tidy_tests.step);
     ci_step.dependOn(&fmt_check.step);
 
-    // Development tools
     const benchmark = b.addExecutable(.{
         .name = "benchmark",
         .root_module = b.createModule(.{
@@ -292,7 +284,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
-    benchmark.root_module.addImport("cortexdb", cortexdb_module);
+    benchmark.root_module.addImport("membank", membank_module);
 
     const install_benchmark = b.addInstallArtifact(benchmark, .{});
     const benchmark_step = b.step("benchmark", "Build and install benchmark");
@@ -306,7 +298,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
         }),
     });
-    allocator_torture.root_module.addImport("cortexdb", cortexdb_module);
+    allocator_torture.root_module.addImport("membank", membank_module);
 
     const install_allocator_torture = b.addInstallArtifact(allocator_torture, .{});
     const allocator_torture_step = b.step("allocator_torture", "Build and install allocator torture tester");
@@ -320,7 +312,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
-    fuzz.root_module.addImport("cortexdb", cortexdb_module);
+    fuzz.root_module.addImport("membank", membank_module);
 
     const install_fuzz = b.addInstallArtifact(fuzz, .{});
     const fuzz_step = b.step("fuzz", "Build and install fuzz tester");
@@ -334,7 +326,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .Debug,
         }),
     });
-    fuzz_debug.root_module.addImport("cortexdb", cortexdb_module);
+    fuzz_debug.root_module.addImport("membank", membank_module);
 
     const install_fuzz_debug = b.addInstallArtifact(fuzz_debug, .{});
     const fuzz_debug_step = b.step("fuzz-debug", "Build and install debug fuzz tester with enhanced debugging");
@@ -356,23 +348,22 @@ pub fn build(b: *std.Build) void {
     // Sanitizer test target for enhanced memory safety
     const sanitizer_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/cortexdb.zig"),
+            .root_source_file = b.path("src/membank.zig"),
             .target = target,
             .optimize = .ReleaseSafe,
         }),
     });
-    sanitizer_tests.root_module.addImport("cortexdb", cortexdb_module);
+    sanitizer_tests.root_module.addImport("membank", membank_module);
 
-    // Enable Thread Sanitizer for race condition detection
+    // Detect concurrency issues in single-threaded architecture validation
     sanitizer_tests.root_module.sanitize_thread = true;
-    // Enable C undefined behavior detection
+    // Catch undefined behavior in foreign function interfaces
     sanitizer_tests.root_module.sanitize_c = .full;
 
     const run_sanitizer_tests = b.addRunArtifact(sanitizer_tests);
     const sanitizer_test_step = b.step("test-sanitizer", "Run tests with Thread Sanitizer and C UBSan");
     sanitizer_test_step.dependOn(&run_sanitizer_tests.step);
 
-    // Memory stress test target
     const memory_stress = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("tests/stress/memory.zig"),
@@ -380,13 +371,9 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
         }),
     });
-    memory_stress.root_module.addImport("cortexdb", cortexdb_module);
+    memory_stress.root_module.addImport("membank", membank_module);
 
     const run_memory_stress = b.addRunArtifact(memory_stress);
     const memory_stress_step = b.step("test-memory-stress", "Run comprehensive memory safety stress tests");
     memory_stress_step.dependOn(&run_memory_stress.step);
-
-    // Note: Sanitizer and stress tests available as separate targets:
-    // ./zig/zig build test-sanitizer
-    // ./zig/zig build test-memory-stress
 }

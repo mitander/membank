@@ -10,14 +10,14 @@
 //!
 //! All tests use deterministic simulation for reproducible failure scenarios.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 
-const simulation_vfs = cortexdb.simulation_vfs;
-const storage = cortexdb.storage;
-const context_block = cortexdb.types;
-const vfs = cortexdb.vfs;
+const simulation_vfs = membank.simulation_vfs;
+const storage = membank.storage;
+const context_block = membank.types;
+const vfs = membank.vfs;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = storage.StorageEngine;
@@ -39,7 +39,7 @@ test "query handles SSTable read errors gracefully" {
     const vfs_interface = sim_vfs.vfs();
 
     // Setup storage with test data
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "cortexdb_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -77,7 +77,7 @@ test "query handles memory pressure in large result sets" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "cortexdb_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -127,7 +127,7 @@ test "query handles storage corruption during graph traversal" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "cortexdb_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -181,7 +181,7 @@ test "query handles slow I/O and timeout conditions" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "cortexdb_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -225,7 +225,7 @@ test "query provides detailed error context for debugging" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "cortexdb_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -259,7 +259,7 @@ test "semantic query handles parsing and similarity failures" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "cortexdb_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -312,7 +312,7 @@ test "query handles resource contention and concurrent access" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "cortexdb_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -362,7 +362,7 @@ test "query properly cleans up resources after failures" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "cortexdb_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -403,7 +403,7 @@ test "query validates parameters and handles malformed inputs" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "cortexdb_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
     defer engine.deinit();
     try engine.startup();
 

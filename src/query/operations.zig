@@ -1,4 +1,4 @@
-//! Basic query operations for CortexDB context retrieval.
+//! Basic query operations for Membank context retrieval.
 //!
 //! Provides fundamental block lookup operations including direct ID-based
 //! retrieval, batch operations, and semantic search. Handles memory management,

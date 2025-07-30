@@ -1,8 +1,8 @@
-//! Tiered compaction strategy for CortexDB LSM-Tree.
+//! Tiered compaction strategy for Membank LSM-Tree.
 //!
 //! Implements a size-tiered compaction strategy to minimize write amplification
 //! while maintaining read performance. Based on Cassandra's size-tiered approach
-//! with optimizations for CortexDB's workload characteristics.
+//! with optimizations for Membank's workload characteristics.
 
 const std = @import("std");
 const custom_assert = @import("../core/assert.zig");

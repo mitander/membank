@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# CortexDB pre-commit hook
+# Membank pre-commit hook
 #
 # This script runs fast code quality checks before allowing commits.
 # By default, it runs only fast checks to encourage frequent commits:
@@ -12,7 +12,7 @@
 
 set -e
 
-echo "Running CortexDB pre-commit checks..."
+echo "Running Membank pre-commit checks..."
 
 # Check if we're in a git repository
 if ! git rev-parse --git-dir >/dev/null 2>&1; then

@@ -11,9 +11,9 @@
 //! only appear under specific stress conditions or allocation patterns.
 
 const std = @import("std");
-const cortexdb = @import("cortexdb");
-const assert = cortexdb.assert;
-const assert_fmt = cortexdb.assert.assert_fmt;
+const membank = @import("membank");
+const assert = membank.assert;
+const assert_fmt = membank.assert.assert_fmt;
 
 /// Configuration for torture test parameters
 pub const TortureTestConfig = struct {

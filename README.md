@@ -1,69 +1,11 @@
-# CortexDB
+# Membank
 
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI Status](https://github.com/mitander/cortexdb/actions/workflows/ci.yml/badge.svg)](https://github.com/mitander/cortexdb/actions)
+[![CI Status](https://github.com/mitander/membank/actions/workflows/ci.yml/badge.svg)](https://github.com/mitander/membank/actions)
 
-**Fast, deterministic context database for Large Language Models.**
+**The knowledge graph database built for LLMs.**
 
-CortexDB eliminates LLM context drift by providing millisecond access to structured, interconnected knowledge. Built in Zig with an obsessive focus on correctness and performance.
-
-## Why CortexDB?
-
-LLMs operate on tiny, transient context windows. CortexDB stores **structured knowledge graphs** instead of flat text:
-
-- **Context Blocks**: Logical chunks (functions, paragraphs, configs) with metadata and versioning
-- **Typed Relationships**: `IMPORTS`, `CALLS`, `REFERENCES` edges enable graph traversal
-- **Sub-millisecond Queries**: LSM-tree storage optimized for read-heavy LLM workloads
-
-## Architecture
-
-Built on battle-tested principles from high-frequency trading systems:
-
-- **Explicit Everything**: No hidden allocations, no magic, no surprises
-- **Single-threaded Core**: Zero data races by design
-- **Arena Memory Model**: Bulk allocation/deallocation, eliminates entire bug classes
-- **Simulation-first Testing**: Deterministic reproduction of network partitions, disk corruption
-- **VFS Abstraction**: Production and test code paths identical
-
-**Core Engine**: LSM-tree with WAL, decomposed into `MemtableManager` (in-memory) and `SSTableManager` (on-disk) coordinators.
-
-### What it feels like to use CortexDB
-
-The goal is dead simple: give your LLM the **right context**, not just **more context**.
-
-```zig
-// Find that function you're debugging
-var main_func = try cortex.find("function:main");
-
-// Get everything it touches, 3 levels deep
-var context = try cortex.traverse(main_func.id, .outgoing, .depth(3));
-
-// Feed it to your LLM with confidence
-var prompt = try llm.prompt("Explain the call graph for this function:", context);
-```
-
-**Why this matters**: Instead of dumping 50 random code chunks into your prompt, you get the 5 functions that `main()` actually calls, the 3 files they import, and the config they read. **Structured knowledge** beats **scattered information** every time.
-
-### Real-world Example: Code Review Assistant
-
-```zig
-// Someone changed the authentication logic
-var auth_func = try cortex.find("function:authenticate_user");
-
-// What else might be affected?
-var dependencies = try cortex.traverse(auth_func.id, .incoming, .depth(2));
-
-// What does it call?
-var implementations = try cortex.traverse(auth_func.id, .outgoing, .depth(1));
-
-// Now you can ask your LLM intelligent questions:
-var review = try llm.prompt(
-    "This function changed. What security implications should I consider?",
-    .{ .changed = auth_func, .callers = dependencies, .calls = implementations }
-);
-```
-
-**The difference**: Your LLM isn't guessing. It **knows** that changing `authenticate_user()` affects the login endpoint, the session middleware, and the API gateway. That's the power of a knowledge graph.
+Stop feeding your LLM random text chunks. Membank gives you **structured, interconnected knowledge** with sub-millisecond queries. Your AI finally knows what's connected to what.
 
 ### Quick Start
 
@@ -75,28 +17,76 @@ var review = try llm.prompt(
 # Build and test everything
 ./zig/zig build test
 
-# Run CortexDB server
+# Run Membank server
 ./zig/zig build run
 ```
 
-## Key Commands
+## The Problem
 
-```bash
-./zig/zig build test        # Complete test suite (unit + simulation + integration)
-./zig/zig build run         # Start CortexDB server
-./zig/zig build simulation  # Deterministic failure scenario tests
-./zig/zig build benchmark   # Performance validation
-./zig/zig build fuzz        # Fuzz testing
-./zig/zig build check       # Quick compilation + quality checks
+**Your LLM is flying blind.** It gets 50 random functions in a prompt and hopes the right ones are there. No understanding of what calls what, no knowledge of dependencies, no grasp of the bigger picture.
+
+**Result:** Suggestions that break your authentication system because the LLM didn't know what depends on it.
+
+Membank fixes this with **knowledge graphs**:
+
+- **Context Blocks**: Logical units (functions, classes, docs) with metadata
+- **Typed Relationships**: `CALLS`, `IMPORTS`, `REFERENCES` — your LLM knows the connections
+- **Graph Traversal**: Get exactly what matters, not random text
+
+**Goal**: Give your LLM the **right context**, not just **more context**.
+
+```zig
+// Someone changed authentication logic
+var auth_func = try membank.find("function:authenticate_user");
+
+// What calls this function?
+var callers = try membank.traverse(auth_func.id, .incoming, .depth(2));
+
+// What does this function call?
+var dependencies = try membank.traverse(auth_func.id, .outgoing, .depth(1));
+
+// Now your LLM has the complete picture:
+var review = try llm.prompt(
+    "This function changed. What security implications should I consider?",
+    .{ .changed = auth_func, .callers = callers, .calls = dependencies }
+);
 ```
 
-## Features
+**The difference:** Your LLM isn't guessing anymore. It **knows** exactly what `authenticate_user()` touches — the login endpoint, session middleware, API gateway. **No more broken suggestions. No more missed dependencies.**
 
-- **Sub-millisecond Latency**: Optimized for LLM context injection
-- **Deterministic Testing**: Byte-for-byte reproducible disaster scenarios
-- **Memory Safety**: Arena-per-subsystem eliminates use-after-free by design
-- **Zero Dependencies**: Pure Zig, self-contained
-- **Defensive Programming**: Comprehensive assertion framework catches bugs early
+## Why Membank?
+
+- **Sub-millisecond queries** — Real-time context injection that doesn't slow down your LLM
+- **Actually reliable** — 500+ deterministic tests simulate network failures, disk corruption, memory pressure
+- **Production-ready** — Arena memory model eliminates entire bug classes, zero hidden allocations
+- **Zero dependencies** — Pure Zig, single binary, no complex deployment
+- **Proven patterns** — Built like financial trading systems (because they have to work)
+
+## Architecture
+
+**Built like financial trading systems — fast, reliable, deterministic.**
+
+- **LSM-tree storage** — Optimized for write-heavy ingestion with blazing fast reads
+- **Single-threaded core** — Data races are impossible by design
+- **Arena memory model** — Bulk allocation/deallocation eliminates memory bugs
+- **Virtual file system** — Same production code runs in deterministic tests
+- **Simulation testing** — Reproduce catastrophic failures deterministically
+
+> *"Your LLM finally has a memory that doesn't suck. We're as excited about this as you should be."*
+
+## Development
+
+```bash
+# Fast development cycle
+./zig/zig build test        # Unit tests (~30s)
+./zig/zig build run         # Start server
+
+# Full validation
+./zig/zig build test-all    # All tests including stress/simulation
+./zig/zig build benchmark   # Performance regression detection
+./zig/zig build fuzz        # Chaos testing with random inputs
+```
+
 
 ## Documentation
 

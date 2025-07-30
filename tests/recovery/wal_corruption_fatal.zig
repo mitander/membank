@@ -6,9 +6,9 @@
 
 const std = @import("std");
 const testing = std.testing;
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 
-const corruption_tracker_mod = cortexdb.wal.corruption_tracker;
+const corruption_tracker_mod = membank.wal.corruption_tracker;
 const CorruptionTracker = corruption_tracker_mod.CorruptionTracker;
 const WAL_MAGIC_NUMBER = corruption_tracker_mod.WAL_MAGIC_NUMBER;
 const WAL_ENTRY_MAGIC = corruption_tracker_mod.WAL_ENTRY_MAGIC;

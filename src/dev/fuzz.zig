@@ -1,26 +1,26 @@
-//! Real fuzz testing for CortexDB components.
+//! Real fuzz testing for Membank components.
 //!
-//! This fuzzer tests actual CortexDB components with malformed, corrupted,
+//! This fuzzer tests actual Membank components with malformed, corrupted,
 //! and edge-case inputs to discover memory safety issues, assertion failures,
 //! and other robustness problems.
 
 const std = @import("std");
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 
-const SimulationVFS = cortexdb.SimulationVFS;
-const BlockId = cortexdb.BlockId;
-const ContextBlock = cortexdb.ContextBlock;
-const StorageEngine = cortexdb.StorageEngine;
-const QueryEngine = cortexdb.QueryEngine;
-const TraversalQuery = cortexdb.TraversalQuery;
-const FilteredQuery = cortexdb.FilteredQuery;
-const TraversalDirection = cortexdb.TraversalDirection;
-const TraversalAlgorithm = cortexdb.TraversalAlgorithm;
-const FilterCondition = cortexdb.FilterCondition;
-const FilterExpression = cortexdb.FilterExpression;
-const ZigParser = cortexdb.ZigParser;
-const ZigParserConfig = cortexdb.ZigParserConfig;
-const SourceContent = cortexdb.SourceContent;
+const SimulationVFS = membank.SimulationVFS;
+const BlockId = membank.BlockId;
+const ContextBlock = membank.ContextBlock;
+const StorageEngine = membank.StorageEngine;
+const QueryEngine = membank.QueryEngine;
+const TraversalQuery = membank.TraversalQuery;
+const FilteredQuery = membank.FilteredQuery;
+const TraversalDirection = membank.TraversalDirection;
+const TraversalAlgorithm = membank.TraversalAlgorithm;
+const FilterCondition = membank.FilterCondition;
+const FilterExpression = membank.FilterExpression;
+const ZigParser = membank.ZigParser;
+const ZigParserConfig = membank.ZigParserConfig;
+const SourceContent = membank.SourceContent;
 
 const FUZZ_ITERATIONS_DEFAULT = 100_000;
 const FUZZ_ITERATIONS_CONTINUOUS = std.math.maxInt(u64);
@@ -50,16 +50,16 @@ fn check_shutdown_request() bool {
     }
 
     // Check for shutdown file (lightweight alternative to complex signal handling)
-    std.fs.cwd().access(".cortexdb_stop", .{}) catch {
+    std.fs.cwd().access(".membank_stop", .{}) catch {
         return false; // File doesn't exist, continue
     };
 
     // Shutdown file exists - request shutdown
     global_shutdown_requested.store(true, .seq_cst);
-    std.debug.print("Shutdown requested via .cortexdb_stop file\n", .{});
+    std.debug.print("Shutdown requested via .membank_stop file\n", .{});
 
     // Clean up the file
-    std.fs.cwd().deleteFile(".cortexdb_stop") catch {};
+    std.fs.cwd().deleteFile(".membank_stop") catch {};
     return true;
 }
 
@@ -69,7 +69,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     // Initialize concurrency model
-    cortexdb.concurrency.init();
+    membank.concurrency.init();
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -136,7 +136,7 @@ pub fn main() !void {
 
 fn print_usage() !void {
     std.debug.print(
-        \\CortexDB Production Fuzzer
+        \\Membank Production Fuzzer
         \\
         \\Usage:
         \\  fuzz [--verbose|-v] <target> [iterations|continuous] [seed]
@@ -756,7 +756,7 @@ fn report_crash(allocator: std.mem.Allocator, target: []const u8, iteration: u64
     defer report_file.close();
 
     const report_content = try std.fmt.allocPrint(allocator,
-        \\CortexDB Fuzzer Crash Report
+        \\Membank Fuzzer Crash Report
         \\============================
         \\
         \\Timestamp: {}
@@ -961,7 +961,7 @@ fn generate_random_traversal_query(allocator: std.mem.Allocator, random: std.Ran
 // Tests
 
 test "fuzz: basic functionality" {
-    cortexdb.concurrency.init();
+    membank.concurrency.init();
 
     var prng = std.Random.DefaultPrng.init(12345);
     const random = prng.random();

@@ -1,4 +1,4 @@
-//! Query engine coordination and public interface for CortexDB.
+//! Query engine coordination and public interface for Membank.
 //!
 //! Provides the main QueryEngine struct that coordinates between different
 //! query operation modules. Handles metrics, statistics, and provides a

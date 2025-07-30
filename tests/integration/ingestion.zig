@@ -6,19 +6,19 @@
 //! These tests validate the end-to-end workflow of automatically
 //! populating the database from Git repositories.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 
-const concurrency = cortexdb.concurrency;
-const simulation = cortexdb.simulation;
-const simulation_vfs = cortexdb.simulation_vfs;
-const storage = cortexdb.storage;
-const context_block = cortexdb.types;
-const ingestion = cortexdb.pipeline;
-const git_source = cortexdb.git_source;
-const zig_parser = cortexdb.zig_parser;
-const semantic_chunker = cortexdb.semantic_chunker;
+const concurrency = membank.concurrency;
+const simulation = membank.simulation;
+const simulation_vfs = membank.simulation_vfs;
+const storage = membank.storage;
+const context_block = membank.types;
+const ingestion = membank.pipeline;
+const git_source = membank.git_source;
+const zig_parser = membank.zig_parser;
+const semantic_chunker = membank.semantic_chunker;
 
 const Simulation = simulation.Simulation;
 const StorageEngine = storage.StorageEngine;

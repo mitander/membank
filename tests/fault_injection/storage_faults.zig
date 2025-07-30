@@ -6,15 +6,15 @@
 //! - SSTable corruption during read
 //! - Disk full during compaction
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 
-const vfs = cortexdb.vfs;
-const simulation_vfs = cortexdb.simulation_vfs;
-const storage = cortexdb.storage;
-const context_block = cortexdb.types;
-const concurrency = cortexdb.concurrency;
+const vfs = membank.vfs;
+const simulation_vfs = membank.simulation_vfs;
+const storage = membank.storage;
+const context_block = membank.types;
+const concurrency = membank.concurrency;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;

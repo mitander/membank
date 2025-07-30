@@ -467,7 +467,7 @@ jobs:
         run: |
           echo "-> Generating comprehensive memory safety report..."
           {
-            echo "# CortexDB Memory Safety Report"
+            echo "# Membank Memory Safety Report"
             echo "Generated: $(date)"
             echo ""
             echo "## Test Results Summary"

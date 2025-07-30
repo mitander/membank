@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# CortexDB Local CI Runner
+# Membank Local CI Runner
 # Mirrors the GitHub Actions CI pipeline exactly for local development
 # Eliminates the push-wait-read cycle for debugging CI failures
 
@@ -48,7 +48,7 @@ MEMORY_TESTS=false
 
 show_help() {
     cat << EOF
-CortexDB Local CI Runner
+Membank Local CI Runner
 
 Usage: $0 [OPTIONS]
 
@@ -482,7 +482,7 @@ run_parallel_jobs() {
 main() {
     echo -e "${BLUE}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                    CortexDB Local CI Runner                  ║"
+    echo "║                    Membank Local CI Runner                  ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 

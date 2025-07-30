@@ -1,8 +1,8 @@
 //! Shell command execution for git operations and tidy checks.
 
 const std = @import("std");
-const cortexdb = @import("cortexdb");
-const assert = cortexdb.assert.assert;
+const membank = @import("membank");
+const assert = membank.assert.assert;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 

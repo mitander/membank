@@ -5,18 +5,18 @@
 //! less memory. Tests focus on real-world scenarios including large segments,
 //! corruption handling, and callback integration.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
-const assert = cortexdb.assert.assert;
+const assert = membank.assert.assert;
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const vfs = @import("../../src/core/vfs.zig");
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const simulation_vfs = @import("../../src/sim/simulation_vfs.zig");
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const context_block = @import("../../src/core/types.zig");
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const wal = @import("../../src/storage/wal.zig");
 
 const SimulationVFS = simulation_vfs.SimulationVFS;

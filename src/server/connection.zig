@@ -7,7 +7,7 @@
 //! - Request processing coordination
 //! - Response writing with flow control
 //!
-//! Follows CortexDB architectural principles:
+//! Follows Membank architectural principles:
 //! - Arena-per-connection memory management
 //! - Explicit error handling with ctx
 //! - Non-blocking I/O with proper state transitions

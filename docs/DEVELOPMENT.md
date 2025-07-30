@@ -1,4 +1,4 @@
-# CortexDB Development Guide
+# Membank Development Guide
 
 ## Setup
 
@@ -15,7 +15,7 @@
 ./zig/zig build test         # Fast unit tests (< 30 seconds, developer default)
 ./zig/zig build test-fast    # Comprehensive tests (~2 minutes, CI validation)
 ./zig/zig build test-all     # All tests including stress tests (~5 minutes, full validation)
-./zig/zig build run          # Start CortexDB server
+./zig/zig build run          # Start Membank server
 ./zig/zig build check        # Quick compilation + quality checks
 ```
 
@@ -80,7 +80,7 @@ test "crashing test" {
 
 ```
 src/
-├── cortexdb.zig              # Public API entry poin
+├── membank.zig              # Public API entry poin
 ├── main.zig                  # Server binary
 ├── core/                     # Foundation (types, VFS, utilities)
 ├── storage/                  # LSM-tree coordinator + managers

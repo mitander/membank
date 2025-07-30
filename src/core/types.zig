@@ -1,6 +1,6 @@
-//! Core data types for CortexDB.
+//! Core data types for Membank.
 //!
-//! This module defines the fundamental data structures used throughout CortexDB:
+//! This module defines the fundamental data structures used throughout Membank:
 //! - BlockId: Unique identifier for context blocks
 //! - ContextBlock: The primary unit of stored knowledge
 //! - GraphEdge: Typed relationship between context blocks

@@ -60,7 +60,7 @@ pub const MemtableManager = struct {
     /// Phase 1: Create the memtable manager without I/O operations.
     /// Initializes both block and edge indexes with their dedicated arenas.
     /// Creates WAL instance but does not perform I/O until startup() is called.
-    /// Follows CortexDB two-phase initialization pattern for testability.
+    /// Follows Membank two-phase initialization pattern for testability.
     pub fn init(
         allocator: std.mem.Allocator,
         filesystem: VFS,

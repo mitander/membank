@@ -1,4 +1,4 @@
-//! Memory safety fatal assertion tests for CortexDB.
+//! Memory safety fatal assertion tests for Membank.
 //!
 //! Validates that fatal assertions trigger correctly when memory corruption
 //! is detected. These tests use controlled corruption scenarios to verify
@@ -6,16 +6,16 @@
 
 const std = @import("std");
 const testing = std.testing;
-const cortexdb = @import("cortexdb");
-const VFS = cortexdb.VFS;
-const VFile = cortexdb.VFile;
-const ContextBlock = cortexdb.ContextBlock;
-const BlockId = cortexdb.BlockId;
-const StorageEngine = cortexdb.StorageEngine;
-const SimulationVFS = cortexdb.SimulationVFS;
+const membank = @import("membank");
+const VFS = membank.VFS;
+const VFile = membank.VFile;
+const ContextBlock = membank.ContextBlock;
+const BlockId = membank.BlockId;
+const StorageEngine = membank.StorageEngine;
+const SimulationVFS = membank.SimulationVFS;
 
 // Import storage components
-const storage = cortexdb.storage;
+const storage = membank.storage;
 // Note: BlockIndex testing integrated through StorageEngine public API
 
 // Test that arena state validation triggers fatal assertion in storage components

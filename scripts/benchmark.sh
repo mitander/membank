@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# CortexDB Performance CI Script
+# Membank Performance CI Script
 # Detects performance regressions by comparing current results to baseline
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +12,7 @@ REGRESSION_THRESHOLD="1.15"  # 15% slowdown = regression
 
 cd "$REPO_ROOT"
 
-echo "Running CortexDB Performance CI"
+echo "Running Membank Performance CI"
 echo "================================"
 
 # Build benchmark binary

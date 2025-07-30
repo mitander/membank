@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# CortexDB Git Hooks Setup Script
+# Membank Git Hooks Setup Script
 #
-# This script installs and manages git hooks for CortexDB development.
+# This script installs and manages git hooks for Membank development.
 # Run this after cloning the repository to enable automatic code quality checks.
 
 set -e
@@ -207,7 +207,7 @@ show_hook_status() {
 }
 
 show_help() {
-    echo "CortexDB Git Hooks Setup Script"
+    echo "Membank Git Hooks Setup Script"
     echo ""
     echo "Usage: $0 [command]"
     echo ""
@@ -232,7 +232,7 @@ show_help() {
 main() {
     local command="${1:-install}"
 
-    echo "CortexDB Git Hooks Setup"
+    echo "Membank Git Hooks Setup"
     echo "========================"
     echo ""
 

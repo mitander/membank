@@ -1,12 +1,12 @@
-//! Memory safety tests for CortexDB arena-per-subsystem pattern.
+//! Memory safety tests for Membank arena-per-subsystem pattern.
 //!
 //! Validates comprehensive memory safety patterns and debug allocator functionality.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 
-const debug_allocator = cortexdb.debug_allocator;
+const debug_allocator = membank.debug_allocator;
 const DebugAllocator = debug_allocator.DebugAllocator;
 
 test "arena allocator basic safety" {

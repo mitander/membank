@@ -1,4 +1,4 @@
-//! CortexDB main entry point and CLI interface.
+//! Membank main entry point and CLI interface.
 
 const std = @import("std");
 const custom_assert = @import("core/assert.zig");
@@ -51,15 +51,15 @@ pub fn main() !void {
 }
 
 fn print_version() !void {
-    std.debug.print("CortexDB v0.1.0\n", .{});
+    std.debug.print("Membank v0.1.0\n", .{});
 }
 
 fn print_usage() !void {
     std.debug.print(
-        \\CortexDB - High-performance context database
+        \\Membank - High-performance context database
         \\
         \\Usage:
-        \\  cortexdb <command> [options]
+        \\  membank <command> [options]
         \\
         \\Commands:
         \\  version    Show version information
@@ -68,9 +68,9 @@ fn print_usage() !void {
         \\  demo       Run a storage and query demonstration
         \\
         \\Examples:
-        \\  cortexdb server --port 8080
-        \\  cortexdb demo
-        \\  cortexdb version
+        \\  membank server --port 8080
+        \\  membank demo
+        \\  membank version
         \\
     , .{});
 }
@@ -78,11 +78,11 @@ fn print_usage() !void {
 fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     _ = args;
 
-    std.debug.print("CortexDB server starting...\n", .{});
+    std.debug.print("Membank server starting...\n", .{});
 
     var prod_vfs = production_vfs.ProductionVFS.init(allocator);
     const vfs_interface = prod_vfs.vfs();
-    const data_dir = try allocator.dupe(u8, "cortexdb_data");
+    const data_dir = try allocator.dupe(u8, "membank_data");
     defer allocator.free(data_dir);
 
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
@@ -101,17 +101,17 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
         .enable_logging = true,
     };
 
-    var cortex_server = server.CortexServer.init(allocator, server_config, &storage_engine, &query_eng);
-    defer cortex_server.deinit();
+    var membank_server = server.MembankServer.init(allocator, server_config, &storage_engine, &query_eng);
+    defer membank_server.deinit();
 
-    std.debug.print("Starting CortexDB TCP server on port {d}...\n", .{server_config.port});
+    std.debug.print("Starting Membank TCP server on port {d}...\n", .{server_config.port});
 
-    try cortex_server.startup();
+    try membank_server.startup();
 }
 
 fn run_demo(allocator: std.mem.Allocator) !void {
-    std.debug.print("=== CortexDB Storage and Query Demo ===\n\n", .{});
-    log.info("Starting CortexDB demo with scoped logging", .{});
+    std.debug.print("=== Membank Storage and Query Demo ===\n\n", .{});
+    log.info("Starting Membank demo with scoped logging", .{});
 
     var prod_vfs = production_vfs.ProductionVFS.init(allocator);
     const vfs_interface = prod_vfs.vfs();
@@ -141,7 +141,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
         .content =
         \\pub fn main() !void {
         \\    const allocator = std.heap.page_allocator;
-        \\    std.debug.print("Hello, CortexDB!\\n", .{});
+        \\    std.debug.print("Hello, Membank!\\n", .{});
         \\}
         ,
     };
@@ -226,7 +226,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     });
 
     std.debug.print("\nDemo completed successfully!\n", .{});
-    log.info("CortexDB demo completed successfully with scoped logging", .{});
+    log.info("Membank demo completed successfully with scoped logging", .{});
 }
 
 test "main module tests" {

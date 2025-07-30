@@ -1,4 +1,4 @@
-//! Write-Ahead Log (WAL) implementation for CortexDB storage engine.
+//! Write-Ahead Log (WAL) implementation for Membank storage engine.
 //!
 //! Modular WAL implementation providing:
 //! - Segmented file management with automatic rotation

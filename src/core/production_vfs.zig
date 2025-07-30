@@ -298,8 +298,8 @@ test "ProductionVFS basic file operations" {
     defer prod_vfs.deinit();
     const vfs_interface = prod_vfs.vfs();
 
-    const test_path = "/tmp/cortexdb_test_file";
-    const test_data = "Hello, CortexDB!";
+    const test_path = "/tmp/membank_test_file";
+    const test_data = "Hello, Membank!";
 
     // Test file creation and writing
     {
@@ -337,7 +337,7 @@ test "ProductionVFS directory operations" {
     defer prod_vfs.deinit();
     const vfs_interface = prod_vfs.vfs();
 
-    const test_dir = "/tmp/cortexdb_test_dir";
+    const test_dir = "/tmp/membank_test_dir";
     try vfs_interface.mkdir(test_dir);
     defer vfs_interface.rmdir(test_dir) catch {};
 

@@ -1,4 +1,4 @@
-//! Graph traversal operations for CortexDB knowledge graph.
+//! Graph traversal operations for Membank knowledge graph.
 //!
 //! Provides breadth-first and depth-first search algorithms for exploring
 //! relationships between context blocks. Handles cycle detection, path tracking,

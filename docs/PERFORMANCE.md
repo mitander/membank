@@ -1,4 +1,4 @@
-# Performance: Why CortexDB is Stupidly Fast
+# Performance: Why Membank is Stupidly Fast
 
 We didn't accidentally stumble into good performance. Every microsecond saved was a deliberate architectural choice. Here's what we're hitting in practice:
 
@@ -280,7 +280,7 @@ perf report
 
 ## Performance Philosophy
 
-CortexDB achieves speed through **architectural simplicity**, not micro-optimizations:
+Membank achieves speed through **architectural simplicity**, not micro-optimizations:
 
 - **Explicit memory management** eliminates GC pauses
 - **Single-threaded design** avoids synchronization overhead

@@ -4,15 +4,15 @@
 //! systematic corruption detection, magic number corruption, checksum
 //! failures, and recovery boundary conditions under hostile environments.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 
-const storage = cortexdb.storage;
-const simulation_vfs = cortexdb.simulation_vfs;
-const context_block = cortexdb.types;
-const assert = cortexdb.assert.assert;
-const fatal_assert = cortexdb.assert.fatal_assert;
+const storage = membank.storage;
+const simulation_vfs = membank.simulation_vfs;
+const context_block = membank.types;
+const assert = membank.assert.assert;
+const fatal_assert = membank.assert.fatal_assert;
 
 const WAL = storage.WAL;
 const WALEntry = storage.WALEntry;

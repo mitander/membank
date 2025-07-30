@@ -1,8 +1,8 @@
-# CortexDB Design
+# Membank Design
 
 ## Philosophy
 
-CortexDB eliminates LLM context drift through principled engineering. Three non-negotiable rules:
+Membank eliminates LLM context drift through principled engineering. Three non-negotiable rules:
 
 1. **Simplicity is the Prerequisite for Reliability** - Complex code kills systems
 2. **Explicit is Better Than Implicit** - No hidden control flow, no surprise allocations
@@ -20,7 +20,7 @@ This eliminates entire bug classes that plague databases: use-after-free, double
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     CortexDB Engine                         │
+│                     Membank Engine                         │
 ├─────────────────────────────────────────────────────────────┤
 │  Query Engine                    Storage Engine             │
 │  ├── Block Lookups              ├── Coordinator             │
@@ -209,4 +209,4 @@ const StorageError = error{
 - **Defensive Programming**: Comprehensive assertion framework
 - **Modular Architecture**: Coordinator pattern with focused managers
 
-CortexDB proves that careful architecture beats clever optimization. Simple, explicit, correct.
+Membank proves that careful architecture beats clever optimization. Simple, explicit, correct.

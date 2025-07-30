@@ -2,18 +2,18 @@
 //!
 //! These tests demonstrate deterministic, byte-for-byte reproducible testing
 //! of complex failure scenarios including network partitions, disk corruption,
-//! memory pressure, and systematic failures using CortexDB's simulation framework.
+//! memory pressure, and systematic failures using Membank's simulation framework.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 
-const simulation = cortexdb.simulation;
-const vfs = cortexdb.vfs;
-const storage = cortexdb.storage;
-const context_block = cortexdb.types;
-const assert = cortexdb.assert.assert;
-const fatal_assert = cortexdb.assert.fatal_assert;
+const simulation = membank.simulation;
+const vfs = membank.vfs;
+const storage = membank.storage;
+const context_block = membank.types;
+const assert = membank.assert.assert;
+const fatal_assert = membank.assert.fatal_assert;
 
 const Simulation = simulation.Simulation;
 const NodeId = simulation.NodeId;

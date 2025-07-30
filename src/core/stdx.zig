@@ -1,4 +1,4 @@
-//! CortexDB standard extensions providing safer alternatives to std library functions
+//! Membank standard extensions providing safer alternatives to std library functions
 //!
 //! Design rationale: These wrappers add defensive programming checks and
 //! consistent naming conventions across the codebase. They prevent common

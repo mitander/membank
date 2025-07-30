@@ -1,11 +1,11 @@
 //! Simple test to debug MemtableManager segfault
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 
-const simulation_vfs = cortexdb.simulation_vfs;
-const storage = cortexdb.storage;
+const simulation_vfs = membank.simulation_vfs;
+const storage = membank.storage;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const MemtableManager = storage.MemtableManager;

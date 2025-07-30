@@ -1,4 +1,4 @@
-//! Comprehensive performance benchmarking framework for CortexDB.
+//! Comprehensive performance benchmarking framework for Membank.
 //!
 //! Provides automated regression testing with both performance and memory profiling.
 //! Benchmarks core operations with statistical analysis to detect regressions early.
@@ -25,14 +25,14 @@
 //! - Zero memory leaks in sustained operations
 
 const std = @import("std");
-const cortexdb = @import("cortexdb");
-const assert = cortexdb.assert.assert;
+const membank = @import("membank");
+const assert = membank.assert.assert;
 const log = std.log.scoped(.benchmark);
 
-const storage = cortexdb.storage;
-const query_engine = cortexdb.query_engine;
-const context_block = cortexdb.types;
-const simulation_vfs = cortexdb.simulation_vfs;
+const storage = membank.storage;
+const query_engine = membank.query_engine;
+const context_block = membank.types;
+const simulation_vfs = membank.simulation_vfs;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
@@ -245,7 +245,7 @@ pub fn main() !void {
     }
 
     if (!json_output) {
-        std.debug.print("\nCortexDB Performance Benchmark Suite\n", .{});
+        std.debug.print("\nMembank Performance Benchmark Suite\n", .{});
         std.debug.print("=========================================\n", .{});
     }
 
@@ -265,7 +265,7 @@ pub fn main() !void {
 
     if (json_output) {
         std.debug.print("{{\n", .{});
-        std.debug.print("  \"benchmark_suite\": \"CortexDB Performance\",\n", .{});
+        std.debug.print("  \"benchmark_suite\": \"Membank Performance\",\n", .{});
         std.debug.print("  \"timestamp\": {},\n", .{std.time.timestamp()});
         std.debug.print("  \"results\": [\n", .{});
         for (all_results.items, 0..) |result, idx| {
@@ -285,7 +285,7 @@ pub fn main() !void {
 
 fn print_usage() !void {
     std.debug.print(
-        \\CortexDB Performance Benchmark Suite
+        \\Membank Performance Benchmark Suite
         \\
         \\Usage:
         \\  benchmark <category> [--json]

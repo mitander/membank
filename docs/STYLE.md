@@ -1,4 +1,4 @@
-# CortexDB Style Guide
+# Membank Style Guide
 
 ## Principles
 
@@ -356,7 +356,7 @@ core/           # Foundation, no dependencies
 //! Responsibilities: file discovery, compaction coordination, read optimization.
 
 const std = @import("std");
-const core = @import("../core/cortexdb.zig");
+const core = @import("../core/membank.zig");
 const assert = @import("../core/assert.zig");
 
 // Types first
@@ -409,4 +409,4 @@ test "sstable manager lifecycle" {
 - Commit message standards
 - Test passage before commit
 
-CortexDB style serves reliability. Every rule prevents real bugs.
+Membank style serves reliability. Every rule prevents real bugs.

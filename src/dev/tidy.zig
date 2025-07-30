@@ -1,12 +1,12 @@
-//! Code quality and style enforcement for CortexDB.
+//! Code quality and style enforcement for Membank.
 //!
 //! Checks coding standards, naming conventions, documentation,
 //! and catches common issues before they reach main branch.
 
 const std = @import("std");
-const cortexdb = @import("cortexdb");
-const assert = cortexdb.assert.assert;
-const assert_fmt = cortexdb.assert.assert_fmt;
+const membank = @import("membank");
+const assert = membank.assert.assert;
+const assert_fmt = membank.assert.assert_fmt;
 const fs = std.fs;
 const mem = std.mem;
 
@@ -22,7 +22,7 @@ pub fn main() !void {
 
     if (args.len > 1) {
         std.debug.print("Usage: tidy\n", .{});
-        std.debug.print("Checks code quality and style for CortexDB.\n", .{});
+        std.debug.print("Checks code quality and style for Membank.\n", .{});
         return;
     }
 

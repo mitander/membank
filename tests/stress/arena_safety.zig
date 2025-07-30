@@ -1,4 +1,4 @@
-//! Comprehensive arena safety validation for CortexDB memory management.
+//! Comprehensive arena safety validation for Membank memory management.
 //!
 //! Tests the arena-per-subsystem pattern under hostile conditions including:
 //! - Error path memory safety
@@ -8,15 +8,15 @@
 //! - O(1) cleanup validation
 
 const std = @import("std");
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const testing = std.testing;
-const assert = cortexdb.assert.assert;
+const assert = membank.assert.assert;
 
-const Simulation = cortexdb.simulation.Simulation;
-const StorageEngine = cortexdb.storage.StorageEngine;
-const MemtableManager = cortexdb.storage.MemtableManager;
-const ContextBlock = cortexdb.types.ContextBlock;
-const BlockId = cortexdb.types.BlockId;
+const Simulation = membank.simulation.Simulation;
+const StorageEngine = membank.storage.StorageEngine;
+const MemtableManager = membank.storage.MemtableManager;
+const ContextBlock = membank.types.ContextBlock;
+const BlockId = membank.types.BlockId;
 
 const log = std.log.scoped(.arena_safety);
 

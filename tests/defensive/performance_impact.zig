@@ -8,11 +8,11 @@
 const std = @import("std");
 const testing = std.testing;
 const builtin = @import("builtin");
-const cortexdb = @import("cortexdb");
-const assert = cortexdb.assert;
-const types = cortexdb.types;
-const storage = cortexdb.storage;
-const simulation = cortexdb.simulation;
+const membank = @import("membank");
+const assert = membank.assert;
+const types = membank.types;
+const storage = membank.storage;
+const simulation = membank.simulation;
 
 const BlockId = types.BlockId;
 const ContextBlock = types.ContextBlock;
@@ -100,7 +100,7 @@ const Timer = struct {
 /// Create test block for benchmarking
 fn create_benchmark_block(allocator: std.mem.Allocator, index: u32) !ContextBlock {
     const content = try std.fmt.allocPrint(allocator, "Benchmark block {} with substantial content for realistic performance testing. " ++
-        "This content simulates typical block sizes found in production CortexDB deployments " ++
+        "This content simulates typical block sizes found in production Membank deployments " ++
         "including code structures, documentation, and metadata that would be processed " ++
         "during normal operation. Content length: approximately 512 bytes for consistency.", .{index});
 

@@ -3,15 +3,15 @@
 //! These tests focus on the storage engine behavior under various failure
 //! conditions, heavy loads, and edge cases to ensure robustness and data integrity.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
-const simulation = cortexdb.simulation;
-const vfs = cortexdb.vfs;
-const assert = cortexdb.assert;
-const context_block = cortexdb.types;
-const storage = cortexdb.storage;
-const simulation_vfs = cortexdb.simulation_vfs;
+const simulation = membank.simulation;
+const vfs = membank.vfs;
+const assert = membank.assert;
+const context_block = membank.types;
+const storage = membank.storage;
+const simulation_vfs = membank.simulation_vfs;
 
 const Simulation = simulation.Simulation;
 const NodeId = simulation.NodeId;

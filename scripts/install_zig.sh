@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-# Default to the specific dev version required by CortexDB
+# Default to the specific dev version required by Membank
 ZIG_RELEASE_DEFAULT="0.15.0-dev.1108+27212a3e6"
 ZIG_RELEASE=${1:-$ZIG_RELEASE_DEFAULT}
 

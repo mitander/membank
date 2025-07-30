@@ -1,4 +1,4 @@
-//! Assertion framework for CortexDB defensive programming.
+//! Assertion framework for Membank defensive programming.
 //!
 //! Provides runtime checks that help catch bugs early in development
 //! while being compiled out in release builds for performance.

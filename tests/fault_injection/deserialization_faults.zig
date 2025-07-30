@@ -4,12 +4,12 @@
 //! corruption scenarios. Validates that corrupted data fails gracefully
 //! without memory corruption or crashes.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 
-const context_block = cortexdb.types;
-const simulation_vfs = cortexdb.simulation_vfs;
+const context_block = membank.types;
+const simulation_vfs = membank.simulation_vfs;
 
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;

@@ -3,18 +3,18 @@
 //! These tests validate the complete data lifecycle from ingestion through
 //! storage, querying, and compaction with realistic workloads and failure scenarios.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
-const assert = cortexdb.assert.assert;
+const assert = membank.assert.assert;
 const log = std.log.scoped(.integration_lifecycle);
 
-const context_block = cortexdb.types;
-const storage = cortexdb.storage;
-const query_engine = cortexdb.query_engine;
-const simulation = cortexdb.simulation;
-const vfs = cortexdb.vfs;
-const simulation_vfs = cortexdb.simulation_vfs;
+const context_block = membank.types;
+const storage = membank.storage;
+const query_engine = membank.query_engine;
+const simulation = membank.simulation;
+const vfs = membank.vfs;
+const simulation_vfs = membank.simulation_vfs;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;

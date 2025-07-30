@@ -1,23 +1,23 @@
-//! Comprehensive performance and memory efficiency tests for CortexDB operations.
+//! Comprehensive performance and memory efficiency tests for Membank operations.
 //!
 //! Tests streaming query formatting, storage engine throughput, memory management
 //! efficiency, and performance regression detection across all major subsystems.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 
 const log = std.log.scoped(.streaming_memory_benchmark);
 
-const storage = cortexdb.storage;
-const query = cortexdb.query;
-const simulation_vfs = cortexdb.simulation_vfs;
-const context_block = cortexdb.types;
-const concurrency = cortexdb.concurrency;
-const assert = cortexdb.assert.assert;
+const storage = membank.storage;
+const query = membank.query;
+const simulation_vfs = membank.simulation_vfs;
+const context_block = membank.types;
+const concurrency = membank.concurrency;
+const assert = membank.assert.assert;
 
 const StorageEngine = storage.StorageEngine;
-const QueryEngine = cortexdb.QueryEngine;
+const QueryEngine = membank.QueryEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;

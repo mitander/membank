@@ -1,27 +1,27 @@
-//! CortexDB TCP Server and Protocol Tests
+//! Membank TCP Server and Protocol Tests
 //!
 //! Simplified testing of the TCP server implementation and binary protocol.
 //! Tests cover basic functionality without complex networking scenarios.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 const net = std.net;
 
-const vfs = cortexdb.vfs;
-const simulation_vfs = cortexdb.simulation_vfs;
-const storage = cortexdb.storage;
-const query_engine = cortexdb.query_engine;
-const context_block = cortexdb.types;
-const server_handler = cortexdb.handler;
-const concurrency = cortexdb.concurrency;
+const vfs = membank.vfs;
+const simulation_vfs = membank.simulation_vfs;
+const storage = membank.storage;
+const query_engine = membank.query_engine;
+const context_block = membank.types;
+const server_handler = membank.handler;
+const concurrency = membank.concurrency;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const CortexServer = server_handler.CortexServer;
+const MembankServer = server_handler.MembankServer;
 const ServerConfig = server_handler.ServerConfig;
 const MessageHeader = server_handler.MessageHeader;
 const MessageType = server_handler.MessageType;
@@ -127,7 +127,7 @@ test "server initialization" {
         .max_connections = 10,
     };
 
-    var server = CortexServer.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = MembankServer.init(allocator, config, &storage_engine, &test_query_engine);
     defer server.deinit();
 
     // Verify initial state
@@ -211,7 +211,7 @@ test "server - connection limit configuration" {
         .max_connections = 2, // Very low limit for testing
     };
 
-    var server = CortexServer.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = MembankServer.init(allocator, config, &storage_engine, &test_query_engine);
     defer server.deinit();
 
     // Verify configuration
@@ -235,7 +235,7 @@ test "server stats - initial values" {
 
     const config = ServerConfig{};
 
-    var server = CortexServer.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = MembankServer.init(allocator, config, &storage_engine, &test_query_engine);
     defer server.deinit();
 
     // Verify initial stats
@@ -308,7 +308,7 @@ test "server - engine references" {
 
     const config = ServerConfig{};
 
-    var server = CortexServer.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = MembankServer.init(allocator, config, &storage_engine, &test_query_engine);
     defer server.deinit();
 
     // Test that server maintains valid references
@@ -473,7 +473,7 @@ test "connection state machine - response state transitions" {
     };
 
     // Send response - should transition to writing_response state
-    const response_data = "CortexDB server v0.1.0";
+    const response_data = "Membank server v0.1.0";
     connection.send_response(response_data);
     try testing.expectEqual(ConnectionState.writing_response, connection.state);
     try testing.expect(connection.current_response != null);

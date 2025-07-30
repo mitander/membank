@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# CortexDB Unified Fuzzing Script
+# Membank Unified Fuzzing Script
 #
 # Consolidates quick, continuous, and production fuzzing into a single script
 # with profile-based configuration for different use cases.
@@ -10,12 +10,12 @@ set -euo pipefail
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CORTEXDB_ROOT="$(dirname "$SCRIPT_DIR")"
-FUZZ_BINARY="$CORTEXDB_ROOT/zig-out/bin/fuzz"
-FUZZ_DEBUG_BINARY="$CORTEXDB_ROOT/zig-out/bin/fuzz-debug"
-REPORTS_DIR="$CORTEXDB_ROOT/fuzz_reports"
+MEMBANK_ROOT="$(dirname "$SCRIPT_DIR")"
+FUZZ_BINARY="$MEMBANK_ROOT/zig-out/bin/fuzz"
+FUZZ_DEBUG_BINARY="$MEMBANK_ROOT/zig-out/bin/fuzz-debug"
+REPORTS_DIR="$MEMBANK_ROOT/fuzz_reports"
 LOG_FILE="$REPORTS_DIR/fuzz.log"
-NTFY_TOPIC="cortexdb_fuzz"
+NTFY_TOPIC="membank_fuzz"
 ENABLE_NOTIFICATIONS=false
 
 # Colors for output
@@ -106,7 +106,7 @@ send_notification() {
 # Function to check for git updates
 check_git_updates() {
     debug "Checking for git updates..."
-    cd "$CORTEXDB_ROOT" || return 1
+    cd "$MEMBANK_ROOT" || return 1
 
     if ! git fetch --quiet 2>/dev/null; then
         warn "Git fetch failed, continuing with current version"
@@ -132,8 +132,8 @@ check_git_updates() {
 
 # Function to build project (for continuous modes that need persistent binary)
 build_project() {
-    info "Building CortexDB fuzzer..."
-    cd "$CORTEXDB_ROOT" || return 1
+    info "Building Membank fuzzer..."
+    cd "$MEMBANK_ROOT" || return 1
 
     if ./zig/zig build fuzz fuzz-debug -Doptimize=ReleaseSafe; then
         info "Build successful"
@@ -151,7 +151,7 @@ run_fuzzer() {
     local iterations="$3"
     local seed="$4"
 
-    cd "$CORTEXDB_ROOT" || return 1
+    cd "$MEMBANK_ROOT" || return 1
 
     # Build and run with fresh code - faster than persistent binary for development
     if [[ "$verbose_flag" == "--verbose" ]]; then
@@ -168,7 +168,7 @@ analyze_crashes() {
 
     if [[ "$crash_count" -gt 0 ]]; then
         warn "Found $crash_count crash report(s)"
-        send_notification "NEW CRASHES FOUND" "$crash_count crash reports in CortexDB fuzzer" "boom,warning"
+        send_notification "NEW CRASHES FOUND" "$crash_count crash reports in Membank fuzzer" "boom,warning"
 
         echo "Latest crashes:"
         find "$REPORTS_DIR" -name "crash_*.txt" -type f -exec ls -t {} + 2>/dev/null | head -3 | while read -r f; do
@@ -185,7 +185,7 @@ run_quick_fuzz() {
     local iterations="$2"
     local seed="${3:-$RANDOM}"
 
-    info "Quick CortexDB Fuzzing"
+    info "Quick Membank Fuzzing"
     info "======================"
     info "Target: $target"
     info "Iterations: $iterations"
@@ -211,7 +211,7 @@ run_continuous_fuzz() {
     # Enable notifications for production profile
     if [[ "$profile" == "production" ]]; then
         ENABLE_NOTIFICATIONS=true
-        send_notification "FUZZER STARTING" "CortexDB continuous fuzzing started (target: $target)" "rocket"
+        send_notification "FUZZER STARTING" "Membank continuous fuzzing started (target: $target)" "rocket"
     fi
 
     while true; do
@@ -245,8 +245,8 @@ run_continuous_fuzz() {
         else
             # Check all relevant source directories and build files
             for dir in "src" "tests" "build.zig"; do
-                if [[ -d "$CORTEXDB_ROOT/$dir" ]] || [[ -f "$CORTEXDB_ROOT/$dir" ]]; then
-                    if find "$CORTEXDB_ROOT/$dir" -newer "$FUZZ_BINARY" -print -quit 2>/dev/null | grep -q .; then
+                if [[ -d "$MEMBANK_ROOT/$dir" ]] || [[ -f "$MEMBANK_ROOT/$dir" ]]; then
+                    if find "$MEMBANK_ROOT/$dir" -newer "$FUZZ_BINARY" -print -quit 2>/dev/null | grep -q .; then
                         rebuild_needed=true
                         debug "Changes detected in $dir"
                         break
@@ -277,18 +277,18 @@ run_continuous_fuzz() {
                 ;;
             130)  # SIGINT (Ctrl+C)
                 info "Received interrupt signal, shutting down..."
-                send_notification "FUZZER STOPPED" "CortexDB fuzzing stopped by user" "stop"
+                send_notification "FUZZER STOPPED" "Membank fuzzing stopped by user" "stop"
                 exit 0
                 ;;
             143)  # SIGTERM
                 info "Received termination signal, shutting down..."
-                send_notification "FUZZER STOPPED" "CortexDB fuzzing stopped by signal" "stop"
+                send_notification "FUZZER STOPPED" "Membank fuzzing stopped by signal" "stop"
                 exit 0
                 ;;
             *)
                 error "Fuzzer crashed with exit code $exit_code"
                 analyze_crashes
-                send_notification "FUZZER CRASH!" "CortexDB fuzzer crashed with exit code $exit_code" "boom"
+                send_notification "FUZZER CRASH!" "Membank fuzzer crashed with exit code $exit_code" "boom"
 
                 echo "$(date): Fuzzer crashed with exit code $exit_code (target: $target, seed: $seed)" >> "$REPORTS_DIR/fuzzer_crashes.log"
                 warn "Sleeping 60 seconds before restart..."
@@ -405,7 +405,7 @@ if [[ -z "$(get_profile_iterations "$PROFILE")" ]]; then
 fi
 
 # Show what we're about to do
-info "CortexDB Fuzzing"
+info "Membank Fuzzing"
 info "================"
 info "Profile: $PROFILE ($(get_profile_description "$PROFILE"))"
 info "Target: $TARGET"

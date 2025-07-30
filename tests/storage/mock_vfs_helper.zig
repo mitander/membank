@@ -5,12 +5,12 @@
 //! with testing-specific convenience methods and failure injection
 //! capabilities.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 
-const vfs = cortexdb.vfs;
-const simulation_vfs = cortexdb.simulation_vfs;
+const vfs = membank.vfs;
+const simulation_vfs = membank.simulation_vfs;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const VFS = vfs.VFS;
 

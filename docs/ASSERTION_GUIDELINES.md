@@ -1,8 +1,8 @@
-# CortexDB Assertion Framework Guidelines
+# Membank Assertion Framework Guidelines
 
 ## Overview
 
-CortexDB implements a **two-tier assertion framework** designed to provide robust error detection in development while maintaining explicit fail-fast behavior for unrecoverable conditions in production. This document defines when and how to use each assertion type.
+Membank implements a **two-tier assertion framework** designed to provide robust error detection in development while maintaining explicit fail-fast behavior for unrecoverable conditions in production. This document defines when and how to use each assertion type.
 
 ## Assertion Types
 
@@ -323,7 +323,7 @@ fatal_assert(false, "Systematic corruption detected - see structured log");
 
 ## Conclusion
 
-CortexDB's assertion framework provides **explicit fail-fast behavior** for unrecoverable conditions while maintaining **graceful degradation** for environmental failures. By following these guidelines, developers ensure system reliability through early corruption detection without compromising production performance.
+Membank's assertion framework provides **explicit fail-fast behavior** for unrecoverable conditions while maintaining **graceful degradation** for environmental failures. By following these guidelines, developers ensure system reliability through early corruption detection without compromising production performance.
 
 **Key Principles**:
 - Debug assertions for development validation (no-ops in release)

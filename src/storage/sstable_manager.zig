@@ -39,7 +39,7 @@ pub const SSTableManager = struct {
 
     /// Phase 1: Create SSTable manager without I/O operations.
     /// Initializes data structures and prepares for startup phase.
-    /// Follows CortexDB two-phase initialization pattern for testability.
+    /// Follows Membank two-phase initialization pattern for testability.
     pub fn init(
         allocator: std.mem.Allocator,
         filesystem: VFS,

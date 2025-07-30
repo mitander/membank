@@ -2,7 +2,7 @@
 
 ## Overview
 
-CortexDB's QueryEngine implements a sophisticated planning and optimization framework designed for extensibility and performance. This document outlines the current architecture and evolution plan for advanced query capabilities.
+Membank's QueryEngine implements a sophisticated planning and optimization framework designed for extensibility and performance. This document outlines the current architecture and evolution plan for advanced query capabilities.
 
 ## Current Architecture
 
@@ -257,6 +257,6 @@ const result = operations.execute_find_blocks(
 
 ## Conclusion
 
-CortexDB's QueryEngine implements a production-ready planning and optimization framework that balances current simplicity with future extensibility. The architecture supports advanced features like caching, indexing, and machine learning integration while maintaining clean abstractions and performance characteristics suitable for high-throughput applications.
+Membank's QueryEngine implements a production-ready planning and optimization framework that balances current simplicity with future extensibility. The architecture supports advanced features like caching, indexing, and machine learning integration while maintaining clean abstractions and performance characteristics suitable for high-throughput applications.
 
 The framework is designed to grow with the system's needs, providing clear extension points for advanced optimization strategies without compromising the simplicity and reliability of basic query operations.

@@ -4,15 +4,15 @@
 //! entries one at a time instead of loading entire WAL files into memory.
 //! Validates memory efficiency and correctness under various scenarios.
 
-const cortexdb = @import("cortexdb");
+const membank = @import("membank");
 const std = @import("std");
 const testing = std.testing;
 
 const log = std.log.scoped(.streaming_wal_recovery);
 
-const context_block = cortexdb.types;
-const storage = cortexdb.storage;
-const simulation = cortexdb.simulation;
+const context_block = membank.types;
+const storage = membank.storage;
+const simulation = membank.simulation;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
