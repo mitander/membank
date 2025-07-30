@@ -130,7 +130,7 @@ check_git_updates() {
     return 2  # No updates
 }
 
-# Function to build project
+# Function to build project (for continuous modes that need persistent binary)
 build_project() {
     info "Building CortexDB fuzzer..."
     cd "$CORTEXDB_ROOT" || return 1
@@ -142,6 +142,18 @@ build_project() {
         error "Build failed"
         return 1
     fi
+}
+
+# Function to run fuzzer with always-fresh code
+run_fuzzer() {
+    local target="$1"
+    local iterations="$2"
+    local seed="$3"
+    
+    cd "$CORTEXDB_ROOT" || return 1
+    
+    # Build and run with fresh code - faster than persistent binary for development
+    ./zig/zig build fuzz && ./zig-out/bin/fuzz "$target" "$iterations" "$seed"
 }
 
 # Function to analyze crash reports
@@ -178,8 +190,8 @@ run_quick_fuzz() {
     # Setup Ctrl+C handler for immediate termination
     trap 'echo ""; info "Stopping fuzzer..."; exit 130' SIGINT
 
-    # Run fuzzer
-    "$FUZZ_BINARY" "$target" "$iterations" "$seed"
+    # Run fuzzer with fresh code
+    run_fuzzer "$target" "$iterations" "$seed"
 
     # Check for crashes
     analyze_crashes
@@ -274,12 +286,14 @@ main() {
             ;;
     esac
 
-    # Check if binary exists
-    if [[ ! -f "$FUZZ_BINARY" ]]; then
-        info "Fuzz binary not found, building..."
-        if ! build_project; then
-            error "Failed to build fuzzer"
-            exit 1
+    # Only build binary for continuous modes (quick/ci/deep use zig run)
+    if [[ "$profile" == "continuous" || "$profile" == "production" ]]; then
+        if [[ ! -f "$FUZZ_BINARY" ]]; then
+            info "Fuzz binary not found, building..."
+            if ! build_project; then
+                error "Failed to build fuzzer"
+                exit 1
+            fi
         fi
     fi
 

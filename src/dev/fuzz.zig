@@ -523,7 +523,7 @@ fn fuzz_parser_iteration(allocator: std.mem.Allocator, random: std.Random) !Fuzz
     };
 
     var parser = ZigParser.init(allocator, config);
-    defer parser.deinit(allocator);
+    defer parser.deinit();
 
     // Generate malformed Zig source code
     const source_code = try generate_malformed_zig_source(allocator, random);
