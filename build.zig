@@ -144,6 +144,16 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/fault_injection/wal_cleanup_faults.zig",
             .description = "WAL cleanup fault injection tests",
         },
+        .{
+            .name = "fault_injection_ingestion",
+            .source_file = "tests/fault_injection/ingestion_faults.zig",
+            .description = "ingestion pipeline fault injection tests",
+        },
+        .{
+            .name = "fault_injection_query",
+            .source_file = "tests/fault_injection/query_faults.zig",
+            .description = "query engine fault injection tests",
+        },
 
         // Performance tests - regression detection and benchmarking
         .{
