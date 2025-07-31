@@ -175,7 +175,7 @@ jobs:
             echo "Error: Found banned pattern std.BoundedArray"
             exit 1
           fi
-          if grep -r "std\.StaticBitSet" src/; then
+          if grep -r "std\.StaticBitSet" src/ --exclude="stdx.zig"; then
             echo "Error: Found banned pattern std.StaticBitSet"
             exit 1
           fi
