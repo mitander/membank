@@ -19,7 +19,7 @@ echo "================================"
 echo "Building benchmark binary..."
 ./zig/zig build benchmark > /dev/null 2>&1
 
-# Run benchmarks and capture JSON output  
+# Run benchmarks and capture JSON output
 echo "Running performance benchmarks..."
 ./zig-out/bin/benchmark all --json 2>&1 | sed '/^info(/d' > "$CURRENT_FILE"
 
@@ -47,15 +47,23 @@ IMPROVEMENT_COUNT=0
 
 echo "Checking for performance regressions..."
 for OPERATION in $(jq -r '.results[].operation_name' "$CURRENT_FILE"); do
-    CURRENT_MEAN=$(jq -r --arg op "$OPERATION" '.results[] | select(.operation_name == $op) | .mean_ns' "$CURRENT_FILE")
+    CURRENT_MEAN=$(jq -r --arg op "$OPERATION" '.results[] | select(.operation_name == $op) | .mean_ns' "$CURRENT_FILE" || echo "0")
     BASELINE_MEAN=$(jq -r --arg op "$OPERATION" '.results[] | select(.operation_name == $op) | .mean_ns' "$BASELINE_FILE" 2>/dev/null || echo "0")
-    
-    if [[ "$BASELINE_MEAN" != "0" && "$BASELINE_MEAN" != "null" ]]; then
+
+    # Ensure values are numeric and non-empty
+    if [[ -z "$CURRENT_MEAN" || "$CURRENT_MEAN" == "null" ]]; then
+        CURRENT_MEAN="0"
+    fi
+    if [[ -z "$BASELINE_MEAN" || "$BASELINE_MEAN" == "null" ]]; then
+        BASELINE_MEAN="0"
+    fi
+
+    if [[ "$BASELINE_MEAN" != "0" && "$CURRENT_MEAN" != "0" ]]; then
         # Calculate regression ratio using awk for floating point math
         RATIO=$(awk "BEGIN {printf \"%.2f\", $CURRENT_MEAN / $BASELINE_MEAN}")
         IS_REGRESSION=$(awk "BEGIN {print ($RATIO > $REGRESSION_THRESHOLD) ? 1 : 0}")
         IS_IMPROVEMENT=$(awk "BEGIN {print ($RATIO < 0.95) ? 1 : 0}")
-        
+
         if [[ "$IS_REGRESSION" == "1" ]]; then
             PERCENT_SLOWER=$(awk "BEGIN {printf \"%.1f\", ($RATIO - 1) * 100}")
             echo "  REGRESSION: $OPERATION: ${PERCENT_SLOWER}% slower"
