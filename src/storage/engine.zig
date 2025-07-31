@@ -252,6 +252,10 @@ pub const StorageEngine = struct {
 
         // LSM-tree read path prioritizes memtable for recency guarantees
         if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
+            // CRITICAL: Validate the returned block pointer and data integrity.
+            // These assertions protect against index corruption, pointer corruption,
+            // and data corruption that could cause silent data loss or crashes.
+            // Failure here indicates serious memory corruption requiring immediate termination.
             fatal_assert(@intFromPtr(block_ptr) != 0, "MemtableManager returned null block pointer - heap corruption detected", .{});
             fatal_assert(block_ptr.content.len > 0, "MemtableManager returned block with empty content - data corruption detected", .{});
             fatal_assert(std.mem.eql(u8, &block_ptr.id.bytes, &block_id.bytes), "MemtableManager returned wrong block ID - index corruption detected", .{});

@@ -109,7 +109,10 @@ pub const BlockIndex = struct {
             .content = try arena_allocator.dupe(u8, block.content),
         };
 
-        // Verify arena allocator actually cloned the strings (not aliased)
+        // CRITICAL: Verify that the arena allocator *actually* cloned the strings and
+        // did not return an aliased pointer. An alias here would be a catastrophic
+        // memory safety violation, leading to a use-after-free when this arena is reset
+        // on memtable flush. This fatal assertion makes our safety contract explicit.
         if (block.source_uri.len > 0) {
             fatal_assert(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "Arena failed to clone source_uri - returned original pointer, heap corruption detected", .{});
         }
@@ -167,6 +170,10 @@ pub const BlockIndex = struct {
     /// Retains HashMap and arena capacity for efficient reuse after flush.
     /// This is the key operation that makes arena-per-subsystem efficient.
     pub fn clear(self: *BlockIndex) void {
+        // CRITICAL: Validate structure integrity before performing the O(1) arena reset.
+        // This operation frees all allocated memory at once. If these pointers are corrupted,
+        // the arena reset could cause a double-free or use-after-free, corrupting the heap.
+        // These assertions ensure the arena-per-subsystem pattern operates safely.
         fatal_assert(@intFromPtr(self) != 0, "BlockIndex self pointer is null - memory corruption detected", .{});
         fatal_assert(@intFromPtr(&self.arena) != 0, "BlockIndex arena pointer is null - memory corruption detected", .{});
 
