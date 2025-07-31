@@ -43,45 +43,127 @@ print_status() {
     esac
 }
 
+# Quick exit for trivial changes (docs, README, etc.)
+CHANGED_FILES=$(git diff --cached --name-only)
+if echo "$CHANGED_FILES" | grep -qE '\.(md|txt|yml|yaml|toml)$|^LICENSE|^\.gitignore|^docs/'; then
+    NON_TRIVIAL=$(echo "$CHANGED_FILES" | grep -vE '\.(md|txt|yml|yaml|toml)$|^LICENSE|^\.gitignore|^docs/')
+    if [ -z "$NON_TRIVIAL" ]; then
+        print_status "INFO" "Only documentation/config changes detected - skipping code checks"
+        print_status "OK" "Ready to commit documentation changes!"
+        exit 0
+    fi
+fi
+
+# Show what files are being checked
+NUM_FILES=$(echo "$CHANGED_FILES" | grep -E '\.(zig)$' | wc -l | tr -d ' ')
+if [ "$NUM_FILES" -gt 0 ]; then
+    print_status "INFO" "Checking $NUM_FILES Zig files..."
+else
+    print_status "INFO" "No Zig files changed, running minimal checks..."
+fi
+
 # Track overall success
 CHECKS_PASSED=true
 
-# 1. Check code formatting
-print_status "INFO" "Checking code formatting..."
-if ./zig/zig build fmt >/dev/null 2>&1; then
+# Start timing
+START_TIME=$(date +%s)
+
+# Create temporary files for parallel execution
+FMT_OUTPUT=$(mktemp)
+TIDY_OUTPUT=$(mktemp)
+FMT_STATUS=$(mktemp)
+TIDY_STATUS=$(mktemp)
+
+# Cleanup function
+cleanup() {
+    rm -f "$FMT_OUTPUT" "$TIDY_OUTPUT" "$FMT_STATUS" "$TIDY_STATUS"
+}
+trap cleanup EXIT
+
+# 1. Start code formatting check in background
+print_status "INFO" "Starting parallel checks (format + tidy)..."
+(
+    if ./zig/zig build fmt >"$FMT_OUTPUT" 2>&1; then
+        echo "0" > "$FMT_STATUS"
+    else
+        echo "1" > "$FMT_STATUS"
+    fi
+) &
+FMT_PID=$!
+
+# 2. Start tidy checks in background
+(
+    if ./zig/zig build tidy >"$TIDY_OUTPUT" 2>&1; then
+        echo "0" > "$TIDY_STATUS"
+    else
+        echo "1" > "$TIDY_STATUS"
+    fi
+) &
+TIDY_PID=$!
+
+# Wait for both jobs to complete
+wait $FMT_PID
+wait $TIDY_PID
+
+# Check formatting results
+if [ "$(cat "$FMT_STATUS")" = "0" ]; then
     print_status "OK" "Code formatting check passed"
 else
     print_status "FAIL" "Code formatting check failed"
     echo ""
     echo "Run './zig/zig build fmt-fix' to automatically fix formatting issues."
+    if [ -s "$FMT_OUTPUT" ]; then
+        echo "Format check output:"
+        cat "$FMT_OUTPUT"
+    fi
     CHECKS_PASSED=false
 fi
 
-# 2. Run tidy checks
-print_status "INFO" "Running code quality checks..."
-if ./zig/zig build tidy >/dev/null 2>&1; then
+# Check tidy results
+if [ "$(cat "$TIDY_STATUS")" = "0" ]; then
     print_status "OK" "Code quality checks passed"
 else
     print_status "FAIL" "Code quality checks failed"
     echo ""
     echo "Please fix the issues reported by tidy before committing."
     echo "Run './zig/zig build tidy' to see detailed error messages."
+    if [ -s "$TIDY_OUTPUT" ]; then
+        echo "Tidy check output:"
+        cat "$TIDY_OUTPUT"
+    fi
     CHECKS_PASSED=false
 fi
 
+# Show timing
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+print_status "INFO" "Parallel checks completed in ${DURATION}s"
+
 # 3. Run unit tests (optional, enabled with RUN_TESTS=1)
 if [ "${RUN_TESTS:-0}" = "1" ]; then
+    TEST_START=$(date +%s)
     print_status "INFO" "Running unit tests..."
-    if ./zig/zig build test >/dev/null 2>&1; then
-        print_status "OK" "Unit tests passed"
+
+    TEST_OUTPUT=$(mktemp)
+    if ./zig/zig build test >"$TEST_OUTPUT" 2>&1; then
+        TEST_END=$(date +%s)
+        TEST_DURATION=$((TEST_END - TEST_START))
+        print_status "OK" "Unit tests passed (${TEST_DURATION}s)"
     else
-        print_status "FAIL" "Unit tests failed"
+        TEST_END=$(date +%s)
+        TEST_DURATION=$((TEST_END - TEST_START))
+        print_status "FAIL" "Unit tests failed (${TEST_DURATION}s)"
         echo ""
         echo "Please fix failing tests before committing."
         echo "Run './zig/zig build test' to see detailed test results."
         echo "Or remove RUN_TESTS=1 to skip tests in pre-commit hook."
+        if [ -s "$TEST_OUTPUT" ]; then
+            echo "Test output (last 20 lines):"
+            tail -20 "$TEST_OUTPUT"
+        fi
         CHECKS_PASSED=false
     fi
+    rm -f "$TEST_OUTPUT"
 else
     print_status "INFO" "Unit tests skipped (set RUN_TESTS=1 to enable)"
     echo "         Fast commit mode: only formatting and quality checks run"
@@ -91,7 +173,9 @@ fi
 # Final result
 echo ""
 if [ "$CHECKS_PASSED" = true ]; then
-    print_status "OK" "All pre-commit checks passed!"
+    TOTAL_END=$(date +%s)
+    TOTAL_DURATION=$((TOTAL_END - START_TIME))
+    print_status "OK" "All pre-commit checks passed! (total: ${TOTAL_DURATION}s)"
     echo ""
     echo "Ready to commit."
     exit 0
@@ -99,6 +183,10 @@ else
     print_status "FAIL" "Some pre-commit checks failed!"
     echo ""
     echo "Please fix the issues above before committing."
+    echo ""
+    echo "Quick fixes:"
+    echo "  Format: ./zig/zig build fmt-fix"
+    echo "  View issues: ./zig/zig build tidy"
     echo ""
     echo "To bypass these checks (not recommended), use:"
     echo "  git commit --no-verify"
