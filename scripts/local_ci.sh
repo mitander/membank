@@ -226,7 +226,7 @@ lint_job() {
         log_error "Found banned pattern std.BoundedArray"
         return 1
     fi
-    if grep -r "std\.StaticBitSet" src/ 2>/dev/null; then
+    if grep -r "std\.StaticBitSet" src/ --exclude="stdx.zig" 2>/dev/null; then
         log_error "Found banned pattern std.StaticBitSet"
         return 1
     fi

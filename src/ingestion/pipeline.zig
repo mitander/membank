@@ -9,7 +9,7 @@
 //!
 //! Design Principles:
 //! - Uses VFS abstraction for simulation testing
-//! - Arena-per-pipeline memory management
+//! - Per-file arena memory management for bounded usage
 //! - Explicit error handling with context
 //! - Single-threaded execution model
 
@@ -368,16 +368,25 @@ pub const IngestionPipeline = struct {
 
     /// Process a single source through the pipeline
     fn process_source(self: *IngestionPipeline, source: Source, blocks: *std.ArrayList(ContextBlock)) IngestionError!void {
-        const allocator = self.arena.allocator();
+        const main_allocator = self.arena.allocator();
 
         // Fetch content iterator from source
-        var content_iterator = try source.fetch(allocator, self.file_system);
-        defer content_iterator.deinit(allocator);
+        var content_iterator = try source.fetch(main_allocator, self.file_system);
+        defer content_iterator.deinit(main_allocator);
 
         // Process each content item from the source
-        while (try content_iterator.next(allocator)) |content| {
+        while (try content_iterator.next(main_allocator)) |content| {
+            // Memory optimization: Use temporary arena per file to bound memory usage.
+            // Without this, the main arena would accumulate memory for ALL files in the
+            // ingestion run, causing unbounded growth for large repositories.
+            // With per-file arenas, memory usage is bounded by the largest individual file.
+            // Final ContextBlocks are copied to main arena for persistence after temp cleanup.
+            var temp_arena = std.heap.ArenaAllocator.init(self.allocator);
+            defer temp_arena.deinit();
+            const temp_allocator = temp_arena.allocator();
+
             var mutable_content = content;
-            defer mutable_content.deinit(allocator);
+            defer mutable_content.deinit(main_allocator);
 
             // Find compatible parser
             const parser = self.find_parser(mutable_content.content_type) orelse {
@@ -385,26 +394,42 @@ pub const IngestionPipeline = struct {
                 continue;
             };
 
-            // Parse content into semantic units
-            const units = try parser.parse(allocator, mutable_content);
+            // Parse content into semantic units using temporary allocator
+            const units = try parser.parse(temp_allocator, mutable_content);
             defer {
                 for (units) |*unit| {
-                    unit.deinit(allocator);
+                    unit.deinit(temp_allocator);
                 }
-                allocator.free(units);
+                temp_allocator.free(units);
             }
             self.current_stats.units_parsed += @intCast(units.len);
 
             // Find compatible chunker and convert to blocks
             for (self.chunkers.items) |chunker| {
-                const chunk_blocks = try chunker.chunk(allocator, units);
-                try blocks.appendSlice(chunk_blocks);
+                const temp_blocks = try chunker.chunk(temp_allocator, units);
+
+                // Copy blocks from temporary arena to main arena for persistence
+                for (temp_blocks) |temp_block| {
+                    const persistent_block = try self.copy_block_to_main_arena(temp_block, main_allocator);
+                    try blocks.append(persistent_block);
+                }
                 break;
             } else {
                 // Skip if no compatible chunker found
                 continue;
             }
         }
+    }
+
+    /// Copy a ContextBlock from temporary arena to main arena for persistence
+    fn copy_block_to_main_arena(_: *IngestionPipeline, temp_block: ContextBlock, main_allocator: std.mem.Allocator) !ContextBlock {
+        return ContextBlock{
+            .id = temp_block.id, // BlockId is copy-by-value
+            .version = temp_block.version,
+            .source_uri = try main_allocator.dupe(u8, temp_block.source_uri),
+            .metadata_json = try main_allocator.dupe(u8, temp_block.metadata_json),
+            .content = try main_allocator.dupe(u8, temp_block.content),
+        };
     }
 
     /// Find a parser that supports the given content type

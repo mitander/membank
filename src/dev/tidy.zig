@@ -280,7 +280,7 @@ fn tidy_banned_patterns(file_path: []const u8, source: []const u8) ?[]const u8 {
     }
 
     if (std.mem.indexOf(u8, source, "Static" ++ "BitSet") != null) {
-        return "use stdx.BitSetType instead of std version";
+        return "use stdx.bit_set_type instead of std version";
     }
 
     if (std.mem.indexOf(u8, source, "std.time." ++ "Duration") != null) {

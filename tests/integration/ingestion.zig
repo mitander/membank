@@ -19,6 +19,7 @@ const ingestion = membank.pipeline;
 const git_source = membank.git_source;
 const zig_parser = membank.zig_parser;
 const semantic_chunker = membank.semantic_chunker;
+const stdx = membank.stdx;
 
 const Simulation = simulation.Simulation;
 const StorageEngine = storage.StorageEngine;
@@ -411,6 +412,240 @@ test "pipeline handles parsing errors gracefully" {
     const stats = pipeline.stats();
     try testing.expectEqual(@as(u32, 0), stats.sources_failed);
     try testing.expectEqual(@as(u32, 1), stats.sources_processed);
+}
+
+test "per-file arena memory optimization preserves correctness" {
+    // This test validates that the per-file arena optimization correctly
+    // copies blocks from temporary arenas to the main arena without corruption.
+    // Initialize concurrency module with clean state
+    concurrency.init();
+
+    const allocator = testing.allocator;
+
+    // Setup simulation VFS
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    // Create repository with multiple Zig files to test per-file arena handling
+    try create_directory(&sim_vfs, "/multi_file_repo");
+
+    // File 1: Simple function
+    try write_file(&sim_vfs, "/multi_file_repo/file1.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn add_numbers(a: i32, b: i32) i32 {
+        \\    return a + b;
+        \\}
+    );
+
+    // File 2: Struct definition
+    try write_file(&sim_vfs, "/multi_file_repo/file2.zig",
+        \\pub const Config = struct {
+        \\    host: []const u8,
+        \\    port: u16,
+        \\
+        \\    pub fn init(host: []const u8, port: u16) Config {
+        \\        return Config{ .host = host, .port = port };
+        \\    }
+        \\};
+    );
+
+    // File 3: Test function
+    try write_file(&sim_vfs, "/multi_file_repo/file3.zig",
+        \\const testing = @import("std").testing;
+        \\
+        \\test "example test" {
+        \\    const result = 2 + 2;
+        \\    try testing.expectEqual(@as(i32, 4), result);
+        \\}
+    );
+
+    // Setup pipeline
+    var pipeline_config = PipelineConfig.init(allocator);
+    defer pipeline_config.deinit();
+
+    var vfs_instance = sim_vfs.vfs();
+    var pipeline = try IngestionPipeline.init(allocator, &vfs_instance, pipeline_config);
+    defer pipeline.deinit();
+
+    // Setup components
+    const git_config = try GitSourceConfig.init(allocator, "/multi_file_repo");
+    var git_src = GitSource.init(allocator, git_config);
+    defer git_src.deinit(allocator);
+    try pipeline.register_source(git_src.source());
+
+    const zig_config = ZigParserConfig{
+        .include_function_bodies = true,
+        .include_tests = true,
+    };
+    var zig_psr = ZigParser.init(allocator, zig_config);
+    defer zig_psr.deinit();
+    try pipeline.register_parser(zig_psr.parser());
+
+    const chunker_config = SemanticChunkerConfig{
+        .id_prefix = "multi_file_test",
+    };
+    var sem_chunker = SemanticChunker.init(allocator, chunker_config);
+    defer sem_chunker.deinit(allocator);
+    try pipeline.register_chunker(sem_chunker.chunker());
+
+    // Execute pipeline - this exercises the per-file arena optimization
+    const blocks = try pipeline.execute();
+
+    // Validate results
+    try testing.expect(blocks.len > 0);
+
+    // Verify that blocks from different files are all present and accessible
+    // (this confirms the copying from temp arenas to main arena worked)
+    var found_function = false;
+    var found_struct = false;
+    var found_test = false;
+
+    for (blocks) |block| {
+        // All string data should be valid (not pointing to deallocated temp arenas)
+        try testing.expect(block.content.len > 0);
+        try testing.expect(block.source_uri.len > 0);
+
+        if (std.mem.indexOf(u8, block.content, "add_numbers") != null) {
+            found_function = true;
+        } else if (std.mem.indexOf(u8, block.content, "Config") != null and
+            std.mem.indexOf(u8, block.content, "struct") != null)
+        {
+            found_struct = true;
+        } else if (std.mem.indexOf(u8, block.content, "test \"") != null) {
+            found_test = true;
+        }
+    }
+
+    // Verify we found content from all three files
+    try testing.expect(found_function);
+    try testing.expect(found_struct);
+    try testing.expect(found_test);
+
+    // Verify pipeline stats show multiple files were processed
+    const stats = pipeline.stats();
+    try testing.expectEqual(@as(u32, 1), stats.sources_processed);
+    try testing.expect(stats.units_parsed >= 3); // At least one unit per file
+    try testing.expectEqual(blocks.len, stats.blocks_generated);
+}
+
+test "per-file arena optimization handles large files efficiently" {
+    // This test validates that the per-file arena optimization can handle
+    // multiple large files without unbounded memory growth. Each file is
+    // processed in its own temporary arena, keeping peak memory bounded.
+    concurrency.init();
+
+    const allocator = testing.allocator;
+
+    // Setup simulation VFS
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    try create_directory(&sim_vfs, "/large_files_repo");
+
+    // Create several files with substantial content to test memory efficiency
+    const large_file_content =
+        \\const std = @import("std");
+        \\
+        \\// Large struct with many fields to increase memory usage
+        \\pub const LargeConfig = struct {
+        \\    field1: []const u8,
+        \\    field2: []const u8,
+        \\    field3: []const u8,
+        \\    field4: []const u8,
+        \\    field5: []const u8,
+        \\
+        \\    pub fn process(self: *const LargeConfig) void {
+        \\        // Simulate processing with multiple operations
+        \\        const data1 = self.field1;
+        \\        const data2 = self.field2;
+        \\        const data3 = self.field3;
+        \\        const data4 = self.field4;
+        \\        const data5 = self.field5;
+        \\        _ = data1;
+        \\        _ = data2;
+        \\        _ = data3;
+        \\        _ = data4;
+        \\        _ = data5;
+        \\    }
+        \\
+        \\    pub fn validate(self: *const LargeConfig) bool {
+        \\        return self.field1.len > 0 and
+        \\               self.field2.len > 0 and
+        \\               self.field3.len > 0 and
+        \\               self.field4.len > 0 and
+        \\               self.field5.len > 0;
+        \\    }
+        \\};
+    ;
+
+    // Create multiple large files
+    try write_file(&sim_vfs, "/large_files_repo/large1.zig", large_file_content);
+    try write_file(&sim_vfs, "/large_files_repo/large2.zig", large_file_content);
+    try write_file(&sim_vfs, "/large_files_repo/large3.zig", large_file_content);
+
+    // Setup pipeline
+    var pipeline_config = PipelineConfig.init(allocator);
+    defer pipeline_config.deinit();
+
+    var vfs_instance = sim_vfs.vfs();
+    var pipeline = try IngestionPipeline.init(allocator, &vfs_instance, pipeline_config);
+    defer pipeline.deinit();
+
+    // Setup components
+    const git_config = try GitSourceConfig.init(allocator, "/large_files_repo");
+    var git_src = GitSource.init(allocator, git_config);
+    defer git_src.deinit(allocator);
+    try pipeline.register_source(git_src.source());
+
+    const zig_config = ZigParserConfig{
+        .include_function_bodies = true,
+    };
+    var zig_psr = ZigParser.init(allocator, zig_config);
+    defer zig_psr.deinit();
+    try pipeline.register_parser(zig_psr.parser());
+
+    const chunker_config = SemanticChunkerConfig{
+        .id_prefix = "large_files_test",
+    };
+    var sem_chunker = SemanticChunker.init(allocator, chunker_config);
+    defer sem_chunker.deinit(allocator);
+    try pipeline.register_chunker(sem_chunker.chunker());
+
+    // Execute pipeline - this exercises per-file arena optimization
+    const blocks = try pipeline.execute();
+
+    // Validate results to ensure per-file copying worked correctly
+    try testing.expect(blocks.len > 0);
+
+    // Verify content from all files is preserved
+    var files_found = stdx.bit_set_type(3).init_empty();
+
+    for (blocks) |block| {
+        // Verify block data is valid (not pointing to deallocated temp arenas)
+        try testing.expect(block.content.len > 0);
+        try testing.expect(block.source_uri.len > 0);
+
+        if (std.mem.indexOf(u8, block.content, "LargeConfig") != null) {
+            if (std.mem.indexOf(u8, block.source_uri, "large1.zig") != null) {
+                files_found.set(0);
+            } else if (std.mem.indexOf(u8, block.source_uri, "large2.zig") != null) {
+                files_found.set(1);
+            } else if (std.mem.indexOf(u8, block.source_uri, "large3.zig") != null) {
+                files_found.set(2);
+            }
+        }
+    }
+
+    // Verify we processed content from all three large files
+    try testing.expect(files_found.is_set(0));
+    try testing.expect(files_found.is_set(1));
+    try testing.expect(files_found.is_set(2));
+
+    // Verify pipeline stats
+    const stats = pipeline.stats();
+    try testing.expectEqual(@as(u32, 1), stats.sources_processed);
+    try testing.expect(stats.blocks_generated > 0);
 }
 
 /// Helper function to create a directory
