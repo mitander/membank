@@ -482,7 +482,7 @@ run_parallel_jobs() {
 main() {
     echo -e "${BLUE}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                    Membank Local CI Runner                  ║"
+    echo "║                    Membank Local CI Runner                   ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 

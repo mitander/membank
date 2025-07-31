@@ -191,6 +191,27 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/server/protocol.zig",
             .description = "TCP server protocol tests",
         },
+
+        // P1.3 Enhanced Test Coverage - Bloom filter validation
+        .{
+            .name = "bloom_filter_validation",
+            .source_file = "tests/storage/bloom_filter_validation.zig",
+            .description = "comprehensive Bloom filter integration and validation tests",
+        },
+
+        // P1.3 Enhanced Test Coverage - Advanced query scenarios
+        .{
+            .name = "streaming_and_optimization",
+            .source_file = "tests/query/streaming_and_optimization.zig",
+            .description = "streaming query results and optimization strategy tests",
+        },
+
+        // P1.3 Enhanced Test Coverage - Enhanced compaction strategies
+        .{
+            .name = "enhanced_compaction_strategies",
+            .source_file = "tests/storage/enhanced_compaction_strategies.zig",
+            .description = "enhanced tiered compaction strategy and edge case tests",
+        },
     };
 
     var test_steps: [test_configs.len]*std.Build.Step.Run = undefined;

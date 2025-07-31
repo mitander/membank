@@ -317,11 +317,262 @@ test "Bloom filter edge cases" {
 
     filter.add(block_id);
     try std.testing.expect(filter.might_contain(block_id));
+}
+
+test "Bloom filter false positive rate validation" {
+    const allocator = std.testing.allocator;
+
+    // Test different filter sizes and validate actual false positive rates
+    const test_cases = [_]struct {
+        expected_items: u32,
+        target_fpr: f64,
+        test_items: u32,
+    }{
+        .{ .expected_items = 1000, .target_fpr = 0.01, .test_items = 10000 },
+        .{ .expected_items = 5000, .target_fpr = 0.001, .test_items = 50000 },
+        .{ .expected_items = 100, .target_fpr = 0.1, .test_items = 1000 },
+    };
+
+    for (test_cases) |test_case| {
+        const params = BloomFilter.Params.calculate(test_case.expected_items, test_case.target_fpr);
+        var filter = try BloomFilter.init(allocator, params);
+        defer filter.deinit();
+
+        // Add expected number of items
+        var i: u32 = 0;
+        while (i < test_case.expected_items) : (i += 1) {
+            var id_bytes: [16]u8 = undefined;
+            std.mem.writeInt(u128, &id_bytes, i, .little);
+            const block_id = BlockId{ .bytes = id_bytes };
+            filter.add(block_id);
+        }
+
+        // Test for false positives with different items
+        var false_positives: u32 = 0;
+        i = test_case.expected_items;
+        while (i < test_case.expected_items + test_case.test_items) : (i += 1) {
+            var id_bytes: [16]u8 = undefined;
+            std.mem.writeInt(u128, &id_bytes, i, .little);
+            const block_id = BlockId{ .bytes = id_bytes };
+
+            if (filter.might_contain(block_id)) {
+                false_positives += 1;
+            }
+        }
+
+        const actual_fpr = @as(f64, @floatFromInt(false_positives)) / @as(f64, @floatFromInt(test_case.test_items));
+
+        // Allow 3x tolerance for statistical variation
+        const max_acceptable_fpr = test_case.target_fpr * 3.0;
+        try std.testing.expect(actual_fpr <= max_acceptable_fpr);
+    }
+}
+
+test "Bloom filter performance characteristics" {
+    const allocator = std.testing.allocator;
+
+    // Test performance with large number of items
+    const params = BloomFilter.Params.calculate(10000, 0.01);
+    var filter = try BloomFilter.init(allocator, params);
+    defer filter.deinit();
+
+    const start_time = std.time.nanoTimestamp();
+
+    // Add 10,000 items
+    var i: u32 = 0;
+    while (i < 10000) : (i += 1) {
+        var id_bytes: [16]u8 = undefined;
+        std.mem.writeInt(u128, &id_bytes, i, .little);
+        const block_id = BlockId{ .bytes = id_bytes };
+        filter.add(block_id);
+    }
+
+    const add_time = std.time.nanoTimestamp();
+
+    // Test 10,000 lookups
+    i = 0;
+    var found_count: u32 = 0;
+    while (i < 10000) : (i += 1) {
+        var id_bytes: [16]u8 = undefined;
+        std.mem.writeInt(u128, &id_bytes, i, .little);
+        const block_id = BlockId{ .bytes = id_bytes };
+
+        if (filter.might_contain(block_id)) {
+            found_count += 1;
+        }
+    }
+
+    const lookup_time = std.time.nanoTimestamp();
+
+    // All added items should be found (no false negatives)
+    try std.testing.expectEqual(@as(u32, 10000), found_count);
+
+    // Performance should be reasonable
+    const add_duration = add_time - start_time;
+    const lookup_duration = lookup_time - add_time;
+
+    // Less than 1ms per 1000 operations is reasonable
+    const max_add_time = 10_000_000; // 10ms for 10k adds
+    const max_lookup_time = 10_000_000; // 10ms for 10k lookups
+
+    try std.testing.expect(add_duration < max_add_time);
+    try std.testing.expect(lookup_duration < max_lookup_time);
+}
+
+test "Bloom filter hash distribution quality" {
+    const allocator = std.testing.allocator;
+
+    // Test that hash functions distribute bits evenly
+    const params = BloomFilter.Params{ .bit_count = 1024, .hash_count = 4 };
+    var filter = try BloomFilter.init(allocator, params);
+    defer filter.deinit();
+
+    // Add many items to test distribution
+    var i: u32 = 0;
+    while (i < 1000) : (i += 1) {
+        var id_bytes: [16]u8 = undefined;
+        std.mem.writeInt(u128, &id_bytes, i, .little);
+        const block_id = BlockId{ .bytes = id_bytes };
+        filter.add(block_id);
+    }
+
+    // Count set bits
+    var set_bits: u32 = 0;
+    for (filter.bits) |byte| {
+        set_bits += @popCount(byte);
+    }
+
+    // With good distribution, should have reasonable bit density
+    // Not too sparse (< 10%) or too dense (> 80%)
+    const bit_density = @as(f64, @floatFromInt(set_bits)) / @as(f64, @floatFromInt(filter.bit_count));
+    try std.testing.expect(bit_density > 0.1);
+    try std.testing.expect(bit_density < 0.8);
+}
+
+test "Bloom filter memory usage validation" {
+    const allocator = std.testing.allocator;
+
+    // Test different sizes and validate memory usage
+    const sizes = [_]u32{ 64, 512, 4096, 32768 };
+
+    for (sizes) |bit_count| {
+        const params = BloomFilter.Params{ .bit_count = bit_count, .hash_count = 3 };
+        var filter = try BloomFilter.init(allocator, params);
+        defer filter.deinit();
+
+        // Memory usage should match expected size
+        const expected_bytes = bit_count / 8;
+        try std.testing.expectEqual(expected_bytes, @as(u32, @intCast(filter.bits.len)));
+
+        // Serialized size should include header
+        const serialized_size = filter.serialized_size();
+        try std.testing.expectEqual(expected_bytes + 8, serialized_size);
+    }
+}
+
+test "Bloom filter parameter optimization" {
+    // Test that parameter calculation produces reasonable results
+    const test_cases = [_]struct {
+        items: u32,
+        fpr: f64,
+        expected_min_bits: u32,
+        expected_max_hash: u8,
+    }{
+        .{ .items = 100, .fpr = 0.01, .expected_min_bits = 800, .expected_max_hash = 10 },
+        .{ .items = 1000, .fpr = 0.001, .expected_min_bits = 10000, .expected_max_hash = 15 },
+        .{ .items = 10000, .fpr = 0.1, .expected_min_bits = 40000, .expected_max_hash = 5 },
+    };
+
+    for (test_cases) |test_case| {
+        const params = BloomFilter.Params.calculate(test_case.items, test_case.fpr);
+
+        // Bit count should be reasonable
+        try std.testing.expect(params.bit_count >= test_case.expected_min_bits);
+        try std.testing.expect(params.bit_count % 8 == 0); // Byte aligned
+
+        // Hash count should be reasonable
+        try std.testing.expect(params.hash_count > 0);
+        try std.testing.expect(params.hash_count <= test_case.expected_max_hash);
+    }
+}
+
+test "Bloom filter error handling" {
+    const allocator = std.testing.allocator;
 
     // Test invalid parameters
-    const invalid_bit_count = BloomFilter.Params{ .bit_count = 63, .hash_count = 1 }; // Not multiple of 8
-    try std.testing.expectError(BloomFilter.Error.InvalidBitCount, BloomFilter.init(allocator, invalid_bit_count));
+    const invalid_params = [_]BloomFilter.Params{
+        .{ .bit_count = 0, .hash_count = 3 }, // Zero bits
+        .{ .bit_count = 15, .hash_count = 3 }, // Non-byte-aligned
+        .{ .bit_count = 64, .hash_count = 0 }, // Zero hash functions
+    };
 
-    const invalid_hash_count = BloomFilter.Params{ .bit_count = 64, .hash_count = 0 };
-    try std.testing.expectError(BloomFilter.Error.InvalidHashCount, BloomFilter.init(allocator, invalid_hash_count));
+    for (invalid_params) |params| {
+        const result = BloomFilter.init(allocator, params);
+        try std.testing.expectError(BloomFilter.Error.InvalidBitCount, result);
+    }
+
+    // Test serialization errors
+    var filter = try BloomFilter.init(allocator, BloomFilter.Params.small);
+    defer filter.deinit();
+
+    // Buffer too small for serialization
+    var small_buffer: [4]u8 = undefined;
+    const serialize_result = filter.serialize(&small_buffer);
+    try std.testing.expectError(BloomFilter.Error.BufferTooSmall, serialize_result);
+
+    // Buffer too small for deserialization
+    const deserialize_result = BloomFilter.deserialize(allocator, &small_buffer);
+    try std.testing.expectError(BloomFilter.Error.BufferTooSmall, deserialize_result);
+}
+
+test "Bloom filter SSTable integration scenarios" {
+    const allocator = std.testing.allocator;
+
+    // Simulate SSTable usage pattern
+    var filter = try BloomFilter.init(allocator, BloomFilter.Params.medium);
+    defer filter.deinit();
+
+    // Simulate adding blocks from an SSTable
+    var sstable_blocks = std.ArrayList(BlockId).init(allocator);
+    defer sstable_blocks.deinit();
+
+    var i: u32 = 0;
+    while (i < 1000) : (i += 1) {
+        var id_bytes: [16]u8 = undefined;
+        std.mem.writeInt(u128, &id_bytes, i * 17, .little); // Non-sequential pattern
+        const block_id = BlockId{ .bytes = id_bytes };
+
+        filter.add(block_id);
+        try sstable_blocks.append(block_id);
+    }
+
+    // All SSTable blocks should be found
+    for (sstable_blocks.items) |block_id| {
+        try std.testing.expect(filter.might_contain(block_id));
+    }
+
+    // Test negative lookups (blocks not in SSTable)
+    var false_positives: u32 = 0;
+    i = 0;
+    while (i < 10000) : (i += 1) {
+        var id_bytes: [16]u8 = undefined;
+        std.mem.writeInt(u128, &id_bytes, i * 19 + 1, .little); // Different pattern
+        const block_id = BlockId{ .bytes = id_bytes };
+
+        var is_in_sstable = false;
+        for (sstable_blocks.items) |sstable_block| {
+            if (std.mem.eql(u8, &block_id.bytes, &sstable_block.bytes)) {
+                is_in_sstable = true;
+                break;
+            }
+        }
+
+        if (!is_in_sstable and filter.might_contain(block_id)) {
+            false_positives += 1;
+        }
+    }
+
+    // False positive rate should be reasonable for storage engine usage
+    const fpr = @as(f64, @floatFromInt(false_positives)) / 10000.0;
+    try std.testing.expect(fpr < 0.05); // Less than 5% false positive rate
 }
