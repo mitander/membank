@@ -185,32 +185,39 @@ pub fn build(b: *std.Build) void {
             .description = "defensive programming performance impact tests",
         },
 
-        // Server tests - network protocol and API validation
+        // Network protocol and API validation
         .{
             .name = "server_protocol",
             .source_file = "tests/server/protocol.zig",
             .description = "TCP server protocol tests",
         },
 
-        // P1.3 Enhanced Test Coverage - Bloom filter validation
+        // Bloom filter validation
         .{
             .name = "bloom_filter_validation",
             .source_file = "tests/storage/bloom_filter_validation.zig",
             .description = "comprehensive Bloom filter integration and validation tests",
         },
 
-        // P1.3 Enhanced Test Coverage - Advanced query scenarios
+        // Advanced query scenarios
         .{
             .name = "streaming_and_optimization",
             .source_file = "tests/query/streaming_and_optimization.zig",
             .description = "streaming query results and optimization strategy tests",
         },
 
-        // P1.3 Enhanced Test Coverage - Enhanced compaction strategies
+        // Compaction strategies
         .{
             .name = "enhanced_compaction_strategies",
             .source_file = "tests/storage/enhanced_compaction_strategies.zig",
             .description = "enhanced tiered compaction strategy and edge case tests",
+        },
+
+        // Ingestion Pipeline Backpressure - Integration tests
+        .{
+            .name = "backpressure_integration",
+            .source_file = "tests/ingestion/backpressure_integration.zig",
+            .description = "ingestion pipeline backpressure control and memory pressure adaptation tests",
         },
     };
 

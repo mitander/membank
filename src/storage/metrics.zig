@@ -47,6 +47,10 @@ pub const StorageMetrics = struct {
     wal_bytes_written: std.atomic.Value(u64),
     sstable_bytes_written: std.atomic.Value(u64),
 
+    // Memory pressure metrics for backpressure control
+    memtable_memory_bytes: std.atomic.Value(u64),
+    compaction_queue_size: std.atomic.Value(u64),
+
     /// Initialize all metrics to zero.
     /// Atomic values must be explicitly initialized to ensure deterministic behavior.
     pub fn init() StorageMetrics {
@@ -72,8 +76,52 @@ pub const StorageMetrics = struct {
             .total_bytes_read = std.atomic.Value(u64).init(0),
             .wal_bytes_written = std.atomic.Value(u64).init(0),
             .sstable_bytes_written = std.atomic.Value(u64).init(0),
+            .memtable_memory_bytes = std.atomic.Value(u64).init(0),
+            .compaction_queue_size = std.atomic.Value(u64).init(0),
         };
     }
+
+    /// Storage memory pressure levels for backpressure control.
+    /// Used by ingestion pipeline to adapt batch sizes based on storage load.
+    pub const MemoryPressure = enum {
+        /// Memory usage below 50% of target - normal operation
+        low,
+        /// Memory usage 50-80% of target - reduce batch sizes
+        medium,
+        /// Memory usage above 80% of target - single-file processing
+        high,
+    };
+
+    /// Calculate current memory pressure based on memtable usage and compaction queue.
+    /// Uses configurable thresholds to determine if ingestion should apply backpressure.
+    pub fn calculate_memory_pressure(self: *const StorageMetrics, config: MemoryPressureConfig) MemoryPressure {
+        const memtable_bytes = self.memtable_memory_bytes.load(.monotonic);
+        const queue_size = self.compaction_queue_size.load(.monotonic);
+
+        // Memory pressure increases with both memtable size and compaction backlog
+        const memtable_ratio = @as(f64, @floatFromInt(memtable_bytes)) / @as(f64, @floatFromInt(config.memtable_target_bytes));
+        const queue_ratio = @as(f64, @floatFromInt(queue_size)) / @as(f64, @floatFromInt(config.max_compaction_queue_size));
+
+        // Use the higher of the two pressure indicators
+        const pressure_ratio = @max(memtable_ratio, queue_ratio);
+
+        if (pressure_ratio > config.high_pressure_threshold) return .high;
+        if (pressure_ratio > config.medium_pressure_threshold) return .medium;
+        return .low;
+    }
+
+    /// Configuration for memory pressure thresholds.
+    /// Allows tuning backpressure behavior for different deployment scenarios.
+    pub const MemoryPressureConfig = struct {
+        /// Target memtable size in bytes before pressure increases
+        memtable_target_bytes: u64 = 64 * 1024 * 1024, // 64MB default
+        /// Maximum pending compaction queue size before high pressure
+        max_compaction_queue_size: u64 = 10,
+        /// Medium pressure threshold (50% of capacity)
+        medium_pressure_threshold: f64 = 0.5,
+        /// High pressure threshold (80% of capacity)
+        high_pressure_threshold: f64 = 0.8,
+    };
 
     /// Calculate average write latency in nanoseconds.
     /// Returns 0 if no writes have occurred to avoid division by zero.

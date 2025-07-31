@@ -421,6 +421,21 @@ pub const StorageEngine = struct {
         return &self.storage_metrics;
     }
 
+    /// Calculate current memory pressure level for backpressure control.
+    /// Updates metrics with current memtable and compaction state before calculation.
+    /// Used by ingestion pipeline to adapt batch sizes based on storage load.
+    pub fn memory_pressure(self: *StorageEngine, config: StorageMetrics.MemoryPressureConfig) StorageMetrics.MemoryPressure {
+        // Update metrics with current memory usage
+        const memtable_bytes = self.memtable_manager.memory_usage();
+        self.storage_metrics.memtable_memory_bytes.store(memtable_bytes, .monotonic);
+
+        // Update compaction queue size (SSTable manager tracks pending compactions)
+        const queue_size = self.sstable_manager.pending_compaction_count();
+        self.storage_metrics.compaction_queue_size.store(queue_size, .monotonic);
+
+        return self.storage_metrics.calculate_memory_pressure(config);
+    }
+
     /// Block iterator for scanning all blocks in storage (memtable only).
     /// SSTable iteration delegated to SSTableManager to maintain separation of concerns.
     /// For full storage iteration, use memtable iterator + SSTableManager methods.

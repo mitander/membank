@@ -204,6 +204,15 @@ pub const SSTableManager = struct {
         return self.next_sstable_id;
     }
 
+    /// Get the number of SSTables pending compaction.
+    /// Used for memory pressure calculation in backpressure control.
+    /// Returns the current SSTable count as a proxy for compaction pressure.
+    pub fn pending_compaction_count(self: *const SSTableManager) u64 {
+        // For now, use total SSTable count as compaction pressure indicator
+        // More sophisticated compaction management would track actual pending jobs
+        return @intCast(self.sstable_paths.items.len);
+    }
+
     /// Discover existing SSTable files and register with compaction manager.
     /// Called during startup to restore system state after restart.
     /// Scans SSTable directory for .sst files and registers them in order.

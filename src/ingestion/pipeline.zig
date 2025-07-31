@@ -21,6 +21,10 @@ const concurrency = @import("../core/concurrency.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
 
+// Import storage types for backpressure
+const storage_metrics = @import("../storage/metrics.zig");
+const StorageMetrics = storage_metrics.StorageMetrics;
+
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
@@ -47,7 +51,7 @@ pub const SourceIterator = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
 
-    const VTable = struct {
+    pub const VTable = struct {
         /// Get the next content item, or null if finished
         next: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) IngestionError!?SourceContent,
         /// Clean up iterator resources
@@ -77,6 +81,12 @@ pub const SourceContent = struct {
     timestamp_ns: u64,
 
     pub fn deinit(self: *SourceContent, allocator: std.mem.Allocator) void {
+        // Free all values in metadata HashMap
+        // Note: HashMap keys are string literals and should not be freed
+        var iterator = self.metadata.iterator();
+        while (iterator.next()) |entry| {
+            allocator.free(entry.value_ptr.*);
+        }
         self.metadata.deinit();
         allocator.free(self.data);
         allocator.free(self.content_type);
@@ -149,7 +159,7 @@ pub const Source = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
 
-    const VTable = struct {
+    pub const VTable = struct {
         /// Fetch content iterator from the source
         fetch: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, file_system: *VFS) IngestionError!SourceIterator,
         /// Get human-readable description of this source
@@ -179,7 +189,7 @@ pub const Parser = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
 
-    const VTable = struct {
+    pub const VTable = struct {
         /// Parse content into semantic units
         parse: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, content: SourceContent) IngestionError![]ParsedUnit,
         /// Check if this parser supports the given content type
@@ -216,7 +226,7 @@ pub const Chunker = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
 
-    const VTable = struct {
+    pub const VTable = struct {
         /// Convert parsed units into ContextBlocks
         chunk: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, units: []const ParsedUnit) IngestionError![]ContextBlock,
         /// Get human-readable description of this chunker
@@ -241,6 +251,34 @@ pub const Chunker = struct {
     }
 };
 
+/// Configuration for ingestion pipeline backpressure control.
+/// Allows tuning batch sizes and memory pressure thresholds for different scenarios.
+pub const BackpressureConfig = struct {
+    /// Default batch size for normal memory pressure conditions
+    default_batch_size: u32 = 32,
+    /// Minimum batch size under high memory pressure (always >= 1)
+    min_batch_size: u32 = 1,
+    /// How often to check storage memory pressure (in milliseconds)
+    pressure_check_interval_ms: u64 = 100,
+    /// Memory pressure thresholds for storage engine
+    pressure_config: StorageMetrics.MemoryPressureConfig = StorageMetrics.MemoryPressureConfig{},
+};
+
+/// Statistics for backpressure adaptations during ingestion.
+/// Tracks how ingestion pipeline adapts to storage memory pressure.
+pub const BackpressureStats = struct {
+    /// Number of times batch size was reduced due to memory pressure
+    pressure_adaptations: u64 = 0,
+    /// Total number of pressure checks performed
+    pressure_checks: u64 = 0,
+    /// Maximum batch size used during ingestion
+    max_batch_size_used: u32 = 0,
+    /// Minimum batch size used during ingestion
+    min_batch_size_used: u32 = 0,
+    /// Time spent waiting for storage pressure to decrease (nanoseconds)
+    total_backpressure_wait_ns: u64 = 0,
+};
+
 /// Configuration for the ingestion pipeline
 pub const PipelineConfig = struct {
     /// Maximum number of blocks to process in a single batch
@@ -249,6 +287,8 @@ pub const PipelineConfig = struct {
     continue_on_error: bool = true,
     /// Custom metadata to attach to all generated blocks
     global_metadata: std.StringHashMap([]const u8),
+    /// Backpressure configuration for storage memory pressure adaptation
+    backpressure: BackpressureConfig = BackpressureConfig{},
 
     pub fn init(allocator: std.mem.Allocator) PipelineConfig {
         return PipelineConfig{
@@ -273,6 +313,8 @@ pub const PipelineStats = struct {
     blocks_generated: u32 = 0,
     /// Total processing time in nanoseconds
     processing_time_ns: u64 = 0,
+    /// Backpressure adaptation statistics
+    backpressure: BackpressureStats = BackpressureStats{},
     /// Memory peak usage in bytes
     peak_memory_bytes: u64 = 0,
 };
@@ -295,6 +337,9 @@ pub const IngestionPipeline = struct {
     file_system: *VFS,
     /// Execution statistics
     current_stats: PipelineStats,
+    /// Backpressure state for adaptive batch sizing
+    last_pressure_check: i128,
+    current_batch_size: u32,
 
     /// Initialize a new ingestion pipeline
     pub fn init(allocator: std.mem.Allocator, file_system: *VFS, config: PipelineConfig) !IngestionPipeline {
@@ -310,6 +355,8 @@ pub const IngestionPipeline = struct {
             .chunkers = std.ArrayList(Chunker).init(allocator),
             .file_system = file_system,
             .current_stats = PipelineStats{},
+            .last_pressure_check = std.time.nanoTimestamp(),
+            .current_batch_size = config.backpressure.default_batch_size,
         };
     }
 
@@ -364,6 +411,32 @@ pub const IngestionPipeline = struct {
 
         self.current_stats.blocks_generated = @intCast(all_blocks.items.len);
         return all_blocks.toOwnedSlice();
+    }
+
+    /// Execute ingestion with backpressure control integrated with storage engine.
+    /// Processes sources in adaptive batches based on storage memory pressure,
+    /// directly storing blocks to avoid unbounded memory growth during large ingestions.
+    pub fn execute_with_backpressure(self: *IngestionPipeline, storage_engine: anytype) IngestionError!void {
+        concurrency.assert_main_thread();
+
+        const start_time = std.time.nanoTimestamp();
+        defer self.current_stats.processing_time_ns = @intCast(std.time.nanoTimestamp() - start_time);
+
+        // Initialize backpressure tracking
+        self.current_stats.backpressure.max_batch_size_used = self.current_batch_size;
+        self.current_stats.backpressure.min_batch_size_used = self.current_batch_size;
+
+        // Process each source with backpressure
+        for (self.sources.items) |source| {
+            self.process_source_with_backpressure(source, storage_engine) catch |err| {
+                self.current_stats.sources_failed += 1;
+                if (!self.config.continue_on_error) {
+                    return err;
+                }
+                continue;
+            };
+            self.current_stats.sources_processed += 1;
+        }
     }
 
     /// Process a single source through the pipeline
@@ -440,6 +513,174 @@ pub const IngestionPipeline = struct {
             }
         }
         return null;
+    }
+
+    /// Process a single source with backpressure control and direct storage integration.
+    /// Uses adaptive batching to maintain bounded memory usage during large ingestions.
+    fn process_source_with_backpressure(self: *IngestionPipeline, source: Source, storage_engine: anytype) IngestionError!void {
+        // Create per-source arena for temporary processing
+        var source_arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer source_arena.deinit(); // O(1) cleanup when source completes
+        const temp_allocator = source_arena.allocator();
+
+        var content_iterator = try source.fetch(temp_allocator, self.file_system);
+        defer content_iterator.deinit(temp_allocator);
+
+        // Use main allocator for batch buffer to survive arena resets
+        var batch_buffer = std.ArrayList(ContextBlock).init(self.allocator);
+        defer {
+            // Clean up any remaining blocks in the batch buffer
+            for (batch_buffer.items) |*block| {
+                self.allocator.free(block.source_uri);
+                self.allocator.free(block.metadata_json);
+                self.allocator.free(block.content);
+            }
+            batch_buffer.deinit();
+        }
+
+        while (try content_iterator.next(temp_allocator)) |content| {
+            // Process content through parsing and chunking pipeline
+            try self.process_content_to_batch_with_copying(content, temp_allocator, &batch_buffer);
+
+            // Flush batch when full or under memory pressure
+            if (batch_buffer.items.len >= self.current_batch_size) {
+                // Check storage pressure and adapt batch size if needed
+                if (self.should_check_storage_pressure()) {
+                    try self.adapt_batch_size_to_pressure(storage_engine);
+                }
+
+                try self.flush_batch_to_storage(storage_engine, &batch_buffer);
+
+                // Clean up flushed blocks
+                for (batch_buffer.items) |*block| {
+                    self.allocator.free(block.source_uri);
+                    self.allocator.free(block.metadata_json);
+                    self.allocator.free(block.content);
+                }
+                batch_buffer.clearRetainingCapacity(); // Reuse allocation
+                _ = source_arena.reset(.retain_capacity); // O(1) memory reclaim
+            }
+        }
+
+        // Flush any remaining blocks in final partial batch
+        if (batch_buffer.items.len > 0) {
+            try self.flush_batch_to_storage(storage_engine, &batch_buffer);
+        }
+    }
+
+    /// Check if it's time to evaluate storage memory pressure.
+    /// Avoids expensive pressure calculations on every block by using time-based sampling.
+    fn should_check_storage_pressure(self: *IngestionPipeline) bool {
+        const now = std.time.nanoTimestamp();
+        const elapsed_ms = @divTrunc(now - self.last_pressure_check, std.time.ns_per_ms);
+        return elapsed_ms >= self.config.backpressure.pressure_check_interval_ms;
+    }
+
+    /// Adapt current batch size based on storage engine memory pressure.
+    /// Reduces batch size under pressure to provide backpressure control.
+    fn adapt_batch_size_to_pressure(self: *IngestionPipeline, storage_engine: anytype) !void {
+        self.last_pressure_check = std.time.nanoTimestamp();
+        self.current_stats.backpressure.pressure_checks += 1;
+
+        const pressure = storage_engine.memory_pressure(self.config.backpressure.pressure_config);
+        const previous_batch_size = self.current_batch_size;
+
+        // Adapt batch size based on memory pressure level
+        self.current_batch_size = switch (pressure) {
+            .low => self.config.backpressure.default_batch_size,
+            .medium => @max(self.config.backpressure.min_batch_size, self.config.backpressure.default_batch_size / 2),
+            .high => self.config.backpressure.min_batch_size,
+        };
+
+        // Track batch size statistics
+        self.current_stats.backpressure.max_batch_size_used = @max(self.current_stats.backpressure.max_batch_size_used, self.current_batch_size);
+        self.current_stats.backpressure.min_batch_size_used = @min(self.current_stats.backpressure.min_batch_size_used, self.current_batch_size);
+
+        // Count adaptations when batch size is reduced due to pressure
+        if (self.current_batch_size < previous_batch_size) {
+            self.current_stats.backpressure.pressure_adaptations += 1;
+        }
+    }
+
+    /// Process content through parsing and chunking pipeline into batch buffer.
+    /// Uses temporary allocator for intermediate processing to maintain memory bounds.
+    fn process_content_to_batch(self: *IngestionPipeline, content: SourceContent, temp_allocator: std.mem.Allocator, batch_buffer: *std.ArrayList(ContextBlock)) !void {
+        // Find appropriate parser
+        const parser = self.find_parser(content.content_type) orelse return;
+
+        // Parse content into semantic units
+        const parsed_units = try parser.parse(temp_allocator, content);
+        defer {
+            for (parsed_units) |*unit| {
+                unit.deinit(temp_allocator);
+            }
+            temp_allocator.free(parsed_units);
+        }
+        self.current_stats.units_parsed += @intCast(parsed_units.len);
+
+        // Chunk units into context blocks
+        for (self.chunkers.items) |chunker| {
+            const chunked_blocks = try chunker.chunk(temp_allocator, parsed_units);
+            defer temp_allocator.free(chunked_blocks);
+
+            // Add blocks to batch buffer
+            try batch_buffer.appendSlice(chunked_blocks);
+        }
+    }
+
+    /// Process content through parsing and chunking pipeline with proper memory copying.
+    /// Copies blocks from temporary allocator to main allocator to survive arena resets.
+    fn process_content_to_batch_with_copying(self: *IngestionPipeline, content: SourceContent, temp_allocator: std.mem.Allocator, batch_buffer: *std.ArrayList(ContextBlock)) !void {
+        // Find appropriate parser
+        const parser = self.find_parser(content.content_type) orelse return;
+
+        // Parse content into semantic units
+        const parsed_units = try parser.parse(temp_allocator, content);
+        defer {
+            for (parsed_units) |*unit| {
+                unit.deinit(temp_allocator);
+            }
+            temp_allocator.free(parsed_units);
+        }
+        self.current_stats.units_parsed += @intCast(parsed_units.len);
+
+        // Chunk units into context blocks
+        for (self.chunkers.items) |chunker| {
+            const chunked_blocks = try chunker.chunk(temp_allocator, parsed_units);
+            defer temp_allocator.free(chunked_blocks);
+
+            // Copy blocks from temp allocator to main allocator for persistence
+            for (chunked_blocks) |temp_block| {
+                const persistent_block = ContextBlock{
+                    .id = temp_block.id, // BlockId is copy-by-value
+                    .version = temp_block.version,
+                    .source_uri = try self.allocator.dupe(u8, temp_block.source_uri),
+                    .metadata_json = try self.allocator.dupe(u8, temp_block.metadata_json),
+                    .content = try self.allocator.dupe(u8, temp_block.content),
+                };
+                try batch_buffer.append(persistent_block);
+            }
+        }
+    }
+
+    /// Flush batch of blocks directly to storage engine.
+    /// Provides durability without requiring intermediate memory allocation.
+    fn flush_batch_to_storage(self: *IngestionPipeline, storage_engine: anytype, batch_buffer: *std.ArrayList(ContextBlock)) IngestionError!void {
+        const flush_start = std.time.nanoTimestamp();
+        defer {
+            const flush_time = std.time.nanoTimestamp() - flush_start;
+            // Track time waiting for storage (backpressure effect)
+            self.current_stats.backpressure.total_backpressure_wait_ns += @intCast(flush_time);
+        }
+
+        // Write each block directly to storage
+        for (batch_buffer.items) |block| {
+            storage_engine.put_block(block) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => return error.SourceFetchFailed, // Generic storage failure
+            };
+            self.current_stats.blocks_generated += 1;
+        }
     }
 
     /// Current pipeline statistics
