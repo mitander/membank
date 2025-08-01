@@ -220,12 +220,12 @@ pub const QueryEngine = struct {
     planning_enabled: bool,
 
     // Thread-safe metrics using coordination primitives
-    queries_executed: stdx.MetricsCounter(u64),
-    find_blocks_queries: stdx.MetricsCounter(u64),
-    traversal_queries: stdx.MetricsCounter(u64),
-    filtered_queries: stdx.MetricsCounter(u64),
-    semantic_queries: stdx.MetricsCounter(u64),
-    total_query_time_ns: stdx.MetricsCounter(u64),
+    queries_executed: stdx.MetricsCounter,
+    find_blocks_queries: stdx.MetricsCounter,
+    traversal_queries: stdx.MetricsCounter,
+    filtered_queries: stdx.MetricsCounter,
+    semantic_queries: stdx.MetricsCounter,
+    total_query_time_ns: stdx.MetricsCounter,
 
     /// Initialize query engine with storage backend
     pub fn init(allocator: std.mem.Allocator, storage_engine: *StorageEngine) QueryEngine {

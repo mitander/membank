@@ -71,17 +71,19 @@ START_TIME=$(date +%s)
 # Create temporary files for parallel execution
 FMT_OUTPUT=$(mktemp)
 TIDY_OUTPUT=$(mktemp)
+CHECK_OUTPUT=$(mktemp)
 FMT_STATUS=$(mktemp)
 TIDY_STATUS=$(mktemp)
+CHECK_STATUS=$(mktemp)
 
 # Cleanup function
 cleanup() {
-    rm -f "$FMT_OUTPUT" "$TIDY_OUTPUT" "$FMT_STATUS" "$TIDY_STATUS"
+    rm -f "$FMT_OUTPUT" "$TIDY_OUTPUT" "$CHECK_OUTPUT" "$FMT_STATUS" "$TIDY_STATUS" "$CHECK_STATUS"
 }
 trap cleanup EXIT
 
 # 1. Start code formatting check in background
-print_status "INFO" "Starting parallel checks (format + tidy)..."
+print_status "INFO" "Starting parallel checks (format + tidy + compilation)..."
 (
     if ./zig/zig build fmt >"$FMT_OUTPUT" 2>&1; then
         echo "0" > "$FMT_STATUS"
@@ -101,9 +103,20 @@ FMT_PID=$!
 ) &
 TIDY_PID=$!
 
-# Wait for both jobs to complete
+# 3. Start compilation check in background
+(
+    if ./zig/zig build check >"$CHECK_OUTPUT" 2>&1; then
+        echo "0" > "$CHECK_STATUS"
+    else
+        echo "1" > "$CHECK_STATUS"
+    fi
+) &
+CHECK_PID=$!
+
+# Wait for all jobs to complete
 wait $FMT_PID
 wait $TIDY_PID
+wait $CHECK_PID
 
 # Check formatting results
 if [ "$(cat "$FMT_STATUS")" = "0" ]; then
@@ -130,6 +143,21 @@ else
     if [ -s "$TIDY_OUTPUT" ]; then
         echo "Tidy check output:"
         cat "$TIDY_OUTPUT"
+    fi
+    CHECKS_PASSED=false
+fi
+
+# Check compilation results
+if [ "$(cat "$CHECK_STATUS")" = "0" ]; then
+    print_status "OK" "Compilation check passed"
+else
+    print_status "FAIL" "Compilation check failed"
+    echo ""
+    echo "Please fix compilation errors before committing."
+    echo "Run './zig/zig build check' to see detailed error messages."
+    if [ -s "$CHECK_OUTPUT" ]; then
+        echo "Compilation check output:"
+        cat "$CHECK_OUTPUT"
     fi
     CHECKS_PASSED=false
 fi
