@@ -21,7 +21,7 @@ const BlockId = context_block.BlockId;
 
 // Helper function to check compaction without leaking memory
 fn check_compaction_and_cleanup(manager: *TieredCompactionManager) bool {
-    const job = manager.check_compaction_needed();
+    const job = manager.check_compaction_needed() catch return false;
     if (job) |*mutable_job| {
         var job_copy = mutable_job.*;
         defer job_copy.deinit();
@@ -89,7 +89,7 @@ test "cross-level compaction with realistic SSTable sizes" {
     }
 
     // Should prioritize L0 compaction first due to file count threshold
-    const first_job = manager.check_compaction_needed();
+    const first_job = try manager.check_compaction_needed();
     try testing.expect(first_job != null);
     try testing.expectEqual(@as(u8, 0), first_job.?.input_level);
     try testing.expectEqual(@as(u8, 1), first_job.?.output_level);
@@ -109,7 +109,7 @@ test "cross-level compaction with realistic SSTable sizes" {
     }
 
     // Now L1 should be considered for compaction (size-based)
-    const second_job = manager.check_compaction_needed();
+    const second_job = try manager.check_compaction_needed();
     if (second_job) |job_val| {
         var job = job_val;
         defer job.deinit();
@@ -204,7 +204,7 @@ test "compaction strategy adaptability to workload patterns" {
         }
 
         // Should consistently trigger L0 compaction
-        const compaction_job = manager.check_compaction_needed();
+        const compaction_job = try manager.check_compaction_needed();
         try testing.expect(compaction_job != null);
         try testing.expectEqual(@as(u8, 0), compaction_job.?.input_level);
 
@@ -235,7 +235,7 @@ test "compaction strategy adaptability to workload patterns" {
     }
 
     // Should trigger size-based compaction for L1
-    const size_based_job = manager.check_compaction_needed();
+    const size_based_job = try manager.check_compaction_needed();
     if (size_based_job) |job_val| {
         var job = job_val;
         defer job.deinit();
@@ -275,7 +275,7 @@ test "compaction robustness under concurrent modifications" {
             },
             1 => {
                 // Check compaction (should not crash or corrupt state)
-                const compaction_job = manager.check_compaction_needed();
+                const compaction_job = try manager.check_compaction_needed();
                 if (compaction_job) |job_val| {
                     var job = job_val;
                     defer job.deinit();
@@ -357,7 +357,7 @@ test "large-scale compaction validation with realistic data distribution" {
     var level_compactions: u32 = 0;
 
     while (compaction_cycles < 20) : (compaction_cycles += 1) {
-        const compaction_job = manager.check_compaction_needed();
+        const compaction_job = try manager.check_compaction_needed();
 
         if (compaction_job) |job_val| {
             var job = job_val;
@@ -420,7 +420,7 @@ test "compaction edge cases and error resilience" {
     try manager.add_sstable(huge_path, 10 * 1024 * 1024 * 1024, 1); // 10GB file
 
     // Should handle huge files without crashing
-    const huge_job = manager.check_compaction_needed();
+    const huge_job = try manager.check_compaction_needed();
     if (huge_job) |job_val| {
         var job = job_val;
         defer job.deinit();
@@ -436,7 +436,7 @@ test "compaction edge cases and error resilience" {
     }
 
     // Should handle many tiny files efficiently
-    const tiny_job = manager.check_compaction_needed();
+    const tiny_job = try manager.check_compaction_needed();
     try testing.expect(tiny_job != null);
     if (tiny_job) |job_val| {
         var job = job_val;
@@ -458,7 +458,7 @@ test "compaction edge cases and error resilience" {
     try manager.add_sstable(max_level_path, 1024 * 1024 * 1024, 7); // L7 (max level)
 
     // Should handle max level without attempting to compact further
-    const max_level_job = manager.check_compaction_needed();
+    const max_level_job = try manager.check_compaction_needed();
     if (max_level_job) |job_val| {
         var job = job_val;
         defer job.deinit();

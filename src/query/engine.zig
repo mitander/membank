@@ -235,12 +235,12 @@ pub const QueryEngine = struct {
             .initialized = true,
             .next_query_id = stdx.MetricsCounter.init(1),
             .planning_enabled = true, // Enable planning by default for future extensibility
-            .queries_executed = stdx.MetricsCounter(u64).init(0),
-            .find_blocks_queries = stdx.MetricsCounter(u64).init(0),
-            .traversal_queries = stdx.MetricsCounter(u64).init(0),
-            .filtered_queries = stdx.MetricsCounter(u64).init(0),
-            .semantic_queries = stdx.MetricsCounter(u64).init(0),
-            .total_query_time_ns = stdx.MetricsCounter(u64).init(0),
+            .queries_executed = stdx.MetricsCounter.init(0),
+            .find_blocks_queries = stdx.MetricsCounter.init(0),
+            .traversal_queries = stdx.MetricsCounter.init(0),
+            .filtered_queries = stdx.MetricsCounter.init(0),
+            .semantic_queries = stdx.MetricsCounter.init(0),
+            .total_query_time_ns = stdx.MetricsCounter.init(0),
         };
     }
 
@@ -251,7 +251,8 @@ pub const QueryEngine = struct {
 
     /// Generate a new unique query ID in a thread-safe manner
     pub fn generate_query_id(self: *QueryEngine) u64 {
-        return self.next_query_id.incr();
+        self.next_query_id.incr();
+        return self.next_query_id.load();
     }
 
     /// Create query plan for optimization and metrics
@@ -265,8 +266,8 @@ pub const QueryEngine = struct {
         if (self.planning_enabled) {
             const storage_metrics = self.storage_engine.metrics();
             plan.analyze_complexity(
-                @intCast(storage_metrics.blocks_written.get()),
-                @intCast(storage_metrics.edges_added.get()),
+                @intCast(storage_metrics.blocks_written.load()),
+                @intCast(storage_metrics.edges_added.load()),
             );
 
             // Apply workload-adaptive optimizations
@@ -340,14 +341,14 @@ pub const QueryEngine = struct {
 
     /// Calculate ratio of recent queries of this type (for optimization hints)
     fn calculate_recent_query_ratio(self: *QueryEngine, query_type: QueryPlan.QueryType) f32 {
-        const total_recent = self.queries_executed.get();
+        const total_recent = self.queries_executed.load();
         if (total_recent == 0) return 0.0;
 
         const query_count = switch (query_type) {
-            .find_blocks => self.find_blocks_queries.get(),
-            .traversal => self.traversal_queries.get(),
-            .filtered => self.filtered_queries.get(),
-            .semantic => self.semantic_queries.get(),
+            .find_blocks => self.find_blocks_queries.load(),
+            .traversal => self.traversal_queries.load(),
+            .filtered => self.filtered_queries.load(),
+            .semantic => self.semantic_queries.load(),
         };
 
         return @as(f32, @floatFromInt(query_count)) / @as(f32, @floatFromInt(total_recent));
@@ -356,7 +357,7 @@ pub const QueryEngine = struct {
     /// Record query execution metrics for analysis
     fn record_query_execution(self: *QueryEngine, context: *const QueryContext) void {
         const duration_ns = context.execution_duration_ns();
-        _ = self.total_query_time_ns.fetchAdd(duration_ns, .monotonic);
+        self.total_query_time_ns.add(duration_ns);
 
         // Record optimization effectiveness
         if (context.plan.optimization_hints.use_index and context.metrics.index_lookups > 0) {
@@ -500,13 +501,13 @@ pub const QueryEngine = struct {
     /// Get current query execution statistics
     pub fn statistics(self: *const QueryEngine) QueryStatistics {
         return .{
-            .queries_executed = self.queries_executed.get(),
-            .find_blocks_queries = self.find_blocks_queries.get(),
-            .traversal_queries = self.traversal_queries.get(),
-            .filtered_queries = self.filtered_queries.get(),
-            .semantic_queries = self.semantic_queries.get(),
-            .total_query_time_ns = self.total_query_time_ns.get(),
-            .total_blocks_stored = self.storage_engine.metrics().blocks_written.get(),
+            .queries_executed = self.queries_executed.load(),
+            .find_blocks_queries = self.find_blocks_queries.load(),
+            .traversal_queries = self.traversal_queries.load(),
+            .filtered_queries = self.filtered_queries.load(),
+            .semantic_queries = self.semantic_queries.load(),
+            .total_query_time_ns = self.total_query_time_ns.load(),
+            .total_blocks_stored = @intCast(self.storage_engine.metrics().blocks_written.load()),
         };
     }
 
@@ -609,8 +610,8 @@ pub const QueryEngine = struct {
         var memtable_hits: u32 = 0;
         var sstable_reads: u32 = 0;
 
-        const initial_blocks_read = self.storage_engine.storage_metrics.blocks_read.load(.monotonic);
-        const initial_sstable_reads = self.storage_engine.storage_metrics.sstable_reads.load(.monotonic);
+        const initial_blocks_read = self.storage_engine.storage_metrics.blocks_read.load();
+        const initial_sstable_reads = self.storage_engine.storage_metrics.sstable_reads.load();
 
         for (query.block_ids) |block_id| {
             if (try self.storage_engine.find_block(block_id)) |block| {
@@ -619,8 +620,8 @@ pub const QueryEngine = struct {
             }
         }
 
-        const final_blocks_read = self.storage_engine.storage_metrics.blocks_read.load(.monotonic);
-        const final_sstable_reads = self.storage_engine.storage_metrics.sstable_reads.load(.monotonic);
+        const final_blocks_read = self.storage_engine.storage_metrics.blocks_read.load();
+        const final_sstable_reads = self.storage_engine.storage_metrics.sstable_reads.load();
 
         sstable_reads = @intCast(final_sstable_reads - initial_sstable_reads);
         const total_reads = @as(u32, @intCast(final_blocks_read - initial_blocks_read));
@@ -774,8 +775,8 @@ test "query engine initialization and deinitialization" {
     defer query_engine.deinit();
 
     try testing.expect(query_engine.initialized);
-    try testing.expect(query_engine.queries_executed.load(.monotonic) == 0);
-    try testing.expect(query_engine.find_blocks_queries.load(.monotonic) == 0);
+    try testing.expect(query_engine.queries_executed.load() == 0);
+    try testing.expect(query_engine.find_blocks_queries.load() == 0);
 }
 
 test "query engine statistics tracking" {

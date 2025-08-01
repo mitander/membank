@@ -165,7 +165,7 @@ pub const TieredCompactionManager = struct {
     }
 
     /// Check if compaction is needed and return compaction job if so
-    pub fn check_compaction_needed(self: *TieredCompactionManager) ?CompactionJob {
+    pub fn check_compaction_needed(self: *TieredCompactionManager) !?CompactionJob {
         concurrency.assert_main_thread();
 
         // Check L0 first - it has count-based compaction
@@ -179,7 +179,7 @@ pub const TieredCompactionManager = struct {
 
             if (tier.sstables.items.len >= self.config.min_compaction_threshold) {
                 if (self.should_compact_tier(level)) {
-                    return self.create_tier_compaction_job(level);
+                    return try self.create_tier_compaction_job(level);
                 }
             }
         }
@@ -217,7 +217,7 @@ pub const TieredCompactionManager = struct {
         };
     }
 
-    fn create_tier_compaction_job(self: *TieredCompactionManager, level: u8) CompactionJob {
+    fn create_tier_compaction_job(self: *TieredCompactionManager, level: u8) !CompactionJob {
         // Find SSTables of similar size to compact together
         const tier = &self.tiers[level];
         var candidates = std.ArrayList(usize).init(self.allocator);

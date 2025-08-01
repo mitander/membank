@@ -202,14 +202,14 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     const metrics = storage_engine.metrics();
     std.debug.print("\n=== Storage Metrics ===\n", .{});
     std.debug.print("Blocks: {} written, {} read, {} deleted\n", .{
-        metrics.blocks_written.load(.monotonic),
-        metrics.blocks_read.load(.monotonic),
-        metrics.blocks_deleted.load(.monotonic),
+        metrics.blocks_written.load(),
+        metrics.blocks_read.load(),
+        metrics.blocks_deleted.load(),
     });
     std.debug.print("WAL: {} writes, {} flushes, {} recoveries\n", .{
-        metrics.wal_writes.load(.monotonic),
-        metrics.wal_flushes.load(.monotonic),
-        metrics.wal_recoveries.load(.monotonic),
+        metrics.wal_writes.load(),
+        metrics.wal_flushes.load(),
+        metrics.wal_recoveries.load(),
     });
     std.debug.print("Latency: {} ns write, {} ns read\n", .{
         metrics.average_write_latency_ns(),

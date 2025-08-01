@@ -38,7 +38,7 @@ const PerformanceResult = struct {
     std_dev_ns: u64,
     throughput_ops_per_sec: u64,
 
-    fn from_samples(samples: []const u64) PerformanceResult {
+    fn from_samples(samples: []const u64) !PerformanceResult {
         var sorted_samples = std.ArrayList(u64).init(std.testing.allocator);
         try sorted_samples.ensureTotalCapacity(samples.len);
         defer sorted_samples.deinit();
@@ -149,7 +149,7 @@ test "storage operations performance with defensive programming" {
     var write_samples = std.ArrayList(u64).init(allocator);
     try write_samples.ensureTotalCapacity(config.iterations);
     defer write_samples.deinit();
-    try write_samples.ensureCapacity(config.statistical_samples);
+    try write_samples.ensureTotalCapacity(config.statistical_samples);
 
     // Create test blocks
     var test_blocks = std.ArrayList(ContextBlock).init(allocator);
@@ -161,7 +161,7 @@ test "storage operations performance with defensive programming" {
         }
         test_blocks.deinit();
     }
-    try test_blocks.ensureCapacity(config.iterations);
+    try test_blocks.ensureTotalCapacity(config.iterations);
 
     for (0..config.iterations) |i| {
         const block = try create_benchmark_block(allocator, @intCast(i));
@@ -190,7 +190,7 @@ test "storage operations performance with defensive programming" {
         _ = sample;
     }
 
-    const write_result = PerformanceResult.from_samples(write_samples.items);
+    const write_result = try PerformanceResult.from_samples(write_samples.items);
 
     // Benchmark block read operations
     var read_samples = std.ArrayList(u64).init(allocator);
@@ -208,7 +208,7 @@ test "storage operations performance with defensive programming" {
         try read_samples.append(timer.elapsed_ns());
     }
 
-    const read_result = PerformanceResult.from_samples(read_samples.items);
+    const read_result = try PerformanceResult.from_samples(read_samples.items);
 
     // Verify storage operations complete in reasonable time
     try testing.expect(write_result.throughput_ops_per_sec >= 5); // At least 5 writes/sec
@@ -250,7 +250,7 @@ test "graph operations performance with defensive programming" {
         }
         blocks.deinit();
     }
-    try blocks.ensureCapacity(20);
+    try blocks.ensureTotalCapacity(20);
 
     for (0..20) |i| { // Fewer blocks, more edges per block
         const block = try create_benchmark_block(allocator, @intCast(i));
@@ -262,7 +262,7 @@ test "graph operations performance with defensive programming" {
     var edge_write_samples = std.ArrayList(u64).init(allocator);
     try edge_write_samples.ensureTotalCapacity(config.iterations);
     defer edge_write_samples.deinit();
-    try edge_write_samples.ensureCapacity(config.statistical_samples);
+    try edge_write_samples.ensureTotalCapacity(config.statistical_samples);
 
     for (0..config.statistical_samples) |_| {
         const timer = Timer.start();
@@ -288,7 +288,7 @@ test "graph operations performance with defensive programming" {
         try edge_write_samples.append(timer.elapsed_ns());
     }
 
-    const edge_write_result = PerformanceResult.from_samples(edge_write_samples.items);
+    const edge_write_result = try PerformanceResult.from_samples(edge_write_samples.items);
 
     // Benchmark edge traversal operations
     var traversal_samples = std.ArrayList(u64).init(allocator);
@@ -310,7 +310,7 @@ test "graph operations performance with defensive programming" {
         try traversal_samples.append(timer.elapsed_ns());
     }
 
-    const traversal_result = PerformanceResult.from_samples(traversal_samples.items);
+    const traversal_result = try PerformanceResult.from_samples(traversal_samples.items);
 
     // Verify graph operations complete in reasonable time
     try testing.expect(edge_write_result.throughput_ops_per_sec >= 2); // At least 2 edge writes/sec
@@ -344,7 +344,7 @@ test "memory allocation performance with defensive programming" {
         try allocation_samples.append(timer.elapsed_ns()); // tidy:ignore-perf - capacity pre-allocated line 326
     }
 
-    const allocation_result = PerformanceResult.from_samples(allocation_samples.items);
+    const allocation_result = try PerformanceResult.from_samples(allocation_samples.items);
 
     // Verify allocation operations complete in reasonable time
     try testing.expect(allocation_result.throughput_ops_per_sec >= 5); // At least 5 allocs/sec
@@ -395,8 +395,8 @@ test "defensive programming zero-cost abstraction validation" {
         try assertion_samples.append(timer.elapsed_ns());
     }
 
-    const baseline_result = PerformanceResult.from_samples(baseline_samples.items);
-    const assertion_result = PerformanceResult.from_samples(assertion_samples.items);
+    const baseline_result = try PerformanceResult.from_samples(baseline_samples.items);
+    const assertion_result = try PerformanceResult.from_samples(assertion_samples.items);
 
     const overhead_percent = PerformanceResult.overhead_percent(baseline_result, assertion_result);
 
@@ -467,7 +467,7 @@ test "assertion framework consistency under load" {
         try load_samples.append(timer.elapsed_ns());
     }
 
-    const load_result = PerformanceResult.from_samples(load_samples.items);
+    const load_result = try PerformanceResult.from_samples(load_samples.items);
 
     // Verify basic statistical sanity (some variation expected but not excessive)
     if (load_result.mean_ns > 0) {

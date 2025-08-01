@@ -258,7 +258,7 @@ pub const DebugAllocator = struct {
     /// Statistics
     stats_protected: stdx.ProtectedType(DebugAllocatorStats) = .{ .value = undefined },
     /// Mutex for thread safety
-    mutex: stdx.ProtectedType(void) = .{},
+    mutex: stdx.ProtectedType(void) = .{ .value = {} },
     /// Enable/disable various debug features
     config: DebugConfig,
 
@@ -276,14 +276,14 @@ pub const DebugAllocator = struct {
     };
 
     pub fn init(backing_allocator: std.mem.Allocator) DebugAllocator {
-        var allocator = DebugAllocator{
+        var debug_alloc = DebugAllocator{
             .backing_allocator = backing_allocator,
             .free_slots = std.bit_set.IntegerBitSet(MAX_TRACKED_ALLOCATIONS).initFull(),
             .config = DebugConfig{},
         };
 
         // Initialize all allocation entries as free
-        allocator.allocations_protected.with([MAX_TRACKED_ALLOCATIONS]AllocationInfo, {}, struct {
+        debug_alloc.allocations_protected.with([MAX_TRACKED_ALLOCATIONS]AllocationInfo, {}, struct {
             fn f(allocations: *[MAX_TRACKED_ALLOCATIONS]AllocationInfo) void {
                 for (allocations) |*alloc| {
                     alloc.* = std.mem.zeroes(AllocationInfo);
@@ -291,7 +291,7 @@ pub const DebugAllocator = struct {
             }
         }.f);
 
-        return allocator;
+        return debug_alloc;
     }
 
     pub fn allocator(self: *DebugAllocator) std.mem.Allocator {

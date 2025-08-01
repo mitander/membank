@@ -263,12 +263,12 @@ pub const StorageEngine = struct {
             const end_time = std.time.nanoTimestamp();
             assert.assert_fmt(end_time >= start_time, "Invalid timestamp sequence: {} < {}", .{ end_time, start_time });
 
-            const blocks_before = self.storage_metrics.blocks_read.load(.monotonic);
-            _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
-            _ = self.storage_metrics.total_read_time_ns.fetchAdd(@intCast(end_time - start_time), .monotonic);
-            _ = self.storage_metrics.total_bytes_read.fetchAdd(block_ptr.content.len, .monotonic);
+            const blocks_before = self.storage_metrics.blocks_read.load();
+            self.storage_metrics.blocks_read.incr();
+            self.storage_metrics.total_read_time_ns.add(@intCast(end_time - start_time));
+            self.storage_metrics.total_bytes_read.add(block_ptr.content.len);
 
-            fatal_assert(self.storage_metrics.blocks_read.load(.monotonic) == blocks_before + 1, "Blocks read counter update failed - metrics corruption detected", .{});
+            fatal_assert(self.storage_metrics.blocks_read.load() == blocks_before + 1, "Blocks read counter update failed - metrics corruption detected", .{});
 
             return block_ptr.*;
         }
@@ -280,10 +280,10 @@ pub const StorageEngine = struct {
         };
         if (sstable_result) |block| {
             const end_time = std.time.nanoTimestamp();
-            _ = self.storage_metrics.blocks_read.fetchAdd(1, .monotonic);
-            _ = self.storage_metrics.sstable_reads.fetchAdd(1, .monotonic);
-            _ = self.storage_metrics.total_read_time_ns.fetchAdd(@intCast(end_time - start_time), .monotonic);
-            _ = self.storage_metrics.total_bytes_read.fetchAdd(block.content.len, .monotonic);
+            self.storage_metrics.blocks_read.incr();
+            self.storage_metrics.sstable_reads.incr();
+            self.storage_metrics.total_read_time_ns.add(@intCast(end_time - start_time));
+            self.storage_metrics.total_bytes_read.add(block.content.len);
 
             // Periodically clear query cache to prevent unbounded growth
             self.maybe_clear_query_cache();
@@ -306,7 +306,7 @@ pub const StorageEngine = struct {
             return err;
         };
 
-        _ = self.storage_metrics.blocks_deleted.fetchAdd(1, .monotonic);
+        self.storage_metrics.blocks_deleted.incr();
     }
 
     /// Add a graph edge with durability guarantees.
@@ -342,10 +342,10 @@ pub const StorageEngine = struct {
             return err;
         };
 
-        const edges_before = self.storage_metrics.edges_added.load(.monotonic);
-        _ = self.storage_metrics.edges_added.fetchAdd(1, .monotonic);
+        const edges_before = self.storage_metrics.edges_added.load();
+        self.storage_metrics.edges_added.incr();
 
-        fatal_assert(self.storage_metrics.edges_added.load(.monotonic) == edges_before + 1, "Edges added counter update failed - metrics corruption detected", .{});
+        fatal_assert(self.storage_metrics.edges_added.load() == edges_before + 1, "Edges added counter update failed - metrics corruption detected", .{});
     }
 
     /// Force synchronization of all WAL operations to durable storage.
@@ -490,7 +490,7 @@ pub const StorageEngine = struct {
             };
         }
 
-        _ = self.storage_metrics.sstable_writes.fetchAdd(1, .monotonic);
+        self.storage_metrics.sstable_writes.incr();
     }
 
     /// Public wrapper for memtable flush - backward compatibility.
@@ -517,14 +517,14 @@ pub const StorageEngine = struct {
         const end_time = std.time.nanoTimestamp();
         assert.assert_fmt(end_time >= start_time, "Invalid timestamp sequence: {} < {}", .{ end_time, start_time });
 
-        const blocks_before = self.storage_metrics.blocks_written.load(.monotonic);
-        _ = self.storage_metrics.blocks_written.fetchAdd(1, .monotonic);
+        const blocks_before = self.storage_metrics.blocks_written.load();
+        self.storage_metrics.blocks_written.incr();
 
         const write_duration = @as(u64, @intCast(end_time - start_time));
-        _ = self.storage_metrics.total_write_time_ns.fetchAdd(write_duration, .monotonic);
-        _ = self.storage_metrics.total_bytes_written.fetchAdd(content_len, .monotonic);
+        self.storage_metrics.total_write_time_ns.add(write_duration);
+        self.storage_metrics.total_bytes_written.add(content_len);
 
-        assert.assert_fmt(self.storage_metrics.blocks_written.load(.monotonic) == blocks_before + 1, "Blocks written counter update failed", .{});
+        assert.assert_fmt(self.storage_metrics.blocks_written.load() == blocks_before + 1, "Blocks written counter update failed", .{});
     }
 
     /// Clear query cache arena if it exceeds memory threshold to prevent unbounded growth.
@@ -542,7 +542,7 @@ pub const StorageEngine = struct {
     fn check_and_run_compaction(self: *StorageEngine) !void {
         if (self.sstable_manager.should_compact()) {
             try self.sstable_manager.execute_compaction();
-            _ = self.storage_metrics.compactions.fetchAdd(1, .monotonic);
+            _ = self.storage_metrics.compactions.add(1, .monotonic);
         }
     }
 
@@ -637,7 +637,7 @@ test "memtable flush triggers at size threshold" {
 
     // Verify SSTable was created
     const metrics = engine.metrics();
-    try testing.expect(metrics.sstable_writes.load(.monotonic) > 0);
+    try testing.expect(metrics.sstable_writes.load() > 0);
 }
 
 test "WAL recovery restores storage state" {
@@ -722,7 +722,7 @@ test "storage metrics track operations accurately" {
     try engine.startup();
 
     const metrics_initial = engine.metrics();
-    try testing.expectEqual(@as(u64, 0), metrics_initial.blocks_written.load(.monotonic));
+    try testing.expectEqual(@as(u64, 0), metrics_initial.blocks_written.load());
 
     const block = ContextBlock{
         .id = BlockId.generate(),
@@ -735,9 +735,9 @@ test "storage metrics track operations accurately" {
     try engine.put_block(block);
 
     const metrics_after = engine.metrics();
-    try testing.expectEqual(@as(u64, 1), metrics_after.blocks_written.load(.monotonic));
-    try testing.expect(metrics_after.total_write_time_ns.load(.monotonic) > 0);
-    try testing.expect(metrics_after.total_bytes_written.load(.monotonic) > 0);
+    try testing.expectEqual(@as(u64, 1), metrics_after.blocks_written.load());
+    try testing.expect(metrics_after.total_write_time_ns.load() > 0);
+    try testing.expect(metrics_after.total_bytes_written.load() > 0);
 }
 
 test "block iterator with empty storage" {

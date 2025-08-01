@@ -205,15 +205,15 @@ fn traverse_breadth_first(
     defer visited.deinit();
 
     var result_blocks = std.ArrayList(ContextBlock).init(allocator);
-    try result_blocks.ensureCapacity(query.max_results);
+    try result_blocks.ensureTotalCapacity(query.max_results);
     defer result_blocks.deinit();
 
     var result_paths = std.ArrayList([]BlockId).init(allocator);
-    try result_paths.ensureCapacity(query.max_results);
+    try result_paths.ensureTotalCapacity(query.max_results);
     defer result_paths.deinit();
 
     var result_depths = std.ArrayList(u32).init(allocator);
-    try result_depths.ensureCapacity(query.max_results);
+    try result_depths.ensureTotalCapacity(query.max_results);
     defer result_depths.deinit();
 
     const QueueItem = struct {
@@ -223,7 +223,7 @@ fn traverse_breadth_first(
     };
 
     var queue = std.ArrayList(QueueItem).init(allocator);
-    try queue.ensureCapacity(query.max_results);
+    try queue.ensureTotalCapacity(query.max_results);
     defer {
         for (queue.items) |item| {
             allocator.free(item.path);
@@ -304,15 +304,15 @@ fn traverse_depth_first(
     defer visited.deinit();
 
     var result_blocks = std.ArrayList(ContextBlock).init(allocator);
-    try result_blocks.ensureCapacity(query.max_results);
+    try result_blocks.ensureTotalCapacity(query.max_results);
     defer result_blocks.deinit();
 
     var result_paths = std.ArrayList([]BlockId).init(allocator);
-    try result_paths.ensureCapacity(query.max_results);
+    try result_paths.ensureTotalCapacity(query.max_results);
     defer result_paths.deinit();
 
     var result_depths = std.ArrayList(u32).init(allocator);
-    try result_depths.ensureCapacity(query.max_results);
+    try result_depths.ensureTotalCapacity(query.max_results);
     defer result_depths.deinit();
 
     const StackItem = struct {
@@ -322,7 +322,7 @@ fn traverse_depth_first(
     };
 
     var stack = std.ArrayList(StackItem).init(allocator);
-    try stack.ensureCapacity(query.max_results);
+    try stack.ensureTotalCapacity(query.max_results);
     defer {
         for (stack.items) |item| {
             allocator.free(item.path);
@@ -1055,11 +1055,11 @@ test "breadth-first vs depth-first traversal ordering" {
     var dfs_ids = std.ArrayList(BlockId).init(allocator);
     defer dfs_ids.deinit();
 
-    try bfs_ids.ensureCapacity(bfs_result.blocks.len);
+    try bfs_ids.ensureTotalCapacity(bfs_result.blocks.len);
     for (bfs_result.blocks) |block| {
         try bfs_ids.append(block.id);
     }
-    try dfs_ids.ensureCapacity(dfs_result.blocks.len);
+    try dfs_ids.ensureTotalCapacity(dfs_result.blocks.len);
     for (dfs_result.blocks) |block| {
         try dfs_ids.append(block.id);
     }

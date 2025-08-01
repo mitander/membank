@@ -32,8 +32,8 @@ pub const MetricsCounter = struct {
         _ = self.value.fetchAdd(1, .monotonic);
     }
 
-    /// Get the current value of the counter.
-    pub fn get(self: *const MetricsCounter) u64 {
+    /// Load the current value of the counter atomically.
+    pub fn load(self: *const MetricsCounter) u64 {
         return self.value.load(.monotonic);
     }
 
@@ -55,7 +55,7 @@ pub const Mutex = struct {
 
         const Context = @TypeOf(context);
         const args = switch (@typeInfo(Context)) {
-            .Struct, .Pointer => context,
+            .@"struct", .pointer => context,
             else => .{context},
         };
 
@@ -82,12 +82,12 @@ pub fn ProtectedType(comptime T: type) type {
             comptime F: type,
             context: anytype,
             func: F,
-        ) @typeInfo(@TypeOf(func)).Fn.return_type.? {
+        ) @typeInfo(@TypeOf(func)).@"fn".return_type.? {
             return self.mutex.with_lock(
-                @typeInfo(@TypeOf(func)).Fn.return_type.?,
+                @typeInfo(@TypeOf(func)).@"fn".return_type.?,
                 .{ self, context },
                 struct {
-                    fn f(self_ptr: *Self, ctx: @TypeOf(context)) @typeInfo(F).Fn.return_type.? {
+                    fn f(self_ptr: *Self, ctx: @TypeOf(context)) @typeInfo(F).@"fn".return_type.? {
                         return @call(.auto, func, .{&self_ptr.value} ++ .{ctx});
                     }
                 }.f,

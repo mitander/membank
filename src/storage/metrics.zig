@@ -97,8 +97,8 @@ pub const StorageMetrics = struct {
     /// Calculate current memory pressure based on memtable usage and compaction queue.
     /// Uses configurable thresholds to determine if ingestion should apply backpressure.
     pub fn calculate_memory_pressure(self: *const StorageMetrics, config: MemoryPressureConfig) MemoryPressure {
-        const mem_usage = self.memtable_memory_bytes.get();
-        const queue_size = self.compaction_queue_size.get();
+        const mem_usage = self.memtable_memory_bytes.load();
+        const queue_size = self.compaction_queue_size.load();
 
         // Memory pressure increases with both memtable size and compaction backlog
         const memtable_ratio = @as(f64, @floatFromInt(mem_usage)) / @as(f64, @floatFromInt(config.memtable_target_bytes));
@@ -128,52 +128,52 @@ pub const StorageMetrics = struct {
     /// Calculate average write latency in nanoseconds.
     /// Returns 0 if no writes have occurred to avoid division by zero.
     pub fn average_write_latency_ns(self: *const StorageMetrics) u64 {
-        const writes = self.blocks_written.get();
+        const writes = self.blocks_written.load();
         if (writes == 0) return 0;
-        return self.total_write_time_ns.get() / writes;
+        return self.total_write_time_ns.load() / writes;
     }
 
     /// Calculate average read latency in nanoseconds.
     /// Returns 0 if no reads have occurred to avoid division by zero.
     pub fn average_read_latency_ns(self: *const StorageMetrics) u64 {
-        const reads = self.blocks_read.get();
+        const reads = self.blocks_read.load();
         if (reads == 0) return 0;
-        return self.total_read_time_ns.get() / reads;
+        return self.total_read_time_ns.load() / reads;
     }
 
     /// Calculate average WAL flush latency in nanoseconds.
     /// Returns 0 if no flushes have occurred to avoid division by zero.
     pub fn average_wal_flush_latency_ns(self: *const StorageMetrics) u64 {
-        const flushes = self.wal_flushes.get();
+        const flushes = self.wal_flushes.load();
         if (flushes == 0) return 0;
-        return self.total_wal_flush_time_ns.get() / flushes;
+        return self.total_wal_flush_time_ns.load() / flushes;
     }
 
     /// Calculate average bytes per block written.
     /// Returns 0 if no blocks have been written to avoid division by zero.
     pub fn average_block_size_bytes(self: *const StorageMetrics) u64 {
-        const blocks = self.blocks_written.get();
+        const blocks = self.blocks_written.load();
         if (blocks == 0) return 0;
-        return self.total_bytes_written.get() / blocks;
+        return self.total_bytes_written.load() / blocks;
     }
 
     /// Calculate storage write throughput in bytes per second.
     /// Returns 0.0 if no time has elapsed to avoid division by zero.
     pub fn write_throughput_bps(self: *const StorageMetrics) f64 {
-        const total_time_ns = self.total_write_time_ns.get();
+        const total_time_ns = self.total_write_time_ns.load();
         const total_time_seconds = @as(f64, @floatFromInt(total_time_ns)) / 1_000_000_000.0;
         if (total_time_seconds == 0.0) return 0.0;
-        const total_bytes = self.total_bytes_written.get();
+        const total_bytes = self.total_bytes_written.load();
         return @as(f64, @floatFromInt(total_bytes)) / total_time_seconds;
     }
 
     /// Calculate storage read throughput in bytes per second.
     /// Returns 0.0 if no time has elapsed to avoid division by zero.
     pub fn read_throughput_bps(self: *const StorageMetrics) f64 {
-        const total_time_ns = self.total_read_time_ns.get();
+        const total_time_ns = self.total_read_time_ns.load();
         const total_time_seconds = @as(f64, @floatFromInt(total_time_ns)) / 1_000_000_000.0;
         if (total_time_seconds == 0.0) return 0.0;
-        const total_bytes = self.total_bytes_read.get();
+        const total_bytes = self.total_bytes_read.load();
         return @as(f64, @floatFromInt(total_bytes)) / total_time_seconds;
     }
 
@@ -182,23 +182,23 @@ pub const StorageMetrics = struct {
     pub fn format_human_readable(self: *const StorageMetrics, writer: anytype) !void {
         try writer.writeAll("=== Storage Metrics ===\n");
         try writer.print("Blocks: {} written, {} read, {} deleted\n", .{
-            self.blocks_written.get(),
-            self.blocks_read.get(),
-            self.blocks_deleted.get(),
+            self.blocks_written.load(),
+            self.blocks_read.load(),
+            self.blocks_deleted.load(),
         });
         try writer.print("WAL: {} writes, {} flushes, {} recoveries\n", .{
-            self.wal_writes.get(),
-            self.wal_flushes.get(),
-            self.wal_recoveries.get(),
+            self.wal_writes.load(),
+            self.wal_flushes.load(),
+            self.wal_recoveries.load(),
         });
         try writer.print("SSTable: {} reads, {} writes, {} compactions\n", .{
-            self.sstable_reads.get(),
-            self.sstable_writes.get(),
-            self.compactions.get(),
+            self.sstable_reads.load(),
+            self.sstable_writes.load(),
+            self.compactions.load(),
         });
         try writer.print("Edges: {} added, {} removed\n", .{
-            self.edges_added.get(),
-            self.edges_removed.get(),
+            self.edges_added.load(),
+            self.edges_removed.load(),
         });
         try writer.print("Latency: {} ns write, {} ns read, {} ns WAL flush\n", .{
             self.average_write_latency_ns(),
@@ -210,14 +210,14 @@ pub const StorageMetrics = struct {
             self.read_throughput_bps() / (1024.0 * 1024.0),
         });
         try writer.print("Data: {d:.2} MB written, {d:.2} MB read, avg block {d:.2} KB\n", .{
-            @as(f64, @floatFromInt(self.total_bytes_written.load(.monotonic))) / (1024.0 * 1024.0),
-            @as(f64, @floatFromInt(self.total_bytes_read.load(.monotonic))) / (1024.0 * 1024.0),
+            @as(f64, @floatFromInt(self.total_bytes_written.load())) / (1024.0 * 1024.0),
+            @as(f64, @floatFromInt(self.total_bytes_read.load())) / (1024.0 * 1024.0),
             @as(f64, @floatFromInt(self.average_block_size_bytes())) / 1024.0,
         });
         try writer.print("Errors: {} write, {} read, {} WAL\n", .{
-            self.write_errors.load(.monotonic),
-            self.read_errors.load(.monotonic),
-            self.wal_errors.load(.monotonic),
+            self.write_errors.load(),
+            self.read_errors.load(),
+            self.wal_errors.load(),
         });
     }
 
@@ -225,30 +225,30 @@ pub const StorageMetrics = struct {
     /// Provides structured data format suitable for time-series databases and alerts.
     pub fn format_json(self: *const StorageMetrics, writer: anytype) !void {
         try writer.writeAll("{\n");
-        try writer.print("  \"blocks_written\": {},\n", .{self.blocks_written.load(.monotonic)});
-        try writer.print("  \"blocks_read\": {},\n", .{self.blocks_read.load(.monotonic)});
-        try writer.print("  \"blocks_deleted\": {},\n", .{self.blocks_deleted.load(.monotonic)});
-        try writer.print("  \"wal_writes\": {},\n", .{self.wal_writes.load(.monotonic)});
-        try writer.print("  \"wal_flushes\": {},\n", .{self.wal_flushes.load(.monotonic)});
-        try writer.print("  \"wal_recoveries\": {},\n", .{self.wal_recoveries.load(.monotonic)});
-        try writer.print("  \"sstable_reads\": {},\n", .{self.sstable_reads.load(.monotonic)});
-        try writer.print("  \"sstable_writes\": {},\n", .{self.sstable_writes.load(.monotonic)});
-        try writer.print("  \"compactions\": {},\n", .{self.compactions.load(.monotonic)});
-        try writer.print("  \"edges_added\": {},\n", .{self.edges_added.load(.monotonic)});
-        try writer.print("  \"edges_removed\": {},\n", .{self.edges_removed.load(.monotonic)});
-        try writer.print("  \"total_bytes_written\": {},\n", .{self.total_bytes_written.load(.monotonic)});
-        try writer.print("  \"total_bytes_read\": {},\n", .{self.total_bytes_read.load(.monotonic)});
-        try writer.print("  \"wal_bytes_written\": {},\n", .{self.wal_bytes_written.load(.monotonic)});
-        try writer.print("  \"sstable_bytes_written\": {},\n", .{self.sstable_bytes_written.load(.monotonic)});
+        try writer.print("  \"blocks_written\": {},\n", .{self.blocks_written.load()});
+        try writer.print("  \"blocks_read\": {},\n", .{self.blocks_read.load()});
+        try writer.print("  \"blocks_deleted\": {},\n", .{self.blocks_deleted.load()});
+        try writer.print("  \"wal_writes\": {},\n", .{self.wal_writes.load()});
+        try writer.print("  \"wal_flushes\": {},\n", .{self.wal_flushes.load()});
+        try writer.print("  \"wal_recoveries\": {},\n", .{self.wal_recoveries.load()});
+        try writer.print("  \"sstable_reads\": {},\n", .{self.sstable_reads.load()});
+        try writer.print("  \"sstable_writes\": {},\n", .{self.sstable_writes.load()});
+        try writer.print("  \"compactions\": {},\n", .{self.compactions.load()});
+        try writer.print("  \"edges_added\": {},\n", .{self.edges_added.load()});
+        try writer.print("  \"edges_removed\": {},\n", .{self.edges_removed.load()});
+        try writer.print("  \"total_bytes_written\": {},\n", .{self.total_bytes_written.load()});
+        try writer.print("  \"total_bytes_read\": {},\n", .{self.total_bytes_read.load()});
+        try writer.print("  \"wal_bytes_written\": {},\n", .{self.wal_bytes_written.load()});
+        try writer.print("  \"sstable_bytes_written\": {},\n", .{self.sstable_bytes_written.load()});
         try writer.print("  \"average_write_latency_ns\": {},\n", .{self.average_write_latency_ns()});
         try writer.print("  \"average_read_latency_ns\": {},\n", .{self.average_read_latency_ns()});
         try writer.print("  \"average_wal_flush_latency_ns\": {},\n", .{self.average_wal_flush_latency_ns()});
         try writer.print("  \"average_block_size_bytes\": {},\n", .{self.average_block_size_bytes()});
         try writer.print("  \"write_throughput_bps\": {d:.2},\n", .{self.write_throughput_bps()});
         try writer.print("  \"read_throughput_bps\": {d:.2},\n", .{self.read_throughput_bps()});
-        try writer.print("  \"write_errors\": {},\n", .{self.write_errors.load(.monotonic)});
-        try writer.print("  \"read_errors\": {},\n", .{self.read_errors.load(.monotonic)});
-        try writer.print("  \"wal_errors\": {}\n", .{self.wal_errors.load(.monotonic)});
+        try writer.print("  \"write_errors\": {},\n", .{self.write_errors.load()});
+        try writer.print("  \"read_errors\": {},\n", .{self.read_errors.load()});
+        try writer.print("  \"wal_errors\": {}\n", .{self.wal_errors.load()});
         try writer.writeAll("}\n");
     }
 };
@@ -259,10 +259,10 @@ const testing = std.testing;
 test "metrics initialization sets all counters to zero" {
     const metrics = StorageMetrics.init();
 
-    try testing.expectEqual(@as(u64, 0), metrics.blocks_written.get());
-    try testing.expectEqual(@as(u64, 0), metrics.blocks_read.get());
-    try testing.expectEqual(@as(u64, 0), metrics.total_write_time_ns.get());
-    try testing.expectEqual(@as(u64, 0), metrics.write_errors.get());
+    try testing.expectEqual(@as(u64, 0), metrics.blocks_written.load());
+    try testing.expectEqual(@as(u64, 0), metrics.blocks_read.load());
+    try testing.expectEqual(@as(u64, 0), metrics.total_write_time_ns.load());
+    try testing.expectEqual(@as(u64, 0), metrics.write_errors.load());
 }
 
 test "average calculations handle zero operations gracefully" {

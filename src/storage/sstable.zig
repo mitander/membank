@@ -406,7 +406,7 @@ pub const SSTable = struct {
 
         _ = try file.seek(@intCast(header.index_offset), .start);
 
-        try self.index.ensureCapacity(header.block_count);
+        try self.index.ensureTotalCapacity(header.block_count);
         for (0..header.block_count) |_| {
             var entry_buffer: [IndexEntry.SERIALIZED_SIZE]u8 = undefined;
             _ = try file.read(&entry_buffer);
@@ -591,7 +591,7 @@ pub const Compactor = struct {
         for (input_tables) |*table| {
             total_capacity += table.block_count;
         }
-        try all_blocks.ensureCapacity(total_capacity);
+        try all_blocks.ensureTotalCapacity(total_capacity);
 
         for (input_tables) |*table| {
             var iter = table.iterator();
@@ -644,7 +644,7 @@ pub const Compactor = struct {
         defer unique.deinit();
 
         // Pre-allocate capacity - worst case is all blocks are unique
-        try unique.ensureCapacity(sorted.len);
+        try unique.ensureTotalCapacity(sorted.len);
 
         var prev_id: ?BlockId = null;
         for (sorted) |block| {
