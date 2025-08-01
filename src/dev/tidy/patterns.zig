@@ -15,9 +15,10 @@ const stdx = @import("../../core/stdx.zig");
 /// Returns violation message or null if code adheres to standards.
 pub fn check_banned_patterns(file_path: []const u8, source: []const u8) ?[]const u8 {
     // Tests need different rules due to controlled environment
-    if (mem.endsWith(u8, file_path, "test.zig") or 
+    if (mem.endsWith(u8, file_path, "test.zig") or
         mem.endsWith(u8, file_path, "_test.zig") or
-        mem.indexOf(u8, file_path, "/tests/") != null) {
+        mem.indexOf(u8, file_path, "/tests/") != null)
+    {
         return check_test_patterns(source);
     }
 
@@ -29,7 +30,7 @@ pub fn check_banned_patterns(file_path: []const u8, source: []const u8) ?[]const
 /// This helps reduce false positives for performance warnings
 fn has_capacity_management_nearby(source: []const u8) bool {
     // Look for common capacity management patterns near the append
-    const capacity_patterns = [_][]const u8 {
+    const capacity_patterns = [_][]const u8{
         "ensureTotalCapacity",
         "ensureUnusedCapacity",
         "ensureTotalCapacityPrecise",
@@ -44,8 +45,9 @@ fn has_capacity_management_nearby(source: []const u8) bool {
     }
 
     // Check if this is in test code which might have different performance characteristics
-    if (mem.indexOf(u8, source, "test ") != null or 
-        mem.indexOf(u8, source, "test_") != null) {
+    if (mem.indexOf(u8, source, "test ") != null or
+        mem.indexOf(u8, source, "test_") != null)
+    {
         return true;
     }
 
@@ -72,46 +74,52 @@ fn check_banned_patterns_production(source: []const u8) ?[]const u8 {
     if (mem.indexOf(u8, source, "try " ++ "unreachable") != null) {
         return "use proper error handling instead of 'try' + 'unreachable'";
     }
-    if (mem.indexOf(u8, source, "catch " ++ "unreachable") != null and 
-       mem.indexOf(u8, source, "// Safety:") == null) {
+    if (mem.indexOf(u8, source, "catch " ++ "unreachable") != null and
+        mem.indexOf(u8, source, "// Safety:") == null)
+    {
         return "use 'catch unreachable' only with safety comment explaining why it's safe";
     }
-    
+
     // Check for unsafe patterns that need safety comments
-    if ((mem.indexOf(u8, source, "@ptrCast") != null ||
-         mem.indexOf(u8, source, "@intToPtr") != null ||
-         mem.indexOf(u8, source, "@alignCast") != null) &&
-        mem.indexOf(u8, source, "// Safety:") == null) {
+    if ((mem.indexOf(u8, source, "@ptrCast") != null or
+        mem.indexOf(u8, source, "@intToPtr") != null or
+        mem.indexOf(u8, source, "@alignCast") != null) and
+        mem.indexOf(u8, source, "// Safety:") == null)
+    {
         return "unsafe operations require safety comments explaining invariants";
     }
 
     // Concurrency anti-patterns
     // Safety: These checks ensure thread-safety by enforcing proper concurrency patterns
-    if (mem.indexOf(u8, source, "std.Thread.spawn") != null && // tidy:ignore-arch - pattern detection for architecture compliance
-        mem.indexOf(u8, source, "// ALLOW: direct thread spawn") == null) {
+    if (mem.indexOf(u8, source, "std.Thread.spawn") != null and // tidy:ignore-arch - pattern detection for architecture compliance
+        mem.indexOf(u8, source, "// ALLOW: direct thread spawn") == null)
+    {
         return "use stdx.ThreadPool or other coordinated concurrency patterns instead of raw thread spawning";
     }
-    
+
     // Check for direct atomic usage without coordination primitives
-    if (mem.indexOf(u8, source, "std.atomic") != null && // tidy:ignore-arch - pattern detection for architecture compliance
-        mem.indexOf(u8, source, "// ALLOW: direct atomic") == null &&
-        mem.indexOf(u8, source, "single_threaded") == null &&
-        mem.indexOf(u8, source, "stdx.MetricsCounter") == null &&
-        mem.indexOf(u8, source, "stdx.Protected") == null) {
+    if (mem.indexOf(u8, source, "std.atomic") != null and // tidy:ignore-arch - pattern detection for architecture compliance
+        mem.indexOf(u8, source, "// ALLOW: direct atomic") == null and
+        mem.indexOf(u8, source, "single_threaded") == null and
+        mem.indexOf(u8, source, "stdx.MetricsCounter") == null and
+        mem.indexOf(u8, source, "stdx.Protected") == null)
+    {
         return "use stdx coordination primitives (MetricsCounter, Protected) instead of direct atomics";
     }
-    
+
     // Check for raw mutex usage without Protected wrapper
-    if (mem.indexOf(u8, source, "std.Thread.Mutex") != null && // tidy:ignore-arch - pattern detection for architecture compliance
-        mem.indexOf(u8, source, "// ALLOW: direct mutex") == null &&
-        mem.indexOf(u8, source, "stdx.Protected") == null) {
+    if (mem.indexOf(u8, source, "std.Thread.Mutex") != null and // tidy:ignore-arch - pattern detection for architecture compliance
+        mem.indexOf(u8, source, "// ALLOW: direct mutex") == null and
+        mem.indexOf(u8, source, "stdx.Protected") == null)
+    {
         return "use stdx.Protected wrapper instead of raw std.Thread.Mutex for better safety";
     }
 
     // Performance anti-patterns
     if (mem.indexOf(u8, source, "std.ArrayList.append") != null and
-       mem.indexOf(u8, source, "ensureCapacity") == null and
-       mem.indexOf(u8, source, "// ALLOW: append without ensureCapacity") == null) {
+        mem.indexOf(u8, source, "ensureCapacity") == null and
+        mem.indexOf(u8, source, "// ALLOW: append without ensureCapacity") == null)
+    {
         // Only flag if there's no capacity management nearby and it's not explicitly allowed
         if (!has_capacity_management_nearby(source)) {
             return "use ensureCapacity before append in hot paths or add ALLOW comment";
@@ -120,8 +128,9 @@ fn check_banned_patterns_production(source: []const u8) ?[]const u8 {
 
     // Architecture violations
     if (mem.indexOf(u8, source, "std.HashMap") != null and
-       mem.indexOf(u8, source, "arena") == null and
-       mem.indexOf(u8, source, "Arena") == null) {
+        mem.indexOf(u8, source, "arena") == null and
+        mem.indexOf(u8, source, "Arena") == null)
+    {
         return check_hashmap_usage(source);
     }
 
@@ -135,13 +144,15 @@ fn check_banned_patterns_production(source: []const u8) ?[]const u8 {
 
     // Type erasure anti-patterns
     if (mem.indexOf(u8, source, "*anyopaque") != null and
-       mem.indexOf(u8, source, "vtable") == null) {
+        mem.indexOf(u8, source, "vtable") == null)
+    {
         return "avoid type erasure without clear vtable pattern";
     }
 
     // String handling anti-patterns
     if (mem.indexOf(u8, source, "std.fmt.allocPrint") != null and
-       mem.indexOf(u8, source, "defer") == null) {
+        mem.indexOf(u8, source, "defer") == null)
+    {
         return check_allocprint_usage(source);
     }
 
@@ -154,7 +165,7 @@ fn check_unsafe_patterns(source: []const u8) ?[]const u8 {
     const unsafe_patterns = [_]struct {
         pattern: []const u8,
         description: []const u8,
-    } {
+    }{
         .{ .pattern = "@ptrCast", .description = "@ptrCast requires a safety comment explaining type safety" },
         .{ .pattern = "@intToPtr", .description = "@intToPtr requires a safety comment explaining pointer validity" },
         .{ .pattern = "@alignCast", .description = "@alignCast requires a safety comment explaining alignment guarantees" },
@@ -162,13 +173,14 @@ fn check_unsafe_patterns(source: []const u8) ?[]const u8 {
     };
 
     for (unsafe_patterns) |pattern| {
-        if (mem.indexOf(u8, source, pattern.pattern) != null &&
-            mem.indexOf(u8, source, "// Safety:") == null &&
-            mem.indexOf(u8, source, "// ALLOW: ") == null) {
+        if (mem.indexOf(u8, source, pattern.pattern) != null and
+            mem.indexOf(u8, source, "// Safety:") == null and
+            mem.indexOf(u8, source, "// ALLOW: ") == null)
+        {
             return pattern.description;
         }
     }
-    
+
     return null;
 }
 
@@ -178,15 +190,17 @@ fn check_unsafe_patterns(source: []const u8) ?[]const u8 {
 fn check_test_patterns(source: []const u8) ?[]const u8 {
     // Memory leaks in tests are still bad
     // Safety: This is a best-effort check to catch common memory leaks in tests
-    if (mem.indexOf(u8, source, "std.fmt.allocPrint") != null &&
-        mem.indexOf(u8, source, "defer") == null &&
-        mem.indexOf(u8, source, "testing.allocator") != null) {
+    if (mem.indexOf(u8, source, "std.fmt.allocPrint") != null and
+        mem.indexOf(u8, source, "defer") == null and
+        mem.indexOf(u8, source, "testing.allocator") != null)
+    {
         return check_allocprint_usage(source);
     }
 
     // Avoid infinite loops in tests
     if (mem.indexOf(u8, source, "while (true)") != null and
-        mem.indexOf(u8, source, "break") == null) {
+        mem.indexOf(u8, source, "break") == null)
+    {
         return "infinite loops in tests must have break conditions";
     }
 
@@ -199,25 +213,27 @@ fn check_arraylist_usage(source: []const u8) ?[]const u8 {
     var lines = mem.split(u8, source, "\n");
     var line_num: u32 = 0;
     var has_capacity_management = false;
-    
+
     while (lines.next()) |line| {
         line_num += 1;
-        
+
         if (mem.indexOf(u8, line, "ensureCapacity") != null or
             mem.indexOf(u8, line, "ensureTotalCapacity") != null or
-            mem.indexOf(u8, line, "ArrayList.initCapacity") != null) {
+            mem.indexOf(u8, line, "ArrayList.initCapacity") != null)
+        {
             has_capacity_management = true;
         }
-        
+
         // Check for hot path indicators
         if (mem.indexOf(u8, line, "while") != null or
-            mem.indexOf(u8, line, "for") != null) {
+            mem.indexOf(u8, line, "for") != null)
+        {
             if (mem.indexOf(u8, line, ".append(") != null and !has_capacity_management) {
                 return "use ensureCapacity before ArrayList.append in loops";
             }
         }
     }
-    
+
     return null;
 }
 
@@ -228,11 +244,12 @@ fn check_hashmap_usage(source: []const u8) ?[]const u8 {
         // Check if it's in a context where arena should be used
         if (mem.indexOf(u8, source, "memtable") != null or
             mem.indexOf(u8, source, "index") != null or
-            mem.indexOf(u8, source, "cache") != null) {
+            mem.indexOf(u8, source, "cache") != null)
+        {
             return "use arena allocator for HashMap in memtable/index/cache contexts";
         }
     }
-    
+
     return null;
 }
 
@@ -242,31 +259,32 @@ fn check_allocprint_usage(source: []const u8) ?[]const u8 {
     var allocprint_line: ?u32 = null;
     var has_defer = false;
     var line_num: u32 = 0;
-    
+
     while (lines.next()) |line| {
         line_num += 1;
-        
+
         if (mem.indexOf(u8, line, "std.fmt.allocPrint") != null) {
             allocprint_line = line_num;
             has_defer = false; // Reset for this allocPrint
         }
-        
-        if (allocprint_line != null and 
+
+        if (allocprint_line != null and
             mem.indexOf(u8, line, "defer") != null and
-            (mem.indexOf(u8, line, ".free(") != null or mem.indexOf(u8, line, "allocator.free") != null)) {
+            (mem.indexOf(u8, line, ".free(") != null or mem.indexOf(u8, line, "allocator.free") != null))
+        {
             has_defer = true;
         }
-        
+
         // If we see another allocPrint before defer, it's a problem
         if (allocprint_line != null and line_num > allocprint_line + 5 and !has_defer) {
             return "std.fmt.allocPrint must be followed by defer allocator.free()";
         }
     }
-    
+
     if (allocprint_line != null and !has_defer) {
         return "std.fmt.allocPrint must be followed by defer allocator.free()";
     }
-    
+
     return null;
 }
 
@@ -277,7 +295,7 @@ pub fn check_unicode_emojis(source: []const u8) ?[]const u8 {
         if (byte >= 0x80) { // Non-ASCII
             // Simple check for common emoji ranges
             if (i + 2 < source.len) {
-                const next_bytes = source[i..i+3];
+                const next_bytes = source[i .. i + 3];
                 // Check for common emoji prefixes
                 if (mem.startsWith(u8, next_bytes, "\xF0\x9F")) {
                     return "avoid Unicode emojis in source code - use ASCII only";
@@ -295,7 +313,7 @@ pub fn check_control_characters(source: []const u8) ?u8 {
         if (char == '\n' or char == '\r' or char == '\t' or char == ' ') {
             continue;
         }
-        
+
         // Check for other control characters
         if (char < 32 or char == 127) {
             return char;

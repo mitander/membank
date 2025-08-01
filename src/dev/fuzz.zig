@@ -964,7 +964,7 @@ fn generate_malformed_zig_source(allocator: std.mem.Allocator, random: std.Rando
     // Pre-allocate with estimated capacity (avg template length * line count + some buffer)
     const line_count = random.intRangeAtMost(usize, 1, 20);
     const estimated_capacity = 100 * line_count; // Average template is ~100 bytes
-    
+
     var result = std.ArrayList(u8).init(allocator);
     try result.ensureTotalCapacity(estimated_capacity);
     defer result.deinit();

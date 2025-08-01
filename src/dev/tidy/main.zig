@@ -44,7 +44,7 @@ pub fn main() !void {
     var files_processed: u32 = 0;
     for (file_paths) |file_path| {
         if (!mem.endsWith(u8, file_path, ".zig")) continue;
-        
+
         const source = read_file_content(allocator, file_path) catch |err| {
             std.debug.print("Error reading {s}: {}\n", .{ file_path, err });
             continue;
@@ -56,22 +56,22 @@ pub fn main() !void {
     }
 
     std.debug.print("Analyzed {d} files\n\n", .{files_processed});
-    
+
     summary.print_summary();
     if (summary.total_violations > 0) {
         summary.print_detailed_violations();
         std.process.exit(1);
     }
-    
+
     std.debug.print("Code quality excellent! All architectural principles upheld.\n", .{});
 }
 
 /// Analyze a single file against all Membank rules
 fn analyze_file(
-    summary: *ViolationSummary, 
-    allocator: std.mem.Allocator, 
-    file_path: []const u8, 
-    source: []const u8
+    summary: *ViolationSummary,
+    allocator: std.mem.Allocator,
+    file_path: []const u8,
+    source: []const u8,
 ) !void {
     // Parse source for semantic analysis
     const context = parser.parse_source(allocator, file_path, source) catch |err| {
@@ -88,7 +88,7 @@ fn analyze_file(
     for (rules.MEMBANK_RULES) |rule| {
         const violations = rule.check_fn(@constCast(&context));
         defer allocator.free(violations);
-        
+
         for (violations) |rule_violation| {
             try summary.add_violation(Violation{
                 .file_path = file_path,
@@ -105,35 +105,35 @@ fn analyze_file(
 /// Discover all Zig source files in the project
 fn discover_source_files(allocator: std.mem.Allocator) ![][]const u8 {
     var file_paths = std.ArrayList([]const u8).init(allocator);
-    
+
     // Search key directories
     const search_dirs = [_][]const u8{ "src", "tests" };
-    
+
     for (search_dirs) |dir| {
         discover_files_recursive(allocator, &file_paths, dir) catch |err| {
             if (err == error.FileNotFound) continue; // Directory might not exist
             return err;
         };
     }
-    
+
     return file_paths.toOwnedSlice();
 }
 
 /// Recursively find all .zig files in a directory
 fn discover_files_recursive(
-    allocator: std.mem.Allocator, 
-    file_paths: *std.ArrayList([]const u8), 
-    dir_path: []const u8
+    allocator: std.mem.Allocator,
+    file_paths: *std.ArrayList([]const u8),
+    dir_path: []const u8,
 ) !void {
     var dir = fs.cwd().openDir(dir_path, .{ .iterate = true }) catch return;
     defer dir.close();
-    
+
     var iterator = dir.iterate();
     while (try iterator.next()) |entry| {
         if (mem.eql(u8, entry.name, ".") or mem.eql(u8, entry.name, "..")) continue;
-        
+
         const full_path = try fs.path.join(allocator, &[_][]const u8{ dir_path, entry.name });
-        
+
         switch (entry.kind) {
             .file => {
                 if (mem.endsWith(u8, entry.name, ".zig")) {
@@ -144,13 +144,14 @@ fn discover_files_recursive(
             },
             .directory => {
                 // Skip certain directories
-                if (mem.eql(u8, entry.name, "zig-cache") or 
+                if (mem.eql(u8, entry.name, "zig-cache") or
                     mem.eql(u8, entry.name, "zig-out") or
-                    mem.eql(u8, entry.name, ".git")) {
+                    mem.eql(u8, entry.name, ".git"))
+                {
                     allocator.free(full_path);
                     continue;
                 }
-                
+
                 discover_files_recursive(allocator, file_paths, full_path) catch {};
                 allocator.free(full_path);
             },
@@ -165,10 +166,10 @@ fn discover_files_recursive(
 fn read_file_content(allocator: std.mem.Allocator, file_path: []const u8) ![]u8 {
     const file = try fs.cwd().openFile(file_path, .{});
     defer file.close();
-    
+
     const file_size = try file.getEndPos();
     const content = try allocator.alloc(u8, file_size);
     _ = try file.readAll(content);
-    
+
     return content;
 }

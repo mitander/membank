@@ -286,7 +286,7 @@ pub const DebugAllocator = struct {
         allocator.allocations_protected.with([MAX_TRACKED_ALLOCATIONS]AllocationInfo, {}, struct {
             fn f(allocations: *[MAX_TRACKED_ALLOCATIONS]AllocationInfo) void {
                 for (allocations) |*alloc| {
-                    alloc.* = .{};
+                    alloc.* = std.mem.zeroes(AllocationInfo);
                 }
             }
         }.f);
@@ -337,28 +337,42 @@ pub const DebugAllocator = struct {
         self: *DebugAllocator,
         writer: anytype,
     ) !void {
-        return self.mutex.withLock(void, .{ self, writer }, struct {
-            fn f(ctx: struct { self: *DebugAllocator, writer: anytype }) !void {
-                try ctx.writer.print("Active Allocations ({}):\n", .{ctx.self.stats.active_allocations});
+        const Context = struct {
+            self: *DebugAllocator,
+            writer: @TypeOf(writer),
+        };
+        return self.mutex.withLock(void, Context{ .self = self, .writer = writer }, struct {
+            fn f(ctx: Context) !void {
+                const stats = ctx.self.stats_protected.with(DebugAllocatorStats, {}, struct {
+                    fn get(s: *const DebugAllocatorStats) DebugAllocatorStats {
+                        return s.*;
+                    }
+                }.get);
+                try ctx.writer.print("Active Allocations ({}):\n", .{stats.active_allocations});
 
                 var iterator = ctx.self.free_slots.iterator(.{ .kind = .unset });
                 while (iterator.next()) |index| {
-                    const info = &ctx.self.allocations[index];
-                    if (info.ptr) |ptr| {
+                    const info = ctx.self.allocations_protected.with([MAX_TRACKED_ALLOCATIONS]AllocationInfo, index, struct {
+                        fn get(allocs: *[MAX_TRACKED_ALLOCATIONS]AllocationInfo, idx: usize) AllocationInfo {
+                            return allocs[idx];
+                        }
+                    }.get);
+                    if (info.is_valid()) {
                         try ctx.writer.print("  {*} - {} bytes, allocated at {}\n", .{
-                            ptr,
+                            @as(*anyopaque, @ptrFromInt(info.address)),
                             info.size,
                             info.timestamp,
                         });
-                        
+
                         if (ctx.self.config.enable_stack_traces and info.stack_depth > 0) {
                             for (info.stack_trace[0..info.stack_depth]) |addr| {
                                 try ctx.writer.print("      0x{X}\n", .{addr});
                             }
                         }
+                    }
                 }
             }
-        }
+        }.f);
     }
 
     fn alloc_impl(
@@ -420,148 +434,200 @@ pub const DebugAllocator = struct {
     ) !?[*]u8 {
         if (len == 0) return null;
 
-        return self.mutex.withLock(?[*]u8, self, struct {
-            fn f(self_ptr: *DebugAllocator) !?[*]u8 {
+        const Context = struct {
+            self: *DebugAllocator,
+            len: usize,
+            ptr_align: std.mem.Alignment,
+        };
+        return self.mutex.withLock(?[*]u8, Context{ .self = self, .len = len, .ptr_align = ptr_align }, struct {
+            fn f(ctx: Context) !?[*]u8 {
+                const self_ptr = ctx.self;
                 const header_size = @sizeOf(AllocationHeader);
                 const footer_size = @sizeOf(AllocationFooter);
-        const guard_suffix_size = if (self.config.enable_guard_validation) GUARD_SIZE else 0;
+                const guard_suffix_size = if (self_ptr.config.enable_guard_validation) GUARD_SIZE else 0;
 
-        // Calculate alignment requirements
-        const alignment_bytes = @as(usize, 1) << @intFromEnum(ptr_align);
-        const header_align = @alignOf(AllocationHeader);
-        const required_align = @max(alignment_bytes, header_align);
-        const required_align_enum = std.mem.Alignment.fromByteUnits(required_align);
+                // Calculate alignment requirements
+                const alignment_bytes = @as(usize, 1) << @intFromEnum(ctx.ptr_align);
+                const header_align = @alignOf(AllocationHeader);
+                const required_align = @max(alignment_bytes, header_align);
+                const required_align_enum = std.mem.Alignment.fromByteUnits(required_align);
 
-        // Calculate user data offset with proper alignment
-        const user_data_offset = std.mem.alignForward(usize, header_size, alignment_bytes);
-        const total_size = user_data_offset + len + guard_suffix_size + footer_size;
+                // Calculate user data offset with proper alignment
+                const user_data_offset = std.mem.alignForward(usize, header_size, alignment_bytes);
+                const total_size = user_data_offset + ctx.len + guard_suffix_size + footer_size;
 
-        const tracker_index = self.free_slots.findFirstSet() orelse {
-            self.stats.alignment_violations += 1;
-            return DebugAllocatorError.TrackerFull;
-        };
+                const tracker_index = self_ptr.free_slots.findFirstSet() orelse {
+                    self_ptr.stats_protected.with(DebugAllocatorStats, {}, struct {
+                        fn inc_violations(stats: *DebugAllocatorStats) void {
+                            stats.alignment_violations += 1;
+                        }
+                    }.inc_violations);
+                    return DebugAllocatorError.TrackerFull;
+                };
 
-        const raw_memory = self.backing_allocator.vtable.alloc(
-            self.backing_allocator.ptr,
-            total_size,
-            required_align_enum,
-            @returnAddress(),
-        ) orelse return null;
-
-        const header: *AllocationHeader = @ptrCast(@alignCast(raw_memory));
-        header.* = AllocationHeader.init(len, ptr_align, @intCast(tracker_index));
-
-        const user_ptr = raw_memory + user_data_offset;
-
-        if (self.config.enable_alignment_checks) {
-            const user_alignment_bytes = @as(usize, 1) << @intFromEnum(ptr_align);
-            if (@intFromPtr(user_ptr) % user_alignment_bytes != 0) {
-                self.backing_allocator.vtable.free(
-                    self.backing_allocator.ptr,
-                    raw_memory[0..total_size],
-                    ptr_align,
+                const raw_memory = self_ptr.backing_allocator.vtable.alloc(
+                    self_ptr.backing_allocator.ptr,
+                    total_size,
+                    required_align_enum,
                     @returnAddress(),
-                );
-                self.stats.alignment_violations += 1;
-                return DebugAllocatorError.AlignmentViolation;
+                ) orelse return null;
+
+                const header: *AllocationHeader = @ptrCast(@alignCast(raw_memory));
+                header.* = AllocationHeader.init(ctx.len, ctx.ptr_align, @intCast(tracker_index));
+
+                const user_ptr = raw_memory + user_data_offset;
+
+                if (self_ptr.config.enable_alignment_checks) {
+                    const user_alignment_bytes = @as(usize, 1) << @intFromEnum(ctx.ptr_align);
+                    if (@intFromPtr(user_ptr) % user_alignment_bytes != 0) {
+                        self_ptr.backing_allocator.vtable.free(
+                            self_ptr.backing_allocator.ptr,
+                            raw_memory[0..total_size],
+                            ctx.ptr_align,
+                            @returnAddress(),
+                        );
+                        self_ptr.stats_protected.with(DebugAllocatorStats, {}, struct {
+                            fn inc_violations(stats: *DebugAllocatorStats) void {
+                                stats.alignment_violations += 1;
+                            }
+                        }.inc_violations);
+                        return DebugAllocatorError.AlignmentViolation;
+                    }
+                }
+
+                // Write guard suffix after user data if guard validation is enabled
+                if (self_ptr.config.enable_guard_validation) {
+                    const guard_suffix = user_ptr[ctx.len .. ctx.len + GUARD_SIZE];
+                    const guard_pattern: u8 = @truncate(GUARD_MAGIC >> 8);
+                    @memset(guard_suffix, guard_pattern);
+                }
+
+                const footer: *AllocationFooter = @ptrCast(@alignCast(user_ptr + ctx.len + guard_suffix_size));
+                footer.* = AllocationFooter.init();
+
+                self_ptr.free_slots.unset(tracker_index);
+                self_ptr.allocations_protected.with([MAX_TRACKED_ALLOCATIONS]AllocationInfo, .{ tracker_index, ctx.len, required_align_enum, @intFromPtr(user_ptr) }, struct {
+                    fn record_allocation(
+                        allocs: *[MAX_TRACKED_ALLOCATIONS]AllocationInfo,
+                        args: struct { usize, usize, std.mem.Alignment, usize },
+                    ) void {
+                        allocs[args[0]] = AllocationInfo.init(args[1], args[2], args[3]);
+                    }
+                }.record_allocation);
+
+                // Update statistics
+                self_ptr.stats_protected.with(DebugAllocatorStats, ctx.len, struct {
+                    fn update_alloc(stats: *DebugAllocatorStats, size: usize) void {
+                        stats.total_allocations += 1;
+                        stats.active_allocations += 1;
+                        stats.total_bytes_allocated += size;
+                        stats.current_bytes_allocated += size;
+
+                        if (stats.active_allocations > stats.peak_allocations) {
+                            stats.peak_allocations = stats.active_allocations;
+                        }
+                        if (stats.current_bytes_allocated > stats.peak_bytes_allocated) {
+                            stats.peak_bytes_allocated = stats.current_bytes_allocated;
+                        }
+                    }
+                }.update_alloc);
+
+                return user_ptr;
             }
-        }
-
-        // Write guard suffix after user data if guard validation is enabled
-        if (self.config.enable_guard_validation) {
-            const guard_suffix = user_ptr[len .. len + GUARD_SIZE];
-            const guard_pattern: u8 = @truncate(GUARD_MAGIC >> 8);
-            @memset(guard_suffix, guard_pattern);
-        }
-
-        const footer: *AllocationFooter = @ptrCast(@alignCast(user_ptr + len + guard_suffix_size));
-        footer.* = AllocationFooter.init();
-
-        self.free_slots.unset(tracker_index);
-        self.allocations[tracker_index] = AllocationInfo.init(len, required_align_enum, @intFromPtr(user_ptr));
-
-        self.stats.total_allocations += 1;
-        self.stats.active_allocations += 1;
-        self.stats.total_bytes_allocated += len;
-        self.stats.current_bytes_allocated += len;
-
-        if (self.stats.active_allocations > self.stats.peak_allocations) {
-            self.stats.peak_allocations = self.stats.active_allocations;
-        }
-        if (self.stats.current_bytes_allocated > self.stats.peak_bytes_allocated) {
-            self.stats.peak_bytes_allocated = self.stats.current_bytes_allocated;
-        }
-
-        return user_ptr;
+        }.f);
     }
 
     fn free_internal(self: *DebugAllocator, buf: []u8) !void {
         if (buf.len == 0) return;
 
-        return self.mutex.withLock(void, .{ self, buf }, struct {
-            fn f(ctx: struct { self: *DebugAllocator, buf: []u8 }) !void {
+        const Context = struct { self: *DebugAllocator, buf: []u8 };
+        return self.mutex.withLock(void, Context{ .self = self, .buf = buf }, struct {
+            fn f(ctx: Context) !void {
                 const user_ptr = ctx.buf.ptr;
                 const user_addr = @intFromPtr(user_ptr);
+                const self_ptr = ctx.self;
 
-        // Find allocation in tracker
-        var tracker_index: ?usize = null;
-        var iterator = self.free_slots.iterator(.{ .kind = .unset });
-        while (iterator.next()) |index| {
-            const info = &self.allocations[index];
-            if (info.is_valid() and info.address == user_addr) {
-                tracker_index = index;
-                break;
+                // Find allocation in tracker
+                var tracker_index: ?usize = null;
+                var iterator = self_ptr.free_slots.iterator(.{ .kind = .unset });
+                while (iterator.next()) |index| {
+                    const info = self_ptr.allocations_protected.with([MAX_TRACKED_ALLOCATIONS]AllocationInfo, index, struct {
+                        fn get(allocs: *[MAX_TRACKED_ALLOCATIONS]AllocationInfo, idx: usize) AllocationInfo {
+                            return allocs[idx];
+                        }
+                    }.get);
+                    if (info.is_valid() and info.address == user_addr) {
+                        tracker_index = index;
+                        break;
+                    }
+                }
+
+                const found_index = tracker_index orelse {
+                    self_ptr.stats_protected.with(DebugAllocatorStats, {}, struct {
+                        fn inc_invalid_frees(stats: *DebugAllocatorStats) void {
+                            stats.invalid_frees += 1;
+                        }
+                    }.inc_invalid_frees);
+                    return DebugAllocatorError.InvalidFree;
+                };
+
+                var info = self_ptr.allocations_protected.with([MAX_TRACKED_ALLOCATIONS]AllocationInfo, found_index, struct {
+                    fn get(allocs: *[MAX_TRACKED_ALLOCATIONS]AllocationInfo, idx: usize) *AllocationInfo {
+                        return &allocs[idx];
+                    }
+                }.get);
+
+                // Check for double free
+                if (!info.is_valid()) {
+                    self_ptr.stats_protected.with(DebugAllocatorStats, {}, struct {
+                        fn inc_double_frees(stats: *DebugAllocatorStats) void {
+                            stats.double_frees += 1;
+                        }
+                    }.inc_double_frees);
+                    return DebugAllocatorError.DoubleFree;
+                }
+
+                // Validate guards if enabled
+                if (self_ptr.config.enable_guard_validation) {
+                    try self_ptr.validate_allocation_internal(user_addr, info);
+                }
+
+                // Poison freed memory if enabled
+                if (self_ptr.config.enable_poison_free) {
+                    @memset(ctx.buf, 0xDE); // "DEAD" pattern
+                }
+
+                // Calculate original allocation size and offset
+                const header_size = @sizeOf(AllocationHeader);
+                const footer_size = @sizeOf(AllocationFooter);
+                const guard_suffix_size = if (self_ptr.config.enable_guard_validation) GUARD_SIZE else 0;
+                const alignment_bytes = @as(usize, 1) << @intFromEnum(info.alignment);
+                const user_data_offset = std.mem.alignForward(usize, header_size, alignment_bytes);
+                const total_size = user_data_offset + info.size + guard_suffix_size + footer_size;
+                const raw_ptr = user_ptr - user_data_offset;
+
+                // Free the underlying memory
+                self_ptr.backing_allocator.vtable.free(
+                    self_ptr.backing_allocator.ptr,
+                    raw_ptr[0..total_size],
+                    info.alignment,
+                    @returnAddress(),
+                );
+
+                // Mark allocation as freed
+                info.invalidate();
+                self_ptr.free_slots.set(found_index);
+
+                // Update statistics
+                self_ptr.stats_protected.with(DebugAllocatorStats, info.size, struct {
+                    fn update_dealloc(stats: *DebugAllocatorStats, size: usize) void {
+                        stats.total_deallocations += 1;
+                        stats.active_allocations -= 1;
+                        stats.current_bytes_allocated -= size;
+                    }
+                }.update_dealloc);
             }
-        }
-
-        const found_index = tracker_index orelse {
-            self.stats.invalid_frees += 1;
-            return DebugAllocatorError.InvalidFree;
-        };
-
-        const info = &self.allocations[found_index];
-
-        // Check for double free
-        if (!info.is_valid()) {
-            self.stats.double_frees += 1;
-            return DebugAllocatorError.DoubleFree;
-        }
-
-        // Validate guards if enabled
-        if (self.config.enable_guard_validation) {
-            try self.validate_allocation_internal(user_addr, info);
-        }
-
-        // Poison freed memory if enabled
-        if (self.config.enable_poison_free) {
-            @memset(buf, 0xDE); // "DEAD" pattern
-        }
-
-        // Calculate original allocation size and offset
-        const header_size = @sizeOf(AllocationHeader);
-        const footer_size = @sizeOf(AllocationFooter);
-        const guard_suffix_size = if (self.config.enable_guard_validation) GUARD_SIZE else 0;
-        const alignment_bytes = @as(usize, 1) << @intFromEnum(info.alignment);
-        const user_data_offset = std.mem.alignForward(usize, header_size, alignment_bytes);
-        const total_size = user_data_offset + info.size + guard_suffix_size + footer_size;
-        const raw_ptr = user_ptr - user_data_offset;
-
-        // Free the underlying memory
-        self.backing_allocator.vtable.free(
-            self.backing_allocator.ptr,
-            raw_ptr[0..total_size],
-            info.alignment,
-            @returnAddress(),
-        );
-
-        // Mark allocation as freed
-        info.invalidate();
-        self.free_slots.set(found_index);
-
-        // Update statistics
-        self.stats.total_deallocations += 1;
-        self.stats.active_allocations -= 1;
-        self.stats.current_bytes_allocated -= info.size;
+        }.f);
     }
 
     fn validate_allocation_internal(
@@ -593,7 +659,11 @@ pub const DebugAllocator = struct {
         const guard_suffix_size = if (self.config.enable_guard_validation) GUARD_SIZE else 0;
         const footer: *AllocationFooter = @ptrCast(@alignCast(user_ptr + allocation_info.size + guard_suffix_size));
         if (!footer.is_valid()) {
-            self.stats.buffer_overflows += 1;
+            self.stats_protected.with(DebugAllocatorStats, {}, struct {
+                fn inc_overflows(stats: *DebugAllocatorStats) void {
+                    stats.buffer_overflows += 1;
+                }
+            }.inc_overflows);
             return DebugAllocatorError.BufferOverflow;
         }
     }

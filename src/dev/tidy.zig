@@ -54,7 +54,12 @@ const fs = std.fs;
 const mem = std.mem;
 
 /// Analyze a single file against all Membank rules
-fn analyze_file(summary: *violation.ViolationSummary, allocator: std.mem.Allocator, file_path: []const u8, source: []const u8) !void {
+fn analyze_file(
+    summary: *violation.ViolationSummary,
+    allocator: std.mem.Allocator,
+    file_path: []const u8,
+    source: []const u8,
+) !void {
     // Parse source for semantic analysis
     const context = parser.parse_source(allocator, file_path, source) catch |err| {
         std.debug.print("WARNING: Parse error in {s}: {}\n", .{ file_path, err });
@@ -102,7 +107,11 @@ fn discover_source_files(allocator: std.mem.Allocator) ![][]const u8 {
 }
 
 /// Recursively find all .zig files in a directory
-fn discover_files_recursive(allocator: std.mem.Allocator, file_paths: *std.ArrayList([]const u8), dir_path: []const u8) !void {
+fn discover_files_recursive(
+    allocator: std.mem.Allocator,
+    file_paths: *std.ArrayList([]const u8),
+    dir_path: []const u8,
+) !void {
     var dir = fs.cwd().openDir(dir_path, .{ .iterate = true }) catch return;
     defer dir.close();
 
@@ -151,4 +160,3 @@ fn read_file_content(allocator: std.mem.Allocator, file_path: []const u8) ![]u8 
 
     return content;
 }
-

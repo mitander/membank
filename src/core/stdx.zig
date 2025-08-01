@@ -52,13 +52,13 @@ pub const Mutex = struct {
     pub fn with_lock(self: *Mutex, comptime T: type, context: anytype, comptime func: anytype) T {
         self.inner.lock();
         defer self.inner.unlock();
-        
+
         const Context = @TypeOf(context);
         const args = switch (@typeInfo(Context)) {
             .Struct, .Pointer => context,
             else => .{context},
         };
-        
+
         return @call(.auto, func, args);
     }
 };

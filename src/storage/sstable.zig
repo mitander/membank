@@ -642,7 +642,7 @@ pub const Compactor = struct {
 
         var unique = std.ArrayList(ContextBlock).init(self.allocator);
         defer unique.deinit();
-        
+
         // Pre-allocate capacity - worst case is all blocks are unique
         try unique.ensureCapacity(sorted.len);
 

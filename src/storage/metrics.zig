@@ -2,7 +2,7 @@
 //!
 //! Provides atomic counters and analytics for storage operations to enable
 //! performance monitoring, capacity planning, and operational debugging.
-//! All counters use thread-safe coordination primitives to support safe 
+//! All counters use thread-safe coordination primitives to support safe
 //! concurrent access from monitoring threads without impacting storage performance.
 
 const std = @import("std");

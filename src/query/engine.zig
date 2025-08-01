@@ -601,7 +601,7 @@ pub const QueryEngine = struct {
     ) !QueryResult {
         var result_blocks = std.ArrayList(ContextBlock).init(self.allocator);
         defer result_blocks.deinit();
-        
+
         // Pre-allocate the ArrayList with the maximum possible capacity we might need
         try result_blocks.ensureTotalCapacity(@as(u32, @intCast(query.block_ids.len)));
 
@@ -676,7 +676,7 @@ pub const QueryEngine = struct {
         // Streaming optimization: process filtered results in memory-efficient chunks
         var streaming_blocks = std.ArrayList(ContextBlock).init(self.allocator);
         defer streaming_blocks.deinit();
-        
+
         // Pre-allocate with the chunk size to avoid reallocations
         try streaming_blocks.ensureTotalCapacity(@min(FILTER_STREAMING_CHUNK_SIZE, full_result.blocks.len));
 
