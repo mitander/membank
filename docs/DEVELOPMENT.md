@@ -141,6 +141,59 @@ Startup memory usage reduced from 200MB to <10MB for large WAL files.
 
 ## Code Standards
 
+**Tidy Suppression Mechanism**: Override quality checks with explicit justifications
+
+Membank's tidy system enforces architectural constraints but provides escape hatches for legitimate cases. Use suppression comments sparingly and with clear justification.
+
+```zig
+// Performance suppressions - avoid false positives in hot paths
+fn process_blocks() !void {
+    var blocks = std.ArrayList(Block).init(allocator);
+    try blocks.ensureTotalCapacity(1000); // tidy:ignore-perf - capacity managed explicitly
+
+    for (input_data) |data| {
+        try blocks.append(process_data(data)); // No violation - capacity pre-allocated
+    }
+}
+
+// Architecture suppressions - legitimate threading abstractions
+pub const ThreadSafeCounter = struct {
+    inner: std.Thread.Mutex = .{}, // tidy:ignore-arch - safe abstraction over threading primitives
+    count: u64 = 0,
+};
+
+// Length suppressions - complex but necessary function signatures
+pub fn create_storage_engine( // tidy:ignore-length - complex initialization requires many parameters
+    allocator: std.mem.Allocator,
+    vfs: *VirtualFileSystem,
+    config: StorageConfig,
+    metrics: *MetricsCollector,
+) !StorageEngine {
+    // ...
+}
+
+// Pattern detection exceptions - tidy system self-reference
+fn check_thread_usage(source: []const u8) ?[]const u8 {
+    if (mem.indexOf(u8, source, "std.Thread") != null) { // tidy:ignore-arch - pattern detection for architecture compliance
+        return "avoid raw threading";
+    }
+}
+```
+
+**Suppression Types**:
+- `// tidy:ignore-perf` - Performance false positives (capacity management, test code)
+- `// tidy:ignore-arch` - Architecture violations (safe abstractions, pattern detection)
+- `// tidy:ignore-length` - Function declaration length (complex but necessary signatures)
+- `// tidy:ignore-error` - Error handling patterns (self-referential code detection)
+- `// tidy:ignore-naming` - Naming conventions (specialized cases, external APIs)
+- `// tidy:ignore-generic` - Generic constraints (complex type relationships)
+
+**Usage Guidelines**:
+1. **Justify every suppression** - Comment must explain WHY the violation is acceptable
+2. **Be specific** - Use targeted suppressions, not blanket exceptions
+3. **Review regularly** - Suppressions indicate technical debt or false positives
+4. **Prefer fixes** - Only suppress when architectural constraints require it
+
 **Memory**: Explicit allocators, arena-per-subsystem pattern
 
 ```zig
