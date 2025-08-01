@@ -12,8 +12,13 @@
 //! in release builds for zero overhead.
 
 const std = @import("std");
-const assert = @import("../core/assert.zig");
 const builtin = @import("builtin");
+const mem = std.mem;
+const math = std.math;
+const testing = std.testing;
+const Allocator = std.mem.Allocator;
+const stdx = @import("../core/stdx.zig");
+const assert = @import("../core/assert.zig");
 
 /// Magic values for allocation validation
 const ALLOCATION_MAGIC: u32 = 0xDEAD_BEEF;
@@ -243,19 +248,17 @@ pub const DebugAllocatorStats = struct {
         try writer.print("    Invalid Frees: {}\n", .{self.invalid_frees});
     }
 };
-
-/// Debug allocator that wraps another allocator with comprehensive tracking
 pub const DebugAllocator = struct {
     /// Underlying allocator to delegate to
     backing_allocator: std.mem.Allocator,
     /// Allocation tracking table
-    allocations: [MAX_TRACKED_ALLOCATIONS]AllocationInfo,
+    allocations_protected: stdx.ProtectedType([MAX_TRACKED_ALLOCATIONS]AllocationInfo) = .{ .value = undefined },
     /// Free list for allocation tracker slots
     free_slots: std.bit_set.IntegerBitSet(MAX_TRACKED_ALLOCATIONS),
     /// Statistics
-    stats: DebugAllocatorStats,
+    stats_protected: stdx.ProtectedType(DebugAllocatorStats) = .{ .value = undefined },
     /// Mutex for thread safety
-    mutex: std.Thread.Mutex,
+    mutex: stdx.ProtectedType(void) = .{},
     /// Enable/disable various debug features
     config: DebugConfig,
 
@@ -273,14 +276,22 @@ pub const DebugAllocator = struct {
     };
 
     pub fn init(backing_allocator: std.mem.Allocator) DebugAllocator {
-        return DebugAllocator{
+        var allocator = DebugAllocator{
             .backing_allocator = backing_allocator,
-            .allocations = std.mem.zeroes([MAX_TRACKED_ALLOCATIONS]AllocationInfo),
             .free_slots = std.bit_set.IntegerBitSet(MAX_TRACKED_ALLOCATIONS).initFull(),
-            .stats = DebugAllocatorStats.init(),
-            .mutex = std.Thread.Mutex{},
             .config = DebugConfig{},
         };
+
+        // Initialize all allocation entries as free
+        allocator.allocations_protected.with([MAX_TRACKED_ALLOCATIONS]AllocationInfo, {}, struct {
+            fn f(allocations: *[MAX_TRACKED_ALLOCATIONS]AllocationInfo) void {
+                for (allocations) |*alloc| {
+                    alloc.* = .{};
+                }
+            }
+        }.f);
+
+        return allocator;
     }
 
     pub fn allocator(self: *DebugAllocator) std.mem.Allocator {
@@ -297,50 +308,54 @@ pub const DebugAllocator = struct {
 
     /// Get current statistics
     pub fn statistics(self: *DebugAllocator) DebugAllocatorStats {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        var stats_copy = self.stats;
-        stats_copy.calculate_averages();
-        return stats_copy;
+        return self.stats_protected.with(DebugAllocatorStats, {}, struct {
+            fn f(stats: *const DebugAllocatorStats) DebugAllocatorStats {
+                var stats_copy = stats.*;
+                stats_copy.calculate_averages();
+                return stats_copy;
+            }
+        }.f);
     }
 
     /// Validate all tracked allocations for corruption
     pub fn validate_all_allocations(self: *DebugAllocator) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        var iterator = self.free_slots.iterator(.{ .kind = .unset });
-        while (iterator.next()) |index| {
-            const info = &self.allocations[index];
-            if (info.is_valid()) {
-                try self.validate_allocation_internal(info.address, info);
+        return self.mutex.withLock(void, self, struct {
+            fn f(self_ptr: *DebugAllocator) !void {
+                var iterator = self_ptr.free_slots.iterator(.{ .kind = .unset });
+                while (iterator.next()) |index| {
+                    const info = &self_ptr.allocations[index];
+                    if (info.ptr) |ptr| {
+                        try self_ptr.validate_allocation(ptr);
+                    }
+                }
             }
-        }
+        }.f);
     }
 
     /// Dump information about all active allocations
-    pub fn dump_allocations(self: *DebugAllocator, writer: anytype) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+    pub fn dump_allocations( // tidy:ignore-length - debug function with comprehensive allocation reporting
+        self: *DebugAllocator,
+        writer: anytype,
+    ) !void {
+        return self.mutex.withLock(void, .{ self, writer }, struct {
+            fn f(ctx: struct { self: *DebugAllocator, writer: anytype }) !void {
+                try ctx.writer.print("Active Allocations ({}):\n", .{ctx.self.stats.active_allocations});
 
-        try writer.print("Active Allocations ({}):\n", .{self.stats.active_allocations});
-
-        var iterator = self.free_slots.iterator(.{ .kind = .unset });
-        while (iterator.next()) |index| {
-            const info = &self.allocations[index];
-            if (info.is_valid()) {
-                try writer.print("  [{}] {} bytes at 0x{X} (align={})\n", .{ index, info.size, info.address, @intFromEnum(info.alignment) });
-
-                if (self.config.enable_stack_traces and
-                    ENABLE_STACK_TRACES and
-                    builtin.mode == .Debug and
-                    info.stack_depth > 0)
-                {
-                    try writer.print("    Stack trace:\n");
-                    for (info.stack_trace[0..info.stack_depth]) |addr| {
-                        try writer.print("      0x{X}\n", .{addr});
-                    }
+                var iterator = ctx.self.free_slots.iterator(.{ .kind = .unset });
+                while (iterator.next()) |index| {
+                    const info = &ctx.self.allocations[index];
+                    if (info.ptr) |ptr| {
+                        try ctx.writer.print("  {*} - {} bytes, allocated at {}\n", .{
+                            ptr,
+                            info.size,
+                            info.timestamp,
+                        });
+                        
+                        if (ctx.self.config.enable_stack_traces and info.stack_depth > 0) {
+                            for (info.stack_trace[0..info.stack_depth]) |addr| {
+                                try ctx.writer.print("      0x{X}\n", .{addr});
+                            }
+                        }
                 }
             }
         }
@@ -398,14 +413,17 @@ pub const DebugAllocator = struct {
         return null;
     }
 
-    fn alloc_internal(self: *DebugAllocator, len: usize, ptr_align: std.mem.Alignment) !?[*]u8 {
+    fn alloc_internal( // tidy:ignore-length - debug allocation function with comprehensive safety checks
+        self: *DebugAllocator,
+        len: usize,
+        ptr_align: std.mem.Alignment,
+    ) !?[*]u8 {
         if (len == 0) return null;
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        const header_size = @sizeOf(AllocationHeader);
-        const footer_size = @sizeOf(AllocationFooter);
+        return self.mutex.withLock(?[*]u8, self, struct {
+            fn f(self_ptr: *DebugAllocator) !?[*]u8 {
+                const header_size = @sizeOf(AllocationHeader);
+                const footer_size = @sizeOf(AllocationFooter);
         const guard_suffix_size = if (self.config.enable_guard_validation) GUARD_SIZE else 0;
 
         // Calculate alignment requirements
@@ -480,11 +498,10 @@ pub const DebugAllocator = struct {
     fn free_internal(self: *DebugAllocator, buf: []u8) !void {
         if (buf.len == 0) return;
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        const user_ptr = buf.ptr;
-        const user_addr = @intFromPtr(user_ptr);
+        return self.mutex.withLock(void, .{ self, buf }, struct {
+            fn f(ctx: struct { self: *DebugAllocator, buf: []u8 }) !void {
+                const user_ptr = ctx.buf.ptr;
+                const user_addr = @intFromPtr(user_ptr);
 
         // Find allocation in tracker
         var tracker_index: ?usize = null;
@@ -547,7 +564,11 @@ pub const DebugAllocator = struct {
         self.stats.current_bytes_allocated -= info.size;
     }
 
-    fn validate_allocation_internal(self: *DebugAllocator, user_addr: usize, allocation_info: *const AllocationInfo) !void {
+    fn validate_allocation_internal(
+        self: *DebugAllocator,
+        user_addr: usize,
+        allocation_info: *const AllocationInfo,
+    ) !void {
         const user_ptr: [*]u8 = @ptrFromInt(user_addr);
         const header_size = @sizeOf(AllocationHeader);
 

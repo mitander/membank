@@ -5,6 +5,24 @@
 //! and other robustness problems.
 
 const std = @import("std");
+const builtin = @import("builtin");
+const mem = std.mem;
+const fs = std.fs;
+const time = std.time;
+const process = std.process;
+const Thread = std.Thread;
+const Allocator = std.mem.Allocator;
+const Random = std.rand.Random;
+const ArrayList = std.ArrayList;
+const StringHashMap = std.StringHashMap;
+const AutoHashMap = std.AutoHashMap;
+const StringArrayHashMap = std.StringArrayHashMap;
+const PriorityQueue = std.PriorityQueue;
+const SegmentedList = std.SegmentedList;
+const ArenaAllocator = std.heap.ArenaAllocator;
+const testing = std.testing;
+const stdx = @import("../core/stdx.zig");
+
 const membank = @import("membank");
 
 const SimulationVFS = membank.SimulationVFS;
@@ -27,10 +45,10 @@ const FUZZ_ITERATIONS_CONTINUOUS = std.math.maxInt(u64);
 const FUZZ_SEED_DEFAULT = 42;
 
 // Global verbose flag for detailed error logging
-var global_verbose_mode = std.atomic.Value(bool).init(false);
+var global_verbose_mode = stdx.ProtectedType(bool).init(false);
 
 // Global validation error counter for summary statistics
-var global_validation_errors = std.atomic.Value(u64).init(0);
+var global_validation_errors = stdx.MetricsCounter.init(0);
 const CRASH_REPORT_DIR = "fuzz_reports";
 const PROGRESS_INTERVAL_SEC = 60;
 const GIT_CHECK_INTERVAL_SEC = 600; // 10 minutes
@@ -40,12 +58,16 @@ const EXIT_GIT_UPDATE_NEEDED = 0; // Shell should rebuild and restart
 const EXIT_NORMAL = 0;
 const EXIT_ERROR = 1;
 
-var global_shutdown_requested: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
+var global_shutdown_requested: stdx.ProtectedType(bool) = stdx.ProtectedType(bool).init(false);
 
 // Check for shutdown request by polling a file or signal
 fn check_shutdown_request() bool {
     // Check if shutdown was requested through signal or file
-    if (global_shutdown_requested.load(.seq_cst)) {
+    if (global_shutdown_requested.with(bool, {}, struct {
+        fn f(shutdown: *const bool) bool {
+            return shutdown.*;
+        }
+    }.f)) {
         return true;
     }
 
@@ -55,7 +77,7 @@ fn check_shutdown_request() bool {
     };
 
     // Shutdown file exists - request shutdown
-    global_shutdown_requested.store(true, .seq_cst);
+    global_shutdown_requested.set(true);
     std.debug.print("Shutdown requested via .membank_stop file\n", .{});
 
     // Clean up the file
@@ -87,7 +109,7 @@ pub fn main() !void {
 
     // Check for verbose flag
     if (arg_index < args.len and (std.mem.eql(u8, args[arg_index], "--verbose") or std.mem.eql(u8, args[arg_index], "-v"))) {
-        global_verbose_mode.store(true, .seq_cst);
+        global_verbose_mode.set(true);
         arg_index += 1;
     }
 
@@ -310,7 +332,11 @@ fn fuzz_storage_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64)
             const elapsed_sec = @as(f64, @floatFromInt(elapsed)) / 1_000_000_000.0;
             const current_validation_errors = global_validation_errors.load(.seq_cst);
 
-            if (global_verbose_mode.load(.seq_cst)) {
+            if (global_verbose_mode.with(bool, {}, struct {
+                fn f(verbose: *const bool) bool {
+                    return verbose.*;
+                }
+            }.f)) {
                 std.debug.print("  [{d:>7.1}s] {} iters @ {d:.0}/sec | {} validation errors, {} crashes\n", .{ elapsed_sec, stats.iterations, rate, current_validation_errors, stats.failures });
             } else {
                 std.debug.print("  Storage: {} iters ({d:.0}/sec), {} crashes\n", .{ stats.iterations, rate, stats.failures });
@@ -327,7 +353,11 @@ fn fuzz_storage_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64)
 
     const final_rate = stats.rate();
     const final_validation_errors = global_validation_errors.load(.seq_cst);
-    if (global_verbose_mode.load(.seq_cst)) {
+    if (global_verbose_mode.with(bool, {}, struct {
+        fn f(verbose: *const bool) bool {
+            return verbose.*;
+        }
+    }.f)) {
         if (is_continuous) {
             std.debug.print("  Continuous fuzzing stopped: {} iterations @ {d:.0}/sec | {} validation errors, {} crashes\n", .{ stats.iterations, final_rate, final_validation_errors, stats.failures });
         } else {
@@ -444,7 +474,11 @@ fn fuzz_query_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64) !
             const elapsed_sec = @as(f64, @floatFromInt(elapsed)) / 1_000_000_000.0;
             const current_validation_errors = global_validation_errors.load(.seq_cst);
 
-            if (global_verbose_mode.load(.seq_cst)) {
+            if (global_verbose_mode.with(bool, {}, struct {
+                fn f(verbose: *const bool) bool {
+                    return verbose.*;
+                }
+            }.f)) {
                 std.debug.print("  [{d:>7.1}s] {} iters @ {d:.0}/sec | {} validation errors, {} crashes\n", .{ elapsed_sec, stats.iterations, rate, current_validation_errors, stats.failures });
             } else {
                 std.debug.print("  Query: {} iters ({d:.0}/sec), {} crashes\n", .{ stats.iterations, rate, stats.failures });
@@ -461,7 +495,11 @@ fn fuzz_query_engine(allocator: std.mem.Allocator, iterations: u64, seed: u64) !
 
     const final_rate = stats.rate();
     const final_validation_errors = global_validation_errors.load(.seq_cst);
-    if (global_verbose_mode.load(.seq_cst)) {
+    if (global_verbose_mode.with(bool, {}, struct {
+        fn f(verbose: *const bool) bool {
+            return verbose.*;
+        }
+    }.f)) {
         if (is_continuous) {
             std.debug.print("  Continuous fuzzing stopped: {} iterations @ {d:.0}/sec | {} validation errors, {} crashes\n", .{ stats.iterations, final_rate, final_validation_errors, stats.failures });
         } else {
@@ -566,14 +604,22 @@ fn fuzz_zig_parser(allocator: std.mem.Allocator, iterations: u64, seed: u64) !vo
 
         if (is_continuous) {
             if (i > 0 and i % 10_000 == 0) {
-                if (global_verbose_mode.load(.seq_cst)) {
+                if (global_verbose_mode.with(bool, {}, struct {
+                    fn f(verbose: *const bool) bool {
+                        return verbose.*;
+                    }
+                }.f)) {
                     std.debug.print("  Progress: {} iterations completed, {} failures\n", .{ i + 1, failures });
                 } else {
                     std.debug.print("  Parser: {} iters, {} crashes\n", .{ i + 1, failures });
                 }
             }
         } else if (i > 0 and i % 1_000 == 0) {
-            if (global_verbose_mode.load(.seq_cst)) {
+            if (global_verbose_mode.with(bool, {}, struct {
+                fn f(verbose: *const bool) bool {
+                    return verbose.*;
+                }
+            }.f)) {
                 std.debug.print("  Progress: {}/{} ({d:.1}%)\n", .{ i + 1, iterations, @as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(iterations)) * 100.0 });
             } else {
                 std.debug.print("  Parser: {}/{} ({d:.0}%)\n", .{ i + 1, iterations, @as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(iterations)) * 100.0 });
@@ -581,7 +627,11 @@ fn fuzz_zig_parser(allocator: std.mem.Allocator, iterations: u64, seed: u64) !vo
         }
     }
 
-    if (global_verbose_mode.load(.seq_cst)) {
+    if (global_verbose_mode.with(bool, {}, struct {
+        fn f(verbose: *const bool) bool {
+            return verbose.*;
+        }
+    }.f)) {
         if (is_continuous) {
             std.debug.print("  Continuous fuzzing stopped after {} iterations: {} failures\n", .{ total_completed, failures });
         } else {
@@ -665,14 +715,22 @@ fn fuzz_serialization(allocator: std.mem.Allocator, iterations: u64, seed: u64) 
 
         if (is_continuous) {
             if (i > 0 and i % 10_000 == 0) {
-                if (global_verbose_mode.load(.seq_cst)) {
+                if (global_verbose_mode.with(bool, {}, struct {
+                    fn f(verbose: *const bool) bool {
+                        return verbose.*;
+                    }
+                }.f)) {
                     std.debug.print("  Progress: {} iterations completed, {} failures\n", .{ i + 1, failures });
                 } else {
                     std.debug.print("  Serialization: {} iters, {} crashes\n", .{ i + 1, failures });
                 }
             }
         } else if (i > 0 and i % 1_000 == 0) {
-            if (global_verbose_mode.load(.seq_cst)) {
+            if (global_verbose_mode.with(bool, {}, struct {
+                fn f(verbose: *const bool) bool {
+                    return verbose.*;
+                }
+            }.f)) {
                 std.debug.print("  Progress: {}/{} ({d:.1}%)\n", .{ i + 1, iterations, @as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(iterations)) * 100.0 });
             } else {
                 std.debug.print("  Serialization: {}/{} ({d:.0}%)\n", .{ i + 1, iterations, @as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(iterations)) * 100.0 });
@@ -680,7 +738,11 @@ fn fuzz_serialization(allocator: std.mem.Allocator, iterations: u64, seed: u64) 
         }
     }
 
-    if (global_verbose_mode.load(.seq_cst)) {
+    if (global_verbose_mode.with(bool, {}, struct {
+        fn f(verbose: *const bool) bool {
+            return verbose.*;
+        }
+    }.f)) {
         if (is_continuous) {
             std.debug.print("  Continuous fuzzing stopped after {} iterations: {} failures\n", .{ total_completed, failures });
         } else {
@@ -899,10 +961,14 @@ fn generate_malformed_zig_source(allocator: std.mem.Allocator, random: std.Rando
         "\x00\x01\x02\x03",
     };
 
+    // Pre-allocate with estimated capacity (avg template length * line count + some buffer)
+    const line_count = random.intRangeAtMost(usize, 1, 20);
+    const estimated_capacity = 100 * line_count; // Average template is ~100 bytes
+    
     var result = std.ArrayList(u8).init(allocator);
+    try result.ensureTotalCapacity(estimated_capacity);
     defer result.deinit();
 
-    const line_count = random.intRangeAtMost(usize, 1, 20);
     for (0..line_count) |i| {
         if (i > 0) try result.append('\n');
 
@@ -912,8 +978,9 @@ fn generate_malformed_zig_source(allocator: std.mem.Allocator, random: std.Rando
         // Occasionally inject random bytes
         if (random.boolean()) {
             const random_bytes = random.intRangeAtMost(usize, 1, 10);
+            try result.ensureUnusedCapacity(random_bytes);
             for (0..random_bytes) |_| {
-                try result.append(random.int(u8));
+                result.appendAssumeCapacity(random.int(u8));
             }
         }
     }
