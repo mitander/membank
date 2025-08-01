@@ -55,6 +55,7 @@ test "WAL entry serialization roundtrip" {
     const allocator = testing.allocator;
 
     const test_block = ContextBlock{
+        // Safety: Hardcoded test hex string is guaranteed valid
         .id = BlockId.from_hex("0123456789abcdeffedcba9876543210") catch unreachable,
         .version = 1,
         .source_uri = "test://example",
@@ -99,6 +100,7 @@ test "WAL basic write and recovery" {
     defer wal.deinit();
 
     const test_block = ContextBlock{
+        // Safety: Hardcoded test hex string is guaranteed valid
         .id = BlockId.from_hex("1234567890abcdef1234567890abcdef") catch unreachable,
         .version = 1,
         .source_uri = "test://source",

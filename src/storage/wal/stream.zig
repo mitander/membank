@@ -281,7 +281,13 @@ pub const WALEntryStream = struct {
     }
 
     /// Handle entries larger than the process buffer using direct file access
-    fn read_large_entry(self: *WALEntryStream, entry_size: usize, checksum: u64, entry_type: u8, payload_size: u32) StreamError!StreamEntry {
+    fn read_large_entry(
+        self: *WALEntryStream,
+        entry_size: usize,
+        checksum: u64,
+        entry_type: u8,
+        payload_size: u32,
+    ) StreamError!StreamEntry {
         _ = payload_size; // Used for validation in caller
         const entry_position = self.buffer_start_file_pos;
 

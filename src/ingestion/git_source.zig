@@ -460,7 +460,13 @@ pub const GitSource = struct {
     }
 
     /// Load file information and content
-    fn load_file_info(self: *GitSource, allocator: std.mem.Allocator, file_system: *VFS, base_path: []const u8, relative_path: []const u8) !GitFileInfo {
+    fn load_file_info(
+        self: *GitSource,
+        allocator: std.mem.Allocator,
+        file_system: *VFS,
+        base_path: []const u8,
+        relative_path: []const u8,
+    ) !GitFileInfo {
         const full_path = try std.fs.path.join(allocator, &.{ base_path, relative_path });
         defer allocator.free(full_path);
 

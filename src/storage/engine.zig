@@ -428,7 +428,10 @@ pub const StorageEngine = struct {
     /// Calculate current memory pressure level for backpressure control.
     /// Updates metrics with current memtable and compaction state before calculation.
     /// Used by ingestion pipeline to adapt batch sizes based on storage load.
-    pub fn memory_pressure(self: *StorageEngine, config: StorageMetrics.MemoryPressureConfig) StorageMetrics.MemoryPressure {
+    pub fn memory_pressure(
+        self: *StorageEngine,
+        config: StorageMetrics.MemoryPressureConfig,
+    ) StorageMetrics.MemoryPressure {
         // Update metrics with current memory usage
         const memtable_bytes = self.memtable_manager.memory_usage();
         self.storage_metrics.memtable_memory_bytes.store(memtable_bytes, .monotonic);

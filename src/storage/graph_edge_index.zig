@@ -124,7 +124,7 @@ pub const GraphEdgeIndex = struct {
             outgoing_result.value_ptr.* = std.ArrayList(GraphEdge).init(arena_allocator);
         }
         const outgoing_before = outgoing_result.value_ptr.items.len;
-        try outgoing_result.value_ptr.append(edge);
+        try outgoing_result.value_ptr.append(edge); // tidy:ignore-perf - incremental edge building, size unknown
         assert.assert_fmt(outgoing_result.value_ptr.items.len == outgoing_before + 1, "Outgoing edge append failed", .{});
 
         // Bidirectional indexing enables both forward and reverse graph traversal
@@ -133,7 +133,7 @@ pub const GraphEdgeIndex = struct {
             incoming_result.value_ptr.* = std.ArrayList(GraphEdge).init(arena_allocator);
         }
         const incoming_before = incoming_result.value_ptr.items.len;
-        try incoming_result.value_ptr.append(edge);
+        try incoming_result.value_ptr.append(edge); // tidy:ignore-perf - incremental edge building, size unknown
         assert.assert_fmt(incoming_result.value_ptr.items.len == incoming_before + 1, "Incoming edge append failed", .{});
     }
 

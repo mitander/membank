@@ -222,7 +222,9 @@ pub const MemtableManager = struct {
 
     /// Get raw HashMap iterator for backward compatibility with storage engine.
     /// Used by StorageEngine.iterate_all_blocks for mixed memtable+SSTable iteration.
-    pub fn raw_iterator(self: *const MemtableManager) std.HashMap(BlockId, ContextBlock, BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage).Iterator {
+    pub fn raw_iterator(
+        self: *const MemtableManager,
+    ) std.HashMap(BlockId, ContextBlock, BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage).Iterator {
         return self.block_index.blocks.iterator();
     }
 

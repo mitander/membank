@@ -465,7 +465,7 @@ pub const WAL = struct {
 
 fn create_test_block() ContextBlock {
     return ContextBlock{
-        .id = BlockId.from_hex("0123456789abcdef0123456789abcdef") catch unreachable,
+        .id = BlockId.from_hex("0123456789abcdef0123456789abcdef") catch unreachable, // Safety: hardcoded valid hex
         .version = 1,
         .source_uri = "test://wal_core.zig",
         .metadata_json = "{}",
@@ -474,8 +474,8 @@ fn create_test_block() ContextBlock {
 }
 
 fn create_test_edge() GraphEdge {
-    const from_id = BlockId.from_hex("1111111111111111111111111111111111111111") catch unreachable;
-    const to_id = BlockId.from_hex("2222222222222222222222222222222222222222") catch unreachable;
+    const from_id = BlockId.from_hex("1111111111111111111111111111111111111111") catch unreachable; // Safety: hardcoded valid hex
+    const to_id = BlockId.from_hex("2222222222222222222222222222222222222222") catch unreachable; // Safety: hardcoded valid hex
 
     return GraphEdge{
         .from_block_id = from_id,
@@ -570,7 +570,7 @@ test "WAL write different entry types" {
     try wal.write_entry(put_entry);
 
     // Write delete_block entry
-    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable;
+    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
     const delete_entry = try WALEntry.create_delete_block(test_id, allocator);
     defer delete_entry.deinit(allocator);
     try wal.write_entry(delete_entry);

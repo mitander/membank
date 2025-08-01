@@ -440,7 +440,11 @@ pub const IngestionPipeline = struct {
     }
 
     /// Process a single source through the pipeline
-    fn process_source(self: *IngestionPipeline, source: Source, blocks: *std.ArrayList(ContextBlock)) IngestionError!void {
+    fn process_source(
+        self: *IngestionPipeline,
+        source: Source,
+        blocks: *std.ArrayList(ContextBlock),
+    ) IngestionError!void {
         const main_allocator = self.arena.allocator();
 
         // Fetch content iterator from source
@@ -495,7 +499,11 @@ pub const IngestionPipeline = struct {
     }
 
     /// Copy a ContextBlock from temporary arena to main arena for persistence
-    fn copy_block_to_main_arena(_: *IngestionPipeline, temp_block: ContextBlock, main_allocator: std.mem.Allocator) !ContextBlock {
+    fn copy_block_to_main_arena(
+        _: *IngestionPipeline,
+        temp_block: ContextBlock,
+        main_allocator: std.mem.Allocator,
+    ) !ContextBlock {
         return ContextBlock{
             .id = temp_block.id, // BlockId is copy-by-value
             .version = temp_block.version,
@@ -517,7 +525,11 @@ pub const IngestionPipeline = struct {
 
     /// Process a single source with backpressure control and direct storage integration.
     /// Uses adaptive batching to maintain bounded memory usage during large ingestions.
-    fn process_source_with_backpressure(self: *IngestionPipeline, source: Source, storage_engine: anytype) IngestionError!void {
+    fn process_source_with_backpressure(
+        self: *IngestionPipeline,
+        source: Source,
+        storage_engine: anytype,
+    ) IngestionError!void {
         // Create per-source arena for temporary processing
         var source_arena = std.heap.ArenaAllocator.init(self.allocator);
         defer source_arena.deinit(); // O(1) cleanup when source completes
@@ -604,7 +616,12 @@ pub const IngestionPipeline = struct {
 
     /// Process content through parsing and chunking pipeline into batch buffer.
     /// Uses temporary allocator for intermediate processing to maintain memory bounds.
-    fn process_content_to_batch(self: *IngestionPipeline, content: SourceContent, temp_allocator: std.mem.Allocator, batch_buffer: *std.ArrayList(ContextBlock)) !void {
+    fn process_content_to_batch(
+        self: *IngestionPipeline,
+        content: SourceContent,
+        temp_allocator: std.mem.Allocator,
+        batch_buffer: *std.ArrayList(ContextBlock),
+    ) !void {
         // Find appropriate parser
         const parser = self.find_parser(content.content_type) orelse return;
 
@@ -630,7 +647,12 @@ pub const IngestionPipeline = struct {
 
     /// Process content through parsing and chunking pipeline with proper memory copying.
     /// Copies blocks from temporary allocator to main allocator to survive arena resets.
-    fn process_content_to_batch_with_copying(self: *IngestionPipeline, content: SourceContent, temp_allocator: std.mem.Allocator, batch_buffer: *std.ArrayList(ContextBlock)) !void {
+    fn process_content_to_batch_with_copying(
+        self: *IngestionPipeline,
+        content: SourceContent,
+        temp_allocator: std.mem.Allocator,
+        batch_buffer: *std.ArrayList(ContextBlock),
+    ) !void {
         // Find appropriate parser
         const parser = self.find_parser(content.content_type) orelse return;
 
@@ -665,7 +687,11 @@ pub const IngestionPipeline = struct {
 
     /// Flush batch of blocks directly to storage engine.
     /// Provides durability without requiring intermediate memory allocation.
-    fn flush_batch_to_storage(self: *IngestionPipeline, storage_engine: anytype, batch_buffer: *std.ArrayList(ContextBlock)) IngestionError!void {
+    fn flush_batch_to_storage(
+        self: *IngestionPipeline,
+        storage_engine: anytype,
+        batch_buffer: *std.ArrayList(ContextBlock),
+    ) IngestionError!void {
         const flush_start = std.time.nanoTimestamp();
         defer {
             const flush_time = std.time.nanoTimestamp() - flush_start;

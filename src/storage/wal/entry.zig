@@ -211,7 +211,12 @@ pub const WALEntry = struct {
 
     /// Create WAL entry from stream components for compatibility with WALEntryStream
     /// Validates checksum and constructs proper WALEntry from streaming data
-    pub fn deserialize_from_stream(checksum: u64, entry_type_raw: u8, payload: []const u8, allocator: std.mem.Allocator) WALError!WALEntry {
+    pub fn deserialize_from_stream(
+        checksum: u64,
+        entry_type_raw: u8,
+        payload: []const u8,
+        allocator: std.mem.Allocator,
+    ) WALError!WALEntry {
         // Validate entry type range
         const entry_type: WALEntryType = switch (entry_type_raw) {
             1 => .put_block,
@@ -286,7 +291,7 @@ const testing = std.testing;
 
 fn create_test_block() ContextBlock {
     return ContextBlock{
-        .id = BlockId.from_hex("0123456789abcdef0123456789abcdef") catch unreachable,
+        .id = BlockId.from_hex("0123456789abcdef0123456789abcdef") catch unreachable, // Safety: hardcoded valid hex
         .version = 1,
         .source_uri = "test://wal_entry.zig",
         .metadata_json = "{}",
@@ -295,8 +300,8 @@ fn create_test_block() ContextBlock {
 }
 
 fn create_test_edge() GraphEdge {
-    const from_id = BlockId.from_hex("1111111111111111111111111111111111111111") catch unreachable;
-    const to_id = BlockId.from_hex("2222222222222222222222222222222222222222") catch unreachable;
+    const from_id = BlockId.from_hex("1111111111111111111111111111111111111111") catch unreachable; // Safety: hardcoded valid hex
+    const to_id = BlockId.from_hex("2222222222222222222222222222222222222222") catch unreachable; // Safety: hardcoded valid hex
 
     return GraphEdge{
         .from_block_id = from_id,
@@ -443,7 +448,7 @@ test "WALEntry create_put_block" {
 test "WALEntry create_delete_block" {
     const allocator = testing.allocator;
 
-    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable;
+    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
     const entry = try WALEntry.create_delete_block(test_id, allocator);
     defer entry.deinit(allocator);
 
@@ -613,7 +618,7 @@ test "WALEntry extract_block success" {
 test "WALEntry extract_block invalid entry type" {
     const allocator = testing.allocator;
 
-    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable;
+    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
     const entry = try WALEntry.create_delete_block(test_id, allocator);
     defer entry.deinit(allocator);
 
@@ -624,7 +629,7 @@ test "WALEntry extract_block invalid entry type" {
 test "WALEntry extract_block_id success" {
     const allocator = testing.allocator;
 
-    const test_id = BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") catch unreachable;
+    const test_id = BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") catch unreachable; // Safety: hardcoded valid hex
     const entry = try WALEntry.create_delete_block(test_id, allocator);
     defer entry.deinit(allocator);
 

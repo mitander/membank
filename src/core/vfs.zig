@@ -238,7 +238,12 @@ pub const VFS = struct {
 
     /// Read entire file into caller-provided arena allocator.
     /// Memory is owned by the arena and freed atomically on arena reset.
-    pub fn read_file_alloc(self: VFS, allocator: std.mem.Allocator, path: []const u8, max_size: usize) (VFSError || VFileError)![]u8 {
+    pub fn read_file_alloc(
+        self: VFS,
+        allocator: std.mem.Allocator,
+        path: []const u8,
+        max_size: usize,
+    ) (VFSError || VFileError)![]u8 {
         var file = try self.open(path, .read);
         defer file.close();
 

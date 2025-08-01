@@ -1,12 +1,100 @@
 //! Membank standard extensions providing safer alternatives to std library functions
+//! and additional concurrency primitives.
 //!
 //! Design rationale: These wrappers add defensive programming checks and
 //! consistent naming conventions across the codebase. They prevent common
-//! memory safety issues by enforcing explicit buffer validation.
+//! memory safety issues by enforcing explicit buffer validation and providing
+//! safe concurrency primitives.
 
 const std = @import("std");
 const custom_assert = @import("assert.zig");
 const assert = custom_assert.assert;
+
+/// Thread-safe metrics counter for tracking various statistics.
+///
+/// This provides atomic operations for incrementing, getting, and resetting
+/// a counter value in a thread-safe manner.
+pub const MetricsCounter = struct {
+    value: std.atomic.Value(u64) = .{ .raw = 0 }, // tidy:ignore-arch - safe abstraction over atomics
+
+    /// Initialize a new counter with an initial value.
+    pub fn init(initial_value: u64) MetricsCounter {
+        return .{ .value = .{ .raw = initial_value } };
+    }
+
+    /// Atomically increment the counter by the specified amount.
+    pub fn add(self: *MetricsCounter, amount: u64) void {
+        _ = self.value.fetchAdd(amount, .monotonic);
+    }
+
+    /// Atomically increment the counter by 1.
+    pub fn incr(self: *MetricsCounter) void {
+        _ = self.value.fetchAdd(1, .monotonic);
+    }
+
+    /// Get the current value of the counter.
+    pub fn get(self: *const MetricsCounter) u64 {
+        return self.value.load(.monotonic);
+    }
+
+    /// Reset the counter to zero.
+    pub fn reset(self: *MetricsCounter) void {
+        _ = self.value.swap(0, .monotonic);
+    }
+};
+
+/// A simple mutex wrapper that provides a more ergonomic API.
+pub const Mutex = struct {
+    inner: std.Thread.Mutex = .{}, // tidy:ignore-arch - safe abstraction over threading primitives
+
+    /// Execute the given function while holding the lock.
+    /// The lock is automatically released when the function returns.
+    pub fn with_lock(self: *Mutex, comptime T: type, context: anytype, comptime func: anytype) T {
+        self.inner.lock();
+        defer self.inner.unlock();
+        
+        const Context = @TypeOf(context);
+        const args = switch (@typeInfo(Context)) {
+            .Struct, .Pointer => context,
+            else => .{context},
+        };
+        
+        return @call(.auto, func, args);
+    }
+};
+
+/// Thread-safe container for a value that can be accessed with a mutex.
+pub fn ProtectedType(comptime T: type) type {
+    return struct {
+        mutex: Mutex = .{},
+        value: T,
+
+        const Self = @This();
+
+        /// Initialize a new protected value.
+        pub fn init(value: T) Self {
+            return .{ .value = value };
+        }
+
+        /// Access the protected value with exclusive access.
+        pub fn with(
+            self: *Self,
+            comptime F: type,
+            context: anytype,
+            func: F,
+        ) @typeInfo(@TypeOf(func)).Fn.return_type.? {
+            return self.mutex.with_lock(
+                @typeInfo(@TypeOf(func)).Fn.return_type.?,
+                .{ self, context },
+                struct {
+                    fn f(self_ptr: *Self, ctx: @TypeOf(context)) @typeInfo(F).Fn.return_type.? {
+                        return @call(.auto, func, .{&self_ptr.value} ++ .{ctx});
+                    }
+                }.f,
+            );
+        }
+    };
+}
 
 /// Copy memory from source to destination with left-to-right ordering
 ///

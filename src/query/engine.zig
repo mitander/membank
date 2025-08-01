@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
+const stdx = @import("../core/stdx.zig");
 const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
@@ -215,16 +216,16 @@ pub const QueryEngine = struct {
     initialized: bool,
 
     // Query planning and optimization
-    next_query_id: std.atomic.Value(u64),
+    next_query_id: stdx.MetricsCounter,
     planning_enabled: bool,
 
-    // Thread-safe metrics using atomic operations
-    queries_executed: std.atomic.Value(u64),
-    find_blocks_queries: std.atomic.Value(u64),
-    traversal_queries: std.atomic.Value(u64),
-    filtered_queries: std.atomic.Value(u64),
-    semantic_queries: std.atomic.Value(u64),
-    total_query_time_ns: std.atomic.Value(u64),
+    // Thread-safe metrics using coordination primitives
+    queries_executed: stdx.MetricsCounter(u64),
+    find_blocks_queries: stdx.MetricsCounter(u64),
+    traversal_queries: stdx.MetricsCounter(u64),
+    filtered_queries: stdx.MetricsCounter(u64),
+    semantic_queries: stdx.MetricsCounter(u64),
+    total_query_time_ns: stdx.MetricsCounter(u64),
 
     /// Initialize query engine with storage backend
     pub fn init(allocator: std.mem.Allocator, storage_engine: *StorageEngine) QueryEngine {
@@ -232,14 +233,14 @@ pub const QueryEngine = struct {
             .allocator = allocator,
             .storage_engine = storage_engine,
             .initialized = true,
-            .next_query_id = std.atomic.Value(u64).init(1),
+            .next_query_id = stdx.MetricsCounter.init(1),
             .planning_enabled = true, // Enable planning by default for future extensibility
-            .queries_executed = std.atomic.Value(u64).init(0),
-            .find_blocks_queries = std.atomic.Value(u64).init(0),
-            .traversal_queries = std.atomic.Value(u64).init(0),
-            .filtered_queries = std.atomic.Value(u64).init(0),
-            .semantic_queries = std.atomic.Value(u64).init(0),
-            .total_query_time_ns = std.atomic.Value(u64).init(0),
+            .queries_executed = stdx.MetricsCounter(u64).init(0),
+            .find_blocks_queries = stdx.MetricsCounter(u64).init(0),
+            .traversal_queries = stdx.MetricsCounter(u64).init(0),
+            .filtered_queries = stdx.MetricsCounter(u64).init(0),
+            .semantic_queries = stdx.MetricsCounter(u64).init(0),
+            .total_query_time_ns = stdx.MetricsCounter(u64).init(0),
         };
     }
 
@@ -248,18 +249,25 @@ pub const QueryEngine = struct {
         self.initialized = false;
     }
 
-    /// Generate unique query ID for execution tracking
-    fn generate_query_id(self: *QueryEngine) u64 {
-        return self.next_query_id.fetchAdd(1, .monotonic);
+    /// Generate a new unique query ID in a thread-safe manner
+    pub fn generate_query_id(self: *QueryEngine) u64 {
+        return self.next_query_id.incr();
     }
 
     /// Create query plan for optimization and metrics
-    fn create_query_plan(self: *QueryEngine, query_type: QueryPlan.QueryType, estimated_results: u32) QueryPlan {
+    fn create_query_plan(
+        self: *QueryEngine,
+        query_type: QueryPlan.QueryType,
+        estimated_results: u32,
+    ) QueryPlan {
         var plan = QueryPlan.create_basic(query_type);
 
         if (self.planning_enabled) {
             const storage_metrics = self.storage_engine.metrics();
-            plan.analyze_complexity(@intCast(storage_metrics.blocks_written.load(.monotonic)), @intCast(storage_metrics.edges_added.load(.monotonic)));
+            plan.analyze_complexity(
+                @intCast(storage_metrics.blocks_written.get()),
+                @intCast(storage_metrics.edges_added.get()),
+            );
 
             // Apply workload-adaptive optimizations
             self.apply_workload_optimizations(&plan, estimated_results);
@@ -332,17 +340,17 @@ pub const QueryEngine = struct {
 
     /// Calculate ratio of recent queries of this type (for optimization hints)
     fn calculate_recent_query_ratio(self: *QueryEngine, query_type: QueryPlan.QueryType) f32 {
-        const total_recent = self.queries_executed.load(.monotonic);
+        const total_recent = self.queries_executed.get();
         if (total_recent == 0) return 0.0;
 
-        const type_count = switch (query_type) {
-            .find_blocks => self.find_blocks_queries.load(.monotonic),
-            .traversal => self.traversal_queries.load(.monotonic),
-            .filtered => self.filtered_queries.load(.monotonic),
-            .semantic => self.semantic_queries.load(.monotonic),
+        const query_count = switch (query_type) {
+            .find_blocks => self.find_blocks_queries.get(),
+            .traversal => self.traversal_queries.get(),
+            .filtered => self.filtered_queries.get(),
+            .semantic => self.semantic_queries.get(),
         };
 
-        return @as(f32, @floatFromInt(type_count)) / @as(f32, @floatFromInt(total_recent));
+        return @as(f32, @floatFromInt(query_count)) / @as(f32, @floatFromInt(total_recent));
     }
 
     /// Record query execution metrics for analysis
@@ -376,7 +384,10 @@ pub const QueryEngine = struct {
     }
 
     /// Execute a FindBlocks query to retrieve blocks by ID
-    pub fn execute_find_blocks(self: *QueryEngine, query: FindBlocksQuery) !QueryResult {
+    pub fn execute_find_blocks(
+        self: *QueryEngine,
+        query: FindBlocksQuery,
+    ) !QueryResult {
         const start_time = std.time.nanoTimestamp();
         defer self.record_find_blocks_query(start_time);
 
@@ -488,62 +499,65 @@ pub const QueryEngine = struct {
 
     /// Get current query execution statistics
     pub fn statistics(self: *const QueryEngine) QueryStatistics {
-        return QueryStatistics{
-            .total_blocks_stored = self.storage_engine.block_count(),
-            .queries_executed = self.queries_executed.load(.monotonic),
-            .find_blocks_queries = self.find_blocks_queries.load(.monotonic),
-            .traversal_queries = self.traversal_queries.load(.monotonic),
-            .filtered_queries = self.filtered_queries.load(.monotonic),
-            .semantic_queries = self.semantic_queries.load(.monotonic),
-            .total_query_time_ns = self.total_query_time_ns.load(.monotonic),
+        return .{
+            .queries_executed = self.queries_executed.get(),
+            .find_blocks_queries = self.find_blocks_queries.get(),
+            .traversal_queries = self.traversal_queries.get(),
+            .filtered_queries = self.filtered_queries.get(),
+            .semantic_queries = self.semantic_queries.get(),
+            .total_query_time_ns = self.total_query_time_ns.get(),
+            .total_blocks_stored = self.storage_engine.metrics().blocks_written.get(),
         };
     }
 
     /// Reset all query statistics to zero
     pub fn reset_statistics(self: *QueryEngine) void {
-        self.queries_executed.store(0, .monotonic);
-        self.find_blocks_queries.store(0, .monotonic);
-        self.traversal_queries.store(0, .monotonic);
-        self.filtered_queries.store(0, .monotonic);
-        self.semantic_queries.store(0, .monotonic);
-        self.total_query_time_ns.store(0, .monotonic);
+        self.queries_executed.reset();
+        self.find_blocks_queries.reset();
+        self.traversal_queries.reset();
+        self.filtered_queries.reset();
+        self.semantic_queries.reset();
+        self.total_query_time_ns.reset();
     }
 
     /// Record metrics for a find_blocks query execution
     fn record_find_blocks_query(self: *QueryEngine, start_time: i128) void {
         const duration = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
-        _ = self.queries_executed.fetchAdd(1, .monotonic);
-        _ = self.find_blocks_queries.fetchAdd(1, .monotonic);
-        _ = self.total_query_time_ns.fetchAdd(duration, .monotonic);
+        self.queries_executed.incr();
+        self.find_blocks_queries.incr();
+        self.total_query_time_ns.add(duration);
     }
 
     /// Record metrics for a traversal query execution
     fn record_traversal_query(self: *QueryEngine, start_time: i128) void {
         const duration = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
-        _ = self.queries_executed.fetchAdd(1, .monotonic);
-        _ = self.traversal_queries.fetchAdd(1, .monotonic);
-        _ = self.total_query_time_ns.fetchAdd(duration, .monotonic);
+        self.queries_executed.incr();
+        self.traversal_queries.incr();
+        self.total_query_time_ns.add(duration);
     }
 
     /// Record metrics for a filtered query execution
     fn record_filtered_query(self: *QueryEngine, start_time: i128) void {
         const duration = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
-        _ = self.queries_executed.fetchAdd(1, .monotonic);
-        _ = self.filtered_queries.fetchAdd(1, .monotonic);
-        _ = self.total_query_time_ns.fetchAdd(duration, .monotonic);
+        self.queries_executed.incr();
+        self.filtered_queries.incr();
+        self.total_query_time_ns.add(duration);
     }
 
     /// Record metrics for a semantic query execution
     fn record_semantic_query(self: *QueryEngine, start_time: i128) void {
         const duration = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
-        _ = self.queries_executed.fetchAdd(1, .monotonic);
-        _ = self.semantic_queries.fetchAdd(1, .monotonic);
-        _ = self.total_query_time_ns.fetchAdd(duration, .monotonic);
+        self.queries_executed.incr();
+        self.semantic_queries.incr();
+        self.total_query_time_ns.add(duration);
     }
 
     /// Execute a semantic search query
     /// Execute a semantic query to find related blocks
-    pub fn execute_semantic_query(self: *QueryEngine, query: SemanticQuery) !SemanticQueryResult {
+    pub fn execute_semantic_query(
+        self: *QueryEngine,
+        query: SemanticQuery,
+    ) !SemanticQueryResult {
         const start_time = std.time.nanoTimestamp();
         defer self.record_semantic_query(start_time);
 
@@ -579,48 +593,17 @@ pub const QueryEngine = struct {
         return result;
     }
 
-    /// Execute a filtered query
-    /// Execute a filtered query with complex conditions
-    pub fn execute_filtered_query(self: *QueryEngine, query: FilteredQuery) !FilteredQueryResult {
-        const start_time = std.time.nanoTimestamp();
-        defer self.record_filtered_query(start_time);
-
-        assert(self.initialized);
-        if (!self.initialized) return EngineError.NotInitialized;
-
-        // Create optimized execution plan for filtered queries
-        const query_id = self.generate_query_id();
-        const plan = self.create_query_plan(.filtered, query.max_results);
-        var context = QueryContext.create(query_id, plan);
-
-        const result = switch (plan.execution_strategy) {
-            .streaming_scan => self.execute_filtered_query_streaming(query, &context),
-            .index_lookup => if (plan.optimization_hints.use_index)
-                self.execute_filtered_query_indexed(query, &context)
-            else
-                filtering.execute_filtered_query(self.allocator, self.storage_engine, query),
-            else => filtering.execute_filtered_query(self.allocator, self.storage_engine, query),
-        } catch |err| {
-            error_context.log_storage_error(err, error_context.StorageContext{
-                .operation = "execute_filtered_query",
-            });
-            return err;
-        };
-
-        // Record filtered query metrics
-        context.metrics.optimization_applied = plan.execution_strategy != .direct_storage;
-        if (plan.optimization_hints.use_index) {
-            context.metrics.index_lookups = 1; // Simplified metric
-        }
-        self.record_query_execution(&context);
-
-        return result;
-    }
-
     /// Optimized find blocks execution for memtable preference
-    fn execute_find_blocks_optimized(self: *QueryEngine, query: FindBlocksQuery, context: *QueryContext) !QueryResult {
+    fn execute_find_blocks_optimized(
+        self: *QueryEngine,
+        query: FindBlocksQuery,
+        context: *QueryContext,
+    ) !QueryResult {
         var result_blocks = std.ArrayList(ContextBlock).init(self.allocator);
         defer result_blocks.deinit();
+        
+        // Pre-allocate the ArrayList with the maximum possible capacity we might need
+        try result_blocks.ensureTotalCapacity(@as(u32, @intCast(query.block_ids.len)));
 
         var blocks_found: u32 = 0;
         var memtable_hits: u32 = 0;
@@ -657,7 +640,11 @@ pub const QueryEngine = struct {
     }
 
     /// Execute semantic query using index optimization
-    fn execute_semantic_query_indexed(self: *QueryEngine, query: SemanticQuery, context: *QueryContext) !SemanticQueryResult {
+    fn execute_semantic_query_indexed(
+        self: *QueryEngine,
+        query: SemanticQuery,
+        context: *QueryContext,
+    ) !SemanticQueryResult {
         // Index optimization: Currently no secondary indices implemented
         // This provides a clean interface for future index integration
         context.metrics.index_lookups += 1;
@@ -670,49 +657,12 @@ pub const QueryEngine = struct {
         );
     }
 
-    /// Execute semantic query using streaming scan
-    fn execute_semantic_query_streaming(self: *QueryEngine, query: SemanticQuery, context: *QueryContext) !SemanticQueryResult {
-        const STREAMING_CHUNK_SIZE = 100;
-        var processed_blocks: u32 = 0;
-
-        // Get standard result for chunked processing
-        const full_result = try operations.execute_keyword_query(
-            self.allocator,
-            self.storage_engine,
-            query,
-        );
-        defer full_result.deinit();
-
-        // Streaming optimization: process results in chunks to reduce memory pressure
-        var streaming_results = std.ArrayList(operations.SemanticResult).init(self.allocator);
-        defer streaming_results.deinit();
-
-        var chunk_start: usize = 0;
-        while (chunk_start < full_result.results.len) {
-            const chunk_end = @min(chunk_start + STREAMING_CHUNK_SIZE, full_result.results.len);
-
-            for (full_result.results[chunk_start..chunk_end]) |result_item| {
-                try streaming_results.append(result_item);
-                processed_blocks += 1;
-            }
-
-            chunk_start = chunk_end;
-        }
-
-        context.metrics.optimization_applied = true;
-        context.metrics.blocks_scanned = processed_blocks;
-
-        const owned_results = try self.allocator.alloc(operations.SemanticResult, streaming_results.items.len);
-        @memcpy(owned_results, streaming_results.items);
-
-        return operations.SemanticQueryResult{
-            .results = owned_results,
-            .allocator = self.allocator,
-        };
-    }
-
     /// Execute filtered query using streaming scan
-    fn execute_filtered_query_streaming(self: *QueryEngine, query: FilteredQuery, context: *QueryContext) !FilteredQueryResult {
+    fn execute_filtered_query_streaming(
+        self: *QueryEngine,
+        query: FilteredQuery,
+        context: *QueryContext,
+    ) !FilteredQueryResult {
         const FILTER_STREAMING_CHUNK_SIZE = 50;
         var blocks_evaluated: u32 = 0;
 
@@ -726,6 +676,9 @@ pub const QueryEngine = struct {
         // Streaming optimization: process filtered results in memory-efficient chunks
         var streaming_blocks = std.ArrayList(ContextBlock).init(self.allocator);
         defer streaming_blocks.deinit();
+        
+        // Pre-allocate with the chunk size to avoid reallocations
+        try streaming_blocks.ensureTotalCapacity(@min(FILTER_STREAMING_CHUNK_SIZE, full_result.blocks.len));
 
         var chunk_start: usize = 0;
         while (chunk_start < full_result.blocks.len) {
@@ -750,7 +703,11 @@ pub const QueryEngine = struct {
     }
 
     /// Execute filtered query using index optimization
-    fn execute_filtered_query_indexed(self: *QueryEngine, query: FilteredQuery, context: *QueryContext) !FilteredQueryResult {
+    fn execute_filtered_query_indexed(
+        self: *QueryEngine,
+        query: FilteredQuery,
+        context: *QueryContext,
+    ) !FilteredQueryResult {
         // Index optimization: Currently no secondary indices for filtering
         // This provides a clean interface for future index-based filtering
         context.metrics.index_lookups += 1;

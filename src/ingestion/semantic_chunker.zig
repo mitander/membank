@@ -77,7 +77,11 @@ pub const SemanticChunker = struct {
     }
 
     /// Convert parsed units into ContextBlocks
-    fn chunk_content(self: *SemanticChunker, allocator: std.mem.Allocator, units: []const ParsedUnit) IngestionError![]ContextBlock {
+    fn chunk_content(
+        self: *SemanticChunker,
+        allocator: std.mem.Allocator,
+        units: []const ParsedUnit,
+    ) IngestionError![]ContextBlock {
         concurrency.assert_main_thread();
 
         var blocks = std.ArrayList(ContextBlock).init(allocator);
@@ -258,7 +262,11 @@ pub const SemanticChunker = struct {
     }
 
     // Chunker interface implementations
-    fn chunk_impl(ptr: *anyopaque, allocator: std.mem.Allocator, units: []const ParsedUnit) IngestionError![]ContextBlock {
+    fn chunk_impl(
+        ptr: *anyopaque,
+        allocator: std.mem.Allocator,
+        units: []const ParsedUnit,
+    ) IngestionError![]ContextBlock {
         const self: *SemanticChunker = @ptrCast(@alignCast(ptr));
         return self.chunk_content(allocator, units);
     }

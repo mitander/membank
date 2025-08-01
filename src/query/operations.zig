@@ -216,7 +216,11 @@ pub const SemanticQueryResult = struct {
     results: []SemanticResult,
     total_matches: u32,
 
-    pub fn init(allocator: std.mem.Allocator, results: []const SemanticResult, total_matches: u32) QueryError!SemanticQueryResult {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        results: []const SemanticResult,
+        total_matches: u32,
+    ) QueryError!SemanticQueryResult {
         const owned_results = try allocator.alloc(SemanticResult, results.len);
         for (results, 0..) |result, i| {
             owned_results[i] = SemanticResult{
@@ -300,6 +304,7 @@ pub fn execute_keyword_query(
 
     var results = std.ArrayList(SemanticResult).init(allocator);
     defer results.deinit();
+    try results.ensureCapacity(query.max_results);
 
     var iterator = storage_engine.iterate_all_blocks();
 

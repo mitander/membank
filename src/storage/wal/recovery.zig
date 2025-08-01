@@ -238,7 +238,7 @@ fn create_test_wal_entry(entry_type: u8, payload: []const u8, allocator: std.mem
 
 fn create_test_block() ContextBlock {
     return ContextBlock{
-        .id = BlockId.from_hex("0123456789abcdef0123456789abcdef") catch unreachable,
+        .id = BlockId.from_hex("0123456789abcdef0123456789abcdef") catch unreachable, // Safety: hardcoded valid hex
         .version = 1,
         .source_uri = "test://recovery.zig",
         .metadata_json = "{}",

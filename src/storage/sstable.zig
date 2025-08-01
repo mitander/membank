@@ -406,6 +406,7 @@ pub const SSTable = struct {
 
         _ = try file.seek(@intCast(header.index_offset), .start);
 
+        try self.index.ensureCapacity(header.block_count);
         for (0..header.block_count) |_| {
             var entry_buffer: [IndexEntry.SERIALIZED_SIZE]u8 = undefined;
             _ = try file.read(&entry_buffer);
@@ -585,6 +586,13 @@ pub const Compactor = struct {
             all_blocks.deinit();
         }
 
+        // Pre-allocate capacity based on sum of input table block counts
+        var total_capacity: u32 = 0;
+        for (input_tables) |*table| {
+            total_capacity += table.block_count;
+        }
+        try all_blocks.ensureCapacity(total_capacity);
+
         for (input_tables) |*table| {
             var iter = table.iterator();
             defer iter.deinit();
@@ -634,6 +642,9 @@ pub const Compactor = struct {
 
         var unique = std.ArrayList(ContextBlock).init(self.allocator);
         defer unique.deinit();
+        
+        // Pre-allocate capacity - worst case is all blocks are unique
+        try unique.ensureCapacity(sorted.len);
 
         var prev_id: ?BlockId = null;
         for (sorted) |block| {
@@ -1004,6 +1015,7 @@ test "SSTable Bloom filter with many blocks" {
         blocks.deinit();
     }
 
+    try blocks.ensureCapacity(50);
     var i: u8 = 0;
     while (i < 50) : (i += 1) {
         var id_bytes: [16]u8 = undefined;
@@ -1078,6 +1090,7 @@ test "SSTable binary search performance" {
         "cccccccccccccccccccccccccccccccc", // Should be in second half
     };
 
+    try blocks.ensureCapacity(test_ids.len);
     for (test_ids, 0..) |id_hex, i| {
         const block = ContextBlock{
             .id = try BlockId.from_hex(id_hex),

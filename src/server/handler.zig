@@ -372,7 +372,11 @@ pub const MembankServer = struct {
     }
 
     /// Handle find_blocks request asynchronously
-    fn handle_find_blocks_request_async(self: *MembankServer, connection: *ClientConnection, payload: []const u8) !void {
+    fn handle_find_blocks_request_async(
+        self: *MembankServer,
+        connection: *ClientConnection,
+        payload: []const u8,
+    ) !void {
         const allocator = connection.arena.allocator();
 
         if (payload.len < 4) {
@@ -430,7 +434,11 @@ pub const MembankServer = struct {
     }
 
     /// Handle filtered query request asynchronously
-    fn handle_filtered_query_request_async(self: *MembankServer, connection: *ClientConnection, payload: []const u8) !void {
+    fn handle_filtered_query_request_async(
+        self: *MembankServer,
+        connection: *ClientConnection,
+        payload: []const u8,
+    ) !void {
         _ = payload;
         const allocator = connection.arena.allocator();
 
@@ -447,7 +455,11 @@ pub const MembankServer = struct {
     }
 
     /// Handle traversal query request asynchronously
-    fn handle_traversal_query_request_async(self: *MembankServer, connection: *ClientConnection, payload: []const u8) !void {
+    fn handle_traversal_query_request_async(
+        self: *MembankServer,
+        connection: *ClientConnection,
+        payload: []const u8,
+    ) !void {
         const allocator = connection.arena.allocator();
 
         if (payload.len < 20) { // minimum: 4 bytes count + 16 bytes start ID

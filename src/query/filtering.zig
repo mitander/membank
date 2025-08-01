@@ -109,11 +109,13 @@ pub const FilterCondition = struct {
             .source_uri => block.source_uri,
             .version => blk: {
                 const buffer = try allocator.alloc(u8, 32);
+                // Safety: u32 max value is 4,294,967,295 (10 digits), buffer is 32 bytes - guaranteed fit
                 _ = std.fmt.bufPrint(buffer, "{d}", .{block.version}) catch unreachable;
                 break :blk buffer;
             },
             .content_length => blk: {
                 const buffer = try allocator.alloc(u8, 16);
+                // Safety: Content length fits in 16 bytes - max usize is at most 20 digits on 64-bit
                 _ = std.fmt.bufPrint(buffer, "{d}", .{block.content.len}) catch unreachable;
                 break :blk buffer;
             },
@@ -203,7 +205,12 @@ pub const FilteredQueryResult = struct {
     has_more: bool,
     allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator, blocks: []ContextBlock, total_matches: u32, has_more: bool) FilteredQueryResult {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        blocks: []ContextBlock,
+        total_matches: u32,
+        has_more: bool,
+    ) FilteredQueryResult {
         return FilteredQueryResult{
             .allocator = allocator,
             .blocks = blocks,
@@ -246,12 +253,22 @@ pub fn execute_filtered_query(
 ) !FilteredQueryResult {
     try query.validate();
 
-    var matched_blocks = std.ArrayList(ContextBlock).init(allocator);
-    defer matched_blocks.deinit();
-
     var total_matches: u32 = 0;
     var blocks_collected: u32 = 0;
     const max_to_collect = query.max_results;
+
+    // Pre-allocate the ArrayList with the maximum possible capacity we might need
+    var matched_blocks = std.ArrayList(ContextBlock).init(allocator);
+    errdefer {
+        // In case of error, free any blocks we've already allocated
+        for (matched_blocks.items) |block| {
+            allocator.free(block.source_uri);
+            allocator.free(block.metadata_json);
+            allocator.free(block.content);
+        }
+        matched_blocks.deinit();
+    }
+    try matched_blocks.ensureTotalCapacity(max_to_collect);
 
     var iterator = storage_engine.iterate_all_blocks();
 

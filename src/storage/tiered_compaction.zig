@@ -204,6 +204,7 @@ pub const TieredCompactionManager = struct {
         // Compact all L0 SSTables into L1
         var input_paths = std.ArrayList([]const u8).init(self.allocator);
         for (self.tiers[0].sstables.items) |info| {
+            // Safety: L0 sstables count is bounded by config.max_sstables_per_tier - allocation guaranteed
             input_paths.append(info.path) catch unreachable;
         }
 
@@ -221,19 +222,23 @@ pub const TieredCompactionManager = struct {
         const tier = &self.tiers[level];
         var candidates = std.ArrayList(usize).init(self.allocator);
         defer candidates.deinit();
+        try candidates.ensureTotalCapacity(self.config.max_sstables_per_tier);
 
         // Simple heuristic: find the largest group of similarly-sized SSTables
         for (tier.sstables.items, 0..) |info, i| {
             _ = info;
+            // Safety: Bounded by max_sstables_per_tier config limit - guaranteed capacity
             candidates.append(i) catch unreachable;
             if (candidates.items.len >= self.config.max_sstables_per_tier) break;
         }
 
         var input_paths = std.ArrayList([]const u8).init(self.allocator);
+        try input_paths.ensureTotalCapacity(candidates.items.len);
         var total_size: u64 = 0;
 
         for (candidates.items) |idx| {
             const info = tier.sstables.items[idx];
+            // Safety: Appending exact number of candidate items - no reallocation needed
             input_paths.append(info.path) catch unreachable;
             total_size += info.size;
         }

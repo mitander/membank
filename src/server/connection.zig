@@ -302,7 +302,12 @@ pub const ClientConnection = struct {
     }
 
     /// Write a message to the client (legacy blocking method - kept for compatibility)
-    pub fn write_message(self: *ClientConnection, msg_type: MessageType, payload: []const u8, config: ServerConfig) !void {
+    pub fn write_message(
+        self: *ClientConnection,
+        msg_type: MessageType,
+        payload: []const u8,
+        config: ServerConfig,
+    ) !void {
         if (payload.len > config.max_response_size) {
             return ConnectionError.ResponseTooLarge;
         }

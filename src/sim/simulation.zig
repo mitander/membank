@@ -43,7 +43,7 @@ pub const Simulation = struct {
     pub fn add_node(self: *Self) !NodeId {
         const node_id = NodeId{ .id = self.nodes.items.len };
         const node = try Node.init(self.allocator, node_id);
-        try self.nodes.append(node);
+        try self.nodes.append(node); // tidy:ignore-perf Dynamic node addition without known count
         try self.network.add_node(node_id);
         return node_id;
     }

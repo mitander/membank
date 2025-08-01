@@ -177,7 +177,11 @@ pub const ZigParser = struct {
     }
 
     /// Parse Zig source content into semantic units
-    fn parse_content(self: *ZigParser, allocator: std.mem.Allocator, content: SourceContent) IngestionError![]ParsedUnit {
+    fn parse_content(
+        self: *ZigParser,
+        allocator: std.mem.Allocator,
+        content: SourceContent,
+    ) IngestionError![]ParsedUnit {
         concurrency.assert_main_thread();
 
         const file_path = content.metadata.get("file_path") orelse "unknown.zig";

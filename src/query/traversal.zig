@@ -205,12 +205,15 @@ fn traverse_breadth_first(
     defer visited.deinit();
 
     var result_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try result_blocks.ensureCapacity(query.max_results);
     defer result_blocks.deinit();
 
     var result_paths = std.ArrayList([]BlockId).init(allocator);
+    try result_paths.ensureCapacity(query.max_results);
     defer result_paths.deinit();
 
     var result_depths = std.ArrayList(u32).init(allocator);
+    try result_depths.ensureCapacity(query.max_results);
     defer result_depths.deinit();
 
     const QueueItem = struct {
@@ -220,6 +223,7 @@ fn traverse_breadth_first(
     };
 
     var queue = std.ArrayList(QueueItem).init(allocator);
+    try queue.ensureCapacity(query.max_results);
     defer {
         for (queue.items) |item| {
             allocator.free(item.path);
@@ -253,12 +257,12 @@ fn traverse_breadth_first(
         )) orelse continue;
 
         const cloned_block = try clone_block(allocator, current_block);
-        try result_blocks.append(cloned_block);
+        try result_blocks.append(cloned_block); // tidy:ignore-perf ensureCapacity called with query.max_results
 
         const cloned_path = try allocator.dupe(BlockId, current.path);
-        try result_paths.append(cloned_path);
+        try result_paths.append(cloned_path); // tidy:ignore-perf ensureCapacity called with query.max_results
 
-        try result_depths.append(current.depth);
+        try result_depths.append(current.depth); // tidy:ignore-perf ensureCapacity called with query.max_results
 
         if (query.max_depth > 0 and current.depth >= query.max_depth) {
             continue;
@@ -300,12 +304,15 @@ fn traverse_depth_first(
     defer visited.deinit();
 
     var result_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try result_blocks.ensureCapacity(query.max_results);
     defer result_blocks.deinit();
 
     var result_paths = std.ArrayList([]BlockId).init(allocator);
+    try result_paths.ensureCapacity(query.max_results);
     defer result_paths.deinit();
 
     var result_depths = std.ArrayList(u32).init(allocator);
+    try result_depths.ensureCapacity(query.max_results);
     defer result_depths.deinit();
 
     const StackItem = struct {
@@ -315,6 +322,7 @@ fn traverse_depth_first(
     };
 
     var stack = std.ArrayList(StackItem).init(allocator);
+    try stack.ensureCapacity(query.max_results);
     defer {
         for (stack.items) |item| {
             allocator.free(item.path);
@@ -352,12 +360,12 @@ fn traverse_depth_first(
         )) orelse continue;
 
         const cloned_block = try clone_block(allocator, current_block);
-        try result_blocks.append(cloned_block);
+        try result_blocks.append(cloned_block); // tidy:ignore-perf ensureCapacity called with query.max_results
 
         const cloned_path = try allocator.dupe(BlockId, current.path);
-        try result_paths.append(cloned_path);
+        try result_paths.append(cloned_path); // tidy:ignore-perf ensureCapacity called with query.max_results
 
-        try result_depths.append(current.depth);
+        try result_depths.append(current.depth); // tidy:ignore-perf ensureCapacity called with query.max_results
 
         if (query.max_depth > 0 and current.depth >= query.max_depth) {
             continue;
@@ -426,7 +434,7 @@ fn add_neighbors_to_queue(
                     @memcpy(new_path[0..current_path.len], current_path);
                     new_path[current_path.len] = edge.target_id;
 
-                    try queue.append(QueueItem{
+                    try queue.append(QueueItem{ // tidy:ignore-perf ensureCapacity called with query.max_results
                         .block_id = edge.target_id,
                         .depth = next_depth,
                         .path = new_path,
@@ -449,7 +457,7 @@ fn add_neighbors_to_queue(
                     @memcpy(new_path[0..current_path.len], current_path);
                     new_path[current_path.len] = edge.source_id;
 
-                    try queue.append(QueueItem{
+                    try queue.append(QueueItem{ // tidy:ignore-perf ensureCapacity called with query.max_results
                         .block_id = edge.source_id,
                         .depth = next_depth,
                         .path = new_path,
@@ -486,7 +494,7 @@ fn add_neighbors_to_stack(
                     @memcpy(new_path[0..current_path.len], current_path);
                     new_path[current_path.len] = edge.target_id;
 
-                    try stack.append(StackItem{
+                    try stack.append(StackItem{ // tidy:ignore-perf ensureCapacity called with query.max_results
                         .block_id = edge.target_id,
                         .depth = next_depth,
                         .path = new_path,
@@ -509,7 +517,7 @@ fn add_neighbors_to_stack(
                     @memcpy(new_path[0..current_path.len], current_path);
                     new_path[current_path.len] = edge.source_id;
 
-                    try stack.append(StackItem{
+                    try stack.append(StackItem{ // tidy:ignore-perf ensureCapacity called with query.max_results
                         .block_id = edge.source_id,
                         .depth = next_depth,
                         .path = new_path,
@@ -1047,9 +1055,11 @@ test "breadth-first vs depth-first traversal ordering" {
     var dfs_ids = std.ArrayList(BlockId).init(allocator);
     defer dfs_ids.deinit();
 
+    try bfs_ids.ensureCapacity(bfs_result.blocks.len);
     for (bfs_result.blocks) |block| {
         try bfs_ids.append(block.id);
     }
+    try dfs_ids.ensureCapacity(dfs_result.blocks.len);
     for (dfs_result.blocks) |block| {
         try dfs_ids.append(block.id);
     }

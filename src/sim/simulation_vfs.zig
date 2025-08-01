@@ -193,18 +193,21 @@ pub const SimulationVFS = struct {
     }
 
     pub fn init_with_fault_seed(allocator: std.mem.Allocator, seed: u64) !SimulationVFS {
-        const arena = std.heap.ArenaAllocator.init(allocator);
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        errdefer arena.deinit();
+
+        const files = std.StringHashMap(FileHandle).init(arena.allocator());
+        var file_storage = std.ArrayList(FileStorage).init(arena.allocator());
+        // Pre-allocate initial capacity to avoid frequent reallocations
+        // Safety: Using unreachable is safe here because we're in a test environment
+        // and we want to fail fast if allocation fails
+        file_storage.ensureTotalCapacity(64) catch unreachable; // Reasonable default for most test cases
+
         return SimulationVFS{
             .allocator = allocator,
             .arena = arena,
-            .files = std.StringHashMap(FileHandle).init(allocator),
-            .file_storage = blk: {
-                var storage = std.ArrayList(FileStorage).init(allocator);
-                // Pre-allocate capacity to prevent reallocation corruption
-                // Tests typically use fewer than 1000 files
-                storage.ensureTotalCapacity(1024) catch unreachable;
-                break :blk storage;
-            },
+            .files = files,
+            .file_storage = file_storage,
             .next_file_id = 1,
             .next_handle = 1,
             .current_time_ns = 1_700_000_000_000_000_000, // Fixed epoch for determinism
@@ -213,7 +216,12 @@ pub const SimulationVFS = struct {
     }
 
     /// Enable torn write simulation with specified parameters
-    pub fn enable_torn_writes(self: *SimulationVFS, probability_per_thousand: u32, min_partial_bytes: u32, max_completion_fraction_per_thousand: u32) void {
+    pub fn enable_torn_writes(
+        self: *SimulationVFS,
+        probability_per_thousand: u32,
+        min_partial_bytes: u32,
+        max_completion_fraction_per_thousand: u32,
+    ) void {
         assert(probability_per_thousand <= 1000);
         assert(max_completion_fraction_per_thousand <= 1000);
         assert(min_partial_bytes > 0);
@@ -227,7 +235,11 @@ pub const SimulationVFS = struct {
     }
 
     /// Enable read corruption simulation with specified parameters
-    pub fn enable_read_corruption(self: *SimulationVFS, bit_flip_probability_per_kb: u32, max_bits_per_corruption: u32) void {
+    pub fn enable_read_corruption(
+        self: *SimulationVFS,
+        bit_flip_probability_per_kb: u32,
+        max_bits_per_corruption: u32,
+    ) void {
         assert(bit_flip_probability_per_kb <= 1000);
         assert(max_bits_per_corruption > 0 and max_bits_per_corruption <= 8);
 
@@ -239,7 +251,11 @@ pub const SimulationVFS = struct {
     }
 
     /// Enable I/O failure simulation with specified parameters
-    pub fn enable_io_failures(self: *SimulationVFS, failure_probability_per_thousand: u32, target_operations: FaultInjectionState.IoFailureConfig.OperationType) void {
+    pub fn enable_io_failures(
+        self: *SimulationVFS,
+        failure_probability_per_thousand: u32,
+        target_operations: FaultInjectionState.IoFailureConfig.OperationType,
+    ) void {
         assert(failure_probability_per_thousand <= 1000);
 
         self.fault_injection.io_failure_config = .{
@@ -325,10 +341,8 @@ pub const SimulationVFS = struct {
 
         const path_copy = try self.allocator.dupe(u8, path);
 
-        // Ensure we don't exceed pre-allocated capacity to prevent reallocation
-        if (self.file_storage.items.len >= self.file_storage.capacity) {
-            return error.OutOfMemory;
-        }
+        // Ensure we have enough capacity, grow if needed
+        try self.file_storage.ensureUnusedCapacity(1);
 
         try self.file_storage.append(FileStorage{
             .data = data,
