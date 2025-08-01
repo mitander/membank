@@ -37,7 +37,7 @@ fn create_test_block(index: u32) ContextBlock {
         .version = 1,
         .source_uri = "test://wal_cleanup_fault.zig",
         .metadata_json = "{}",
-        .content = std.fmt.allocPrint(testing.allocator, "Test block {} for WAL cleanup fault injection. This content is designed to fill up the memtable to trigger flush operations.", .{index}) catch unreachable,
+        .content = std.fmt.allocPrint(testing.allocator, "Test block {} for WAL cleanup fault injection. This content is designed to fill up the memtable to trigger flush operations.", .{index}) catch @panic("OOM in test"),
     };
 }
 

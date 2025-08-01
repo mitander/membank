@@ -361,6 +361,7 @@ test "performance impact - assertion overhead measurement" {
 
     // Measure performance with assertions enabled (they should be no-cost in release)
     const iterations = 100;
+    // Safety: Timer.start only fails on unsupported platforms - guaranteed available in tests
     var timer = std.time.Timer.start() catch unreachable;
 
     for (1..iterations + 1) |i| {

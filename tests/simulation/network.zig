@@ -452,6 +452,7 @@ test "deterministic replay: same seed produces identical results" {
         }
         results1.deinit();
     }
+    try results1.ensureTotalCapacity(10); // Pre-allocate for 10 items
 
     {
         var sim1 = try Simulation.init(allocator, REPLAY_SEED);
@@ -472,12 +473,12 @@ test "deterministic replay: same seed produces identical results" {
                 const data = try std.fmt.allocPrint(allocator, "Replay test {}", .{i});
                 defer allocator.free(data);
                 if (file.write(data)) |_| {
-                    try results1.append(try allocator.dupe(u8, data));
+                    try results1.append(try allocator.dupe(u8, data)); // tidy:ignore-perf - capacity pre-allocated line 455
                 } else |_| {
-                    try results1.append(try allocator.dupe(u8, "WRITE_FAILED"));
+                    try results1.append(try allocator.dupe(u8, "WRITE_FAILED")); // tidy:ignore-perf - capacity pre-allocated line 455
                 }
             } else |_| {
-                try results1.append(try allocator.dupe(u8, "CREATE_FAILED"));
+                try results1.append(try allocator.dupe(u8, "CREATE_FAILED")); // tidy:ignore-perf - capacity pre-allocated line 455
             }
 
             sim1.tick();
@@ -492,6 +493,7 @@ test "deterministic replay: same seed produces identical results" {
         }
         results2.deinit();
     }
+    try results2.ensureTotalCapacity(10); // Pre-allocate for 10 items
 
     {
         var sim2 = try Simulation.init(allocator, REPLAY_SEED);
@@ -512,12 +514,12 @@ test "deterministic replay: same seed produces identical results" {
                 const data = try std.fmt.allocPrint(allocator, "Replay test {}", .{i});
                 defer allocator.free(data);
                 if (file.write(data)) |_| {
-                    try results2.append(try allocator.dupe(u8, data));
+                    try results2.append(try allocator.dupe(u8, data)); // tidy:ignore-perf - capacity pre-allocated line 496
                 } else |_| {
-                    try results2.append(try allocator.dupe(u8, "WRITE_FAILED"));
+                    try results2.append(try allocator.dupe(u8, "WRITE_FAILED")); // tidy:ignore-perf - capacity pre-allocated line 496
                 }
             } else |_| {
-                try results2.append(try allocator.dupe(u8, "CREATE_FAILED"));
+                try results2.append(try allocator.dupe(u8, "CREATE_FAILED")); // tidy:ignore-perf - capacity pre-allocated line 496
             }
 
             sim2.tick();

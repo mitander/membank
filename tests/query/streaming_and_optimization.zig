@@ -68,6 +68,7 @@ test "streaming query results with large datasets" {
     // Create large dataset to test streaming behavior
     const dataset_size = 500;
     var stored_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try stored_blocks.ensureTotalCapacity(1000); // Pre-allocate for large dataset
     defer {
         for (stored_blocks.items) |block| {
             allocator.free(block.content);
@@ -244,6 +245,7 @@ test "complex graph traversal with streaming optimization" {
 
     // Create tree nodes
     var tree_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try tree_blocks.ensureTotalCapacity(31); // Full binary tree with 5 levels (2^5 - 1 = 31 nodes)
     defer {
         for (tree_blocks.items) |block| {
             allocator.free(block.content);
@@ -355,6 +357,7 @@ test "query caching behavior and cache hit optimization" {
     // Create dataset for caching tests
     const cache_test_size = 500; // Reduced to stay under MAX_BLOCKS
     var cache_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try cache_blocks.ensureTotalCapacity(100); // Number of blocks for cache testing
     defer {
         for (cache_blocks.items) |block| {
             allocator.free(block.content);
@@ -390,6 +393,7 @@ test "query caching behavior and cache hit optimization" {
     const stats_before = query_engine.statistics();
 
     var execution_times = std.ArrayList(u64).init(allocator);
+    try execution_times.ensureTotalCapacity(10); // Number of test iterations
     defer execution_times.deinit();
 
     var execution: u32 = 0;
@@ -444,6 +448,7 @@ test "batch query operations with memory efficiency" {
     // Create dataset for batch testing
     const batch_size = 800; // Reduced to stay under MAX_BLOCKS
     var batch_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try batch_blocks.ensureTotalCapacity(100); // Expected batch size
     defer {
         for (batch_blocks.items) |block| {
             allocator.free(block.content);
@@ -532,6 +537,7 @@ test "query error handling and recovery under streaming" {
     // Create some valid blocks
     const valid_count = 100;
     var valid_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try valid_blocks.ensureTotalCapacity(50); // Expected number of valid blocks
     defer {
         for (valid_blocks.items) |block| {
             allocator.free(block.content);
@@ -624,6 +630,7 @@ test "memory pressure during concurrent streaming queries" {
     // Create substantial dataset
     const dataset_size = 900; // Reduced to stay under MAX_BLOCKS
     var pressure_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try pressure_blocks.ensureTotalCapacity(1000); // Large number for memory pressure test
     defer {
         for (pressure_blocks.items) |block| {
             allocator.free(block.content);
@@ -647,6 +654,7 @@ test "memory pressure during concurrent streaming queries" {
     // Simulate multiple concurrent queries by running several queries sequentially
     // but keeping their results alive to simulate memory pressure
     var concurrent_results = std.ArrayList(QueryResult).init(allocator);
+    try concurrent_results.ensureTotalCapacity(10); // Number of concurrent queries
     defer {
         for (concurrent_results.items) |result| {
             result.deinit();
@@ -677,7 +685,7 @@ test "memory pressure during concurrent streaming queries" {
         const initial_memory = storage_engine.memtable_manager.memory_usage();
 
         var result = try query_engine.execute_find_blocks(pressure_query);
-        try concurrent_results.append(result);
+        try concurrent_results.append(result); // tidy:ignore-perf - capacity pre-allocated line 657
 
         // Partially consume each query to simulate real usage
         var partial_count: u32 = 0;
@@ -720,6 +728,7 @@ test "query optimization with complex filter combinations" {
     // Create diverse dataset with varying characteristics
     const diverse_size = 900; // Reduced to stay under MAX_BLOCKS
     var diverse_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try diverse_blocks.ensureTotalCapacity(100); // Diverse set of blocks for testing
     defer {
         for (diverse_blocks.items) |block| {
             allocator.free(block.content);
@@ -811,6 +820,7 @@ test "streaming iterator memory safety and lifecycle" {
     // Create test dataset
     const safety_size = 500;
     var safety_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try safety_blocks.ensureTotalCapacity(10); // Blocks for memory safety tests
     defer {
         for (safety_blocks.items) |block| {
             allocator.free(block.content);

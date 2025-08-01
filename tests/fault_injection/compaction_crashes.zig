@@ -31,7 +31,11 @@ fn deterministic_block_id(seed: u32) BlockId {
 }
 
 // Helper to populate storage with enough data to trigger compaction
-fn populate_storage_for_compaction(allocator: std.mem.Allocator, storage_engine: *StorageEngine, block_count: u32) !void {
+fn populate_storage_for_compaction(
+    allocator: std.mem.Allocator,
+    storage_engine: *StorageEngine,
+    block_count: u32,
+) !void {
     for (0..block_count) |i| {
         const source_uri = try std.fmt.allocPrint(allocator, "test://block{d}", .{i});
         defer allocator.free(source_uri);

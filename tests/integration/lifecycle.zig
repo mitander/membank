@@ -123,6 +123,7 @@ test "integration: full data lifecycle with compaction" {
     // Query first 100 blocks
     var query_block_ids = std.ArrayList(BlockId).init(allocator);
     defer query_block_ids.deinit();
+    try query_block_ids.ensureCapacity(100);
 
     // Start from 1, all-zero BlockID invalid
     for (1..101) |i| {
@@ -380,6 +381,7 @@ test "integration: concurrent storage and query operations" {
         if (round % 10 == 0) {
             var batch_ids = std.ArrayList(BlockId).init(allocator);
             defer batch_ids.deinit();
+            try batch_ids.ensureCapacity(5);
 
             for (0..5) |j| {
                 const batch_idx = (round + j) % base_blocks;

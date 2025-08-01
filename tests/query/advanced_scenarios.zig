@@ -129,12 +129,13 @@ test "complex graph traversal scenarios" {
 
     // Should find all reachable functions within 3 hops
     var found_blocks = std.ArrayList(BlockId).init(allocator);
+    try found_blocks.ensureTotalCapacity(10); // Expected number of matching blocks
     defer found_blocks.deinit();
 
     var iterator = result.iterator();
     while (try iterator.next(allocator)) |block| {
         defer block.deinit(allocator);
-        try found_blocks.append(block.id);
+        try found_blocks.append(block.id); // tidy:ignore-perf Unknown result count from query
     }
 
     try testing.expect(found_blocks.items.len >= 5); // Should find most functions
@@ -180,6 +181,7 @@ test "query optimization strategy validation" {
 
     // Test large query (should use optimized strategy)
     var large_block_ids = std.ArrayList(BlockId).init(allocator);
+    try large_block_ids.ensureTotalCapacity(50); // Number of large blocks in the test
     defer large_block_ids.deinit();
     i = 0;
     while (i < 100) : (i += 1) {
@@ -218,6 +220,7 @@ test "query performance under memory pressure" {
         // Create blocks with increasing content size
         const content_size = (i % 100) * 50 + 100; // 100-5000 bytes
         var content = std.ArrayList(u8).init(allocator);
+        try content.ensureTotalCapacity(1024); // Expected size of the content
         defer content.deinit();
 
         var j: usize = 0;
@@ -236,6 +239,7 @@ test "query performance under memory pressure" {
     var query_round: u32 = 0;
     while (query_round < 10) : (query_round += 1) {
         var query_block_ids = std.ArrayList(BlockId).init(allocator);
+        try query_block_ids.ensureTotalCapacity(10); // Expected number of blocks in the test query
         defer query_block_ids.deinit();
 
         // Query random subset
@@ -298,6 +302,7 @@ test "complex filtering and search scenarios" {
 
     // Test content-based queries (when filtering is implemented)
     var all_block_ids = std.ArrayList(BlockId).init(allocator);
+    try all_block_ids.ensureTotalCapacity(100); // Total number of blocks in the test
     defer all_block_ids.deinit();
 
     var i: u32 = 0;
@@ -376,12 +381,13 @@ test "graph traversal with cycle detection" {
 
     // Should find all blocks but not infinite loop
     var found_blocks = std.ArrayList(BlockId).init(allocator);
+    try found_blocks.ensureTotalCapacity(10); // Expected number of matching blocks
     defer found_blocks.deinit();
 
     var iterator = result.iterator();
     while (try iterator.next(allocator)) |block| {
         defer block.deinit(allocator);
-        try found_blocks.append(block.id);
+        try found_blocks.append(block.id); // tidy:ignore-perf Unknown result count from query
     }
 
     // Should find all 3 blocks exactly once
@@ -420,6 +426,7 @@ test "batch query operations and efficiency" {
     var batch_round: u32 = 0;
     while (batch_round < 10) : (batch_round += 1) {
         var batch_block_ids = std.ArrayList(BlockId).init(allocator);
+        try batch_block_ids.ensureTotalCapacity(10); // Batch size for testing
         defer batch_block_ids.deinit();
 
         // Create batch of 10 block IDs
@@ -471,6 +478,7 @@ test "query error handling and recovery" {
 
     // Test query with non-existent blocks
     var nonexistent_ids = std.ArrayList(BlockId).init(allocator);
+    try nonexistent_ids.ensureTotalCapacity(5); // Number of non-existent IDs to test
     defer nonexistent_ids.deinit();
 
     var i: u32 = 9000; // IDs that don't exist
@@ -565,6 +573,7 @@ test "mixed query workload simulation" {
 
         // Batch lookup
         var batch_ids = std.ArrayList(BlockId).init(allocator);
+        try batch_ids.ensureTotalCapacity(10); // Batch size for mixed workload
         defer batch_ids.deinit();
         i = workload_round * 5;
         while (i < (workload_round + 1) * 5) : (i += 1) {

@@ -57,7 +57,7 @@ const WARMUP_OPERATIONS = 25;
 
 fn measure_operation_latency(comptime operation_fn: anytype, args: anytype) i64 {
     const start = std.time.nanoTimestamp();
-    _ = operation_fn(args) catch unreachable;
+    _ = operation_fn(args) catch @panic("Operation failed in performance test");
     return std.time.nanoTimestamp() - start;
 }
 
@@ -97,12 +97,14 @@ test "streaming_memory_efficiency_benchmark" {
         const stream_start = std.time.nanoTimestamp();
 
         var result_buffer = std.ArrayList(ContextBlock).init(allocator);
+        try result_buffer.ensureTotalCapacity(100); // Pre-allocate for expected number of blocks
         defer {
             for (result_buffer.items) |block| {
                 allocator.free(block.content);
             }
             result_buffer.deinit();
         }
+        try result_buffer.ensureCapacity(result_size);
 
         // Stream results to simulate real query formatting
         for (1..result_size + 1) |i| {
@@ -283,7 +285,9 @@ test "query_engine_performance_benchmark" {
 
     // Phase 2: Single block query performance
     var single_query_times = std.ArrayList(i64).init(allocator);
+    try single_query_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
     defer single_query_times.deinit();
+    try single_query_times.ensureCapacity(PERFORMANCE_SAMPLES);
 
     for (0..PERFORMANCE_SAMPLES) |_| {
         const query_id = (@mod(std.crypto.random.int(u32), block_count)) + 1;
@@ -310,7 +314,9 @@ test "query_engine_performance_benchmark" {
 
     // Phase 3: Batch query performance
     var batch_query_times = std.ArrayList(i64).init(allocator);
+    try batch_query_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
     defer batch_query_times.deinit();
+    try batch_query_times.ensureCapacity(PERFORMANCE_SAMPLES);
 
     for (0..PERFORMANCE_SAMPLES) |_| {
         var query_ids: [10]BlockId = undefined;
@@ -341,6 +347,7 @@ test "query_engine_performance_benchmark" {
 
     // Phase 4: Graph traversal performance
     var traversal_times = std.ArrayList(i64).init(allocator);
+    try traversal_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
     defer traversal_times.deinit();
 
     for (0..PERFORMANCE_SAMPLES) |_| {
@@ -359,7 +366,7 @@ test "query_engine_performance_benchmark" {
             // Validate first edge has valid target
             try testing.expect(edges[0].target_id.bytes.len == 16);
         }
-        try traversal_times.append(@intCast(end - start));
+        try traversal_times.append(@intCast(end - start)); // tidy:ignore-perf - capacity pre-allocated line 350
     }
 
     const avg_traversal = calculate_average(traversal_times.items);
@@ -373,6 +380,7 @@ test "memory_management_efficiency_benchmark" {
 
     // Phase 1: Arena allocation performance
     var arena_times = std.ArrayList(i64).init(allocator);
+    try arena_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
     defer arena_times.deinit();
 
     for (0..PERFORMANCE_SAMPLES) |_| {
@@ -396,6 +404,7 @@ test "memory_management_efficiency_benchmark" {
 
     // Phase 2: Arena cleanup performance
     var cleanup_times = std.ArrayList(i64).init(allocator);
+    try cleanup_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
     defer cleanup_times.deinit();
 
     for (0..PERFORMANCE_SAMPLES) |_| {

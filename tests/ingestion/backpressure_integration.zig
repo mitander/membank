@@ -187,7 +187,11 @@ fn create_test_source(allocator: std.mem.Allocator, item_count: u32) !pipeline_m
 
         const Self = @This();
 
-        fn fetch(ptr: *anyopaque, alloc: std.mem.Allocator, vfs: *membank.vfs.VFS) pipeline_mod.IngestionError!pipeline_mod.SourceIterator {
+        fn fetch(
+            ptr: *anyopaque,
+            alloc: std.mem.Allocator,
+            vfs: *membank.vfs.VFS,
+        ) pipeline_mod.IngestionError!pipeline_mod.SourceIterator {
             _ = vfs;
             const self: *Self = @ptrCast(@alignCast(ptr));
             return TestSourceIterator.init(alloc, self.item_count);
@@ -281,7 +285,11 @@ const TestSourceIterator = struct {
 // Create a simple test parser that converts content to parsed units
 fn create_test_parser() pipeline_mod.Parser {
     const TestParser = struct {
-        fn parse(ptr: *anyopaque, allocator: std.mem.Allocator, content: pipeline_mod.SourceContent) pipeline_mod.IngestionError![]pipeline_mod.ParsedUnit {
+        fn parse(
+            ptr: *anyopaque,
+            allocator: std.mem.Allocator,
+            content: pipeline_mod.SourceContent,
+        ) pipeline_mod.IngestionError![]pipeline_mod.ParsedUnit {
             _ = ptr;
 
             var units = try allocator.alloc(pipeline_mod.ParsedUnit, 1);
@@ -334,7 +342,11 @@ fn create_test_parser() pipeline_mod.Parser {
 // Create a simple test chunker that converts parsed units to context blocks
 fn create_test_chunker() pipeline_mod.Chunker {
     const TestChunker = struct {
-        fn chunk(ptr: *anyopaque, allocator: std.mem.Allocator, units: []const pipeline_mod.ParsedUnit) pipeline_mod.IngestionError![]context_block.ContextBlock {
+        fn chunk(
+            ptr: *anyopaque,
+            allocator: std.mem.Allocator,
+            units: []const pipeline_mod.ParsedUnit,
+        ) pipeline_mod.IngestionError![]context_block.ContextBlock {
             _ = ptr;
 
             var blocks = try allocator.alloc(context_block.ContextBlock, units.len);
