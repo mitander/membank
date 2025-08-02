@@ -9,6 +9,7 @@
 //! arena is reset. This prevents memory leaks from incomplete iteration.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const custom_assert = @import("assert.zig");
 const assert = custom_assert.assert;
 const testing = std.testing;
@@ -38,6 +39,53 @@ comptime {
     assert(MAX_REASONABLE_FILE_SIZE < std.math.maxInt(u64) / 2);
     assert(PRODUCTION_FILE_MAGIC != 0);
     assert(PRODUCTION_FILE_MAGIC != std.math.maxInt(u64));
+}
+
+/// Platform-specific error set for filesystem sync operations
+const PlatformSyncError = error{
+    SystemResources,
+    AccessDenied,
+    IoError,
+};
+
+/// Platform-specific global filesystem sync implementation.
+/// Forces all buffered filesystem data to physical storage across the entire system.
+/// Critical for ensuring WAL durability in combination with individual file syncs.
+fn platform_global_sync() PlatformSyncError!void {
+    switch (builtin.os.tag) {
+        .linux => {
+            // Linux: sync() forces write of all modified in-core data to disk
+            // POSIX.1-2001 standard requires sync() to schedule writes but may return before completion
+            // Modern Linux sync() waits for completion, providing strong durability guarantee
+            const result = std.c.sync();
+            _ = result; // sync() has void return type
+        },
+        .macos => {
+            // macOS: sync() schedules all filesystem buffers to be written to disk
+            // Darwin implementation waits for completion, ensuring durability
+            const result = std.c.sync();
+            _ = result; // sync() has void return type
+        },
+        .windows => {
+            // Windows: No direct equivalent to POSIX sync()
+            // FlushFileBuffers() works per-handle, sync() affects entire system
+            // _flushall() flushes C runtime buffers but not OS buffers
+            // For production Windows deployment, consider volume-specific sync
+
+            // Best effort: flush C runtime buffers
+            // Note: This does not provide the same durability guarantee as POSIX sync()
+            const flush_result = std.c._flushall();
+            _ = flush_result; // Returns number of streams flushed
+
+            // Additional Windows-specific sync could be implemented here
+            // using FlushFileBuffers on volume handles, but requires more complex implementation
+        },
+        else => {
+            // Unsupported platforms: return error rather than silent no-op
+            // This ensures callers are aware that durability guarantee is not provided
+            return PlatformSyncError.IoError;
+        },
+    }
 }
 
 /// Production VFS implementation using real OS filesystem operations
@@ -275,10 +323,18 @@ pub const ProductionVFS = struct {
         };
     }
 
+    /// Global filesystem sync forces all buffered data to storage across the entire system.
+    /// Platform-specific implementation ensures durability guarantees for critical operations.
+    /// Essential for WAL durability when combined with individual file flushes.
     fn sync(ptr: *anyopaque) VFSError!void {
         _ = ptr;
-        // Global filesystem sync not implemented for production VFS.
-        // Individual file sync is handled per-file via VFile.flush().
+
+        const platform_result = platform_global_sync();
+        platform_result catch |err| switch (err) {
+            error.SystemResources => return VFSError.OutOfMemory,
+            error.AccessDenied => return VFSError.AccessDenied,
+            else => return VFSError.IoError,
+        };
     }
 
     fn vfs_deinit(ptr: *anyopaque, allocator: std.mem.Allocator) void {
@@ -354,4 +410,68 @@ test "ProductionVFS directory operations" {
     // Empty directory should have no entries
     try testing.expectEqual(@as(usize, 0), iterator.remaining());
     try testing.expect(iterator.next() == null);
+}
+
+test "ProductionVFS global filesystem sync" {
+    const allocator = testing.allocator;
+
+    var prod_vfs = ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
+    const vfs_interface = prod_vfs.vfs();
+
+    const test_path = "/tmp/membank_sync_test_file";
+    const test_data = "Sync test data";
+
+    // Create and write test file
+    {
+        var test_file = try vfs_interface.create(test_path);
+        defer {
+            test_file.close();
+            test_file.deinit();
+        }
+
+        _ = try test_file.write(test_data);
+        try test_file.flush();
+    }
+
+    // Test global filesystem sync - should complete without error
+    try vfs_interface.sync();
+
+    // Verify file still exists and readable after sync
+    {
+        var verify_file = try vfs_interface.open(test_path, .read);
+        defer {
+            verify_file.close();
+            verify_file.deinit();
+            vfs_interface.remove(test_path) catch {};
+        }
+
+        var read_buffer: [256]u8 = undefined;
+        const bytes_read = try verify_file.read(&read_buffer);
+        try testing.expectEqual(test_data.len, bytes_read);
+        try testing.expectEqualStrings(test_data, read_buffer[0..bytes_read]);
+    }
+}
+
+test "platform_global_sync coverage" {
+    // Test platform-specific sync function directly
+    // Should complete without error on supported platforms (Linux, macOS)
+    // On Windows, provides best-effort flush behavior
+    // Unsupported platforms return IoError
+
+    const result = platform_global_sync();
+    switch (builtin.os.tag) {
+        .linux, .macos => {
+            // POSIX platforms should succeed
+            try result;
+        },
+        .windows => {
+            // Windows best-effort flush should succeed
+            try result;
+        },
+        else => {
+            // Unsupported platforms should return IoError
+            try testing.expectError(PlatformSyncError.IoError, result);
+        },
+    }
 }

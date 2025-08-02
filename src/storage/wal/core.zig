@@ -202,7 +202,12 @@ pub const WAL = struct {
             return WALError.IoError;
         }
 
+        // Individual file flush ensures data reaches OS buffers
         self.active_file.?.flush() catch return WALError.IoError;
+
+        // Global filesystem sync ensures data reaches physical storage
+        // Critical for durability guarantee - without this, power loss could lose data
+        self.vfs.sync() catch return WALError.IoError;
 
         // Immediate verification: read back WAL header to detect corruption
         if (write_buffer.len >= WALEntry.HEADER_SIZE) {
