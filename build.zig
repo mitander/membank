@@ -151,6 +151,11 @@ pub fn build(b: *std.Build) void {
             .description = "WAL cleanup fault injection tests",
         },
         .{
+            .name = "fault_injection_wal_durability",
+            .source_file = "tests/fault_injection/wal_durability_faults.zig",
+            .description = "WAL durability fault injection tests",
+        },
+        .{
             .name = "fault_injection_ingestion",
             .source_file = "tests/fault_injection/ingestion_faults.zig",
             .description = "ingestion pipeline fault injection tests",
