@@ -434,11 +434,11 @@ pub const StorageEngine = struct {
     ) StorageMetrics.MemoryPressure {
         // Update metrics with current memory usage
         const memtable_bytes = self.memtable_manager.memory_usage();
-        self.storage_metrics.memtable_memory_bytes.store(memtable_bytes, .monotonic);
+        self.storage_metrics.memtable_memory_bytes.store(memtable_bytes);
 
         // Update compaction queue size (SSTable manager tracks pending compactions)
         const queue_size = self.sstable_manager.pending_compaction_count();
-        self.storage_metrics.compaction_queue_size.store(queue_size, .monotonic);
+        self.storage_metrics.compaction_queue_size.store(queue_size);
 
         return self.storage_metrics.calculate_memory_pressure(config);
     }
@@ -542,7 +542,7 @@ pub const StorageEngine = struct {
     fn check_and_run_compaction(self: *StorageEngine) !void {
         if (self.sstable_manager.should_compact()) {
             try self.sstable_manager.execute_compaction();
-            _ = self.storage_metrics.compactions.add(1, .monotonic);
+            _ = self.storage_metrics.compactions.add(1);
         }
     }
 

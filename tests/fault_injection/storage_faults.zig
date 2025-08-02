@@ -112,7 +112,7 @@ test "fault injection - disk full during compaction" {
 
     // Storage engine should handle disk full gracefully
     // It might not be able to compact, but existing data should remain accessible
-    const stored_blocks = storage_engine.metrics().blocks_written.load(.monotonic);
+    const stored_blocks = storage_engine.metrics().blocks_written.load();
     try testing.expect(stored_blocks >= 50); // At least the first 50 blocks should be stored
 }
 

@@ -196,12 +196,12 @@ pub const SimulationVFS = struct {
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
 
-        const files = std.StringHashMap(FileHandle).init(arena.allocator());
+        const files = std.StringHashMap(FileHandle).init(allocator);
         var file_storage = std.ArrayList(FileStorage).init(arena.allocator());
-        // Pre-allocate initial capacity to avoid frequent reallocations
-        // Safety: Using unreachable is safe here because we're in a test environment
-        // and we want to fail fast if allocation fails
-        file_storage.ensureTotalCapacity(64) catch unreachable; // Reasonable default for most test cases
+        // Pre-allocate large initial capacity to avoid reallocations
+        // Arena allocators don't support resizing, so we need generous initial capacity
+        // Safety: unreachable is safe because we're in test environment with unlimited memory
+        file_storage.ensureTotalCapacity(512) catch unreachable; // Generous initial capacity
 
         return SimulationVFS{
             .allocator = allocator,
@@ -339,11 +339,10 @@ pub const SimulationVFS = struct {
         const handle = self.next_handle;
         self.next_handle += 1;
 
-        const path_copy = try self.allocator.dupe(u8, path);
+        const path_copy = try self.arena.allocator().dupe(u8, path);
 
-        // Ensure we have enough capacity, grow if needed
-        try self.file_storage.ensureUnusedCapacity(1);
-
+        // Arena allocator provides capacity - no dynamic growing
+        // Generous initial capacity (512) should handle most test scenarios
         try self.file_storage.append(FileStorage{
             .data = data,
             .path = path_copy,
@@ -358,7 +357,7 @@ pub const SimulationVFS = struct {
     fn remove_file_storage(self: *SimulationVFS, handle: FileHandle) void {
         for (self.file_storage.items) |*storage| {
             if (storage.handle == handle and storage.active) {
-                self.allocator.free(storage.path);
+                // Path allocated from arena - no manual free needed
                 storage.active = false;
                 break;
             }
@@ -366,22 +365,14 @@ pub const SimulationVFS = struct {
     }
 
     pub fn deinit(self: *SimulationVFS) void {
-        // Free path keys and file storage
+        // Free HashMap keys (allocated with backing allocator)
         var file_iter = self.files.iterator();
         while (file_iter.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
         }
         self.files.deinit();
 
-        // Free file storage paths
-        for (self.file_storage.items) |storage| {
-            if (storage.active) {
-                self.allocator.free(storage.path);
-            }
-        }
-        self.file_storage.deinit();
-
-        // Arena handles all file content cleanup
+        // Arena handles file_storage, paths and content cleanup
         self.arena.deinit();
     }
 
@@ -522,7 +513,6 @@ pub const SimulationVFS = struct {
         const handle = try self.create_file_storage(path, file_data);
 
         const path_copy = try self.allocator.dupe(u8, path);
-        errdefer self.allocator.free(path_copy);
 
         try self.files.put(path_copy, handle);
 
@@ -558,7 +548,7 @@ pub const SimulationVFS = struct {
         // Update disk usage
         self.fault_injection.update_disk_usage(file_data.content.items.len, 0);
 
-        // Arena memory model requires only path key cleanup
+        // Remove from files map - free backing allocator key
         const removed_entry = self.files.fetchRemove(path).?;
         self.allocator.free(removed_entry.key);
 
@@ -594,7 +584,6 @@ pub const SimulationVFS = struct {
         const handle = try self.create_file_storage(path, dir_data);
 
         const path_copy = try self.allocator.dupe(u8, path);
-        errdefer self.allocator.free(path_copy);
 
         try self.files.put(path_copy, handle);
     }
@@ -641,7 +630,7 @@ pub const SimulationVFS = struct {
             }
         }
 
-        // Arena memory model requires only path key cleanup
+        // Remove from files map - free backing allocator key
         const removed_entry = self.files.fetchRemove(path).?;
         self.allocator.free(removed_entry.key);
 
@@ -722,9 +711,8 @@ pub const SimulationVFS = struct {
         }
 
         const new_path_copy = try self.allocator.dupe(u8, new_path);
-        errdefer self.allocator.free(new_path_copy);
 
-        // Move the file handle
+        // Move the file handle - free old key from backing allocator
         const removed_entry = self.files.fetchRemove(old_path).?;
         self.allocator.free(removed_entry.key);
         try self.files.put(new_path_copy, removed_entry.value);

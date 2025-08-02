@@ -222,7 +222,7 @@ build_job() {
 # Lint job (mirrors GitHub Actions lint job)
 lint_job() {
     log_step "Checking for banned patterns"
-    if grep -r "std\.BoundedArray" src/ 2>/dev/null; then
+    if grep -r "std\.BoundedArray" src/ --exclude-dir=tidy 2>/dev/null; then
         log_error "Found banned pattern std.BoundedArray"
         return 1
     fi

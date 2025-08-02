@@ -118,12 +118,12 @@ test "integration: full data lifecycle with compaction" {
 
     // Test query performance before compaction
     const pre_compaction_metrics = storage_engine.metrics();
-    const pre_compaction_reads = pre_compaction_metrics.blocks_read.load(.monotonic);
+    const pre_compaction_reads = pre_compaction_metrics.blocks_read.load();
 
     // Query first 100 blocks
     var query_block_ids = std.ArrayList(BlockId).init(allocator);
     defer query_block_ids.deinit();
-    try query_block_ids.ensureCapacity(100);
+    try query_block_ids.ensureTotalCapacity(100);
 
     // Start from 1, all-zero BlockID invalid
     for (1..101) |i| {
@@ -150,7 +150,7 @@ test "integration: full data lifecycle with compaction" {
 
     // Verify query metrics after consumption
     const post_query_metrics = storage_engine.metrics();
-    const reads_delta = post_query_metrics.blocks_read.load(.monotonic) - pre_compaction_reads;
+    const reads_delta = post_query_metrics.blocks_read.load() - pre_compaction_reads;
     try testing.expect(reads_delta >= consumed_blocks); // At least as many reads as blocks found
 
     // Phase 3: Graph relationships and complex queries
@@ -240,7 +240,7 @@ test "integration: full data lifecycle with compaction" {
 
     const post_flush_metrics = storage_engine.metrics();
     // WAL flush time may be 0 if there's nothing to flush or it's very fast
-    try testing.expect(post_flush_metrics.total_wal_flush_time_ns.load(.monotonic) >= 0);
+    try testing.expect(post_flush_metrics.total_wal_flush_time_ns.load() >= 0);
 
     // Phase 6: Block deletion and cleanup
 
@@ -264,11 +264,11 @@ test "integration: full data lifecycle with compaction" {
     const final_metrics = storage_engine.metrics();
 
     // Validate operation counts
-    try testing.expect(final_metrics.blocks_written.load(.monotonic) >= num_blocks + 10);
+    try testing.expect(final_metrics.blocks_written.load() >= num_blocks + 10);
     // +10 updates
-    try testing.expect(final_metrics.blocks_read.load(.monotonic) >= 100); // Query reads
-    try testing.expectEqual(@as(u64, 10), final_metrics.blocks_deleted.load(.monotonic));
-    try testing.expectEqual(@as(u64, 50), final_metrics.edges_added.load(.monotonic));
+    try testing.expect(final_metrics.blocks_read.load() >= 100); // Query reads
+    try testing.expectEqual(@as(u64, 10), final_metrics.blocks_deleted.load());
+    try testing.expectEqual(@as(u64, 50), final_metrics.edges_added.load());
 
     // Validate performance characteristics (be generous with timing in tests)
     try testing.expect(final_metrics.average_write_latency_ns() > 0);
@@ -277,9 +277,9 @@ test "integration: full data lifecycle with compaction" {
     try testing.expect(final_metrics.average_read_latency_ns() < 50_000_000); // < 50ms
 
     // Validate error-free operations
-    try testing.expectEqual(@as(u64, 0), final_metrics.write_errors.load(.monotonic));
-    try testing.expectEqual(@as(u64, 0), final_metrics.read_errors.load(.monotonic));
-    try testing.expectEqual(@as(u64, 0), final_metrics.wal_errors.load(.monotonic));
+    try testing.expectEqual(@as(u64, 0), final_metrics.write_errors.load());
+    try testing.expectEqual(@as(u64, 0), final_metrics.read_errors.load());
+    try testing.expectEqual(@as(u64, 0), final_metrics.wal_errors.load());
 
     log.info(
         "Integration test completed: {} blocks, {} edges, {}ns avg write, {}ns avg read",
@@ -381,7 +381,7 @@ test "integration: concurrent storage and query operations" {
         if (round % 10 == 0) {
             var batch_ids = std.ArrayList(BlockId).init(allocator);
             defer batch_ids.deinit();
-            try batch_ids.ensureCapacity(5);
+            try batch_ids.ensureTotalCapacity(5);
 
             for (0..5) |j| {
                 const batch_idx = (round + j) % base_blocks;
@@ -412,13 +412,13 @@ test "integration: concurrent storage and query operations" {
     try testing.expectEqual(@as(u32, base_blocks + 100), final_count);
 
     const metrics = storage_engine.metrics();
-    try testing.expect(metrics.blocks_written.load(.monotonic) >= base_blocks + 100);
-    try testing.expect(metrics.blocks_read.load(.monotonic) >= 100);
+    try testing.expect(metrics.blocks_written.load() >= base_blocks + 100);
+    try testing.expect(metrics.blocks_read.load() >= 100);
 
-    const total_operations = metrics.blocks_written.load(.monotonic) +
-        metrics.blocks_read.load(.monotonic);
-    const total_time_ns = metrics.total_write_time_ns.load(.monotonic) +
-        metrics.total_read_time_ns.load(.monotonic);
+    const total_operations = metrics.blocks_written.load() +
+        metrics.blocks_read.load();
+    const total_time_ns = metrics.total_write_time_ns.load() +
+        metrics.total_read_time_ns.load();
     const avg_latency_ns = total_time_ns / total_operations;
 
     log.info(
@@ -708,7 +708,7 @@ test "integration: large scale performance characteristics" {
     log.info("Read latency: {}ns", .{avg_read_latency});
 
     // Phase 4: SSTable validation
-    try testing.expect(final_metrics.sstable_writes.load(.monotonic) >= 2); // Multiple flushes
+    try testing.expect(final_metrics.sstable_writes.load() >= 2); // Multiple flushes
 
     log.info(
         "Large scale test: {} blocks, {d:.1} writes/s, {d:.1} queries/s, {}ns write latency",

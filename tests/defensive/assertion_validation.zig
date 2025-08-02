@@ -108,8 +108,8 @@ test "storage engine defensive programming validation" {
 
     // Test metrics access
     const metrics = engine.metrics();
-    try testing.expect(metrics.blocks_written.load(.monotonic) > 0);
-    try testing.expect(metrics.edges_added.load(.monotonic) > 0);
+    try testing.expect(metrics.blocks_written.load() > 0);
+    try testing.expect(metrics.edges_added.load() > 0);
 }
 
 test "block validation defensive programming" {
@@ -339,9 +339,9 @@ test "memory management defensive programming" {
 
     // Test metrics consistency
     const metrics = engine.metrics();
-    try testing.expectEqual(@as(u64, test_iterations), metrics.blocks_written.load(.monotonic));
-    try testing.expect(metrics.total_write_time_ns.load(.monotonic) > 0);
-    try testing.expect(metrics.total_bytes_written.load(.monotonic) > 0);
+    try testing.expectEqual(@as(u64, test_iterations), metrics.blocks_written.load());
+    try testing.expect(metrics.total_write_time_ns.load() > 0);
+    try testing.expect(metrics.total_bytes_written.load() > 0);
 }
 
 test "concurrent operation defensive programming" {
@@ -402,7 +402,7 @@ test "concurrent operation defensive programming" {
 
     // Verify final state consistency
     const final_metrics = engine.metrics();
-    try testing.expectEqual(@as(u64, rapid_operations), final_metrics.blocks_written.load(.monotonic));
+    try testing.expectEqual(@as(u64, rapid_operations), final_metrics.blocks_written.load());
 }
 
 test "boundary condition defensive programming" {
@@ -472,5 +472,5 @@ test "error propagation with defensive programming" {
 
     // Test that metrics are still properly validated
     const metrics = engine.metrics();
-    try testing.expect(metrics.blocks_written.load(.monotonic) > 0);
+    try testing.expect(metrics.blocks_written.load() > 0);
 }

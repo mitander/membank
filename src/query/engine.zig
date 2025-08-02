@@ -826,8 +826,8 @@ test "query engine statistics calculations" {
     try testing.expectEqual(@as(f64, 0.0), empty_stats.queries_per_second());
 
     // Manually set some statistics for calculation testing
-    query_engine.queries_executed.store(10, .monotonic);
-    query_engine.total_query_time_ns.store(1_000_000_000, .monotonic); // 1 second
+    query_engine.queries_executed.store(10);
+    query_engine.total_query_time_ns.store(1_000_000_000); // 1 second
 
     const stats_with_data = query_engine.statistics();
     try testing.expectEqual(@as(u64, 100_000_000), stats_with_data.average_query_latency_ns()); // 100ms average
@@ -844,9 +844,9 @@ test "query engine statistics reset" {
     defer query_engine.deinit();
 
     // Set some statistics
-    query_engine.queries_executed.store(5, .monotonic);
-    query_engine.find_blocks_queries.store(3, .monotonic);
-    query_engine.total_query_time_ns.store(1000000, .monotonic);
+    query_engine.queries_executed.store(5);
+    query_engine.find_blocks_queries.store(3);
+    query_engine.total_query_time_ns.store(1000000);
 
     // Reset and verify
     query_engine.reset_statistics();

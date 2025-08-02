@@ -37,61 +37,46 @@ pub const MetricsCounter = struct {
         return self.value.load(.monotonic);
     }
 
+    /// Set the counter to a specific value.
+    pub fn store(self: *MetricsCounter, new_value: u64) void {
+        _ = self.value.swap(new_value, .monotonic);
+    }
+
     /// Reset the counter to zero.
     pub fn reset(self: *MetricsCounter) void {
         _ = self.value.swap(0, .monotonic);
     }
 };
 
-/// A simple mutex wrapper that provides a more ergonomic API.
-pub const Mutex = struct {
-    inner: std.Thread.Mutex = .{}, // tidy:ignore-arch - safe abstraction over threading primitives
-
-    /// Execute the given function while holding the lock.
-    /// The lock is automatically released when the function returns.
-    pub fn with_lock(self: *Mutex, comptime T: type, context: anytype, comptime func: anytype) T {
-        self.inner.lock();
-        defer self.inner.unlock();
-
-        const Context = @TypeOf(context);
-        const args = switch (@typeInfo(Context)) {
-            .@"struct", .pointer => context,
-            else => .{context},
-        };
-
-        return @call(.auto, func, args);
-    }
-};
-
-/// Thread-safe container for a value that can be accessed with a mutex.
+/// Simple value container - no protection needed in single-threaded Membank.
+/// This type exists for API consistency where thread-safety was once considered.
 pub fn ProtectedType(comptime T: type) type {
     return struct {
-        mutex: Mutex = .{},
         value: T,
 
         const Self = @This();
 
-        /// Initialize a new protected value.
+        /// Initialize a new value.
         pub fn init(value: T) Self {
             return .{ .value = value };
         }
 
-        /// Access the protected value with exclusive access.
+        /// Access the value directly with a callback for API consistency.
         pub fn with(
             self: *Self,
             comptime F: type,
             context: anytype,
             func: F,
         ) @typeInfo(@TypeOf(func)).@"fn".return_type.? {
-            return self.mutex.with_lock(
-                @typeInfo(@TypeOf(func)).@"fn".return_type.?,
-                .{ self, context },
-                struct {
-                    fn f(self_ptr: *Self, ctx: @TypeOf(context)) @typeInfo(F).@"fn".return_type.? {
-                        return @call(.auto, func, .{&self_ptr.value} ++ .{ctx});
-                    }
-                }.f,
-            );
+            const func_info = @typeInfo(@TypeOf(func)).@"fn";
+            const Context = @TypeOf(context);
+            if (func_info.params.len == 1) {
+                return @call(.auto, func, .{&self.value});
+            } else if (Context == void) {
+                return @call(.auto, func, .{ &self.value, {} });
+            } else {
+                return @call(.auto, func, .{ &self.value, context });
+            }
         }
     };
 }

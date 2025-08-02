@@ -97,14 +97,13 @@ test "streaming_memory_efficiency_benchmark" {
         const stream_start = std.time.nanoTimestamp();
 
         var result_buffer = std.ArrayList(ContextBlock).init(allocator);
-        try result_buffer.ensureTotalCapacity(100); // Pre-allocate for expected number of blocks
+        try result_buffer.ensureTotalCapacity(result_size); // Pre-allocate for exact number of blocks
         defer {
             for (result_buffer.items) |block| {
                 allocator.free(block.content);
             }
             result_buffer.deinit();
         }
-        try result_buffer.ensureCapacity(result_size);
 
         // Stream results to simulate real query formatting
         for (1..result_size + 1) |i| {
@@ -120,7 +119,7 @@ test "streaming_memory_efficiency_benchmark" {
                     .metadata_json = block.metadata_json,
                     .content = owned_content,
                 };
-                try result_buffer.append(owned_block);
+                result_buffer.appendAssumeCapacity(owned_block);
             }
         }
 
@@ -287,7 +286,7 @@ test "query_engine_performance_benchmark" {
     var single_query_times = std.ArrayList(i64).init(allocator);
     try single_query_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
     defer single_query_times.deinit();
-    try single_query_times.ensureCapacity(PERFORMANCE_SAMPLES);
+    try single_query_times.ensureTotalCapacity(PERFORMANCE_SAMPLES);
 
     for (0..PERFORMANCE_SAMPLES) |_| {
         const query_id = (@mod(std.crypto.random.int(u32), block_count)) + 1;
@@ -316,7 +315,7 @@ test "query_engine_performance_benchmark" {
     var batch_query_times = std.ArrayList(i64).init(allocator);
     try batch_query_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
     defer batch_query_times.deinit();
-    try batch_query_times.ensureCapacity(PERFORMANCE_SAMPLES);
+    try batch_query_times.ensureTotalCapacity(PERFORMANCE_SAMPLES);
 
     for (0..PERFORMANCE_SAMPLES) |_| {
         var query_ids: [10]BlockId = undefined;

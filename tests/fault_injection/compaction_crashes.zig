@@ -177,7 +177,7 @@ test "compaction crash - recovery with orphaned files" {
 
     // Check that we have multiple SSTable files before attempting compaction
     const initial_metrics = storage_engine.metrics();
-    const initial_sstables = initial_metrics.sstables_count.load(.monotonic);
+    const initial_sstables = initial_metrics.sstables_count.load();
     try testing.expect(initial_sstables >= 2);
 
     // Simulate crash during file operations (remove phase of compaction)
@@ -200,7 +200,7 @@ test "compaction crash - recovery with orphaned files" {
     // Verify storage is consistent after recovery
     // System should have cleaned up any orphaned files and be operational
     const post_recovery_metrics = recovered_engine.metrics();
-    const post_recovery_sstables = post_recovery_metrics.sstables_count.load(.monotonic);
+    const post_recovery_sstables = post_recovery_metrics.sstables_count.load();
 
     // Should have reasonable number of SSTables (not excessive due to orphaned files)
     try testing.expect(post_recovery_sstables < initial_sstables + 10);
@@ -291,7 +291,7 @@ test "compaction crash - multiple sequential crash recovery" {
 
     // Verify metrics show reasonable state
     const final_metrics = final_engine.metrics();
-    const final_blocks = final_metrics.blocks_written.load(.monotonic);
+    const final_blocks = final_metrics.blocks_written.load();
     try testing.expect(final_blocks >= 1); // At least our final test block
 }
 
