@@ -87,6 +87,12 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, "membank_data" });
     defer allocator.free(data_dir);
 
+    // Ensure data directory exists before initializing storage engine
+    vfs_interface.mkdir_all(data_dir) catch |err| switch (err) {
+        vfs.VFSError.FileExists => {}, // Directory already exists, continue
+        else => return err,
+    };
+
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();
 
@@ -121,6 +127,12 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     defer allocator.free(cwd);
     const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, "demo_data" });
     defer allocator.free(data_dir);
+
+    // Ensure data directory exists before initializing storage engine
+    vfs_interface.mkdir_all(data_dir) catch |err| switch (err) {
+        vfs.VFSError.FileExists => {}, // Directory already exists, continue
+        else => return err,
+    };
 
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
     defer storage_engine.deinit();

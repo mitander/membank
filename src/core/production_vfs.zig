@@ -111,7 +111,7 @@ pub const ProductionVFS = struct {
         assert(path.len > 0 and path.len < MAX_PATH_LENGTH);
         _ = self; // ProductionVFS no longer needs arena for VFile
 
-        const file = std.fs.createFileAbsolute(path, .{ .exclusive = true }) catch |err| {
+        const file = std.fs.createFileAbsolute(path, .{ .read = true, .exclusive = true }) catch |err| {
             return switch (err) {
                 error.PathAlreadyExists => VFSError.FileExists,
                 error.AccessDenied => VFSError.AccessDenied,
