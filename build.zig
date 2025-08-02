@@ -160,6 +160,11 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/fault_injection/query_faults.zig",
             .description = "query engine fault injection tests",
         },
+        .{
+            .name = "fault_injection_network",
+            .source_file = "tests/fault_injection/network_faults.zig",
+            .description = "network layer fault injection tests",
+        },
 
         // Performance tests - regression detection and benchmarking
         .{
