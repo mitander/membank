@@ -82,7 +82,9 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 
     var prod_vfs = production_vfs.ProductionVFS.init(allocator);
     const vfs_interface = prod_vfs.vfs();
-    const data_dir = try allocator.dupe(u8, "membank_data");
+    const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+    defer allocator.free(cwd);
+    const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, "membank_data" });
     defer allocator.free(data_dir);
 
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
