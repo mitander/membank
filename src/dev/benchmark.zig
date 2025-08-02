@@ -318,7 +318,7 @@ const StatisticalAnalyzer = struct {
             .passed_threshold = passed_threshold,
             .threshold_ns = threshold_ns,
             .peak_memory_bytes = profiler.peak_rss_bytes,
-            .memory_growth_bytes = profiler.get_memory_growth(),
+            .memory_growth_bytes = profiler.calculate_memory_growth(),
             .memory_efficient = profiler.is_memory_efficient(operations),
         };
     }
