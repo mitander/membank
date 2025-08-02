@@ -207,11 +207,11 @@ fn query_rss_linux() !u64 {
     const content = buf[0..bytes_read];
 
     // Search for "VmRSS:" line in /proc/self/status
-    var lines = std.mem.split(u8, content, "\n");
+    var lines = std.mem.splitSequence(u8, content, "\n");
     while (lines.next()) |line| {
         if (std.mem.startsWith(u8, line, "VmRSS:")) {
             // Parse: "VmRSS:    1234 kB"
-            var parts = std.mem.split(u8, line, " ");
+            var parts = std.mem.splitSequence(u8, line, " ");
             _ = parts.next(); // Skip "VmRSS:"
             while (parts.next()) |part| {
                 if (part.len > 0 and std.ascii.isDigit(part[0])) {
@@ -934,7 +934,7 @@ test "benchmark framework tests" {
     var analyzer = StatisticalAnalyzer.init(std.testing.allocator);
     defer analyzer.deinit();
 
-    var test_profiler = MemoryProfiler.init(std.testing.allocator);
+    var test_profiler = MemoryProfiler.init();
 
     try analyzer.add_sample(1000);
     try analyzer.add_sample(2000);
