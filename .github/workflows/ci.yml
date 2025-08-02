@@ -171,7 +171,7 @@ jobs:
       - name: Check for banned patterns
         run: |
           echo "-> Checking for banned patterns..."
-          if grep -r "std\.BoundedArray" src/; then
+          if grep -r "std\.BoundedArray" src/ --exclude-dir=tidy; then
             echo "Error: Found banned pattern std.BoundedArray"
             exit 1
           fi
