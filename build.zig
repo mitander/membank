@@ -40,6 +40,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    exe.linkLibC(); // Required for production VFS sync() calls
     exe.root_module.addImport("membank", membank_module);
     b.installArtifact(exe);
 
