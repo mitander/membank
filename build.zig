@@ -203,6 +203,13 @@ pub fn build(b: *std.Build) void {
             .description = "TCP server protocol tests",
         },
 
+        // CLI interface and command validation
+        .{
+            .name = "cli_interface",
+            .source_file = "tests/cli/command_interface.zig",
+            .description = "CLI command interface and argument validation tests",
+        },
+
         // Bloom filter validation
         .{
             .name = "bloom_filter_validation",
