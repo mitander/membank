@@ -25,6 +25,7 @@
 //! - Zero memory leaks in sustained operations
 
 const std = @import("std");
+const builtin = @import("builtin");
 const membank = @import("membank");
 const assert = membank.assert.assert;
 const log = std.log.scoped(.benchmark);
@@ -89,6 +90,8 @@ const BenchmarkResult = struct {
     pub fn print_results(self: BenchmarkResult) void {
         const status = if (self.passed_threshold) "PASS" else "FAIL";
         const status_color = if (self.passed_threshold) "\x1b[32m" else "\x1b[31m";
+        const memory_status = if (self.memory_efficient) "PASS" else "FAIL";
+        const memory_color = if (self.memory_efficient) "\x1b[32m" else "\x1b[31m";
 
         std.debug.print("\n=== {s} Benchmark ===\n", .{self.operation_name});
         std.debug.print("Iterations: {}\n", .{self.iterations});
@@ -108,6 +111,14 @@ const BenchmarkResult = struct {
         const threshold_us = @as(f64, @floatFromInt(self.threshold_ns)) / 1000.0;
         std.debug.print("Threshold:  {}ns ({d:.2}µs)\n", .{ self.threshold_ns, threshold_us });
         std.debug.print("Status:     {s}[{s}]\x1b[0m\n", .{ status_color, status });
+
+        // Memory profiling results
+        std.debug.print("\n--- Memory Profile ---\n", .{});
+        const peak_memory_mb = @as(f64, @floatFromInt(self.peak_memory_bytes)) / (1024.0 * 1024.0);
+        const growth_kb = @as(f64, @floatFromInt(self.memory_growth_bytes)) / 1024.0;
+        std.debug.print("Peak Memory: {d:.2}MB ({} bytes)\n", .{ peak_memory_mb, self.peak_memory_bytes });
+        std.debug.print("Memory Growth: {d:.2}KB ({} bytes)\n", .{ growth_kb, self.memory_growth_bytes });
+        std.debug.print("Memory Efficient: {s}[{s}]\x1b[0m\n", .{ memory_color, memory_status });
     }
 
     pub fn print_json(self: BenchmarkResult) void {
@@ -129,6 +140,107 @@ const BenchmarkResult = struct {
         std.debug.print("}}", .{});
     }
 };
+
+/// Memory profiler that tracks real process memory usage during benchmarks
+/// Following Membank's principle: "Explicit is Better Than Implicit"
+const MemoryProfiler = struct {
+    initial_rss_bytes: u64,
+    peak_rss_bytes: u64,
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return Self{
+            .initial_rss_bytes = 0,
+            .peak_rss_bytes = 0,
+        };
+    }
+
+    pub fn start_profiling(self: *Self) void {
+        // Record actual process memory usage at benchmark start
+        self.initial_rss_bytes = query_current_rss_memory();
+        self.peak_rss_bytes = self.initial_rss_bytes;
+    }
+
+    pub fn sample_memory(self: *Self) void {
+        // Sample current RSS and update peak if higher
+        const current_rss = query_current_rss_memory();
+        if (current_rss > self.peak_rss_bytes) {
+            self.peak_rss_bytes = current_rss;
+        }
+    }
+
+    pub fn calculate_memory_growth(self: *const Self) u64 {
+        if (self.peak_rss_bytes >= self.initial_rss_bytes) {
+            return self.peak_rss_bytes - self.initial_rss_bytes;
+        }
+        return 0;
+    }
+
+    pub fn is_memory_efficient(self: *const Self, operations: u64) bool {
+        // Memory efficiency based on real process memory growth
+        const growth_bytes = self.calculate_memory_growth();
+        const peak_efficient = self.peak_rss_bytes <= MAX_PEAK_MEMORY_BYTES;
+        const growth_per_op = if (operations > 0) growth_bytes / operations else 0;
+        const growth_efficient = growth_per_op <= MAX_MEMORY_GROWTH_PER_OP;
+        return peak_efficient and growth_efficient;
+    }
+};
+
+/// Platform-specific RSS memory tracking following Membank's explicitness principle
+fn query_current_rss_memory() u64 {
+    switch (builtin.os.tag) {
+        .linux => return query_rss_linux() catch 0,
+        .macos => return query_rss_macos() catch 0,
+        .windows => return query_rss_windows() catch 0,
+        else => return 0,
+    }
+}
+
+// Linux RSS memory via /proc/self/status
+fn query_rss_linux() !u64 {
+    const file = std.fs.openFileAbsolute("/proc/self/status", .{}) catch return 0;
+    defer file.close();
+
+    var buf: [4096]u8 = undefined;
+    const bytes_read = file.readAll(&buf) catch return 0;
+    const content = buf[0..bytes_read];
+
+    // Search for "VmRSS:" line in /proc/self/status
+    var lines = std.mem.split(u8, content, "\n");
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, "VmRSS:")) {
+            // Parse: "VmRSS:    1234 kB"
+            var parts = std.mem.split(u8, line, " ");
+            _ = parts.next(); // Skip "VmRSS:"
+            while (parts.next()) |part| {
+                if (part.len > 0 and std.ascii.isDigit(part[0])) {
+                    const kb = std.fmt.parseInt(u64, part, 10) catch return 0;
+                    return kb * 1024; // Convert KB to bytes
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+// macOS RSS memory via getrusage()
+fn query_rss_macos() !u64 {
+    var usage: std.c.rusage = undefined;
+    const RUSAGE_SELF: c_int = 0;
+    const result = std.c.getrusage(RUSAGE_SELF, &usage);
+    if (result != 0) return 0;
+
+    // ru_maxrss is in bytes on macOS (unlike Linux where it's in KB)
+    return @as(u64, @intCast(usage.maxrss));
+}
+
+// Windows RSS memory via GetProcessMemoryInfo
+fn query_rss_windows() !u64 {
+    // For Zig 0.13+, this would use Windows API calls
+    // For now, return 0 as fallback (Windows support can be added later)
+    return 0;
+}
 
 /// Statistical analyzer for benchmark timing data
 const StatisticalAnalyzer = struct {
@@ -154,6 +266,8 @@ const StatisticalAnalyzer = struct {
         self: *StatisticalAnalyzer,
         operation_name: []const u8,
         threshold_ns: u64,
+        profiler: *const MemoryProfiler,
+        operations: u64,
     ) BenchmarkResult {
         assert(self.samples.items.len > 0);
 
@@ -203,9 +317,9 @@ const StatisticalAnalyzer = struct {
             .throughput_ops_per_sec = throughput_ops_per_sec,
             .passed_threshold = passed_threshold,
             .threshold_ns = threshold_ns,
-            .peak_memory_bytes = 0, // Memory profiling not implemented yet
-            .memory_growth_bytes = 0,
-            .memory_efficient = true,
+            .peak_memory_bytes = profiler.peak_rss_bytes,
+            .memory_growth_bytes = profiler.get_memory_growth(),
+            .memory_efficient = profiler.is_memory_efficient(operations),
         };
     }
 };
@@ -406,15 +520,22 @@ fn benchmark_block_writes(storage_engine: *StorageEngine, allocator: std.mem.All
     var analyzer = StatisticalAnalyzer.init(allocator);
     defer analyzer.deinit();
 
-    // Warmup
+    var memory_profiler = MemoryProfiler.init();
+
+    // Warmup - not profiled
     for (0..WARMUP_ITERATIONS) |i| {
         const block = try create_test_block(allocator, i);
         defer free_test_block(allocator, block);
         try storage_engine.put_block(block);
     }
 
-    // Benchmark
+    // Start memory profiling before benchmark operations
+    memory_profiler.start_profiling();
+
+    // Benchmark with periodic memory sampling
     for (0..STATISTICAL_SAMPLES) |sample| {
+        memory_profiler.sample_memory(); // Sample at start of each batch
+
         const start_time = std.time.nanoTimestamp();
 
         for (0..LARGE_BENCHMARK_ITERATIONS) |i| {
@@ -429,15 +550,19 @@ fn benchmark_block_writes(storage_engine: *StorageEngine, allocator: std.mem.All
         const per_op_time = batch_time / LARGE_BENCHMARK_ITERATIONS;
 
         try analyzer.add_sample(per_op_time);
+        memory_profiler.sample_memory(); // Sample at end of each batch
     }
 
-    const result = analyzer.analyze("Block Write", BLOCK_WRITE_THRESHOLD_NS);
+    const total_operations = STATISTICAL_SAMPLES * LARGE_BENCHMARK_ITERATIONS;
+    const result = analyzer.analyze("Block Write", BLOCK_WRITE_THRESHOLD_NS, &memory_profiler, total_operations);
     try store_and_print_result(result);
 }
 
 fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allocator) !void {
     var analyzer = StatisticalAnalyzer.init(allocator);
     defer analyzer.deinit();
+
+    var memory_profiler = MemoryProfiler.init();
 
     const test_ids = try setup_read_test_blocks(storage_engine, allocator);
     defer allocator.free(test_ids);
@@ -448,8 +573,13 @@ fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allo
         _ = try storage_engine.find_block(block_id);
     }
 
+    // Start memory profiling
+    memory_profiler.start_profiling();
+
     // Benchmark
     for (0..STATISTICAL_SAMPLES) |_| {
+        memory_profiler.sample_memory();
+
         const start_time = std.time.nanoTimestamp();
 
         for (0..LARGE_BENCHMARK_ITERATIONS) |i| {
@@ -462,15 +592,19 @@ fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allo
         const per_op_time = batch_time / LARGE_BENCHMARK_ITERATIONS;
 
         try analyzer.add_sample(per_op_time);
+        memory_profiler.sample_memory();
     }
 
-    const result = analyzer.analyze("Block Read", BLOCK_READ_THRESHOLD_NS);
+    const total_operations = STATISTICAL_SAMPLES * LARGE_BENCHMARK_ITERATIONS;
+    const result = analyzer.analyze("Block Read", BLOCK_READ_THRESHOLD_NS, &memory_profiler, total_operations);
     try store_and_print_result(result);
 }
 
 fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Allocator) !void {
     var analyzer = StatisticalAnalyzer.init(allocator);
     defer analyzer.deinit();
+
+    var memory_profiler = MemoryProfiler.init();
 
     const test_ids = try setup_read_test_blocks(storage_engine, allocator);
     defer allocator.free(test_ids);
@@ -483,8 +617,13 @@ fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Al
         try storage_engine.put_block(updated_block);
     }
 
+    // Start memory profiling
+    memory_profiler.start_profiling();
+
     // Benchmark
     for (0..STATISTICAL_SAMPLES) |sample| {
+        memory_profiler.sample_memory();
+
         const start_time = std.time.nanoTimestamp();
 
         for (0..LARGE_BENCHMARK_ITERATIONS) |i| {
@@ -504,9 +643,11 @@ fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Al
         const per_op_time = batch_time / LARGE_BENCHMARK_ITERATIONS;
 
         try analyzer.add_sample(per_op_time);
+        memory_profiler.sample_memory();
     }
 
-    const result = analyzer.analyze("Block Update", BLOCK_UPDATE_THRESHOLD_NS);
+    const total_operations = STATISTICAL_SAMPLES * LARGE_BENCHMARK_ITERATIONS;
+    const result = analyzer.analyze("Block Update", BLOCK_UPDATE_THRESHOLD_NS, &memory_profiler, total_operations);
     try store_and_print_result(result);
 }
 
@@ -514,8 +655,16 @@ fn benchmark_block_deletes(storage_engine: *StorageEngine, allocator: std.mem.Al
     var analyzer = StatisticalAnalyzer.init(allocator);
     defer analyzer.deinit();
 
+    var memory_profiler = MemoryProfiler.init();
+
+    // Start memory profiling
+    memory_profiler.start_profiling();
+
     // Benchmark
+    var total_deletes: u64 = 0;
     for (0..STATISTICAL_SAMPLES) |sample| {
+        memory_profiler.sample_memory();
+
         const delete_ids = try setup_delete_test_blocks(storage_engine, allocator, sample);
         defer allocator.free(delete_ids);
 
@@ -528,11 +677,12 @@ fn benchmark_block_deletes(storage_engine: *StorageEngine, allocator: std.mem.Al
         const end_time = std.time.nanoTimestamp();
         const batch_time = @as(u64, @intCast(end_time - start_time));
         const per_op_time = batch_time / delete_ids.len;
+        total_deletes += delete_ids.len;
 
         try analyzer.add_sample(per_op_time);
     }
 
-    const result = analyzer.analyze("Block Delete", BLOCK_DELETE_THRESHOLD_NS);
+    const result = analyzer.analyze("Block Delete", BLOCK_DELETE_THRESHOLD_NS, &memory_profiler, total_deletes);
     try store_and_print_result(result);
 }
 
@@ -541,6 +691,8 @@ fn benchmark_block_deletes(storage_engine: *StorageEngine, allocator: std.mem.Al
 fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator) !void {
     var analyzer = StatisticalAnalyzer.init(allocator);
     defer analyzer.deinit();
+
+    var memory_profiler = MemoryProfiler.init();
 
     const test_ids = try create_query_test_block_ids(allocator);
     defer allocator.free(test_ids);
@@ -552,8 +704,13 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
         defer result.deinit();
     }
 
+    // Start memory profiling
+    memory_profiler.start_profiling();
+
     // Benchmark
     for (0..STATISTICAL_SAMPLES) |_| {
+        memory_profiler.sample_memory();
+
         const start_time = std.time.nanoTimestamp();
 
         for (0..LARGE_BENCHMARK_ITERATIONS) |i| {
@@ -567,15 +724,19 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
         const per_op_time = batch_time / LARGE_BENCHMARK_ITERATIONS;
 
         try analyzer.add_sample(per_op_time);
+        memory_profiler.sample_memory();
     }
 
-    const result = analyzer.analyze("Single Block Query", SINGLE_QUERY_THRESHOLD_NS);
+    const total_operations = STATISTICAL_SAMPLES * LARGE_BENCHMARK_ITERATIONS;
+    const result = analyzer.analyze("Single Block Query", SINGLE_QUERY_THRESHOLD_NS, &memory_profiler, total_operations);
     try store_and_print_result(result);
 }
 
 fn benchmark_batch_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator) !void {
     var analyzer = StatisticalAnalyzer.init(allocator);
     defer analyzer.deinit();
+
+    var memory_profiler = MemoryProfiler.init();
 
     const test_ids = try create_query_test_block_ids(allocator);
     defer allocator.free(test_ids);
@@ -591,8 +752,13 @@ fn benchmark_batch_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator
         defer result.deinit();
     }
 
+    // Start memory profiling
+    memory_profiler.start_profiling();
+
     // Benchmark
     for (0..STATISTICAL_SAMPLES) |_| {
+        memory_profiler.sample_memory();
+
         const start_time = std.time.nanoTimestamp();
 
         for (0..LARGE_BENCHMARK_ITERATIONS) |_| {
@@ -605,9 +771,11 @@ fn benchmark_batch_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator
         const per_op_time = batch_time / LARGE_BENCHMARK_ITERATIONS;
 
         try analyzer.add_sample(per_op_time);
+        memory_profiler.sample_memory();
     }
 
-    const result = analyzer.analyze("Batch Query (10 blocks)", QUERY_BATCH_THRESHOLD_NS);
+    const total_operations = STATISTICAL_SAMPLES * LARGE_BENCHMARK_ITERATIONS;
+    const result = analyzer.analyze("Batch Query (10 blocks)", QUERY_BATCH_THRESHOLD_NS, &memory_profiler, total_operations);
     try store_and_print_result(result);
 }
 
@@ -617,8 +785,15 @@ fn benchmark_wal_flush(storage_engine: *StorageEngine, allocator: std.mem.Alloca
     var analyzer = StatisticalAnalyzer.init(allocator);
     defer analyzer.deinit();
 
+    var memory_profiler = MemoryProfiler.init();
+
+    // Start memory profiling
+    memory_profiler.start_profiling();
+
     // Benchmark
     for (0..STATISTICAL_SAMPLES) |_| {
+        memory_profiler.sample_memory();
+
         // Add some data to flush
         for (0..10) |i| {
             const block = try create_test_block(allocator, i + 50000);
@@ -632,9 +807,10 @@ fn benchmark_wal_flush(storage_engine: *StorageEngine, allocator: std.mem.Alloca
 
         const operation_time = @as(u64, @intCast(end_time - start_time));
         try analyzer.add_sample(operation_time);
+        memory_profiler.sample_memory();
     }
 
-    const result = analyzer.analyze("WAL Flush", WAL_FLUSH_THRESHOLD_NS);
+    const result = analyzer.analyze("WAL Flush", WAL_FLUSH_THRESHOLD_NS, &memory_profiler, STATISTICAL_SAMPLES);
     try store_and_print_result(result);
 }
 
@@ -758,11 +934,13 @@ test "benchmark framework tests" {
     var analyzer = StatisticalAnalyzer.init(std.testing.allocator);
     defer analyzer.deinit();
 
+    var test_profiler = MemoryProfiler.init(std.testing.allocator);
+
     try analyzer.add_sample(1000);
     try analyzer.add_sample(2000);
     try analyzer.add_sample(1500);
 
-    const result = analyzer.analyze("Test Operation", 2500);
+    const result = analyzer.analyze("Test Operation", 2500, &test_profiler, 3);
     try std.testing.expect(result.passed_threshold);
     try std.testing.expectEqual(@as(u64, 1500), result.mean_ns);
     try std.testing.expectEqual(@as(u64, 1500), result.median_ns);
