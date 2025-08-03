@@ -223,6 +223,11 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/query/streaming_and_optimization.zig",
             .description = "streaming query results and optimization strategy tests",
         },
+        .{
+            .name = "advanced_algorithms_edge_cases",
+            .source_file = "tests/query/advanced_algorithms_edge_cases.zig",
+            .description = "advanced graph traversal algorithm edge case and robustness tests",
+        },
 
         // Compaction strategies
         .{
@@ -236,6 +241,13 @@ pub fn build(b: *std.Build) void {
             .name = "backpressure_integration",
             .source_file = "tests/ingestion/backpressure_integration.zig",
             .description = "ingestion pipeline backpressure control and memory pressure adaptation tests",
+        },
+
+        // Memory profiling validation tests
+        .{
+            .name = "memory_profiling_validation",
+            .source_file = "tests/memory/memory_profiling_validation.zig",
+            .description = "memory profiler RSS measurement accuracy and performance overhead validation tests",
         },
     };
 
