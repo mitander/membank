@@ -95,14 +95,30 @@ fn read_first_line(allocator: std.mem.Allocator, file_path: []const u8) Validati
     const file = try std.fs.cwd().openFile(file_path, .{});
     defer file.close();
 
-    // Read commit message file content
-    const content = try file.readToEndAlloc(allocator, 1024);
+    // Read commit message file content - allow larger files for rebase operations
+    // During rebasing, commit message files can be quite large
+    const content = file.readToEndAlloc(allocator, 64 * 1024) catch |err| switch (err) {
+        error.FileTooBig => {
+            // For very large commit messages (e.g., during complex rebases),
+            // just read the first part and extract the first line
+            var buffer: [1024]u8 = undefined;
+            const bytes_read = try file.read(&buffer);
+            const partial_content = buffer[0..bytes_read];
+
+            return if (std.mem.indexOf(u8, partial_content, "\n")) |newline_pos|
+                allocator.dupe(u8, partial_content[0..newline_pos])
+            else
+                allocator.dupe(u8, partial_content);
+        },
+        else => return err,
+    };
+    defer allocator.free(content);
 
     // Extract first line only
     return if (std.mem.indexOf(u8, content, "\n")) |newline_pos|
-        allocator.dupe(u8, content[0..newline_pos])
+        try allocator.dupe(u8, content[0..newline_pos])
     else
-        content;
+        try allocator.dupe(u8, content);
 }
 
 fn print_error_message(header: []const u8) void {

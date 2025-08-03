@@ -232,7 +232,6 @@ test "CLI command argument validation" {
     }
 }
 
-
 // Test command line argument edge cases
 test "CLI argument parsing - edge cases" {
     concurrency.init();
