@@ -1,6 +1,6 @@
-//! Core data types for Membank.
+//! Core data types for KausalDB.
 //!
-//! This module defines the fundamental data structures used throughout Membank:
+//! This module defines the fundamental data structures used throughout KausalDB:
 //! - BlockId: Unique identifier for context blocks
 //! - ContextBlock: The primary unit of stored knowledge
 //! - GraphEdge: Typed relationship between context blocks

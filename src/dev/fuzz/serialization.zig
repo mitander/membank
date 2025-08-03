@@ -4,12 +4,12 @@
 //! edge cases, and malformed input to validate data integrity and error handling.
 
 const std = @import("std");
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const common = @import("common.zig");
 
-const stdx = membank.stdx;
+const stdx = kausaldb.stdx;
 
-const ContextBlock = membank.ContextBlock;
+const ContextBlock = kausaldb.ContextBlock;
 
 const FUZZ_ITERATIONS_CONTINUOUS = std.math.maxInt(u64);
 

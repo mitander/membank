@@ -5,18 +5,18 @@
 //! less memory. Tests focus on real-world scenarios including large segments,
 //! corruption handling, and callback integration.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
-const assert = membank.assert.assert;
+const assert = kausaldb.assert.assert;
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const vfs = @import("../../src/core/vfs.zig");
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const simulation_vfs = @import("../../src/sim/simulation_vfs.zig");
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const context_block = @import("../../src/core/types.zig");
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const wal = @import("../../src/storage/wal.zig");
 
 const SimulationVFS = simulation_vfs.SimulationVFS;

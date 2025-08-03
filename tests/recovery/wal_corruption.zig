@@ -4,15 +4,15 @@
 //! systematic corruption detection, magic number corruption, checksum
 //! failures, and recovery boundary conditions under hostile environments.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const storage = membank.storage;
-const simulation_vfs = membank.simulation_vfs;
-const context_block = membank.types;
-const assert = membank.assert.assert;
-const fatal_assert = membank.assert.fatal_assert;
+const storage = kausaldb.storage;
+const simulation_vfs = kausaldb.simulation_vfs;
+const context_block = kausaldb.types;
+const assert = kausaldb.assert.assert;
+const fatal_assert = kausaldb.assert.fatal_assert;
 
 const WAL = storage.WAL;
 const WALEntry = storage.WALEntry;

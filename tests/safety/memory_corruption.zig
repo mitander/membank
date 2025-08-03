@@ -1,12 +1,12 @@
-//! Memory safety tests for Membank arena-per-subsystem pattern.
+//! Memory safety tests for KausalDB arena-per-subsystem pattern.
 //!
 //! Validates comprehensive memory safety patterns and debug allocator functionality.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const debug_allocator = membank.debug_allocator;
+const debug_allocator = kausaldb.debug_allocator;
 const DebugAllocator = debug_allocator.DebugAllocator;
 
 test "arena allocator basic safety" {

@@ -6,13 +6,13 @@
 
 const std = @import("std");
 const testing = std.testing;
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 
-const storage = membank.storage;
-const query_engine = membank.query_engine;
-const context_block = membank.types;
-const simulation_vfs = membank.simulation_vfs;
-const concurrency = membank.concurrency;
+const storage = kausaldb.storage;
+const query_engine = kausaldb.query_engine;
+const context_block = kausaldb.types;
+const simulation_vfs = kausaldb.simulation_vfs;
+const concurrency = kausaldb.concurrency;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;

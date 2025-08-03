@@ -7,7 +7,7 @@
 //! - Request processing coordination
 //! - Response writing with flow control
 //!
-//! Follows Membank architectural principles:
+//! Follows KausalDB architectural principles:
 //! - Arena-per-connection memory management
 //! - Explicit error handling with ctx
 //! - Non-blocking I/O with proper state transitions

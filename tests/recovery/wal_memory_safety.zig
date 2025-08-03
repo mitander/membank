@@ -4,13 +4,13 @@
 //! recovery scenarios. It tests edge cases and cumulative memory pressure
 //! that could lead to corruption in production environments.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const simulation = membank.simulation;
-const context_block = membank.types;
-const storage = membank.storage;
+const simulation = kausaldb.simulation;
+const context_block = kausaldb.types;
+const storage = kausaldb.storage;
 
 const Simulation = simulation.Simulation;
 const ContextBlock = context_block.ContextBlock;

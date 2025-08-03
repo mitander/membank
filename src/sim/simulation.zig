@@ -1,6 +1,6 @@
-//! Deterministic simulation harness for Membank testing.
+//! Deterministic simulation harness for KausalDB testing.
 //!
-//! Provides a framework for running the entire Membank system
+//! Provides a framework for running the entire KausalDB system
 //! in a controlled, deterministic environment for testing.
 
 const std = @import("std");
@@ -135,7 +135,7 @@ pub const NodeId = struct {
     }
 };
 
-/// A simulated node in the Membank cluster.
+/// A simulated node in the KausalDB cluster.
 pub const Node = struct {
     id: NodeId,
     filesystem: sim_vfs.SimulationVFS,

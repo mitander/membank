@@ -9,14 +9,14 @@
 //!
 //! All tests use deterministic simulation for reproducible failure scenarios.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const simulation_vfs = membank.simulation_vfs;
-const storage = membank.storage;
-const context_block = membank.types;
-const vfs = membank.vfs;
+const simulation_vfs = kausaldb.simulation_vfs;
+const storage = kausaldb.storage;
+const context_block = kausaldb.types;
+const vfs = kausaldb.vfs;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = storage.StorageEngine;
@@ -51,7 +51,7 @@ test "ingestion handles source file read errors gracefully" {
     file.close();
 
     // Setup storage engine
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "kausaldb_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -88,7 +88,7 @@ test "ingestion detects and handles source file corruption" {
     _ = try file.write(&corrupted_content);
     file.close();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "kausaldb_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -139,7 +139,7 @@ test "ingestion handles memory pressure during large file processing" {
     _ = try file.write(large_content.items);
     file.close();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "kausaldb_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -177,7 +177,7 @@ test "ingestion handles storage failures during block insertion" {
     );
     file.close();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "kausaldb_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -227,7 +227,7 @@ test "ingestion retries and recovers from intermittent failures" {
         file.close();
     }
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "kausaldb_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -281,7 +281,7 @@ test "ingestion maintains atomicity during cascade failures" {
     );
     helper_file.close();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "kausaldb_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -335,7 +335,7 @@ test "ingestion provides rich error context for debugging" {
     _ = try file.write("invalid zig syntax here!");
     file.close();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "kausaldb_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -380,7 +380,7 @@ test "ingestion enforces file size limits and handles oversized files" {
     _ = try file.write(oversized_content);
     file.close();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "kausaldb_data");
     defer engine.deinit();
     try engine.startup();
 
@@ -418,7 +418,7 @@ test "ingestion cleans up resources after failures" {
     _ = try file.write("fn test() void {}");
     file.close();
 
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "membank_data");
+    var engine = try StorageEngine.init_default(allocator, vfs_interface, "kausaldb_data");
     defer engine.deinit();
     try engine.startup();
 

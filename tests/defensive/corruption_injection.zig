@@ -15,19 +15,19 @@ const testing = std.testing;
 const builtin = @import("builtin");
 
 const log = std.log.scoped(.corruption_injection);
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 
-const assert = membank.assert;
-const types = membank.types;
-const storage = membank.storage;
-const simulation = membank.simulation;
-const vfs = membank.vfs;
+const assert = kausaldb.assert;
+const types = kausaldb.types;
+const storage = kausaldb.storage;
+const simulation = kausaldb.simulation;
+const vfs = kausaldb.vfs;
 
 const BlockId = types.BlockId;
 const ContextBlock = types.ContextBlock;
 const StorageEngine = storage.StorageEngine;
 const Simulation = simulation.Simulation;
-const corruption_tracker_mod = membank.wal.corruption_tracker;
+const corruption_tracker_mod = kausaldb.wal.corruption_tracker;
 const CorruptionTracker = corruption_tracker_mod.CorruptionTracker;
 
 // Test configuration

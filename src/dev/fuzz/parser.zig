@@ -4,14 +4,14 @@
 //! and corrupted syntax to validate robustness and error handling.
 
 const std = @import("std");
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const common = @import("common.zig");
 
-const stdx = membank.stdx;
+const stdx = kausaldb.stdx;
 
-const ZigParser = membank.ZigParser;
-const ZigParserConfig = membank.ZigParserConfig;
-const SourceContent = membank.SourceContent;
+const ZigParser = kausaldb.ZigParser;
+const ZigParserConfig = kausaldb.ZigParserConfig;
+const SourceContent = kausaldb.SourceContent;
 
 const FUZZ_ITERATIONS_CONTINUOUS = std.math.maxInt(u64);
 

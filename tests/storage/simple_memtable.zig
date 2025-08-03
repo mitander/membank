@@ -1,11 +1,11 @@
 //! Simple test to debug MemtableManager segfault
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const simulation_vfs = membank.simulation_vfs;
-const storage = membank.storage;
+const simulation_vfs = kausaldb.simulation_vfs;
+const storage = kausaldb.storage;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const MemtableManager = storage.MemtableManager;

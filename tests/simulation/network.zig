@@ -2,18 +2,18 @@
 //!
 //! These tests demonstrate deterministic, byte-for-byte reproducible testing
 //! of complex failure scenarios including network partitions, disk corruption,
-//! memory pressure, and systematic failures using Membank's simulation framework.
+//! memory pressure, and systematic failures using KausalDB's simulation framework.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const simulation = membank.simulation;
-const vfs = membank.vfs;
-const storage = membank.storage;
-const context_block = membank.types;
-const assert = membank.assert.assert;
-const fatal_assert = membank.assert.fatal_assert;
+const simulation = kausaldb.simulation;
+const vfs = kausaldb.vfs;
+const storage = kausaldb.storage;
+const context_block = kausaldb.types;
+const assert = kausaldb.assert.assert;
+const fatal_assert = kausaldb.assert.fatal_assert;
 
 const Simulation = simulation.Simulation;
 const NodeId = simulation.NodeId;

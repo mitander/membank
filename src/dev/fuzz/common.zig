@@ -5,10 +5,10 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 
-const BlockId = membank.BlockId;
-const ContextBlock = membank.ContextBlock;
+const BlockId = kausaldb.BlockId;
+const ContextBlock = kausaldb.ContextBlock;
 
 pub const CRASH_REPORT_DIR = "fuzz_reports";
 pub const PROGRESS_INTERVAL_SEC = 60;
@@ -129,7 +129,7 @@ pub fn report_crash(
     defer report_file.close();
 
     const report_content = try std.fmt.allocPrint(allocator,
-        \\Membank Fuzzer Crash Report
+        \\KausalDB Fuzzer Crash Report
         \\============================
         \\
         \\Timestamp: {}
@@ -314,8 +314,8 @@ pub fn generate_malformed_zig_source(allocator: std.mem.Allocator, random: std.R
 // Tests
 
 test "fuzz: basic data generation functionality" {
-    const membank_import = @import("membank"); // tidy:ignore-arch - test requires membank import for concurrency init
-    membank_import.concurrency.init();
+    const kausaldb_import = @import("kausaldb"); // tidy:ignore-arch - test requires kausaldb import for concurrency init
+    kausaldb_import.concurrency.init();
 
     var prng = std.Random.DefaultPrng.init(12345);
     const random = prng.random();

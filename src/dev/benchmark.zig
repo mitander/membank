@@ -1,4 +1,4 @@
-//! Comprehensive performance benchmarking framework for Membank.
+//! Comprehensive performance benchmarking framework for KausalDB.
 //!
 //! Provides automated regression testing with both performance and memory profiling.
 //! Benchmarks core operations with statistical analysis to detect regressions early.
@@ -26,14 +26,14 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const membank = @import("membank");
-const assert = membank.assert.assert;
+const kausaldb = @import("kausaldb");
+const assert = kausaldb.assert.assert;
 const log = std.log.scoped(.benchmark);
 
-const storage = membank.storage;
-const query_engine = membank.query_engine;
-const context_block = membank.types;
-const simulation_vfs = membank.simulation_vfs;
+const storage = kausaldb.storage;
+const query_engine = kausaldb.query_engine;
+const context_block = kausaldb.types;
+const simulation_vfs = kausaldb.simulation_vfs;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
@@ -142,7 +142,7 @@ const BenchmarkResult = struct {
 };
 
 /// Memory profiler that tracks real process memory usage during benchmarks
-/// Following Membank's principle: "Explicit is Better Than Implicit"
+/// Following KausalDB's principle: "Explicit is Better Than Implicit"
 const MemoryProfiler = struct {
     initial_rss_bytes: u64,
     peak_rss_bytes: u64,
@@ -187,7 +187,7 @@ const MemoryProfiler = struct {
     }
 };
 
-/// Platform-specific RSS memory tracking following Membank's explicitness principle
+/// Platform-specific RSS memory tracking following KausalDB's explicitness principle
 fn query_current_rss_memory() u64 {
     switch (builtin.os.tag) {
         .linux => return query_rss_linux() catch 0,
@@ -359,7 +359,7 @@ pub fn main() !void {
     }
 
     if (!json_output) {
-        std.debug.print("\nMembank Performance Benchmark Suite\n", .{});
+        std.debug.print("\nKausalDB Performance Benchmark Suite\n", .{});
         std.debug.print("=========================================\n", .{});
     }
 
@@ -379,7 +379,7 @@ pub fn main() !void {
 
     if (json_output) {
         std.debug.print("{{\n", .{});
-        std.debug.print("  \"benchmark_suite\": \"Membank Performance\",\n", .{});
+        std.debug.print("  \"benchmark_suite\": \"KausalDB Performance\",\n", .{});
         std.debug.print("  \"timestamp\": {},\n", .{std.time.timestamp()});
         std.debug.print("  \"results\": [\n", .{});
         for (all_results.items, 0..) |result, idx| {
@@ -399,7 +399,7 @@ pub fn main() !void {
 
 fn print_usage() !void {
     std.debug.print(
-        \\Membank Performance Benchmark Suite
+        \\KausalDB Performance Benchmark Suite
         \\
         \\Usage:
         \\  benchmark <category> [--json]

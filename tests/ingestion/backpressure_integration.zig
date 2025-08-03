@@ -6,13 +6,13 @@
 
 const std = @import("std");
 const testing = std.testing;
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 
-const storage = membank.storage;
-const pipeline_mod = membank.pipeline;
-const simulation_vfs = membank.simulation_vfs;
-const context_block = membank.types;
-const concurrency = membank.concurrency;
+const storage = kausaldb.storage;
+const pipeline_mod = kausaldb.pipeline;
+const simulation_vfs = kausaldb.simulation_vfs;
+const context_block = kausaldb.types;
+const concurrency = kausaldb.concurrency;
 
 const StorageEngine = storage.StorageEngine;
 const IngestionPipeline = pipeline_mod.IngestionPipeline;
@@ -190,7 +190,7 @@ fn create_test_source(allocator: std.mem.Allocator, item_count: u32) !pipeline_m
         fn fetch(
             ptr: *anyopaque,
             alloc: std.mem.Allocator,
-            vfs: *membank.vfs.VFS,
+            vfs: *kausaldb.vfs.VFS,
         ) pipeline_mod.IngestionError!pipeline_mod.SourceIterator {
             _ = vfs;
             const self: *Self = @ptrCast(@alignCast(ptr));

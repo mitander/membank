@@ -4,13 +4,13 @@
 //! and storage engine coordination under random operations and corruption.
 
 const std = @import("std");
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const common = @import("common.zig");
 
-const stdx = membank.stdx;
+const stdx = kausaldb.stdx;
 
-const SimulationVFS = membank.SimulationVFS;
-const StorageEngine = membank.StorageEngine;
+const SimulationVFS = kausaldb.SimulationVFS;
+const StorageEngine = kausaldb.StorageEngine;
 
 const FUZZ_ITERATIONS_CONTINUOUS = std.math.maxInt(u64);
 

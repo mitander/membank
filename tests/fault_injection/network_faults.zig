@@ -1,6 +1,6 @@
 //! Network Layer Fault Injection Tests
 //!
-//! Tests server resilience under hostile network conditions following Membank's
+//! Tests server resilience under hostile network conditions following KausalDB's
 //! architectural principles:
 //! - Don't mock, simulate: Real server components with controlled fault injection
 //! - Deterministic testing: Reproducible fault scenarios using seeded PRNG
@@ -13,22 +13,22 @@
 //! - Partial read/write scenarios
 //! - Resource exhaustion conditions
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const storage = membank.storage;
-const simulation_vfs = membank.simulation_vfs;
-const types = membank.types;
-const concurrency = membank.concurrency;
-const server_handler = membank.handler;
+const storage = kausaldb.storage;
+const simulation_vfs = kausaldb.simulation_vfs;
+const types = kausaldb.types;
+const concurrency = kausaldb.concurrency;
+const server_handler = kausaldb.handler;
 
 const StorageEngine = storage.StorageEngine;
-const QueryEngine = membank.QueryEngine;
+const QueryEngine = kausaldb.QueryEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
-const MembankServer = server_handler.MembankServer;
+const KausalDBServer = server_handler.KausalDBServer;
 const ServerConfig = server_handler.ServerConfig;
 const ClientConnection = server_handler.ClientConnection;
 const MessageHeader = server_handler.MessageHeader;
@@ -119,7 +119,7 @@ test "network_fault_injection - server config validation" {
     defer query_engine.deinit();
 
     for (config_tests) |test_case| {
-        var server = MembankServer.init(allocator, test_case.config, &storage_engine, &query_engine);
+        var server = KausalDBServer.init(allocator, test_case.config, &storage_engine, &query_engine);
         defer server.deinit();
 
         if (test_case.should_initialize) {
@@ -182,7 +182,7 @@ test "network_fault_injection - deterministic server stress" {
             .connection_timeout_sec = 5 + (random.int(u32) % 295), // 5-300 seconds
         };
 
-        var server = MembankServer.init(allocator, config, &storage_engine, &query_engine);
+        var server = KausalDBServer.init(allocator, config, &storage_engine, &query_engine);
         defer server.deinit();
 
         // Verify server initializes correctly under stress conditions
@@ -247,7 +247,7 @@ test "network_fault_injection - concurrent server configuration" {
     };
 
     for (configs) |config| {
-        var server = MembankServer.init(allocator, config, &storage_engine, &query_engine);
+        var server = KausalDBServer.init(allocator, config, &storage_engine, &query_engine);
         defer server.deinit();
 
         // Verify server initializes correctly with different configurations

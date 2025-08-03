@@ -1,4 +1,4 @@
-//! Banned pattern detection for Membank codebase.
+//! Banned pattern detection for KausalDB codebase.
 //!
 //! Enforces architectural constraints by detecting patterns that violate
 //! single-threaded design, arena-per-subsystem memory model, and explicit
@@ -11,7 +11,7 @@ const std = @import("std");
 const mem = std.mem;
 const stdx = @import("../../core/stdx.zig");
 
-/// Check source code for patterns that violate Membank's architectural principles.
+/// Check source code for patterns that violate KausalDB's architectural principles.
 /// Returns violation message or null if code adheres to standards.
 pub fn check_banned_patterns(file_path: []const u8, source: []const u8) ?[]const u8 {
     // Tests need different rules due to controlled environment

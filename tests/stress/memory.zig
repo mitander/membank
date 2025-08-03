@@ -4,14 +4,14 @@
 //! Demonstrates that multiple storage operations within a single test context
 //! maintain memory isolation and prevent cross-contamination between cycles.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 const log = std.log.scoped(.stress_memory);
 
-const storage = membank.storage;
-const context_block = membank.types;
-const simulation = membank.simulation;
+const storage = kausaldb.storage;
+const context_block = kausaldb.types;
+const simulation = kausaldb.simulation;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;

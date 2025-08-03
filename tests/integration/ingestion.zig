@@ -6,20 +6,20 @@
 //! These tests validate the end-to-end workflow of automatically
 //! populating the database from Git repositories.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const concurrency = membank.concurrency;
-const simulation = membank.simulation;
-const simulation_vfs = membank.simulation_vfs;
-const storage = membank.storage;
-const context_block = membank.types;
-const ingestion = membank.pipeline;
-const git_source = membank.git_source;
-const zig_parser = membank.zig_parser;
-const semantic_chunker = membank.semantic_chunker;
-const stdx = membank.stdx;
+const concurrency = kausaldb.concurrency;
+const simulation = kausaldb.simulation;
+const simulation_vfs = kausaldb.simulation_vfs;
+const storage = kausaldb.storage;
+const context_block = kausaldb.types;
+const ingestion = kausaldb.pipeline;
+const git_source = kausaldb.git_source;
+const zig_parser = kausaldb.zig_parser;
+const semantic_chunker = kausaldb.semantic_chunker;
+const stdx = kausaldb.stdx;
 
 const Simulation = simulation.Simulation;
 const StorageEngine = storage.StorageEngine;

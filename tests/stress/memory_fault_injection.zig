@@ -1,4 +1,4 @@
-//! Memory safety stress testing with fault injection for Membank.
+//! Memory safety stress testing with fault injection for KausalDB.
 //!
 //! Tests arena-per-subsystem patterns under hostile conditions including:
 //! - Memory allocation failures during operations
@@ -8,17 +8,17 @@
 //! - Arena reset safety under failure conditions
 
 const std = @import("std");
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const testing = std.testing;
-const assert = membank.assert.assert;
+const assert = kausaldb.assert.assert;
 
-const Simulation = membank.simulation.Simulation;
-const StorageEngine = membank.storage.StorageEngine;
-const MemtableManager = membank.storage.MemtableManager;
-const ContextBlock = membank.types.ContextBlock;
-const BlockId = membank.types.BlockId;
-const GraphEdge = membank.types.GraphEdge;
-const EdgeType = membank.types.EdgeType;
+const Simulation = kausaldb.simulation.Simulation;
+const StorageEngine = kausaldb.storage.StorageEngine;
+const MemtableManager = kausaldb.storage.MemtableManager;
+const ContextBlock = kausaldb.types.ContextBlock;
+const BlockId = kausaldb.types.BlockId;
+const GraphEdge = kausaldb.types.GraphEdge;
+const EdgeType = kausaldb.types.EdgeType;
 
 const log = std.log.scoped(.memory_fault_injection);
 

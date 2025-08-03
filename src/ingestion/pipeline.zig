@@ -1,4 +1,4 @@
-//! Membank Ingestion Pipeline
+//! KausalDB Ingestion Pipeline
 //!
 //! Provides a flexible framework for automatically populating the database
 //! from various sources. The pipeline consists of three main components:

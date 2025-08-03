@@ -1,17 +1,17 @@
 //! Comprehensive defensive programming validation test suite.
 //!
 //! Tests the assertion framework and defensive programming checks throughout
-//! Membank to ensure they properly catch invalid conditions while not
+//! KausalDB to ensure they properly catch invalid conditions while not
 //! interfering with normal operation. Follows TigerBeetle-style defensive
 //! programming principles with comprehensive validation.
 
 const std = @import("std");
 const testing = std.testing;
-const membank = @import("membank");
-const assert = membank.assert;
-const types = membank.types;
-const storage = membank.storage;
-const simulation = membank.simulation;
+const kausaldb = @import("kausaldb");
+const assert = kausaldb.assert;
+const types = kausaldb.types;
+const storage = kausaldb.storage;
+const simulation = kausaldb.simulation;
 
 const BlockId = types.BlockId;
 const ContextBlock = types.ContextBlock;
@@ -308,7 +308,7 @@ test "memory management defensive programming" {
     var blocks: [test_iterations]ContextBlock = undefined;
 
     for (0..test_iterations) |i| {
-        const content = try std.fmt.allocPrint(allocator, "Test content for block {} - this is substantial content to test memory management under pressure. The content includes structured data that would be typical in a real Membank deployment.", .{i});
+        const content = try std.fmt.allocPrint(allocator, "Test content for block {} - this is substantial content to test memory management under pressure. The content includes structured data that would be typical in a real KausalDB deployment.", .{i});
         defer allocator.free(content);
 
         const uri = try std.fmt.allocPrint(allocator, "test://memory_test_{}.zig", .{i});

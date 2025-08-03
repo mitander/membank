@@ -1,4 +1,4 @@
-//! Query engine coordination and public interface for Membank.
+//! Query engine coordination and public interface for KausalDB.
 //!
 //! Provides the main QueryEngine struct that coordinates between different
 //! query operation modules. Handles metrics, statistics, and provides a

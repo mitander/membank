@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Membank Zig-based commit-msg hook
+# KausalDB Zig-based commit-msg hook
 #
 # Cross-platform commit message validation using Zig implementation
 # instead of awk/sed shell scripts for better maintainability.

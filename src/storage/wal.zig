@@ -1,4 +1,4 @@
-//! Write-Ahead Log (WAL) implementation for Membank storage engine.
+//! Write-Ahead Log (WAL) implementation for KausalDB storage engine.
 //!
 //! Modular WAL implementation providing:
 //! - Segmented file management with automatic rotation

@@ -4,15 +4,15 @@
 //! entries one at a time instead of loading entire WAL files into memory.
 //! Validates memory efficiency and correctness under various scenarios.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
 const log = std.log.scoped(.streaming_wal_recovery);
 
-const context_block = membank.types;
-const storage = membank.storage;
-const simulation = membank.simulation;
+const context_block = kausaldb.types;
+const storage = kausaldb.storage;
+const simulation = kausaldb.simulation;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;

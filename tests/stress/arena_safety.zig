@@ -1,4 +1,4 @@
-//! Comprehensive arena safety validation for Membank memory management.
+//! Comprehensive arena safety validation for KausalDB memory management.
 //!
 //! Tests the arena-per-subsystem pattern under hostile conditions including:
 //! - Error path memory safety
@@ -8,15 +8,15 @@
 //! - O(1) cleanup validation
 
 const std = @import("std");
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const testing = std.testing;
-const assert = membank.assert.assert;
+const assert = kausaldb.assert.assert;
 
-const Simulation = membank.simulation.Simulation;
-const StorageEngine = membank.storage.StorageEngine;
-const MemtableManager = membank.storage.MemtableManager;
-const ContextBlock = membank.types.ContextBlock;
-const BlockId = membank.types.BlockId;
+const Simulation = kausaldb.simulation.Simulation;
+const StorageEngine = kausaldb.storage.StorageEngine;
+const MemtableManager = kausaldb.storage.MemtableManager;
+const ContextBlock = kausaldb.types.ContextBlock;
+const BlockId = kausaldb.types.BlockId;
 
 const log = std.log.scoped(.arena_safety);
 

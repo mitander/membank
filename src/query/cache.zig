@@ -1,4 +1,4 @@
-//! Query result caching system for Membank.
+//! Query result caching system for KausalDB.
 //!
 //! Provides LRU-based query result caching to reduce expensive storage lookups
 //! and traversals. Follows arena-per-subsystem memory model with explicit

@@ -1,8 +1,8 @@
-//! Tiered compaction strategy for Membank LSM-Tree.
+//! Tiered compaction strategy for KausalDB LSM-Tree.
 //!
 //! Implements a size-tiered compaction strategy to minimize write amplification
 //! while maintaining read performance. Based on Cassandra's size-tiered approach
-//! with optimizations for Membank's workload characteristics.
+//! with optimizations for KausalDB's workload characteristics.
 
 const std = @import("std");
 const custom_assert = @import("../core/assert.zig");

@@ -1,4 +1,4 @@
-//! Advanced filtering system for Membank query operations.
+//! Advanced filtering system for KausalDB query operations.
 //!
 //! Provides configurable filter conditions for block metadata, content,
 //! and graph structure. Supports complex boolean logic and efficient

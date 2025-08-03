@@ -1,23 +1,23 @@
-//! Comprehensive performance and memory efficiency tests for Membank operations.
+//! Comprehensive performance and memory efficiency tests for KausalDB operations.
 //!
 //! Tests streaming query formatting, storage engine throughput, memory management
 //! efficiency, and performance regression detection across all major subsystems.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
 const log = std.log.scoped(.streaming_memory_benchmark);
 
-const storage = membank.storage;
-const query = membank.query;
-const simulation_vfs = membank.simulation_vfs;
-const context_block = membank.types;
-const concurrency = membank.concurrency;
-const assert = membank.assert.assert;
+const storage = kausaldb.storage;
+const query = kausaldb.query;
+const simulation_vfs = kausaldb.simulation_vfs;
+const context_block = kausaldb.types;
+const concurrency = kausaldb.concurrency;
+const assert = kausaldb.assert.assert;
 
 const StorageEngine = storage.StorageEngine;
-const QueryEngine = membank.QueryEngine;
+const QueryEngine = kausaldb.QueryEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;

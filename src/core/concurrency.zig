@@ -1,13 +1,13 @@
-//! Concurrency model for Membank.
+//! Concurrency model for KausalDB.
 //!
-//! Membank uses a single-threaded execution model with async I/O for maximum
+//! KausalDB uses a single-threaded execution model with async I/O for maximum
 //! simplicity, determinism, and performance. This eliminates data races,
 //! simplifies debugging, and enables deterministic simulation testing.
 
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// Thread ID of the main Membank thread. All operations must occur on this thread.
+/// Thread ID of the main KausalDB thread. All operations must occur on this thread.
 var main_thread_id: ?std.Thread.Id = null;
 
 /// Initialize the concurrency model. Must be called once from the main thread.
@@ -15,7 +15,7 @@ pub fn init() void {
     main_thread_id = std.Thread.getCurrentId();
 }
 
-/// Assert that we're running on the main Membank thread.
+/// Assert that we're running on the main KausalDB thread.
 /// In debug builds, this provides immediate feedback about threading violations.
 /// In release builds, this compiles to nothing.
 pub fn assert_main_thread() void {
@@ -136,7 +136,7 @@ pub const SingleThreadedAllocator = struct {
     }
 };
 
-/// Documentation and enforcement of Membank's concurrency model.
+/// Documentation and enforcement of KausalDB's concurrency model.
 /// CONCURRENCY MODEL: Single-threaded + async I/O.
 /// Thread safety enforced through design rather than locks.
 pub const ConcurrencyModel = struct {

@@ -1,4 +1,4 @@
-//! Rule-based code quality enforcement for Membank.
+//! Rule-based code quality enforcement for KausalDB.
 //!
 //! Defines architectural constraints as composable rules rather than
 //! hardcoded pattern matching. Rules encode the "why" of code quality
@@ -98,11 +98,11 @@ pub const RuleContext = struct {
     }
 };
 
-/// Membank architectural rules
-pub const MEMBANK_RULES = [_]Rule{
+/// KausalDB architectural rules
+pub const KAUSALDB_RULES = [_]Rule{
     .{
         .name = "naming_conventions",
-        .description = "Enforce Membank naming conventions: snake_case functions, reject get_/set_ prefixes",
+        .description = "Enforce KausalDB naming conventions: snake_case functions, reject get_/set_ prefixes",
         .violation_type = .naming_convention,
         .check_fn = check_naming_conventions,
     },
@@ -180,7 +180,7 @@ pub const MEMBANK_RULES = [_]Rule{
     },
 };
 
-/// Rule: Enforce Membank naming conventions
+/// Rule: Enforce KausalDB naming conventions
 fn check_naming_conventions(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
 
@@ -968,7 +968,7 @@ fn check_banned_patterns(context: *RuleContext) []const Rule.RuleViolation {
             violations.append(.{
                 .line = line_num,
                 .message = "use custom assert module instead of std.debug.assert",
-                .suggested_fix = "Import and use membank assert module",
+                .suggested_fix = "Import and use kausaldb assert module",
             }) catch {};
         }
     }

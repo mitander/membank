@@ -1,88 +1,80 @@
-# membank
+# kausaldb
 
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI Status](https://github.com/mitander/membank/actions/workflows/ci.yml/badge.svg)](https://github.com/mitander/membank/actions)
+[![CI Status](https://github.com/kausaldb/kausaldb/actions/workflows/ci.yml/badge.svg)](https://github.com/kausaldb/kausaldb/actions)
 
-**The knowledge graph database built for LLMs.**
-> *"Your LLM finally has a memory that doesn't suck. We're as excited about this as you should be."*
+> A queryable graph of cause and effect.
 
-Stop feeding your LLM random text chunks. Membank gives you **structured, interconnected knowledge** with sub-millisecond queries. Your AI finally knows what's connected to what.
+Kausal models a codebase as a directed graph, allowing for precise, structural queries against the system's causal layer. The result is surgical context, not a data dump.
 
-### Quick Start
+## Bootstrap
 
 ```bash
-# Install exact Zig version + git hooks
+# Install required Zig version & git hooks
 ./scripts/install_zig.sh
 ./scripts/setup_hooks.sh
 
-# Build and test everything
+# Build & validate
 ./zig/zig build test
 
-# Run Membank server
+# Execute server
 ./zig/zig build run
 ```
 
-## The Problem
+## Why?
 
-**Your LLM doesn't know what's connected to what.** You dump 50 functions into a prompt hoping the relevant ones are included. When your LLM suggests changing `authenticate_user()`, it has no idea what breaks.
+Code is a network of dependencies. Current tools treat it as flat text. This is a fundamental mismatch. They find text, not causality.
 
-**Membank gives your LLM a knowledge graph** instead of random text chunks:
+When `authenticate_user()` is modified, the critical question isn't "what other text files contain this string?" but "what systems are causally affected by this change?"
 
-- **Context Blocks** with metadata and relationships
-- **Graph Traversal** to find exactly what matters
-- **Complete picture** of dependencies and callers
-
-**Goal**: Right context, not more context.
+Kausal answers the second question.
 
 ```zig
-// Someone changed authentication logic
-var auth_func = try membank.find("function:authenticate_user");
+// An auth function was modified.
+var auth_func = try kausal.find("function:authenticate_user");
 
-// What calls this function?
-var callers = try membank.traverse(auth_func.id, .incoming, .depth(2));
+// Identify its upstream callers.
+var callers = try kausal.traverse(auth_func.id, .incoming, .depth(2));
 
-// What does this function call?
-var dependencies = try membank.traverse(auth_func.id, .outgoing, .depth(1));
+// Identify its downstream dependencies.
+var dependencies = try kausal.traverse(auth_func.id, .outgoing, .depth(1));
 
-// Now your LLM has the complete picture:
-var review = try llm.prompt(
-    "This function changed. What security implications should I consider?",
-    .{ .changed = auth_func, .callers = callers, .calls = dependencies }
+// Feed the interconnected facts to the reasoning layer.
+var analysis = try llm.prompt(
+    "Analyze security implications of this change given its context.",
+    .{ .change = auth_func, .callers = callers, .dependencies = dependencies }
 );
 ```
 
-**The difference:** Your LLM isn't guessing anymore. It **knows** exactly what `authenticate_user()` touches - the login endpoint, session middleware, API gateway.
+The LLM now operates on a subgraph of reality - the login endpoint, session middleware, API gateway - instead of a list of text files. This eliminates guesswork.
 
-**No more broken suggestions. No more missed dependencies.**
+## Design Principles
 
-## Built to be Fast and Reliable
+Engineered for determinism and reliability.
 
-**Deterministic by design. Built like financial trading systems.**
-
-- **Sub-millisecond queries** via LSM-tree storage optimized for write-heavy ingestion
-- **Actually reliable** with 500+ deterministic tests simulating network failures and corruption
-- **Zero data races** with single-threaded core architecture
-- **Memory safe** using arena allocation model that eliminates entire bug classes
-- **Zero dependencies** — Pure Zig, single binary, no complex deployment
-- **Simulation tested** — Same production code runs in deterministic failure scenarios
+- **Sub-millisecond Reads:** Achieved via a write-optimized LSM-tree storage layer.
+- **Deterministic Simulation Testing:** The core is validated against simulated network failures and data corruption across 500+ test cases.
+- **Single-Threaded Core:** Guarantees zero data races by design, eliminating an entire class of concurrency bugs.
+- **Arena Allocation:** Enforces strict memory management, preventing common memory-safety vulnerabilities.
+- **Zero Dependencies:** Compiles to a single static binary. No runtime, no complex deployments. Pure Zig.
 
 ## Development
 
 ```bash
-# Fast development cycle
-./zig/zig build test        # Unit tests (~30s)
-./zig/zig build run         # Start server
+# Standard test cycle
+./zig/zig build test
 
-# Full validation
-./zig/zig build test-all    # All tests including stress/simulation
-./zig/zig build benchmark   # Performance regression detection
-./zig/zig build fuzz        # Chaos testing with random inputs
+# Run server binary
+./zig/zig build run
+
+# Full validation suite
+./zig/zig build test-all    # Includes stress and simulation tests
+./zig/zig build benchmark   # Performance regression checks
+./zig/zig build fuzz        # Chaos testing via random inputs
 ```
-
 
 ## Documentation
 
-- **[DESIGN](docs/DESIGN.md)**: Architecture and philosophy
-- **[DEVELOPMENT](docs/DEVELOPMENT.md)**: Build system and debugging
-- **[STYLE](docs/STYLE.md)**: Code standards and patterns
-
+- **[Architectural Design](docs/DESIGN.md)**
+- **[Development & Testing](docs.DEVELOPMENT.md)**
+- **[Obsessive Style Disorder](docs/STYLE.md)**

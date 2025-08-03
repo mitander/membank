@@ -1,4 +1,4 @@
-//! Structured error handling with debugging context for Membank.
+//! Structured error handling with debugging context for KausalDB.
 //!
 //! Provides rich debugging information in debug builds while maintaining
 //! zero runtime overhead in release builds.

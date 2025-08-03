@@ -1,7 +1,7 @@
-//! Naming convention validation for Membank codebase.
+//! Naming convention validation for KausalDB codebase.
 //!
 //! Enforces consistent function, variable, and constant naming patterns
-//! following the established Membank style guide conventions.
+//! following the established KausalDB style guide conventions.
 
 const std = @import("std");
 const mem = std.mem;

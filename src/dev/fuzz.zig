@@ -1,4 +1,4 @@
-//! Membank fuzzing entry point.
+//! KausalDB fuzzing entry point.
 //!
 //! Coordinates modular fuzzing system with specialized modules for different
 //! components. Provides backward compatibility while delegating to focused modules.

@@ -6,14 +6,14 @@
 
 const std = @import("std");
 const testing = std.testing;
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 
-const storage = membank.storage;
-const simulation_vfs = membank.simulation_vfs;
-const context_block = membank.types;
-const concurrency = membank.concurrency;
+const storage = kausaldb.storage;
+const simulation_vfs = kausaldb.simulation_vfs;
+const context_block = kausaldb.types;
+const concurrency = kausaldb.concurrency;
 
-const BloomFilter = membank.bloom_filter.BloomFilter;
+const BloomFilter = kausaldb.bloom_filter.BloomFilter;
 const StorageEngine = storage.StorageEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = context_block.ContextBlock;

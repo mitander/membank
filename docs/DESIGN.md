@@ -1,212 +1,49 @@
-# Membank Design
+# Architectural Design
 
-## Philosophy
+This document specifies the architectural principles and design patterns that govern the Kausal codebase. Adherence to these principles is non-negotiable, as they are the foundation of the system's reliability and performance.
 
-Membank eliminates LLM context drift through principled engineering. Three non-negotiable rules:
+## 1. Core Philosophy
 
-1. **Simplicity is the Prerequisite for Reliability** - Complex code kills systems
-2. **Explicit is Better Than Implicit** - No hidden control flow, no surprise allocations
-3. **Correctness is Not Negotiable** - Architecture must make incorrect states unrepresentable
+The system is engineered according to a strict set of laws. These are not guidelines; they are constraints.
 
-Inspired by TigerBeetle's financial-grade reliability applied to AI infrastructure.
+*   **Simplicity is the Prerequisite for Reliability:** A complex system cannot be proven reliable. We choose the simplest path that is correct.
+*   **Correctness is Not Negotiable:** All operations must be deterministic and verifiable. "Probably right" is wrong.
+*   **Explicitness Over Magic:** All control flow, memory lifecycles, and state transitions must be obvious from reading the code. There are no hidden mechanisms.
 
-## Why Zig?
+## 2. System Architecture
 
-**No hidden complexity.** Every allocation explicit. Every control flow obvious. Zero runtime surprises.
+Kausal is built on a state-oriented, coordinator-based architecture inspired by high-performance financial databases.
 
-This eliminates entire bug classes that plague databases: use-after-free, double-free, memory leaks, data races. When your foundation is solid, you can build fast.
+### 2.1. The Coordinator Pattern
 
-## Core Architecture
+The `StorageEngine` (`src/storage/engine.zig`) is a **pure coordinator**. It contains no business logic. Its sole function is to orchestrate operations between the state-managing subsystems. This enforces a clean separation of concerns.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Membank Engine                         │
-├─────────────────────────────────────────────────────────────┤
-│  Query Engine                    Storage Engine             │
-│  ├── Block Lookups              ├── Coordinator             │
-│  ├── Graph Traversal            ├── MemtableManager         │
-│  └── Result Formatting          │   ├── BlockIndex          │
-│                                 │   └── GraphEdgeIndex      │
-│                                 ├── SSTableManager          │
-│                                 │   ├── File Discovery      │
-│                                 │   └── Compaction          │
-│                                 └── WAL (Durability)        │
-├─────────────────────────────────────────────────────────────┤
-│                       VFS Abstraction                       │
-│              ProductionVFS  │  SimulationVFS                │
-└─────────────────────────────────────────────────────────────┘
-```
+### 2.2. State-Oriented Subsystems
 
-**Coordinator Pattern**: Main engines delegate to specialized managers. No monolithic modules.
+Ownership of state is strictly segregated to prevent ambiguity and ensure clear lifecycle management.
 
-## Memory Management: Arena-per-Subsystem
+*   **MemtableManager (`src/storage/memtable_manager.zig`):** Owns the complete in-memory state of the database, including the `BlockIndex` and `GraphEdgeIndex`. It is also the sole owner of the Write-Ahead Log (WAL), as durability is a function of the in-memory write buffer.
+*   **SSTableManager (`src/storage/sstable_manager.zig`):** Owns the complete on-disk state of immutable, sorted data files (SSTables). It is responsible for all SSTable discovery, read coordination, and compaction management.
 
-**The Problem**: Complex allocator hierarchies create cross-allocator corruption.
+### 2.3. The LSM-Tree
 
-**The Solution**: Each subsystem owns an `ArenaAllocator` for all its state.
+The storage layer is a custom Log-Structured Merge-Tree, optimized for the project's write-heavy ingestion patterns.
 
-```zig
-// MemtableManager owns ALL block strings
-arena: std.heap.ArenaAllocator,
-blocks: HashMap(BlockId, ContextBlock, ...),
+1.  **Write-Ahead Log (WAL):** All writes are first serialized to the WAL to guarantee durability.
+2.  **Memtable (`BlockIndex`):** An in-memory index holds the most recent writes for low-latency queries.
+3.  **SSTables:** When the memtable reaches its size threshold, its contents are flushed to immutable, sorted files on disk.
+4.  **Compaction:** A background process merges SSTables to maintain read performance and reclaim space.
 
-// Bulk deallocation in O(1)
-pub fn clear(self: *MemtableManager) void {
-    self.blocks.clearRetainingCapacity();
-    _ = self.arena.reset(.retain_capacity);
-}
-```
+## 3. Memory Model
 
-**Benefits**:
+The memory model is designed to eliminate entire classes of bugs at the architectural level.
 
-- Eliminates use-after-free by design
-- O(1) cleanup of complex state
-- Zero memory leaks from incomplete cleanup
+*   **Arena-per-Subsystem:** State-heavy components (`BlockIndex`, `GraphEdgeIndex`) use an `ArenaAllocator`. When a memtable is flushed, all of its associated memory is freed in a single O(1) `reset()` operation. This is critical for performance and eliminates the possibility of memory leaks from complex object graphs.
+*   **Single-Threaded Core:** The database core is single-threaded. This is a deliberate design choice that eliminates data races by design, removing the need for locks, mutexes, or other complex concurrency primitives. The `assert_main_thread()` function in `src/core/concurrency.zig` enforces this constraint in debug builds.
 
-## Concurrency: Single-Threaded by Design
+## 4. Testing Philosophy
 
-**Zero data races.** All core logic runs on one thread. Concurrency achieved through async I/O, not threads.
+The system is built on a "simulation-first" testing doctrine.
 
-```zig
-// Enforced at runtime in debug builds
-concurrency.assert_main_thread();
-```
-
-**Why**: Threading bugs are the hardest to debug and most dangerous in production. Better to be fast on one thread than correct sometimes on many.
-
-## Storage Engine: Decomposed LSM-Tree
-
-**LSM-tree optimized for read-heavy LLM workloads:**
-
-### MemtableManager
-
-- In-memory `BlockIndex` + `GraphEdgeIndex`
-- Arena-allocated strings for blocks/edges
-- Handles all write operations with WAL durability
-
-### SSTableManager
-
-- Immutable on-disk sorted tables
-- File discovery and compaction coordination
-- Read-optimized for graph traversal queries
-
-### WAL (Write-Ahead Log)
-
-- Durability guarantee for all mutations
-- Streaming recovery for fast startup
-- Segmented 64MB files for rotation
-
-**Data Flow**: `WAL → MemtableManager → SSTableManager`
-
-Write operations hit WAL first, then memtable. Compaction moves memtable to SSTables. Queries read memtable first, then SSTables.
-
-## Testing Philosophy: Don't Mock, Simulate
-
-**We don't mock filesystem calls.** We run real code against a simulated filesystem.
-
-**VFS Abstraction**: Production uses real OS filesystem. Tests use `SimulationVFS` - deterministic, in-memory filesystem with fault injection.
-
-**Hostile Environment Testing**:
-
-- Network partitions during writes
-- Disk corruption in WAL recovery
-- I/O errors during compaction
-- Power loss at arbitrary points
-
-**Result**: Byte-for-byte reproducible tests of scenarios that destroy other databases.
-
-## Component Lifecycle: Two-Phase Initialization
-
-**Phase 1**: `init()` - Memory allocation only, no I/O
-**Phase 2**: `startup()` - I/O operations, can fail
-
-```zig
-var storage = try StorageEngine.init(allocator, vfs, data_dir);
-try storage.startup(); // File discovery, WAL recovery
-```
-
-**Why**: Separates resource allocation from resource access. Makes error handling explicit and testing deterministic.
-
-## Data Model: Knowledge Graphs
-
-### Context Blocks
-
-Atomic knowledge units with:
-
-- Unique ID and version
-- Source URI and metadata
-- Content (function, paragraph, config)
-
-### Graph Edges
-
-Typed relationships:
-
-- `IMPORTS`: Module dependencies
-- `CALLS`: Function call graph
-- `REFERENCES`: Variable/symbol usage
-
-**Query Model**: Start with seed blocks, traverse relationships, return interconnected context subgraph.
-
-## Performance by Design
-
-**Hot Path Optimizations**:
-
-- No allocations during queries (pre-allocated buffers)
-- Linear scans for small collections (<16 items)
-- Single-threaded avoids cache bouncing
-- Arena bulk operations over individual frees
-
-**Write Path**:
-
-- WAL append-only writes
-- Memtable arena allocations
-- Background compaction doesn't block writes
-
-**Target Performance**:
-
-- <1ms block lookups
-- <10ms graph traversals (3-hop)
-- 10K writes/sec sustained
-
-## Error Handling
-
-**Specific Error Sets**: No `anyerror` in public APIs.
-
-```zig
-const StorageError = error{
-    BlockNotFound,
-    CorruptedWALEntry,
-} || std.fs.File.ReadError;
-```
-
-**Rich Error Context**: Debug builds include file paths, line numbers, expected vs actual values.
-
-**Defensive Programming**: Assertions everywhere in debug builds. Zero cost in release.
-
-## Future: Replication
-
-**Design Decision**: Primary-backup over consensus protocols.
-
-**Rationale**: LLM context has different consistency requirements than financial transactions. Eventual consistency acceptable. WAL shipping simpler and more reliable than Paxos/Raft.
-
-**Implementation**: Primary ships WAL segments to replicas. Read scalability through replica fanout.
-
-## Anti-Patterns Banned
-
-- Global state
-- Hidden allocations
-- Generic error types in APIs
-- I/O operations in `init()` functions
-- Complex inheritance hierarchies
-- Thread-based concurrency in core logic
-
-## Design Goals Achieved
-
-- **Sub-millisecond Queries**: Architecture optimized for read latency
-- **Memory Safety**: Arena model eliminates use-after-free by design
-- **Deterministic Testing**: VFS enables reproduction of complex failures
-- **Zero Dependencies**: Pure Zig, no external libraries
-- **Defensive Programming**: Comprehensive assertion framework
-- **Modular Architecture**: Coordinator pattern with focused managers
-
-Membank proves that careful architecture beats clever optimization. Simple, explicit, correct.
+*   **VFS Abstraction (`src/core/vfs.zig`):** All I/O operations are routed through a Virtual File System interface. This is a critical abstraction that allows the *identical production code* to run against either the real filesystem or a deterministic, in-memory simulated filesystem.
+*   **Deterministic Simulation (`src/sim/simulation_vfs.zig`):** For testing, we use a `SimulationVFS` that provides byte-for-byte reproducible tests. The simulation harness can deterministically inject hostile conditions, including network partitions, I/O errors, disk corruption, and torn writes, allowing us to validate the system's correctness under catastrophic failure scenarios.

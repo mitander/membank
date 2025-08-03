@@ -1,4 +1,4 @@
-//! Memory safety fatal assertion tests for Membank.
+//! Memory safety fatal assertion tests for KausalDB.
 //!
 //! Validates that fatal assertions trigger correctly when memory corruption
 //! is detected. These tests use controlled corruption scenarios to verify
@@ -6,16 +6,16 @@
 
 const std = @import("std");
 const testing = std.testing;
-const membank = @import("membank");
-const VFS = membank.VFS;
-const VFile = membank.VFile;
-const ContextBlock = membank.ContextBlock;
-const BlockId = membank.BlockId;
-const StorageEngine = membank.StorageEngine;
-const SimulationVFS = membank.SimulationVFS;
+const kausaldb = @import("kausaldb");
+const VFS = kausaldb.VFS;
+const VFile = kausaldb.VFile;
+const ContextBlock = kausaldb.ContextBlock;
+const BlockId = kausaldb.BlockId;
+const StorageEngine = kausaldb.StorageEngine;
+const SimulationVFS = kausaldb.SimulationVFS;
 
 // Import storage components
-const storage = membank.storage;
+const storage = kausaldb.storage;
 // Note: BlockIndex testing integrated through StorageEngine public API
 
 // Test that arena state validation triggers fatal assertion in storage components

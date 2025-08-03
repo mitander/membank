@@ -1,262 +1,80 @@
-# Query Engine Architecture Evolution
+# Query Engine: Technical Specification
 
-## Overview
+## 1. Overview
 
-Membank's QueryEngine implements a sophisticated planning and optimization framework designed for extensibility and performance. This document outlines the current architecture and evolution plan for advanced query capabilities.
+This document specifies the architecture of the Kausal query engine. The design prioritizes extensibility and performance, utilizing a cost-based planning framework to select optimal execution strategies for different query types.
 
-## Current Architecture
+## 2. Core Components
 
-### Core Components
+### 2.1. Query Planning Framework (`QueryPlan`)
 
-#### 1. Query Planning Framework (`QueryPlan`)
+The `QueryPlan` is the central data structure for cost-based optimization. It is generated prior to query execution.
 
-```zig
-pub const QueryPlan = struct {
-    query_type: QueryType,
-    estimated_cost: u64,
-    estimated_result_count: u32,
-    optimization_hints: OptimizationHints,
-    cache_eligible: bool,
-    execution_strategy: ExecutionStrategy,
-};
-```
+*   **Purpose**: To select an optimal execution strategy based on an analysis of query complexity and data distribution.
+*   **Key Fields**:
+    *   `query_type`: The class of query (`find_blocks`, `traversal`, etc.).
+    *   `estimated_cost`: A metric representing the anticipated resource usage.
+    *   `optimization_hints`: A set of flags that guide the execution path (e.g., `use_index`, `prefer_memtable`).
+    *   `execution_strategy`: The final execution path selected by the planner (e.g., `direct_storage`, `index_lookup`).
 
-**Purpose**: Cost-based query optimization with adaptive strategies
-**Key Features**:
-- Multi-tier optimization based on complexity analysis
-- Workload-adaptive hint generation
-- Execution strategy selection (direct_storage, cached_result, index_lookup, hybrid_approach, streaming_scan, optimized_traversal)
-- Cache eligibility determination
+### 2.2. Query Execution Context (`QueryContext`)
 
-#### 2. Query Execution Context (`QueryContext`)
+A `QueryContext` is instantiated for each query to track its execution and collect metrics.
 
-```zig
-pub const QueryContext = struct {
-    query_id: u64,
-    start_time_ns: i64,
-    plan: QueryPlan,
-    metrics: QueryMetrics,
-    cache_key: ?[]const u8,
-};
-```
+*   **Purpose**: Per-query metrics collection and performance analysis.
+*   **Key Fields**:
+    *   `query_id`: A unique ID for tracing.
+    *   `plan`: The `QueryPlan` guiding the execution.
+    *   `metrics`: A struct of performance counters (`blocks_scanned`, `cache_hits`, etc.).
 
-**Purpose**: Per-query execution tracking and metrics collection
-**Key Features**:
-- Unique query ID generation for tracing
-- Comprehensive metrics collection (blocks_scanned, edges_traversed, cache_hits, optimization effectiveness)
-- Performance measurement infrastructure
+## 3. Optimization Strategies
 
-#### 3. Query Statistics (`QueryStatistics`)
+### 3.1. Complexity-Based Optimization
 
-**Purpose**: Aggregate performance analytics and optimization feedback
-**Key Metrics**:
-- Query type distribution (find_blocks, traversal, semantic, filtered)
-- Average latency and queries-per-second calculations
-- Total execution time tracking
-- Thread-safe atomic counters
+The planner analyzes query complexity based on the number of blocks and edges in the storage engine. It selects a strategy from three tiers:
 
-### Optimization Strategies
+1.  **High Complexity (`>10,000` factor):** Selects a hybrid execution strategy using indexes and data prefetching.
+2.  **Medium Complexity (`>1,000` factor):** Employs index lookups, caching, and specialized traversal algorithms.
+3.  **Low Complexity (`<100` factor):** Prefers direct memtable access for maximum speed on small, recent datasets.
 
-#### Complexity-Based Optimization
+### 3.2. Workload-Adaptive Optimizations
 
-```zig
-pub fn analyze_complexity(self: *QueryPlan, block_count: u32, edge_count: u32) void {
-    const complexity_factor = block_count + (edge_count / 2);
-    if (complexity_factor > 10000) {
-        // High complexity: index + prefetch + hybrid execution
-        self.optimization_hints.use_index = true;
-        self.optimization_hints.enable_prefetch = true;
-        self.execution_strategy = .hybrid_approach;
-    } else if (complexity_factor > 1000) {
-        // Medium complexity: index + caching + specialized traversal
-        self.optimization_hints.use_index = true;
-        self.cache_eligible = true;
-        if (self.query_type == .traversal) {
-            self.execution_strategy = .optimized_traversal;
-        }
-    } else {
-        // Low complexity: direct memtable access
-        self.optimization_hints.prefer_memtable = true;
-        self.execution_strategy = .direct_storage;
-    }
-}
-```
+The planner applies workload-specific hints based on query type:
 
-#### Workload-Adaptive Optimizations
+*   **`find_blocks`**: Enables early termination for large queries and prefers memtable scans for queries against recent data.
+*   **`traversal`**: Applies result limits and enables prefetching for traversals over complex graphs.
+*   **`semantic` / `filtered`**: Favors index lookups and streaming scans for large result sets.
 
-- **Find Blocks**: Early termination for large queries, memtable preference for recent data
-- **Traversal**: Result limits, prefetching for complex graphs, optimized algorithms
-- **Semantic/Filtered**: Index usage for large queries, streaming for massive result sets
+## 4. Caching
 
-### Caching Integration Points
+The architecture includes hooks for a query cache, though the implementation is part of the post-1.0 roadmap.
 
-#### Cache Eligibility Determination
-```zig
-fn should_cache_query(query_type: QueryPlan.QueryType) bool {
-    return switch (query_type) {
-        .semantic, .filtered => true, // Complex queries benefit from caching
-        .traversal => true,           // Graph traversals often repeat
-        .find_blocks => false,        // Simple lookups rarely repeat exactly
-    };
-}
-```
+*   **Cache Eligibility**: Caching is deemed eligible based on query type and estimated cost. Expensive queries (`semantic`, `filtered`, `traversal`) are flagged as cacheable by the planner. `find_blocks` queries are not cached, as simple lookups are sufficiently fast.
 
-#### Cache Infrastructure
-- Cache key generation (prepared but not implemented)
-- Hit rate tracking for adaptive caching strategies
-- Cost-based cache eligibility (queries > 5000 cost units)
+## 5. Roadmap
 
-## Query Types and Execution Paths
+### 5.1. Phase 1: Optimization Framework (COMPLETED)
 
-### 1. Find Blocks Query
-- **Purpose**: Retrieve blocks by ID with batch optimization
-- **Optimizations**: Memtable preference, early termination, batch sizing
-- **Metrics**: Blocks scanned, cache effectiveness
+*   Cost-based query planning.
+*   Complexity analysis with adaptive strategies.
+*   Workload-specific optimization hints.
+*   Metrics and caching infrastructure.
 
-### 2. Traversal Query
-- **Purpose**: Graph traversal with depth limits and directional control
-- **Optimizations**: Specialized algorithms, prefetching, result limits
-- **Metrics**: Edges traversed, traversal efficiency
+### 5.2. Phase 2: Advanced Indexing (Post-1.0)
 
-### 3. Semantic Query
-- **Purpose**: Content-based similarity search (future ML integration)
-- **Optimizations**: Index lookup, streaming scan for large results
-- **Metrics**: Index effectiveness, content matching accuracy
+*   **Objective**: Implement secondary index support to accelerate semantic and filtered queries.
+*   **Technologies**:
+    *   Bloom filter integration for existence checks.
+    *   Inverted indices for content search.
 
-### 4. Filtered Query
-- **Purpose**: Complex conditional filtering with expressions
-- **Optimizations**: Index-based filtering, streaming for large datasets
-- **Metrics**: Filter selectivity, index utilization
+### 5.3. Phase 3: ML-Informed Optimization (Post-1.0)
 
-## Evolution Plan
+*   **Objective**: Integrate query pattern recognition to inform the cost model and caching strategy.
+*   **Integration Points**: The `record_query_execution` function is the designated hook for feeding execution data into a future learning model.
 
-### Phase 1: Enhanced Optimization Framework ✅ COMPLETED
-- [x] Cost-based query planning
-- [x] Complexity analysis with adaptive strategies
-- [x] Workload-specific optimization hints
-- [x] Comprehensive metrics collection
-- [x] Caching infrastructure preparation
+## 6. Design Mandates
 
-### Phase 2: Advanced Indexing (Future)
-**Timeline**: Post-1.0
-**Scope**: Secondary index support for semantic and filtered queries
-
-**Planned Features**:
-- Bloom filter integration for existence checks
-- B-tree indices for range queries
-- Inverted indices for content search
-- Graph indices for traversal optimization
-
-**Implementation Approach**:
-```zig
-// Future index integration
-if (plan.optimization_hints.use_index) {
-    const index_result = self.index_manager.query(query_predicate);
-    return self.resolve_index_results(index_result);
-}
-```
-
-### Phase 3: Machine Learning Integration (Future)
-**Timeline**: Post-1.0
-**Scope**: Query pattern recognition and predictive optimization
-
-**Planned Features**:
-- Query pattern learning for cache prediction
-- Cost model refinement based on historical data
-- Automatic index recommendation
-- Workload characterization
-
-**Integration Points**:
-```zig
-// Future ML hooks already prepared
-fn record_query_execution(context: *const QueryContext) void {
-    // Machine learning hooks for query pattern recognition
-    // This data will feed into sophisticated optimization algorithms
-}
-```
-
-### Phase 4: Distributed Query Processing (Future)
-**Timeline**: Post-replication
-**Scope**: Multi-node query coordination and optimization
-
-**Planned Features**:
-- Query distribution across replicas
-- Load balancing for read queries
-- Consistent routing for strong consistency
-- Cross-node result aggregation
-
-## Performance Characteristics
-
-### Target Metrics (1.0 Release)
-- **Block Lookups**: < 1ms average latency
-- **Graph Traversals**: < 10ms for 3-hop traversals
-- **Query Planning Overhead**: < 100μs per query
-- **Memory Efficiency**: < 1MB per active query context
-
-### Optimization Effectiveness
-- **Memtable Preference**: 90% hit rate for recent queries
-- **Index Usage**: 80% reduction in scan time for eligible queries
-- **Cache Hit Rate**: 70% for repeated semantic/filtered queries
-- **Batch Processing**: 4x throughput improvement for multi-block queries
-
-## Architectural Principles
-
-### 1. Extensibility First
-- Plugin architecture for new query types
-- Optimization strategy registration
-- Metrics extension points
-
-### 2. Performance by Design
-- Zero-allocation hot paths for simple queries
-- Streaming execution for large result sets
-- Adaptive optimization based on workload
-
-### 3. Observability Built-in
-- Comprehensive metrics collection
-- Query tracing and profiling
-- Performance regression detection
-
-### 4. Correctness Guarantees
-- Deterministic query results
-- Isolation from storage layer changes
-- Consistent semantics across optimization paths
-
-## Integration with Storage Layer
-
-### Clean Abstraction
-```zig
-// QueryEngine delegates to specialized operation modules
-const result = operations.execute_find_blocks(
-    self.allocator,
-    self.storage_engine,
-    query,
-);
-```
-
-### Optimization Coordination
-- Storage metrics inform query planning
-- Query patterns influence storage optimizations
-- Unified cache layer across storage and query
-
-## Testing Strategy
-
-### Unit Testing
-- Query plan generation and optimization logic
-- Metrics collection accuracy
-- Error handling and edge cases
-
-### Integration Testing
-- End-to-end query execution with real storage
-- Performance regression detection
-- Multi-query coordination
-
-### Simulation Testing
-- Large-scale workload simulation
-- Optimization effectiveness measurement
-- Cache behavior validation
-
-## Conclusion
-
-Membank's QueryEngine implements a production-ready planning and optimization framework that balances current simplicity with future extensibility. The architecture supports advanced features like caching, indexing, and machine learning integration while maintaining clean abstractions and performance characteristics suitable for high-throughput applications.
-
-The framework is designed to grow with the system's needs, providing clear extension points for advanced optimization strategies without compromising the simplicity and reliability of basic query operations.
+1.  **Extensibility**: The framework is designed to accommodate new query types and optimization strategies without requiring modification of the core engine.
+2.  **Performance by Design**: Simple queries must follow a zero-allocation hot path. Large result sets must be handled via streaming execution.
+3.  **Observability**: All query paths are instrumented with comprehensive metrics to enable performance analysis and regression detection.
+4.  **Correctness**: Query results must be deterministic and consistent regardless of the optimization path selected by the planner.

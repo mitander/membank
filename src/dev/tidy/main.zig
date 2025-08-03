@@ -1,4 +1,4 @@
-//! Modern rule-based tidy checker for Membank.
+//! Modern rule-based tidy checker for KausalDB.
 //!
 //! Systematically enforces architectural principles through composable
 //! rules rather than hardcoded pattern matching. Provides comprehensive
@@ -26,7 +26,7 @@ pub fn main() !void {
 
     if (args.len > 1) {
         std.debug.print("Usage: tidy\n");
-        std.debug.print("Systematically checks Membank code quality and architectural compliance.\n");
+        std.debug.print("Systematically checks KausalDB code quality and architectural compliance.\n");
         return;
     }
 
@@ -66,7 +66,7 @@ pub fn main() !void {
     std.debug.print("Code quality excellent! All architectural principles upheld.\n", .{});
 }
 
-/// Analyze a single file against all Membank rules
+/// Analyze a single file against all KausalDB rules
 fn analyze_file(
     summary: *ViolationSummary,
     allocator: std.mem.Allocator,
@@ -85,7 +85,7 @@ fn analyze_file(
     }
 
     // Apply all architectural rules
-    for (rules.MEMBANK_RULES) |rule| {
+    for (rules.KAUSALDB_RULES) |rule| {
         const violations = rule.check_fn(@constCast(&context));
         defer allocator.free(violations);
 

@@ -1,4 +1,4 @@
-//! Code quality and style enforcement for Membank.
+//! Code quality and style enforcement for KausalDB.
 //!
 //! Modern rule-based checker with comprehensive violation reporting
 //! and systematic architectural constraint enforcement.
@@ -53,7 +53,7 @@ const std = @import("std");
 const fs = std.fs;
 const mem = std.mem;
 
-/// Analyze a single file against all Membank rules
+/// Analyze a single file against all KausalDB rules
 fn analyze_file(
     summary: *violation.ViolationSummary,
     allocator: std.mem.Allocator,
@@ -72,7 +72,7 @@ fn analyze_file(
     }
 
     // Apply all architectural rules
-    for (rules.MEMBANK_RULES) |rule| {
+    for (rules.KAUSALDB_RULES) |rule| {
         const violations = rule.check_fn(@constCast(&context));
         defer allocator.free(violations);
 

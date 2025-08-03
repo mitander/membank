@@ -1,7 +1,7 @@
 //! WAL Durability Fault Injection Tests
 //!
 //! Tests critical WAL durability scenarios under hostile conditions. These tests
-//! validate that Membank maintains data integrity and consistency when write
+//! validate that KausalDB maintains data integrity and consistency when write
 //! operations, flush operations, and recovery processes face I/O failures.
 //!
 //! Key durability scenarios tested:
@@ -12,15 +12,15 @@
 //! - Disk space exhaustion during WAL operations
 //! - Recovery consistency after partial WAL writes
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const vfs = membank.vfs;
-const simulation_vfs = membank.simulation_vfs;
-const storage = membank.storage;
-const context_block = membank.types;
-const concurrency = membank.concurrency;
+const vfs = kausaldb.vfs;
+const simulation_vfs = kausaldb.simulation_vfs;
+const storage = kausaldb.storage;
+const context_block = kausaldb.types;
+const concurrency = kausaldb.concurrency;
 
 const StorageEngine = storage.StorageEngine;
 const WAL = storage.WAL;

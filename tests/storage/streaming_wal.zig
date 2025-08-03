@@ -3,15 +3,15 @@
 //! Tests the new streaming recovery implementation to ensure it correctly
 //! processes WAL entries without loading entire segments into memory.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
-const assert = membank.assert.assert;
+const assert = kausaldb.assert.assert;
 
-const vfs = membank.vfs;
-const simulation_vfs = membank.simulation_vfs;
-const context_block = membank.types;
-const storage = membank.storage;
+const vfs = kausaldb.vfs;
+const simulation_vfs = kausaldb.simulation_vfs;
+const context_block = kausaldb.types;
+const storage = kausaldb.storage;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = context_block.ContextBlock;

@@ -6,14 +6,14 @@
 
 const std = @import("std");
 const testing = std.testing;
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 
-const cache = membank.query.cache;
-const operations = membank.query.operations;
-const traversal = membank.query.traversal;
-const storage = membank.storage;
-const simulation_vfs = membank.simulation_vfs;
-const context_block = membank.types;
+const cache = kausaldb.query.cache;
+const operations = kausaldb.query.operations;
+const traversal = kausaldb.query.traversal;
+const storage = kausaldb.storage;
+const simulation_vfs = kausaldb.simulation_vfs;
+const context_block = kausaldb.types;
 
 const QueryCache = cache.QueryCache;
 const CacheKey = cache.CacheKey;

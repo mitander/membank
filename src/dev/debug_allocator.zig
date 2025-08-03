@@ -648,7 +648,7 @@ fn timestamp_ns() u64 {
 
 /// Get current thread ID (simplified for single-threaded model)
 fn current_thread_id() u64 {
-    // In Membank's single-threaded model, always return 1
+    // In KausalDB's single-threaded model, always return 1
     return 1;
 }
 

@@ -15,25 +15,25 @@ pub fn build(b: *std.Build) void {
     build_options.addOption(bool, "enable_fault_injection", enable_fault_injection);
     build_options.addOption(bool, "is_debug_build", optimize == .Debug);
 
-    const membank_module = b.createModule(.{
-        .root_source_file = b.path("src/membank.zig"),
+    const kausaldb_module = b.createModule(.{
+        .root_source_file = b.path("src/kausaldb.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     // Testing module with internal APIs for test files
-    const membank_test_module = b.createModule(.{
-        .root_source_file = b.path("src/membank_test.zig"),
+    const kausaldb_test_module = b.createModule(.{
+        .root_source_file = b.path("src/kausaldb_test.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     // Add build options to core module for configuration access
-    membank_module.addImport("build_options", build_options.createModule());
-    membank_test_module.addImport("build_options", build_options.createModule());
+    kausaldb_module.addImport("build_options", build_options.createModule());
+    kausaldb_test_module.addImport("build_options", build_options.createModule());
 
     const exe = b.addExecutable(.{
-        .name = "membank",
+        .name = "kausaldb",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
@@ -41,7 +41,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     exe.linkLibC(); // Required for production VFS sync() calls
-    exe.root_module.addImport("membank", membank_module);
+    exe.root_module.addImport("kausaldb", kausaldb_module);
     b.installArtifact(exe);
 
     // Run command for main executable
@@ -51,7 +51,7 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    const run_step = b.step("run", "Run Membank");
+    const run_step = b.step("run", "Run KausalDB");
     run_step.dependOn(&run_cmd.step);
 
     // Test configuration
@@ -269,7 +269,7 @@ pub fn build(b: *std.Build) void {
             }),
         });
         // Provide both public API and internal testing APIs
-        test_exe.root_module.addImport("membank", membank_test_module);
+        test_exe.root_module.addImport("kausaldb", kausaldb_test_module);
 
         test_install_steps[i] = b.addInstallArtifact(test_exe, .{});
 
@@ -290,8 +290,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    tidy_tests.root_module.addImport("membank", membank_test_module);
-    tidy_tests.root_module.addImport("membank_test", membank_test_module);
+    tidy_tests.root_module.addImport("kausaldb", kausaldb_test_module);
+    tidy_tests.root_module.addImport("kausaldb_test", kausaldb_test_module);
     const run_tidy_tests = b.addRunArtifact(tidy_tests);
 
     // Fast developer workflow: core functionality validation only
@@ -356,7 +356,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
-    benchmark.root_module.addImport("membank", membank_test_module);
+    benchmark.root_module.addImport("kausaldb", kausaldb_test_module);
 
     const install_benchmark = b.addInstallArtifact(benchmark, .{});
     const benchmark_step = b.step("benchmark", "Build and install benchmark");
@@ -370,7 +370,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
         }),
     });
-    allocator_torture.root_module.addImport("membank", membank_test_module);
+    allocator_torture.root_module.addImport("kausaldb", kausaldb_test_module);
 
     const install_allocator_torture = b.addInstallArtifact(allocator_torture, .{});
     const allocator_torture_step = b.step("allocator_torture", "Build and install allocator torture tester");
@@ -384,7 +384,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseFast,
         }),
     });
-    fuzz.root_module.addImport("membank", membank_test_module);
+    fuzz.root_module.addImport("kausaldb", kausaldb_test_module);
 
     const install_fuzz = b.addInstallArtifact(fuzz, .{});
     const fuzz_step = b.step("fuzz", "Build and install fuzz tester");
@@ -398,7 +398,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .Debug,
         }),
     });
-    fuzz_debug.root_module.addImport("membank", membank_test_module);
+    fuzz_debug.root_module.addImport("kausaldb", kausaldb_test_module);
 
     const install_fuzz_debug = b.addInstallArtifact(fuzz_debug, .{});
     const fuzz_debug_step = b.step("fuzz-debug", "Build and install debug fuzz tester with enhanced debugging");
@@ -420,12 +420,12 @@ pub fn build(b: *std.Build) void {
     // Sanitizer test target for enhanced memory safety
     const sanitizer_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/membank.zig"),
+            .root_source_file = b.path("src/kausaldb.zig"),
             .target = target,
             .optimize = .ReleaseSafe,
         }),
     });
-    sanitizer_tests.root_module.addImport("membank", membank_module);
+    sanitizer_tests.root_module.addImport("kausaldb", kausaldb_module);
 
     // Detect concurrency issues in single-threaded architecture validation
     sanitizer_tests.root_module.sanitize_thread = true;
@@ -443,7 +443,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
         }),
     });
-    memory_stress.root_module.addImport("membank", membank_module);
+    memory_stress.root_module.addImport("kausaldb", kausaldb_module);
 
     const run_memory_stress = b.addRunArtifact(memory_stress);
     const memory_stress_step = b.step("test-memory-stress", "Run comprehensive memory safety stress tests");

@@ -4,19 +4,19 @@
 //! real-world scenarios including buffer boundaries, large entries, corruption,
 //! and memory management. Uses simulation VFS for deterministic testing.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
-const assert = membank.assert.assert;
+const assert = kausaldb.assert.assert;
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const wal_entry_stream = @import("../../src/storage/wal_entry_stream.zig");
 const WALEntryStream = wal_entry_stream.WALEntryStream;
 const StreamEntry = wal_entry_stream.StreamEntry;
 const StreamError = wal_entry_stream.StreamError;
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const vfs = @import("../../src/core/vfs.zig");
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const simulation_vfs = @import("../../src/sim/simulation_vfs.zig");
 
 const SimulationVFS = simulation_vfs.SimulationVFS;

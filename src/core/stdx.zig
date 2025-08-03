@@ -1,4 +1,4 @@
-//! Membank standard extensions providing safer alternatives to std library functions
+//! KausalDB standard extensions providing safer alternatives to std library functions
 //! and additional concurrency primitives.
 //!
 //! Design rationale: These wrappers add defensive programming checks and
@@ -48,7 +48,7 @@ pub const MetricsCounter = struct {
     }
 };
 
-/// Simple value container - no protection needed in single-threaded Membank.
+/// Simple value container - no protection needed in single-threaded KausalDB.
 /// This type exists for API consistency where thread-safety was once considered.
 pub fn ProtectedType(comptime T: type) type {
     return struct {

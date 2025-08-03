@@ -4,15 +4,15 @@
 //! Validates that the system can recover gracefully from intermediate states
 //! and maintain data integrity across crash boundaries.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const vfs = membank.vfs;
-const simulation_vfs = membank.simulation_vfs;
-const storage = membank.storage;
-const context_block = membank.types;
-const concurrency = membank.concurrency;
+const vfs = kausaldb.vfs;
+const simulation_vfs = kausaldb.simulation_vfs;
+const storage = kausaldb.storage;
+const context_block = kausaldb.types;
+const concurrency = kausaldb.concurrency;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;

@@ -1,4 +1,4 @@
-//! Comprehensive CLI interface testing for Membank.
+//! Comprehensive CLI interface testing for KausalDB.
 //!
 //! Tests command-line argument parsing, validation, server startup robustness,
 //! path handling edge cases, and error scenarios. Validates that CLI interface
@@ -7,10 +7,10 @@
 
 const std = @import("std");
 const testing = std.testing;
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 
-const simulation_vfs = membank.simulation_vfs;
-const concurrency = membank.concurrency;
+const simulation_vfs = kausaldb.simulation_vfs;
+const concurrency = kausaldb.concurrency;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
@@ -69,7 +69,7 @@ const CLITestHarness = struct {
             const command = args[1];
 
             if (std.mem.eql(u8, command, "version")) {
-                try self.stdout_buffer.appendSlice("Membank v0.1.0\n");
+                try self.stdout_buffer.appendSlice("KausalDB v0.1.0\n");
             } else if (std.mem.eql(u8, command, "help")) {
                 try self.append_usage_message();
             } else if (std.mem.eql(u8, command, "server")) {
@@ -94,10 +94,10 @@ const CLITestHarness = struct {
 
     fn append_usage_message(self: *Self) !void {
         try self.stdout_buffer.appendSlice(
-            \\Membank - High-performance context database
+            \\KausalDB - High-performance context database
             \\
             \\Usage:
-            \\  membank <command> [options]
+            \\  kausaldb <command> [options]
             \\
             \\Commands:
             \\  version    Show version information
@@ -106,9 +106,9 @@ const CLITestHarness = struct {
             \\  demo       Run a storage and query demonstration
             \\
             \\Examples:
-            \\  membank server --port 8080
-            \\  membank demo
-            \\  membank version
+            \\  kausaldb server --port 8080
+            \\  kausaldb demo
+            \\  kausaldb version
             \\
         );
     }
@@ -117,7 +117,7 @@ const CLITestHarness = struct {
         _ = args; // Server args parsing not implemented in test harness yet
 
         // Simulate server startup validation
-        try self.stdout_buffer.appendSlice("Membank server starting...\n");
+        try self.stdout_buffer.appendSlice("KausalDB server starting...\n");
 
         // Simulate potential directory creation and validation
         // This would normally involve VFS operations
@@ -131,7 +131,7 @@ const CLITestHarness = struct {
             return 1;
         }
 
-        try self.stdout_buffer.appendSlice("=== Membank Storage and Query Demo ===\n\n");
+        try self.stdout_buffer.appendSlice("=== KausalDB Storage and Query Demo ===\n\n");
         return 0;
     }
 };
@@ -145,17 +145,17 @@ test "CLI command parsing - basic commands" {
 
     // Test version command
     {
-        const result = try harness.execute_command(&[_][]const u8{ "membank", "version" });
+        const result = try harness.execute_command(&[_][]const u8{ "kausaldb", "version" });
         defer result.deinit(allocator);
 
         try testing.expectEqual(@as(u8, 0), result.exit_code);
-        try testing.expect(std.mem.indexOf(u8, result.stdout_output, "Membank v0.1.0") != null);
+        try testing.expect(std.mem.indexOf(u8, result.stdout_output, "KausalDB v0.1.0") != null);
         try testing.expectEqual(@as(usize, 0), result.stderr_output.len);
     }
 
     // Test help command
     {
-        const result = try harness.execute_command(&[_][]const u8{ "membank", "help" });
+        const result = try harness.execute_command(&[_][]const u8{ "kausaldb", "help" });
         defer result.deinit(allocator);
 
         try testing.expectEqual(@as(u8, 0), result.exit_code);
@@ -166,7 +166,7 @@ test "CLI command parsing - basic commands" {
 
     // Test demo command
     {
-        const result = try harness.execute_command(&[_][]const u8{ "membank", "demo" });
+        const result = try harness.execute_command(&[_][]const u8{ "kausaldb", "demo" });
         defer result.deinit(allocator);
 
         try testing.expectEqual(@as(u8, 0), result.exit_code);
@@ -184,7 +184,7 @@ test "CLI error handling - invalid commands" {
 
     // Test unknown command
     {
-        const result = try harness.execute_command(&[_][]const u8{ "membank", "invalid_command" });
+        const result = try harness.execute_command(&[_][]const u8{ "kausaldb", "invalid_command" });
         defer result.deinit(allocator);
 
         try testing.expectEqual(@as(u8, 1), result.exit_code);
@@ -194,7 +194,7 @@ test "CLI error handling - invalid commands" {
 
     // Test no command provided
     {
-        const result = try harness.execute_command(&[_][]const u8{"membank"});
+        const result = try harness.execute_command(&[_][]const u8{"kausaldb"});
         defer result.deinit(allocator);
 
         try testing.expectEqual(@as(u8, 0), result.exit_code);
@@ -220,7 +220,7 @@ test "CLI command argument validation" {
 
     // Test demo with invalid arguments
     {
-        const result = try harness.execute_command(&[_][]const u8{ "membank", "demo", "extra_arg" });
+        const result = try harness.execute_command(&[_][]const u8{ "kausaldb", "demo", "extra_arg" });
         defer result.deinit(allocator);
 
         try testing.expectEqual(@as(u8, 1), result.exit_code);
@@ -229,7 +229,7 @@ test "CLI command argument validation" {
 
     // Test server command basic validation
     {
-        const result = try harness.execute_command(&[_][]const u8{ "membank", "server" });
+        const result = try harness.execute_command(&[_][]const u8{ "kausaldb", "server" });
         defer result.deinit(allocator);
 
         try testing.expectEqual(@as(u8, 0), result.exit_code);
@@ -247,17 +247,17 @@ test "CLI directory creation and path handling" {
 
     // Test directory creation scenarios that would occur in actual server startup
     const test_paths = [_][]const u8{
-        "/tmp/membank_test_data",
-        "/very/deep/nested/path/membank_data",
-        "relative/path/membank_data",
-        "/path/with spaces/membank_data",
-        "/path/with-special_chars.123/membank_data",
+        "/tmp/kausaldb_test_data",
+        "/very/deep/nested/path/kausaldb_data",
+        "relative/path/kausaldb_data",
+        "/path/with spaces/kausaldb_data",
+        "/path/with-special_chars.123/kausaldb_data",
     };
 
     for (test_paths) |path| {
         // Test directory creation
         sim_vfs.vfs().mkdir_all(path) catch |err| switch (err) {
-            membank.vfs.VFSError.FileExists => {}, // OK if exists
+            kausaldb.vfs.VFSError.FileExists => {}, // OK if exists
             else => return err,
         };
 
@@ -286,12 +286,12 @@ test "CLI path handling - edge cases" {
     while (i < 100) : (i += 1) {
         try long_path.append('a');
     }
-    try long_path.appendSlice("/membank_data");
+    try long_path.appendSlice("/kausaldb_data");
 
     // Test that we can handle long paths
     sim_vfs.vfs().mkdir_all(long_path.items) catch |err| switch (err) {
-        membank.vfs.VFSError.FileExists => {},
-        membank.vfs.VFSError.InvalidPath => {
+        kausaldb.vfs.VFSError.FileExists => {},
+        kausaldb.vfs.VFSError.InvalidPath => {
             // This is acceptable - the system correctly detected the limit
             return;
         },
@@ -311,7 +311,7 @@ test "CLI directory creation - concurrent access simulation" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    const test_dir = "/tmp/concurrent_test_membank_data";
+    const test_dir = "/tmp/concurrent_test_kausaldb_data";
 
     // Simulate multiple processes trying to create the same directory
     var creation_attempts: u32 = 0;
@@ -319,7 +319,7 @@ test "CLI directory creation - concurrent access simulation" {
 
     while (creation_attempts < 5) : (creation_attempts += 1) {
         sim_vfs.vfs().mkdir_all(test_dir) catch |err| switch (err) {
-            membank.vfs.VFSError.FileExists => {
+            kausaldb.vfs.VFSError.FileExists => {
                 // This is expected after the first creation
                 success_count += 1;
                 continue;
@@ -355,7 +355,7 @@ test "CLI directory creation - permission and error scenarios" {
     for (edge_case_paths) |test_path| {
         // These should either succeed (if path is valid) or fail gracefully
         sim_vfs.vfs().mkdir_all(test_path) catch |err| switch (err) {
-            membank.vfs.VFSError.InvalidPath, membank.vfs.VFSError.FileExists, membank.vfs.VFSError.AccessDenied => {
+            kausaldb.vfs.VFSError.InvalidPath, kausaldb.vfs.VFSError.FileExists, kausaldb.vfs.VFSError.AccessDenied => {
                 // These are acceptable error responses
                 continue;
             },
@@ -378,7 +378,7 @@ test "CLI argument parsing - edge cases" {
 
     // Test commands with different casing (should be case-sensitive)
     {
-        const result = try harness.execute_command(&[_][]const u8{ "membank", "VERSION" });
+        const result = try harness.execute_command(&[_][]const u8{ "kausaldb", "VERSION" });
         defer result.deinit(allocator);
 
         try testing.expectEqual(@as(u8, 1), result.exit_code);
@@ -387,7 +387,7 @@ test "CLI argument parsing - edge cases" {
 
     // Test command with leading/trailing whitespace (simulated)
     {
-        const result = try harness.execute_command(&[_][]const u8{ "membank", " version " });
+        const result = try harness.execute_command(&[_][]const u8{ "kausaldb", " version " });
         defer result.deinit(allocator);
 
         try testing.expectEqual(@as(u8, 1), result.exit_code);
@@ -397,7 +397,7 @@ test "CLI argument parsing - edge cases" {
     // Test very long command name
     {
         const long_command = "very_long_command_name_that_should_not_exist_in_the_system_and_should_be_handled_gracefully";
-        const result = try harness.execute_command(&[_][]const u8{ "membank", long_command });
+        const result = try harness.execute_command(&[_][]const u8{ "kausaldb", long_command });
         defer result.deinit(allocator);
 
         try testing.expectEqual(@as(u8, 1), result.exit_code);
@@ -413,7 +413,7 @@ test "CLI usage message validation" {
     var harness = CLITestHarness.init(allocator);
     defer harness.deinit();
 
-    const result = try harness.execute_command(&[_][]const u8{ "membank", "help" });
+    const result = try harness.execute_command(&[_][]const u8{ "kausaldb", "help" });
     defer result.deinit(allocator);
 
     // Verify all expected commands are documented
@@ -445,7 +445,7 @@ test "CLI performance - argument parsing overhead" {
 
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
-        const result = try harness.execute_command(&[_][]const u8{ "membank", "version" });
+        const result = try harness.execute_command(&[_][]const u8{ "kausaldb", "version" });
         defer result.deinit(allocator);
 
         try testing.expectEqual(@as(u8, 0), result.exit_code);

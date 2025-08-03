@@ -6,11 +6,11 @@
 
 const std = @import("std");
 const testing = std.testing;
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const builtin = @import("builtin");
 
-const concurrency = membank.concurrency;
-const assert = membank.assert.assert;
+const concurrency = kausaldb.concurrency;
+const assert = kausaldb.assert.assert;
 
 // Import MemoryProfiler functionality (it's embedded in the benchmark module)
 const MemoryProfiler = struct {

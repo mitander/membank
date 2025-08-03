@@ -1,8 +1,8 @@
-//! Membank TCP Server Implementation
+//! KausalDB TCP Server Implementation
 //!
 //! Provides a simple, high-performance TCP server for client-server communication.
 //! Orchestrates the async I/O event loop and manages multiple client connections.
-//! Follows Membank architectural principles:
+//! Follows KausalDB architectural principles:
 //! - Single-threaded with async I/O event loop
 //! - Connection state machines for non-blocking I/O
 //! - Arena-per-connection memory management
@@ -79,7 +79,7 @@ pub const ServerError = error{
 } || std.mem.Allocator.Error || std.net.Stream.ReadError || std.net.Stream.WriteError;
 
 /// Main TCP server
-pub const MembankServer = struct {
+pub const KausalDBServer = struct {
     /// Base allocator for server infrastructure
     allocator: std.mem.Allocator,
     /// Server configuration
@@ -120,8 +120,8 @@ pub const MembankServer = struct {
         config: ServerConfig,
         storage_engine: *StorageEngine,
         query_eng: *QueryEngine,
-    ) MembankServer {
-        return MembankServer{
+    ) KausalDBServer {
+        return KausalDBServer{
             .allocator = allocator,
             .config = config,
             .storage_engine = storage_engine,
@@ -133,7 +133,7 @@ pub const MembankServer = struct {
     }
 
     /// Clean up server resources
-    pub fn deinit(self: *MembankServer) void {
+    pub fn deinit(self: *KausalDBServer) void {
         self.stop();
 
         for (self.connections.items) |connection| {
@@ -145,7 +145,7 @@ pub const MembankServer = struct {
 
     /// Phase 2 initialization: Start the server and listen for connections.
     /// Performs I/O operations including socket binding and network setup.
-    pub fn startup(self: *MembankServer) !void {
+    pub fn startup(self: *KausalDBServer) !void {
         concurrency.assert_main_thread();
 
         const address = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, self.config.port);
@@ -155,14 +155,14 @@ pub const MembankServer = struct {
         const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
         _ = try std.posix.fcntl(self.listener.?.stream.handle, std.posix.F.SETFL, flags | nonblock_flag);
 
-        log.info("Membank server started on port {d}", .{self.config.port});
+        log.info("KausalDB server started on port {d}", .{self.config.port});
         log.info("Server config: max_connections={d}, timeout={d}s", .{ self.config.max_connections, self.config.connection_timeout_sec });
 
         try self.run_event_loop();
     }
 
     /// Main async event loop - polls all sockets and processes I/O events
-    fn run_event_loop(self: *MembankServer) !void {
+    fn run_event_loop(self: *KausalDBServer) !void {
         var poll_fds = try self.allocator.alloc(std.posix.pollfd, self.config.max_connections + 1);
         defer self.allocator.free(poll_fds);
 
@@ -212,7 +212,7 @@ pub const MembankServer = struct {
     }
 
     /// Process events from poll() results
-    fn process_poll_events(self: *MembankServer, poll_fds: []std.posix.pollfd) !void {
+    fn process_poll_events(self: *KausalDBServer, poll_fds: []std.posix.pollfd) !void {
         if (poll_fds[0].revents & std.posix.POLL.IN != 0) {
             try self.accept_new_connections();
         }
@@ -257,7 +257,7 @@ pub const MembankServer = struct {
     }
 
     /// Accept new connections non-blockingly
-    fn accept_new_connections(self: *MembankServer) !void {
+    fn accept_new_connections(self: *KausalDBServer) !void {
         while (true) {
             const tcp_connection = self.listener.?.accept() catch |err| switch (err) {
                 error.WouldBlock => break, // No more connections to accept
@@ -292,13 +292,13 @@ pub const MembankServer = struct {
     }
 
     /// Process a complete request from a connection
-    fn process_connection_request(self: *MembankServer, connection: *ClientConnection) !void {
+    fn process_connection_request(self: *KausalDBServer, connection: *ClientConnection) !void {
         const payload = connection.request_payload() orelse return;
         const header = connection.current_header orelse return;
 
         switch (header.msg_type) {
             .ping => {
-                const response = "Membank server v0.1.0";
+                const response = "KausalDB server v0.1.0";
                 connection.send_response(response);
                 self.stats.bytes_sent += response.len + MessageHeader.HEADER_SIZE;
 
@@ -331,7 +331,7 @@ pub const MembankServer = struct {
     }
 
     /// Close a connection and remove it from the connections list
-    fn close_connection(self: *MembankServer, index: usize) void {
+    fn close_connection(self: *KausalDBServer, index: usize) void {
         assert(index < self.connections.items.len);
 
         const connection = self.connections.items[index];
@@ -344,7 +344,7 @@ pub const MembankServer = struct {
     }
 
     /// Clean up connections that have timed out
-    fn cleanup_timed_out_connections(self: *MembankServer) !void {
+    fn cleanup_timed_out_connections(self: *KausalDBServer) !void {
         const current_time = std.time.timestamp();
         const timeout_seconds: i64 = @intCast(self.config.connection_timeout_sec);
 
@@ -363,17 +363,17 @@ pub const MembankServer = struct {
     }
 
     /// Stop the server
-    pub fn stop(self: *MembankServer) void {
+    pub fn stop(self: *KausalDBServer) void {
         if (self.listener) |*listener| {
             listener.deinit();
             self.listener = null;
         }
-        log.info("Membank server stopped", .{});
+        log.info("KausalDB server stopped", .{});
     }
 
     /// Handle find_blocks request asynchronously
     fn handle_find_blocks_request_async(
-        self: *MembankServer,
+        self: *KausalDBServer,
         connection: *ClientConnection,
         payload: []const u8,
     ) !void {
@@ -435,7 +435,7 @@ pub const MembankServer = struct {
 
     /// Handle filtered query request asynchronously
     fn handle_filtered_query_request_async(
-        self: *MembankServer,
+        self: *KausalDBServer,
         connection: *ClientConnection,
         payload: []const u8,
     ) !void {
@@ -456,7 +456,7 @@ pub const MembankServer = struct {
 
     /// Handle traversal query request asynchronously
     fn handle_traversal_query_request_async(
-        self: *MembankServer,
+        self: *KausalDBServer,
         connection: *ClientConnection,
         payload: []const u8,
     ) !void {
@@ -508,7 +508,7 @@ pub const MembankServer = struct {
     }
 
     /// Serialize query results into binary format for network transmission using streaming
-    fn serialize_blocks_response(self: *MembankServer, allocator: std.mem.Allocator, result_ptr: *QueryResult) ![]u8 {
+    fn serialize_blocks_response(self: *KausalDBServer, allocator: std.mem.Allocator, result_ptr: *QueryResult) ![]u8 {
         _ = self; // Suppress unused parameter warning
 
         // First pass: calculate total size by streaming through blocks
@@ -560,7 +560,7 @@ pub const MembankServer = struct {
     }
 
     /// Get current server statistics
-    pub fn statistics(self: *const MembankServer) ServerStats {
+    pub fn statistics(self: *const KausalDBServer) ServerStats {
         return self.stats;
     }
 };
@@ -592,7 +592,7 @@ test "server initialization" {
     var mock_query: QueryEngine = undefined;
 
     const config = ServerConfig{ .port = 0 }; // Use ephemeral port for testing
-    var server = MembankServer.init(allocator, config, &mock_storage, &mock_query);
+    var server = KausalDBServer.init(allocator, config, &mock_storage, &mock_query);
     defer server.deinit();
 
     try testing.expectEqual(@as(u32, 0), server.statistics().connections_active);

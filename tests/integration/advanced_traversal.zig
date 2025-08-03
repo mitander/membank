@@ -1,18 +1,18 @@
 //! Integration tests for advanced graph traversal algorithms.
 //!
 //! Tests A* search, bidirectional search, and other advanced algorithms
-//! through the complete Membank stack including storage engine, query engine,
+//! through the complete KausalDB stack including storage engine, query engine,
 //! and VFS integration. Validates performance, correctness, and memory safety.
 
 const std = @import("std");
 const testing = std.testing;
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 
-const storage = membank.storage;
-const query = membank.query;
-const simulation_vfs = membank.simulation_vfs;
-const context_block = membank.types;
-const concurrency = membank.concurrency;
+const storage = kausaldb.storage;
+const query = kausaldb.query;
+const simulation_vfs = kausaldb.simulation_vfs;
+const context_block = kausaldb.types;
+const concurrency = kausaldb.concurrency;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query.QueryEngine;

@@ -1,7 +1,7 @@
-//! Membank Public API
+//! Public API
 //!
 //! Clean, minimal interface for the knowledge graph database.
-//! For testing and internal APIs, use @import("membank_test.zig").
+//! For testing and internal APIs, use @import("kausaldb_test.zig").
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -77,7 +77,7 @@ pub const version = .{
     .patch = 0,
 };
 
-/// Initialize a new Membank database instance
+/// Initialize a new database instance
 ///
 /// Creates the storage engine with the provided configuration.
 /// The database handles knowledge graph storage and querying.
@@ -87,7 +87,7 @@ pub fn init(allocator: Allocator, config: Config) !Database {
 
 comptime {
     if (builtin.zig_version.major != 0 or builtin.zig_version.minor < 13) {
-        @compileError("Membank requires Zig 0.13.0 or later");
+        @compileError("Requires Zig 0.13.0 or later");
     }
 }
 

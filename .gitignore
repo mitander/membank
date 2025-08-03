@@ -6,11 +6,11 @@ zig/
 
 # Development artifacts
 CLAUDE.md
-MEMBANK_TODO.md
+TODO.md
 performance-baseline.json
 fuzz_reports/
 
 # Data directories (runtime generated)
-membank_data/
+kausaldb_data/
 demo_data/
 test_data/

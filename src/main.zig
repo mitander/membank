@@ -1,4 +1,4 @@
-//! Membank main entry point and CLI interface.
+//! Main entry point and CLI interface.
 
 const std = @import("std");
 const custom_assert = @import("core/assert.zig");
@@ -51,15 +51,15 @@ pub fn main() !void {
 }
 
 fn print_version() !void {
-    std.debug.print("Membank v0.1.0\n", .{});
+    std.debug.print("KausalDB v0.1.0\n", .{});
 }
 
 fn print_usage() !void {
     std.debug.print(
-        \\Membank - High-performance context database
+        \\KausalDB - High-performance context database
         \\
         \\Usage:
-        \\  membank <command> [options]
+        \\  kausaldb <command> [options]
         \\
         \\Commands:
         \\  version    Show version information
@@ -68,9 +68,9 @@ fn print_usage() !void {
         \\  demo       Run a storage and query demonstration
         \\
         \\Examples:
-        \\  membank server --port 8080
-        \\  membank demo
-        \\  membank version
+        \\  kausaldb server --port 8080
+        \\  kausaldb demo
+        \\  kausaldb version
         \\
     , .{});
 }
@@ -78,13 +78,13 @@ fn print_usage() !void {
 fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     _ = args;
 
-    std.debug.print("Membank server starting...\n", .{});
+    std.debug.print("KausalDB server starting...\n", .{});
 
     var prod_vfs = production_vfs.ProductionVFS.init(allocator);
     const vfs_interface = prod_vfs.vfs();
     const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(cwd);
-    const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, "membank_data" });
+    const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, "kausaldb_data" });
     defer allocator.free(data_dir);
 
     // Ensure data directory exists before initializing storage engine
@@ -109,17 +109,17 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
         .enable_logging = true,
     };
 
-    var membank_server = server.MembankServer.init(allocator, server_config, &storage_engine, &query_eng);
-    defer membank_server.deinit();
+    var kausaldb_server = server.KausalDBServer.init(allocator, server_config, &storage_engine, &query_eng);
+    defer kausaldb_server.deinit();
 
-    std.debug.print("Starting Membank TCP server on port {d}...\n", .{server_config.port});
+    std.debug.print("Starting KausalDB TCP server on port {d}...\n", .{server_config.port});
 
-    try membank_server.startup();
+    try kausaldb_server.startup();
 }
 
 fn run_demo(allocator: std.mem.Allocator) !void {
-    std.debug.print("=== Membank Storage and Query Demo ===\n\n", .{});
-    log.info("Starting Membank demo with scoped logging", .{});
+    std.debug.print("=== KausalDB Storage and Query Demo ===\n\n", .{});
+    log.info("Starting KausalDB demo with scoped logging", .{});
 
     var prod_vfs = production_vfs.ProductionVFS.init(allocator);
     const vfs_interface = prod_vfs.vfs();
@@ -155,7 +155,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
         .content =
         \\pub fn main() !void {
         \\    const allocator = std.heap.page_allocator;
-        \\    std.debug.print("Hello, Membank!\\n", .{});
+        \\    std.debug.print("Hello, KausalDB!\\n", .{});
         \\}
         ,
     };
@@ -240,7 +240,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     });
 
     std.debug.print("\nDemo completed successfully!\n", .{});
-    log.info("Membank demo completed successfully with scoped logging", .{});
+    log.info("KausalDB demo completed successfully with scoped logging", .{});
 }
 
 test "main module tests" {

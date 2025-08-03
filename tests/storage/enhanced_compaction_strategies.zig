@@ -6,12 +6,12 @@
 
 const std = @import("std");
 const testing = std.testing;
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 
-const storage = membank.storage;
-const simulation_vfs = membank.simulation_vfs;
-const context_block = membank.types;
-const concurrency = membank.concurrency;
+const storage = kausaldb.storage;
+const simulation_vfs = kausaldb.simulation_vfs;
+const context_block = kausaldb.types;
+const concurrency = kausaldb.concurrency;
 
 const TieredCompactionManager = storage.TieredCompactionManager;
 const StorageEngine = storage.StorageEngine;

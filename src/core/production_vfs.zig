@@ -354,8 +354,8 @@ test "ProductionVFS basic file operations" {
     defer prod_vfs.deinit();
     const vfs_interface = prod_vfs.vfs();
 
-    const test_path = "/tmp/membank_test_file";
-    const test_data = "Hello, Membank!";
+    const test_path = "/tmp/kausaldb_test_file";
+    const test_data = "Hello, KausalDB!";
 
     // Test file creation and writing
     {
@@ -393,7 +393,7 @@ test "ProductionVFS directory operations" {
     defer prod_vfs.deinit();
     const vfs_interface = prod_vfs.vfs();
 
-    const test_dir = "/tmp/membank_test_dir";
+    const test_dir = "/tmp/kausaldb_test_dir";
     try vfs_interface.mkdir(test_dir);
     defer vfs_interface.rmdir(test_dir) catch {};
 
@@ -419,7 +419,7 @@ test "ProductionVFS global filesystem sync" {
     defer prod_vfs.deinit();
     const vfs_interface = prod_vfs.vfs();
 
-    const test_path = "/tmp/membank_sync_test_file";
+    const test_path = "/tmp/kausaldb_sync_test_file";
     const test_data = "Sync test data";
 
     // Create and write test file

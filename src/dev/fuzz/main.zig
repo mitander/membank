@@ -1,13 +1,13 @@
-//! Membank fuzzing coordination and entry point.
+//! KausalDB fuzzing coordination and entry point.
 //!
 //! Orchestrates different fuzzing modules and provides unified command-line interface.
 //! This module handles argument parsing, target selection, and crash reporting coordination.
 
 const std = @import("std");
 const builtin = @import("builtin");
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 
-const stdx = membank.stdx;
+const stdx = kausaldb.stdx;
 
 // Import specialized fuzzing modules
 const storage_fuzz = @import("storage.zig");
@@ -31,7 +31,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     // Initialize concurrency model
-    membank.concurrency.init();
+    kausaldb.concurrency.init();
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -108,7 +108,7 @@ pub fn main() !void {
 
 fn print_usage() !void {
     std.debug.print(
-        \\Membank Production Fuzzer
+        \\KausalDB Production Fuzzer
         \\
         \\Usage:
         \\  fuzz [--verbose|-v] <target> [iterations|continuous] [seed]
@@ -186,7 +186,7 @@ pub fn check_shutdown_request() bool {
     }
 
     // Check for shutdown file (lightweight alternative to complex signal handling)
-    std.fs.cwd().access(".membank_stop", .{}) catch {
+    std.fs.cwd().access(".kausaldb_stop", .{}) catch {
         return false; // File doesn't exist, continue
     };
 
@@ -200,9 +200,9 @@ pub fn check_shutdown_request() bool {
             }
         }.f,
     );
-    std.debug.print("Shutdown requested via .membank_stop file\n", .{});
+    std.debug.print("Shutdown requested via .kausaldb_stop file\n", .{});
 
     // Clean up the file
-    std.fs.cwd().deleteFile(".membank_stop") catch {};
+    std.fs.cwd().deleteFile(".kausaldb_stop") catch {};
     return true;
 }

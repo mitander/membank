@@ -4,16 +4,16 @@
 //! Tests cover successful recovery, corruption handling, and edge cases
 //! using the deterministic simulation framework.
 
-const membank = @import("membank");
+const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
-const assert = membank.assert.assert;
+const assert = kausaldb.assert.assert;
 
-const context_block = membank.types;
-const storage = membank.storage;
-const simulation = membank.simulation;
-const vfs = membank.vfs;
-const simulation_vfs = membank.simulation_vfs;
+const context_block = kausaldb.types;
+const storage = kausaldb.storage;
+const simulation = kausaldb.simulation;
+const vfs = kausaldb.vfs;
+const simulation_vfs = kausaldb.simulation_vfs;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;

@@ -1,4 +1,4 @@
-//! SSTable (Sorted String Table) implementation for Membank LSM-Tree.
+//! SSTable (Sorted String Table) implementation for KausalDB LSM-Tree.
 //!
 //! ## On-Disk Format Philosophy
 //!
@@ -12,7 +12,7 @@
 //!     than propagating corrupted data.
 //!
 //! 3.  **Forward/Backward Compatibility:** The header includes a `format_version`. This
-//!     allows future versions of Membank to read older SSTables and perform safe
+//!     allows future versions of KausalDB to read older SSTables and perform safe
 //!     upgrades. The `reserved` fields provide space for new features without
 //!     breaking the format for older clients.
 

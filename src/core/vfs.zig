@@ -1,4 +1,4 @@
-//! Virtual File System (VFS) abstraction for Membank storage operations.
+//! Virtual File System (VFS) abstraction for KausalDB storage operations.
 //!
 //! Design rationale: The VFS abstraction enables deterministic testing by allowing
 //! identical production code to run against both real filesystems and simulated
@@ -811,7 +811,7 @@ test "vfs data integrity with checksums" {
     var file = try test_vfs.create("checksum_test.log");
     defer file.close();
 
-    const test_data = "Membank deterministic checksum validation pattern";
+    const test_data = "KausalDB deterministic checksum validation pattern";
     const expected_checksum = blk: {
         var hasher = std.hash.Crc32.init();
         hasher.update(test_data);
