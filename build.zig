@@ -228,6 +228,11 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/query/advanced_algorithms_edge_cases.zig",
             .description = "advanced graph traversal algorithm edge case and robustness tests",
         },
+        .{
+            .name = "query_cache_test",
+            .source_file = "tests/query/cache_test.zig",
+            .description = "query result caching system LRU eviction, TTL expiration, and invalidation tests",
+        },
 
         // Compaction strategies
         .{

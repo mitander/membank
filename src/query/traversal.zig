@@ -195,6 +195,39 @@ pub const TraversalResult = struct {
     pub fn is_empty(self: TraversalResult) bool {
         return self.blocks.len == 0;
     }
+
+    /// Clone traversal result for caching
+    pub fn clone(self: TraversalResult, allocator: std.mem.Allocator) !TraversalResult {
+        // Clone blocks array
+        const cloned_blocks = try allocator.alloc(ContextBlock, self.blocks.len);
+        for (self.blocks, 0..) |block, i| {
+            cloned_blocks[i] = ContextBlock{
+                .id = block.id,
+                .version = block.version,
+                .source_uri = try allocator.dupe(u8, block.source_uri),
+                .metadata_json = try allocator.dupe(u8, block.metadata_json),
+                .content = try allocator.dupe(u8, block.content),
+            };
+        }
+
+        // Clone paths array
+        const cloned_paths = try allocator.alloc([]const BlockId, self.paths.len);
+        for (self.paths, 0..) |path, i| {
+            cloned_paths[i] = try allocator.dupe(BlockId, path);
+        }
+
+        // Clone depths array
+        const cloned_depths = try allocator.dupe(u32, self.depths);
+
+        return TraversalResult{
+            .blocks = cloned_blocks,
+            .paths = cloned_paths,
+            .depths = cloned_depths,
+            .blocks_traversed = self.blocks_traversed,
+            .max_depth_reached = self.max_depth_reached,
+            .allocator = allocator,
+        };
+    }
 };
 
 /// Execute a graph traversal query

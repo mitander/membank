@@ -122,6 +122,7 @@ pub const query = struct {
     pub const operations = @import("query/operations.zig");
     pub const traversal = @import("query/traversal.zig");
     pub const filtering = @import("query/filtering.zig");
+    pub const cache = @import("query/cache.zig");
 };
 
 // Development and debugging tools
