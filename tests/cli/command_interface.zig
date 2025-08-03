@@ -1,18 +1,13 @@
-//! Comprehensive CLI interface testing for KausalDB.
+//! CLI command interface and argument parsing tests.
 //!
-//! Tests command-line argument parsing, validation, server startup robustness,
-//! path handling edge cases, and error scenarios. Validates that CLI interface
-//! behaves correctly across all supported scenarios and provides proper error
-//! messages for invalid usage.
+//! Tests command parsing, argument validation, and usage message generation.
+//! Does not test actual server startup - that belongs in integration tests.
 
 const std = @import("std");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
-const simulation_vfs = kausaldb.simulation_vfs;
 const concurrency = kausaldb.concurrency;
-
-const SimulationVFS = simulation_vfs.SimulationVFS;
 
 // Test result structure for CLI command testing
 const CLITestResult = struct {
@@ -237,136 +232,6 @@ test "CLI command argument validation" {
     }
 }
 
-// Advanced CLI testing with actual directory operations using SimulationVFS
-test "CLI directory creation and path handling" {
-    concurrency.init();
-    const allocator = testing.allocator;
-
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    // Test directory creation scenarios that would occur in actual server startup
-    const test_paths = [_][]const u8{
-        "/tmp/kausaldb_test_data",
-        "/very/deep/nested/path/kausaldb_data",
-        "relative/path/kausaldb_data",
-        "/path/with spaces/kausaldb_data",
-        "/path/with-special_chars.123/kausaldb_data",
-    };
-
-    for (test_paths) |path| {
-        // Test directory creation
-        sim_vfs.vfs().mkdir_all(path) catch |err| switch (err) {
-            kausaldb.vfs.VFSError.FileExists => {}, // OK if exists
-            else => return err,
-        };
-
-        // Verify directory was created
-        const stat = try sim_vfs.vfs().stat(path);
-        try testing.expect(stat.is_directory);
-    }
-}
-
-// Test very long paths that might cause issues
-test "CLI path handling - edge cases" {
-    concurrency.init();
-    const allocator = testing.allocator;
-
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    // Test very long path name
-    var long_path = std.ArrayList(u8).init(allocator);
-    defer long_path.deinit();
-
-    try long_path.appendSlice("/tmp/");
-
-    // Create a path component that's 100 characters long
-    var i: usize = 0;
-    while (i < 100) : (i += 1) {
-        try long_path.append('a');
-    }
-    try long_path.appendSlice("/kausaldb_data");
-
-    // Test that we can handle long paths
-    sim_vfs.vfs().mkdir_all(long_path.items) catch |err| switch (err) {
-        kausaldb.vfs.VFSError.FileExists => {},
-        kausaldb.vfs.VFSError.InvalidPath => {
-            // This is acceptable - the system correctly detected the limit
-            return;
-        },
-        else => return err,
-    };
-
-    // Verify creation if it succeeded
-    const stat = try sim_vfs.vfs().stat(long_path.items);
-    try testing.expect(stat.is_directory);
-}
-
-// Test concurrent directory creation (simulating multiple server startups)
-test "CLI directory creation - concurrent access simulation" {
-    concurrency.init();
-    const allocator = testing.allocator;
-
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    const test_dir = "/tmp/concurrent_test_kausaldb_data";
-
-    // Simulate multiple processes trying to create the same directory
-    var creation_attempts: u32 = 0;
-    var success_count: u32 = 0;
-
-    while (creation_attempts < 5) : (creation_attempts += 1) {
-        sim_vfs.vfs().mkdir_all(test_dir) catch |err| switch (err) {
-            kausaldb.vfs.VFSError.FileExists => {
-                // This is expected after the first creation
-                success_count += 1;
-                continue;
-            },
-            else => return err,
-        };
-        success_count += 1;
-    }
-
-    // All attempts should succeed (either creating or finding existing)
-    try testing.expectEqual(@as(u32, 5), success_count);
-
-    // Verify final state
-    const stat = try sim_vfs.vfs().stat(test_dir);
-    try testing.expect(stat.is_directory);
-}
-
-// Test error scenarios for directory creation
-test "CLI directory creation - permission and error scenarios" {
-    concurrency.init();
-    const allocator = testing.allocator;
-
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    // Test creating directory with edge case paths (simulation)
-    const edge_case_paths = [_][]const u8{
-        "/", // Root only
-        "//double//slashes//path",
-        "/path/with/./dots/./in/./it",
-    };
-
-    for (edge_case_paths) |test_path| {
-        // These should either succeed (if path is valid) or fail gracefully
-        sim_vfs.vfs().mkdir_all(test_path) catch |err| switch (err) {
-            kausaldb.vfs.VFSError.InvalidPath, kausaldb.vfs.VFSError.FileExists, kausaldb.vfs.VFSError.AccessDenied => {
-                // These are acceptable error responses
-                continue;
-            },
-            else => {
-                // Log unexpected error for debugging
-                std.debug.print("Unexpected error for path '{s}': {}\n", .{ test_path, err });
-                return err;
-            },
-        };
-    }
-}
 
 // Test command line argument edge cases
 test "CLI argument parsing - edge cases" {

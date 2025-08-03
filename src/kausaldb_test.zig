@@ -127,3 +127,6 @@ pub const query = struct {
 
 // Development and debugging tools
 pub const debug_allocator = @import("dev/debug_allocator.zig");
+
+// Main CLI module for testing CLI interface
+pub const main = @import("main.zig");

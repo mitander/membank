@@ -78,10 +78,11 @@ fn print_usage() !void {
 fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     _ = args;
 
-    std.debug.print("KausalDB server starting...\n", .{});
-
     var prod_vfs = production_vfs.ProductionVFS.init(allocator);
     const vfs_interface = prod_vfs.vfs();
+
+    std.debug.print("KausalDB server starting...\n", .{});
+
     const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(cwd);
     const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, "kausaldb_data" });
@@ -90,7 +91,10 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     // Ensure data directory exists before initializing storage engine
     vfs_interface.mkdir_all(data_dir) catch |err| switch (err) {
         vfs.VFSError.FileExists => {}, // Directory already exists, continue
-        else => return err,
+        else => {
+            std.debug.print("Failed to create data directory '{s}': {}\n", .{ data_dir, err });
+            return err;
+        },
     };
 
     var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, data_dir);
@@ -109,20 +113,21 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
         .enable_logging = true,
     };
 
-    var kausaldb_server = server.KausalDBServer.init(allocator, server_config, &storage_engine, &query_eng);
-    defer kausaldb_server.deinit();
+    var kausal_server = server.Server.init(allocator, server_config, &storage_engine, &query_eng);
+    defer kausal_server.deinit();
 
     std.debug.print("Starting KausalDB TCP server on port {d}...\n", .{server_config.port});
 
-    try kausaldb_server.startup();
+    try kausal_server.startup();
 }
 
 fn run_demo(allocator: std.mem.Allocator) !void {
+    var prod_vfs = production_vfs.ProductionVFS.init(allocator);
+    const vfs_interface = prod_vfs.vfs();
+
     std.debug.print("=== KausalDB Storage and Query Demo ===\n\n", .{});
     log.info("Starting KausalDB demo with scoped logging", .{});
 
-    var prod_vfs = production_vfs.ProductionVFS.init(allocator);
-    const vfs_interface = prod_vfs.vfs();
     const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(cwd);
     const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, "demo_data" });

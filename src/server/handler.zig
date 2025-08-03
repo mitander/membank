@@ -79,7 +79,7 @@ pub const ServerError = error{
 } || std.mem.Allocator.Error || std.net.Stream.ReadError || std.net.Stream.WriteError;
 
 /// Main TCP server
-pub const KausalDBServer = struct {
+pub const Server = struct {
     /// Base allocator for server infrastructure
     allocator: std.mem.Allocator,
     /// Server configuration
@@ -120,8 +120,8 @@ pub const KausalDBServer = struct {
         config: ServerConfig,
         storage_engine: *StorageEngine,
         query_eng: *QueryEngine,
-    ) KausalDBServer {
-        return KausalDBServer{
+    ) Server {
+        return Server{
             .allocator = allocator,
             .config = config,
             .storage_engine = storage_engine,
@@ -133,7 +133,7 @@ pub const KausalDBServer = struct {
     }
 
     /// Clean up server resources
-    pub fn deinit(self: *KausalDBServer) void {
+    pub fn deinit(self: *Server) void {
         self.stop();
 
         for (self.connections.items) |connection| {
@@ -145,7 +145,13 @@ pub const KausalDBServer = struct {
 
     /// Phase 2 initialization: Start the server and listen for connections.
     /// Performs I/O operations including socket binding and network setup.
-    pub fn startup(self: *KausalDBServer) !void {
+    pub fn startup(self: *Server) !void {
+        try self.bind();
+        try self.run();
+    }
+
+    /// Bind to socket and prepare for connections (non-blocking)
+    pub fn bind(self: *Server) !void {
         concurrency.assert_main_thread();
 
         const address = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, self.config.port);
@@ -155,14 +161,18 @@ pub const KausalDBServer = struct {
         const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
         _ = try std.posix.fcntl(self.listener.?.stream.handle, std.posix.F.SETFL, flags | nonblock_flag);
 
-        log.info("KausalDB server started on port {d}", .{self.config.port});
+        log.info("KausalDB server bound to port {d}", .{self.config.port});
         log.info("Server config: max_connections={d}, timeout={d}s", .{ self.config.max_connections, self.config.connection_timeout_sec });
+    }
 
+    /// Run the blocking event loop
+    pub fn run(self: *Server) !void {
+        concurrency.assert_main_thread();
         try self.run_event_loop();
     }
 
     /// Main async event loop - polls all sockets and processes I/O events
-    fn run_event_loop(self: *KausalDBServer) !void {
+    fn run_event_loop(self: *Server) !void {
         var poll_fds = try self.allocator.alloc(std.posix.pollfd, self.config.max_connections + 1);
         defer self.allocator.free(poll_fds);
 
@@ -212,7 +222,7 @@ pub const KausalDBServer = struct {
     }
 
     /// Process events from poll() results
-    fn process_poll_events(self: *KausalDBServer, poll_fds: []std.posix.pollfd) !void {
+    fn process_poll_events(self: *Server, poll_fds: []std.posix.pollfd) !void {
         if (poll_fds[0].revents & std.posix.POLL.IN != 0) {
             try self.accept_new_connections();
         }
@@ -257,7 +267,7 @@ pub const KausalDBServer = struct {
     }
 
     /// Accept new connections non-blockingly
-    fn accept_new_connections(self: *KausalDBServer) !void {
+    fn accept_new_connections(self: *Server) !void {
         while (true) {
             const tcp_connection = self.listener.?.accept() catch |err| switch (err) {
                 error.WouldBlock => break, // No more connections to accept
@@ -292,7 +302,7 @@ pub const KausalDBServer = struct {
     }
 
     /// Process a complete request from a connection
-    fn process_connection_request(self: *KausalDBServer, connection: *ClientConnection) !void {
+    fn process_connection_request(self: *Server, connection: *ClientConnection) !void {
         const payload = connection.request_payload() orelse return;
         const header = connection.current_header orelse return;
 
@@ -331,7 +341,7 @@ pub const KausalDBServer = struct {
     }
 
     /// Close a connection and remove it from the connections list
-    fn close_connection(self: *KausalDBServer, index: usize) void {
+    fn close_connection(self: *Server, index: usize) void {
         assert(index < self.connections.items.len);
 
         const connection = self.connections.items[index];
@@ -344,7 +354,7 @@ pub const KausalDBServer = struct {
     }
 
     /// Clean up connections that have timed out
-    fn cleanup_timed_out_connections(self: *KausalDBServer) !void {
+    fn cleanup_timed_out_connections(self: *Server) !void {
         const current_time = std.time.timestamp();
         const timeout_seconds: i64 = @intCast(self.config.connection_timeout_sec);
 
@@ -363,7 +373,7 @@ pub const KausalDBServer = struct {
     }
 
     /// Stop the server
-    pub fn stop(self: *KausalDBServer) void {
+    pub fn stop(self: *Server) void {
         if (self.listener) |*listener| {
             listener.deinit();
             self.listener = null;
@@ -373,7 +383,7 @@ pub const KausalDBServer = struct {
 
     /// Handle find_blocks request asynchronously
     fn handle_find_blocks_request_async(
-        self: *KausalDBServer,
+        self: *Server,
         connection: *ClientConnection,
         payload: []const u8,
     ) !void {
@@ -435,7 +445,7 @@ pub const KausalDBServer = struct {
 
     /// Handle filtered query request asynchronously
     fn handle_filtered_query_request_async(
-        self: *KausalDBServer,
+        self: *Server,
         connection: *ClientConnection,
         payload: []const u8,
     ) !void {
@@ -456,7 +466,7 @@ pub const KausalDBServer = struct {
 
     /// Handle traversal query request asynchronously
     fn handle_traversal_query_request_async(
-        self: *KausalDBServer,
+        self: *Server,
         connection: *ClientConnection,
         payload: []const u8,
     ) !void {
@@ -508,7 +518,7 @@ pub const KausalDBServer = struct {
     }
 
     /// Serialize query results into binary format for network transmission using streaming
-    fn serialize_blocks_response(self: *KausalDBServer, allocator: std.mem.Allocator, result_ptr: *QueryResult) ![]u8 {
+    fn serialize_blocks_response(self: *Server, allocator: std.mem.Allocator, result_ptr: *QueryResult) ![]u8 {
         _ = self; // Suppress unused parameter warning
 
         // First pass: calculate total size by streaming through blocks
@@ -560,7 +570,7 @@ pub const KausalDBServer = struct {
     }
 
     /// Get current server statistics
-    pub fn statistics(self: *const KausalDBServer) ServerStats {
+    pub fn statistics(self: *const Server) ServerStats {
         return self.stats;
     }
 };
@@ -592,7 +602,7 @@ test "server initialization" {
     var mock_query: QueryEngine = undefined;
 
     const config = ServerConfig{ .port = 0 }; // Use ephemeral port for testing
-    var server = KausalDBServer.init(allocator, config, &mock_storage, &mock_query);
+    var server = Server.init(allocator, config, &mock_storage, &mock_query);
     defer server.deinit();
 
     try testing.expectEqual(@as(u32, 0), server.statistics().connections_active);

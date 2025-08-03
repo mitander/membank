@@ -21,7 +21,7 @@ const QueryEngine = query_engine.QueryEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const KausalDBServer = server_handler.KausalDBServer;
+const Server = server_handler.Server;
 const ServerConfig = server_handler.ServerConfig;
 const MessageHeader = server_handler.MessageHeader;
 const MessageType = server_handler.MessageType;
@@ -127,7 +127,7 @@ test "server initialization" {
         .max_connections = 10,
     };
 
-    var server = KausalDBServer.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = Server.init(allocator, config, &storage_engine, &test_query_engine);
     defer server.deinit();
 
     // Verify initial state
@@ -211,7 +211,7 @@ test "server - connection limit configuration" {
         .max_connections = 2, // Very low limit for testing
     };
 
-    var server = KausalDBServer.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = Server.init(allocator, config, &storage_engine, &test_query_engine);
     defer server.deinit();
 
     // Verify configuration
@@ -235,7 +235,7 @@ test "server stats - initial values" {
 
     const config = ServerConfig{};
 
-    var server = KausalDBServer.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = Server.init(allocator, config, &storage_engine, &test_query_engine);
     defer server.deinit();
 
     // Verify initial stats
@@ -308,7 +308,7 @@ test "server - engine references" {
 
     const config = ServerConfig{};
 
-    var server = KausalDBServer.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = Server.init(allocator, config, &storage_engine, &test_query_engine);
     defer server.deinit();
 
     // Test that server maintains valid references

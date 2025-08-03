@@ -28,7 +28,7 @@ const QueryEngine = kausaldb.QueryEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
-const KausalDBServer = server_handler.KausalDBServer;
+const Server = server_handler.Server;
 const ServerConfig = server_handler.ServerConfig;
 const ClientConnection = server_handler.ClientConnection;
 const MessageHeader = server_handler.MessageHeader;
@@ -119,7 +119,7 @@ test "network_fault_injection - server config validation" {
     defer query_engine.deinit();
 
     for (config_tests) |test_case| {
-        var server = KausalDBServer.init(allocator, test_case.config, &storage_engine, &query_engine);
+        var server = Server.init(allocator, test_case.config, &storage_engine, &query_engine);
         defer server.deinit();
 
         if (test_case.should_initialize) {
@@ -182,7 +182,7 @@ test "network_fault_injection - deterministic server stress" {
             .connection_timeout_sec = 5 + (random.int(u32) % 295), // 5-300 seconds
         };
 
-        var server = KausalDBServer.init(allocator, config, &storage_engine, &query_engine);
+        var server = Server.init(allocator, config, &storage_engine, &query_engine);
         defer server.deinit();
 
         // Verify server initializes correctly under stress conditions
@@ -247,7 +247,7 @@ test "network_fault_injection - concurrent server configuration" {
     };
 
     for (configs) |config| {
-        var server = KausalDBServer.init(allocator, config, &storage_engine, &query_engine);
+        var server = Server.init(allocator, config, &storage_engine, &query_engine);
         defer server.deinit();
 
         // Verify server initializes correctly with different configurations
