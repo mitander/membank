@@ -1,11 +1,11 @@
 # kausaldb
 
-[![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI Status](https://github.com/kausaldb/kausaldb/actions/workflows/ci.yml/badge.svg)](https://github.com/kausaldb/kausaldb/actions)
+[![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> A queryable graph of cause and effect.
+> Code is a graph. Query it.
 
-Kausal models a codebase as a directed graph, allowing for precise, structural queries against the system's causal layer. The result is surgical context, not a data dump.
+Kausal is a purpose-built knowledge graph for **Large Language Models (LLMs)**. It allows your AI to reason about your codebase as a graph of cause and effect.
 
 ## Bootstrap
 
@@ -23,20 +23,16 @@ Kausal models a codebase as a directed graph, allowing for precise, structural q
 
 ## Why?
 
-Code is a network of dependencies. Current tools treat it as flat text. This is a fundamental mismatch. They find text, not causality.
+Standard Retrieval-Augmented Generation (RAG) is flawed. Feeding an LLM a list of semantically similar text chunks is an approximation that fails in complex systems like codebases. Kausal provides ground truth.
 
-When `authenticate_user()` is modified, the critical question isn't "what other text files contain this string?" but "what systems are causally affected by this change?"
-
-Kausal answers the second question.
+Instead of guessing, your LLM can execute precise, structural queries.
 
 ```zig
 // An auth function was modified.
 var auth_func = try kausal.find("function:authenticate_user");
 
-// Identify its upstream callers.
+// What systems are causally affected by this change?
 var callers = try kausal.traverse(auth_func.id, .incoming, .depth(2));
-
-// Identify its downstream dependencies.
 var dependencies = try kausal.traverse(auth_func.id, .outgoing, .depth(1));
 
 // Feed the interconnected facts to the reasoning layer.
@@ -46,31 +42,36 @@ var analysis = try llm.prompt(
 );
 ```
 
-The LLM now operates on a subgraph of reality - the login endpoint, session middleware, API gateway - instead of a list of text files. This eliminates guesswork.
+The LLM now operates on a subgraph of reality, not a flat list of disconnected files. This eliminates guesswork.
 
-## Design Principles
+## Architectural Principles
 
-Engineered for determinism and reliability.
+Kausal is not a general-purpose database. Every architectural decision is optimized for providing a reliable, high-performance context engine.
 
-- **Sub-millisecond Reads:** Achieved via a write-optimized LSM-tree storage layer.
-- **Deterministic Simulation Testing:** The core is validated against simulated network failures and data corruption across 500+ test cases.
-- **Single-Threaded Core:** Guarantees zero data races by design, eliminating an entire class of concurrency bugs.
-- **Arena Allocation:** Enforces strict memory management, preventing common memory-safety vulnerabilities.
-- **Zero Dependencies:** Compiles to a single static binary. No runtime, no complex deployments. Pure Zig.
+* **An Opinionated Data Model:** `ContextBlock` and `GraphEdge` are not generic nodes and vertices. They are specific primitives for representing structured knowledge and its explicit connections.
+
+* **A Write-Optimized Core:** The LSM-Tree architecture is designed for the high-volume ingestion required to keep the graph synchronized with evolving systems.
+
+* **Deterministic by Design:** A single-threaded core guarantees zero data races. A simulation-first testing model validates the system against catastrophic failures, providing the reliability necessary to be a source of ground truth.
+
+* **Zero Dependencies:** Compiles to a single static binary. No runtime, no complex deployments. Pure Zig.
 
 ## Development
 
+A full suite of development and validation tools is included.
+
 ```bash
-# Standard test cycle
+# Standard test cycle (fast)
 ./zig/zig build test
 
-# Run server binary
-./zig/zig build run
+# Full validation suite (CI-level)
+./zig/zig build test-all
 
-# Full validation suite
-./zig/zig build test-all    # Includes stress and simulation tests
-./zig/zig build benchmark   # Performance regression checks
-./zig/zig build fuzz        # Chaos testing via random inputs
+# Performance regression detection
+./zig/zig build benchmark
+
+# Chaos testing with random inputs
+./zig/zig build fuzz
 ```
 
 ## Documentation
