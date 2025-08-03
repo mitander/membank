@@ -1,7 +1,7 @@
 //! Query result caching system for Membank.
 //!
 //! Provides LRU-based query result caching to reduce expensive storage lookups
-//! and traversals. Follows arena-per-subsystem memory model with explicit 
+//! and traversals. Follows arena-per-subsystem memory model with explicit
 //! cache invalidation on data mutations for correctness guarantees.
 
 const std = @import("std");
@@ -15,18 +15,6 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const QueryResult = operations.QueryResult;
 const TraversalResult = traversal.TraversalResult;
-
-/// Cache key hash context for BlockId operations
-const BlockIdHashContext = struct {
-    pub fn hash(ctx: @This(), key: BlockId) u64 {
-        _ = ctx;
-        return std.hash_map.hashString(&key.bytes);
-    }
-    pub fn eql(ctx: @This(), a: BlockId, b: BlockId) bool {
-        _ = ctx;
-        return a.eql(b);
-    }
-};
 
 /// Cache key for query results - designed for equality comparison and hashing
 pub const CacheKey = struct {
@@ -57,7 +45,7 @@ pub const CacheKey = struct {
         for (block_ids) |id| {
             hasher.update(&id.bytes);
         }
-        
+
         return CacheKey{
             .query_type = .find_blocks,
             .primary_block_id = if (block_ids.len > 0) block_ids[0] else BlockId.from_bytes([_]u8{0} ** 16),
@@ -74,7 +62,7 @@ pub const CacheKey = struct {
         if (edge_type) |et| {
             hasher.update(std.mem.asBytes(&et));
         }
-        
+
         return CacheKey{
             .query_type = .traversal,
             .primary_block_id = start_id,
@@ -106,7 +94,7 @@ const CacheEntry = struct {
     access_count: u32,
     last_access_time_ns: i64,
     creation_time_ns: i64,
-    
+
     /// Mark this entry as accessed for LRU tracking
     pub fn mark_accessed(self: *CacheEntry) void {
         self.access_count += 1;
@@ -127,7 +115,7 @@ pub const CacheValue = union(CacheKey.QueryType) {
     semantic: void, // Placeholder for future semantic query results
     filtered: void, // Placeholder for future filtered query results
 
-    /// Clone the cache value for return to caller
+    /// Clone the cache value using caller's allocator
     pub fn clone(self: *const CacheValue, allocator: std.mem.Allocator) !CacheValue {
         switch (self.*) {
             .find_blocks => |block| {
@@ -141,15 +129,15 @@ pub const CacheValue = union(CacheKey.QueryType) {
     }
 
     /// Free memory used by cached value
-    pub fn deinit(self: CacheValue) void {
+    pub fn deinit(self: CacheValue, allocator: std.mem.Allocator) void {
         switch (self) {
-            .find_blocks => {
-                // Note: Individual blocks use the cache's arena allocator,
-                // so they'll be freed when arena is reset
+            .find_blocks => |block| {
+                allocator.free(block.source_uri);
+                allocator.free(block.metadata_json);
+                allocator.free(block.content);
             },
             .traversal => |result| {
-                // Individual traversal results will be freed with arena reset
-                _ = result;
+                result.deinit();
             },
             .semantic, .filtered => {},
         }
@@ -183,12 +171,11 @@ const CacheKeyHashContext = struct {
 pub const QueryCache = struct {
     arena: std.heap.ArenaAllocator,
     cache: std.HashMap(CacheKey, CacheEntry, CacheKeyHashContext, 80),
-    invalidation_set: std.HashMap(BlockId, void, BlockIdHashContext, 80),
-    
+
     // Cache configuration
     max_entries: u32,
     ttl_ns: i64,
-    
+
     // Cache statistics
     hits: u64,
     misses: u64,
@@ -198,13 +185,12 @@ pub const QueryCache = struct {
     /// Default cache configuration values
     pub const DEFAULT_MAX_ENTRIES: u32 = 1000;
     pub const DEFAULT_TTL_MINUTES: u32 = 30;
-    
+
     /// Initialize query cache with arena allocator
     pub fn init(backing_allocator: std.mem.Allocator, max_entries: u32, ttl_minutes: u32) QueryCache {
         return QueryCache{
             .arena = std.heap.ArenaAllocator.init(backing_allocator),
             .cache = std.HashMap(CacheKey, CacheEntry, CacheKeyHashContext, 80).init(backing_allocator),
-            .invalidation_set = std.HashMap(BlockId, void, BlockIdHashContext, 80).init(backing_allocator),
             .max_entries = max_entries,
             .ttl_ns = @as(i64, ttl_minutes) * 60 * 1_000_000_000, // Convert minutes to nanoseconds
             .hits = 0,
@@ -216,29 +202,15 @@ pub const QueryCache = struct {
 
     /// Clean up cache resources
     pub fn deinit(self: *QueryCache) void {
-        // Free all cached values
-        var iterator = self.cache.iterator();
-        while (iterator.next()) |entry| {
-            entry.value_ptr.result.deinit();
-        }
-        
         self.cache.deinit();
-        self.invalidation_set.deinit();
         self.arena.deinit();
     }
 
     /// Clear all cached entries and reset statistics
     pub fn clear(self: *QueryCache) void {
-        // Free all cached values before clearing
-        var iterator = self.cache.iterator();
-        while (iterator.next()) |entry| {
-            entry.value_ptr.result.deinit();
-        }
-        
         self.cache.clearRetainingCapacity();
-        self.invalidation_set.clearRetainingCapacity();
-        _ = self.arena.reset(.retain_capacity);
-        
+        _ = self.arena.reset(.retain_capacity); // Arena handles all value cleanup
+
         // Reset statistics but preserve configuration
         self.hits = 0;
         self.misses = 0;
@@ -249,20 +221,14 @@ pub const QueryCache = struct {
     /// Get cached result for query key
     pub fn get(self: *QueryCache, key: CacheKey, allocator: std.mem.Allocator) ?CacheValue {
         if (self.cache.getPtr(key)) |entry| {
-            // Check if entry is expired
             if (entry.is_expired(self.ttl_ns)) {
-                // Remove expired entry
-                entry.result.deinit();
                 _ = self.cache.remove(key);
                 self.misses += 1;
                 return null;
             }
 
-            // Update access tracking for LRU
             entry.mark_accessed();
             self.hits += 1;
-
-            // Clone result for caller (cache retains ownership)
             return entry.result.clone(allocator) catch null;
         }
 
@@ -290,91 +256,21 @@ pub const QueryCache = struct {
         };
 
         try self.cache.put(key, entry);
-
-        // Track blocks for invalidation
-        try self.track_blocks_for_invalidation(key);
     }
 
-    /// Track blocks associated with query for cache invalidation
-    fn track_blocks_for_invalidation(self: *QueryCache, key: CacheKey) !void {
-        // Always track the primary block
-        try self.invalidation_set.put(key.primary_block_id, {});
+    /// Simple cache invalidation - just clear everything for simplicity
+    pub fn invalidate_all(self: *QueryCache) void {
+        self.cache.clearRetainingCapacity();
+        _ = self.arena.reset(.retain_capacity); // Arena handles all value cleanup
 
-        // For complex queries, we track additional blocks based on query type
-        switch (key.query_type) {
-            .find_blocks => {
-                // For find_blocks, we only track the primary block ID
-                // Multi-block queries use parameter hash for cache key uniqueness
-            },
-            .traversal => {
-                // For traversal queries, we track the start block
-                // Graph structure changes will require global invalidation
-            },
-            .semantic, .filtered => {
-                // Future: implement tracking for semantic/filtered queries
-            },
-        }
-    }
-
-    /// Invalidate cache entries affected by block changes
-    pub fn invalidate_block(self: *QueryCache, block_id: BlockId) void {
-        if (!self.invalidation_set.contains(block_id)) {
-            return; // No cached queries depend on this block
-        }
-
-        // Find and remove all cache entries that depend on this block
-        var keys_to_remove = std.ArrayList(CacheKey).init(self.arena.allocator());
-        defer keys_to_remove.deinit();
-        defer keys_to_remove.deinit();
-
-        var iterator = self.cache.iterator();
-        while (iterator.next()) |entry| {
-            const key = entry.key_ptr.*;
-            if (key.primary_block_id.eql(block_id)) {
-                keys_to_remove.append(key) catch continue;
-            }
-        }
-
-        // Remove invalidated entries
-        for (keys_to_remove.items) |key| {
-            if (self.cache.getPtr(key)) |entry| {
-                entry.result.deinit();
-                _ = self.cache.remove(key);
-                self.invalidations += 1;
-            }
-        }
-
-        // Remove from invalidation set if no more entries depend on this block
-        _ = self.invalidation_set.remove(block_id);
-    }
-
-    /// Global cache invalidation for structural changes
-    pub fn invalidate_all_traversals(self: *QueryCache) void {
-        var keys_to_remove = std.ArrayList(CacheKey).init(self.arena.allocator());
-        defer keys_to_remove.deinit();
-        defer keys_to_remove.deinit();
-
-        var iterator = self.cache.iterator();
-        while (iterator.next()) |entry| {
-            if (entry.key_ptr.query_type == .traversal) {
-                keys_to_remove.append(entry.key_ptr.*) catch continue;
-            }
-        }
-
-        // Remove all traversal entries
-        for (keys_to_remove.items) |key| {
-            if (self.cache.getPtr(key)) |entry| {
-                entry.result.deinit();
-                _ = self.cache.remove(key);
-                self.invalidations += 1;
-            }
-        }
+        // Increment invalidation count but preserve other statistics
+        self.invalidations += 1;
     }
 
     /// Evict least recently used entries to make space
     fn evict_lru_entries(self: *QueryCache) !void {
         const target_size = (self.max_entries * 3) / 4; // Evict 25% of entries
-        
+
         // Collect entries with access information for LRU calculation
         var eviction_candidates = try std.ArrayList(struct {
             key: CacheKey,
@@ -393,21 +289,29 @@ pub const QueryCache = struct {
         }
 
         // Sort by LRU criteria (least recently accessed first, then by access count)
-        std.sort.pdq(@TypeOf(eviction_candidates.items[0]), eviction_candidates.items, {}, struct {
-            fn lessThan(context: void, a: @TypeOf(eviction_candidates.items[0]), b: @TypeOf(eviction_candidates.items[0])) bool {
-                _ = context;
-                if (a.last_access != b.last_access) {
-                    return a.last_access < b.last_access;
+        std.sort.pdq(
+            @TypeOf(eviction_candidates.items[0]),
+            eviction_candidates.items,
+            {},
+            struct {
+                fn less_than(
+                    context: void,
+                    a: @TypeOf(eviction_candidates.items[0]),
+                    b: @TypeOf(eviction_candidates.items[0]),
+                ) bool {
+                    _ = context;
+                    if (a.last_access != b.last_access) {
+                        return a.last_access < b.last_access;
+                    }
+                    return a.access_count < b.access_count;
                 }
-                return a.access_count < b.access_count;
-            }
-        }.lessThan);
+            }.less_than,
+        );
 
         // Evict entries until we reach target size
         const entries_to_evict = self.cache.count() - target_size;
         for (eviction_candidates.items[0..entries_to_evict]) |candidate| {
-            if (self.cache.getPtr(candidate.key)) |entry| {
-                entry.result.deinit();
+            if (self.cache.getPtr(candidate.key)) |_| {
                 _ = self.cache.remove(candidate.key);
                 self.evictions += 1;
             }
@@ -418,7 +322,7 @@ pub const QueryCache = struct {
     pub fn statistics(self: *const QueryCache) CacheStatistics {
         const total_requests = self.hits + self.misses;
         const hit_rate = if (total_requests > 0) @as(f64, @floatFromInt(self.hits)) / @as(f64, @floatFromInt(total_requests)) else 0.0;
-        
+
         return CacheStatistics{
             .current_entries = @intCast(self.cache.count()),
             .max_entries = self.max_entries,
@@ -435,11 +339,10 @@ pub const QueryCache = struct {
     pub fn estimate_memory_usage(self: *const QueryCache) u64 {
         // Rough estimate: cache structure + arena usage
         const cache_overhead = self.cache.count() * (@sizeOf(CacheKey) + @sizeOf(CacheEntry));
-        const invalidation_overhead = self.invalidation_set.count() * @sizeOf(BlockId);
-        
+
         // Arena allocator doesn't expose usage directly, so we estimate
         // This is conservative and includes overhead from allocator structures
-        return cache_overhead + invalidation_overhead + @as(u64, @intCast(self.cache.count() * 1024)); // Estimate 1KB per cached result
+        return cache_overhead + @as(u64, @intCast(self.cache.count() * 1024)); // Estimate 1KB per cached result
     }
 };
 
@@ -464,7 +367,7 @@ pub const CacheStatistics = struct {
     pub fn needs_tuning(self: *const CacheStatistics) bool {
         const total_operations = self.hits + self.misses;
         if (total_operations == 0) return false;
-        
+
         // If evictions are more than 10% of total operations, cache may need larger size
         const eviction_rate = @as(f64, @floatFromInt(self.evictions)) / @as(f64, @floatFromInt(total_operations));
         return eviction_rate > 0.1;

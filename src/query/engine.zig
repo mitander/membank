@@ -46,7 +46,7 @@ pub const FilterTarget = filtering.FilterTarget;
 const EngineError = error{
     /// Query engine not initialized
     NotInitialized,
-} || operations.QueryError || filtering.FilterError;
+} || operations.QueryError || filtering.FilterError || traversal.TraversalError;
 
 /// Query planning and optimization framework for future extensibility
 pub const QueryPlan = struct {
@@ -454,34 +454,40 @@ pub const QueryEngine = struct {
                         // Create QueryResult from cached block
                         const blocks_array = try self.allocator.alloc(BlockId, 1);
                         blocks_array[0] = block_id;
-                        
+
                         const result = QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, blocks_array);
-                        
+
                         // Update cache hit metrics
                         return result;
                     },
                     else => {
-                        // Wrong cache type, ignore and proceed with storage lookup
+                        // Cache miss, continue with storage lookup
                     },
                 }
             }
         }
 
         // Cache miss or caching disabled - fetch from storage
-        if (self.storage_engine.find_block(block_id)) |block| {
-            // Cache the individual block if caching enabled
-            if (self.caching_enabled) {
-                const cache_key = cache.CacheKey.for_single_block(block_id);
-                const cache_value = cache.CacheValue{ .find_blocks = block };
-                self.query_cache.put(cache_key, cache_value) catch {
-                    // Cache put failed, continue without caching
-                };
+        if (self.storage_engine.find_block(block_id)) |maybe_block| {
+            if (maybe_block) |block| {
+                // Cache the individual block if caching enabled
+                if (self.caching_enabled) {
+                    const cache_key = cache.CacheKey.for_single_block(block_id);
+                    const cache_value = cache.CacheValue{ .find_blocks = block };
+                    self.query_cache.put(cache_key, cache_value) catch {
+                        // Cache put failed, continue without caching
+                    };
+                }
+
+                // Create QueryResult
+                const blocks_array = try self.allocator.alloc(BlockId, 1);
+                blocks_array[0] = block_id;
+                return QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, blocks_array);
             }
 
-            // Create QueryResult
-            const blocks_array = try self.allocator.alloc(BlockId, 1);
-            blocks_array[0] = block_id;
-            return QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, blocks_array);
+            // Block not found - return empty result
+            const empty_array = try self.allocator.alloc(BlockId, 0);
+            return QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, empty_array);
         } else |err| {
             return err;
         }
@@ -501,6 +507,9 @@ pub const QueryEngine = struct {
         assert(self.initialized);
         if (!self.initialized) return EngineError.NotInitialized;
 
+        // Validate query parameters first
+        try query.validate();
+
         // Check cache first for expensive traversal operations
         if (self.caching_enabled) {
             const cache_key = cache.CacheKey.for_traversal(
@@ -510,14 +519,14 @@ pub const QueryEngine = struct {
                 query.max_depth,
                 if (query.edge_type_filter) |et| @intFromEnum(et) else null,
             );
-            
+
             if (self.query_cache.get(cache_key, self.allocator)) |cached_value| {
                 switch (cached_value) {
                     .traversal => |cached_result| {
                         return cached_result;
                     },
                     else => {
-                        // Wrong cache type, ignore and proceed with traversal
+                        // Wrong cache type, continue with fresh query
                     },
                 }
             }
@@ -609,7 +618,7 @@ pub const QueryEngine = struct {
     }
 
     /// Enable or disable query result caching
-    pub fn set_caching_enabled(self: *QueryEngine, enabled: bool) void {
+    pub fn enable_caching(self: *QueryEngine, enabled: bool) void {
         self.caching_enabled = enabled;
         if (!enabled) {
             self.query_cache.clear();
@@ -621,17 +630,10 @@ pub const QueryEngine = struct {
         return self.query_cache.statistics();
     }
 
-    /// Invalidate cached results for a specific block (call when block is modified)
-    pub fn invalidate_block_cache(self: *QueryEngine, block_id: BlockId) void {
+    /// Invalidate all cached results (simplified approach)
+    pub fn invalidate_cache(self: *QueryEngine) void {
         if (self.caching_enabled) {
-            self.query_cache.invalidate_block(block_id);
-        }
-    }
-
-    /// Invalidate all traversal caches (call when graph structure changes)
-    pub fn invalidate_traversal_cache(self: *QueryEngine) void {
-        if (self.caching_enabled) {
-            self.query_cache.invalidate_all_traversals();
+            self.query_cache.invalidate_all();
         }
     }
 
@@ -733,7 +735,8 @@ pub const QueryEngine = struct {
         const initial_sstable_reads = self.storage_engine.storage_metrics.sstable_reads.load();
 
         for (query.block_ids) |block_id| {
-            if (try self.storage_engine.find_block(block_id)) |block| {
+            const found_block: ?ContextBlock = self.storage_engine.find_block(block_id) catch continue;
+            if (found_block) |block| {
                 try result_blocks.append(block);
                 blocks_found += 1;
             }

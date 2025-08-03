@@ -534,6 +534,7 @@ test "Algorithm performance - edge case timing validation" {
 
     // Create moderate-sized graph for performance testing
     var nodes = std.ArrayList(BlockId).init(allocator);
+    try nodes.ensureTotalCapacity(20); // tidy:ignore-perf - capacity pre-allocated for 20 nodes
     defer nodes.deinit();
 
     // Create 20 connected nodes for performance testing
