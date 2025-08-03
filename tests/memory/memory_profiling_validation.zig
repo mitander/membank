@@ -67,13 +67,30 @@ fn query_current_rss_memory() u64 {
     }
 }
 
-// Linux RSS memory via /proc/self/status
+// Linux RSS memory via multiple methods (robust for containers)
 fn query_rss_linux() !u64 {
-    const file = std.fs.openFileAbsolute("/proc/self/status", .{}) catch return 0;
+    // Method 1: Try /proc/self/status (most common)
+    if (query_rss_proc_status()) |rss| {
+        if (rss > 0) return rss;
+    }
+
+    // Method 2: Try /proc/self/statm (alternative in containers)
+    if (query_rss_proc_statm()) |rss| {
+        if (rss > 0) return rss;
+    }
+
+    // Method 3: Fallback removed - getrusage requires libc linking
+    // Two methods above should be sufficient for Linux containers
+
+    return 0;
+}
+
+fn query_rss_proc_status() ?u64 {
+    const file = std.fs.openFileAbsolute("/proc/self/status", .{}) catch return null;
     defer file.close();
 
     var buf: [4096]u8 = undefined;
-    const bytes_read = file.readAll(&buf) catch return 0;
+    const bytes_read = file.readAll(&buf) catch return null;
     const content = buf[0..bytes_read];
 
     // Search for "VmRSS:" line in /proc/self/status
@@ -85,14 +102,37 @@ fn query_rss_linux() !u64 {
             _ = parts.next(); // Skip "VmRSS:"
             while (parts.next()) |part| {
                 if (part.len > 0 and std.ascii.isDigit(part[0])) {
-                    const kb = std.fmt.parseInt(u64, part, 10) catch return 0;
+                    const kb = std.fmt.parseInt(u64, part, 10) catch return null;
                     return kb * 1024; // Convert KB to bytes
                 }
             }
         }
     }
-    return 0;
+    return null;
 }
+
+fn query_rss_proc_statm() ?u64 {
+    const file = std.fs.openFileAbsolute("/proc/self/statm", .{}) catch return null;
+    defer file.close();
+
+    var buf: [256]u8 = undefined;
+    const bytes_read = file.readAll(&buf) catch return null;
+    const content = buf[0..bytes_read];
+
+    // /proc/self/statm format: size resident shared text lib data dt
+    var parts = std.mem.splitSequence(u8, std.mem.trim(u8, content, " \n\t"), " ");
+    _ = parts.next(); // Skip size (first field)
+
+    if (parts.next()) |resident_pages_str| {
+        const resident_pages = std.fmt.parseInt(u64, resident_pages_str, 10) catch return null;
+        // Convert pages to bytes (typically 4KB pages on most systems)
+        const page_size = 4096; // Standard page size on Linux
+        return resident_pages * page_size;
+    }
+    return null;
+}
+
+// getrusage fallback removed - requires libc linking which breaks cross-platform builds
 
 // macOS RSS memory via mach task_info
 fn query_rss_macos() !u64 {
@@ -238,13 +278,15 @@ test "Memory profiler cross-platform RSS query" {
 
     const rss_bytes = query_current_rss_memory();
 
-    // RSS should be non-zero on supported platforms
+    // RSS should be non-zero on supported platforms with robust fallback methods
     switch (builtin.os.tag) {
         .linux, .macos => {
             try testing.expect(rss_bytes > 0);
             // Should be reasonable for a test process (between 1MB and 1GB)
             try testing.expect(rss_bytes >= 1024 * 1024);
             try testing.expect(rss_bytes <= 1024 * 1024 * 1024);
+
+            std.debug.print("RSS query successful: {} bytes ({} MB)\n", .{ rss_bytes, rss_bytes / (1024 * 1024) });
         },
         .windows => {
             // Windows implementation returns 0 for now (placeholder)
