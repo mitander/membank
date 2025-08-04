@@ -114,7 +114,7 @@ test "A* search integration with storage engine" {
         .algorithm = .astar_search,
         .max_depth = 4,
         .max_results = 20,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 
     // Execute A* search
@@ -191,7 +191,7 @@ test "bidirectional search integration and performance" {
         .algorithm = .bidirectional_search,
         .max_depth = 8,
         .max_results = 50,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 
     const start_time = std.time.nanoTimestamp();
@@ -269,7 +269,7 @@ test "algorithm comparison - BFS vs DFS vs A* vs Bidirectional" {
             .algorithm = algorithm,
             .max_depth = 4,
             .max_results = 20,
-            .edge_type_filter = null,
+            .edge_filter = .all_types,
         };
 
         const start_time = std.time.nanoTimestamp();
@@ -344,7 +344,7 @@ test "large graph traversal with new algorithms" {
         .algorithm = .astar_search,
         .max_depth = 6,
         .max_results = 100,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 
     const start_time = std.time.nanoTimestamp();
@@ -416,7 +416,7 @@ test "edge type filtering integration" {
         .algorithm = .astar_search,
         .max_depth = 3,
         .max_results = 10,
-        .edge_type_filter = .calls,
+        .edge_filter = .{ .only_type = .calls },
     };
 
     const calls_result = try query.traversal.execute_traversal(allocator, &storage_engine, calls_query);
@@ -432,7 +432,7 @@ test "edge type filtering integration" {
         .algorithm = .bidirectional_search,
         .max_depth = 3,
         .max_results = 10,
-        .edge_type_filter = .imports,
+        .edge_filter = .{ .only_type = .imports },
     };
 
     const imports_result = try query.traversal.execute_traversal(allocator, &storage_engine, imports_query);
@@ -500,7 +500,7 @@ test "memory safety under stress with new algorithms" {
                 .algorithm = algorithm,
                 .max_depth = 5,
                 .max_results = 30,
-                .edge_type_filter = null,
+                .edge_filter = .all_types,
             };
 
             const result = try query.traversal.execute_traversal(allocator, &storage_engine, query);

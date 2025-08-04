@@ -201,7 +201,7 @@ test "A* search - disconnected component edge cases" {
             .algorithm = .astar_search,
             .max_depth = 10,
             .max_results = 100,
-            .edge_type_filter = EdgeType.calls,
+            .edge_filter = .{ .only_type = EdgeType.calls },
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -220,7 +220,7 @@ test "A* search - disconnected component edge cases" {
             .algorithm = .astar_search,
             .max_depth = 10,
             .max_results = 100,
-            .edge_type_filter = null, // Allow all edge types
+            .edge_filter = .all_types, // Allow all edge types
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -238,7 +238,7 @@ test "A* search - disconnected component edge cases" {
             .algorithm = .astar_search,
             .max_depth = 10,
             .max_results = 100,
-            .edge_type_filter = EdgeType.imports, // Wrong edge type for component A
+            .edge_filter = .{ .only_type = EdgeType.imports }, // Wrong edge type for component A
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -277,7 +277,7 @@ test "Bidirectional search - disconnected component scenarios" {
             .algorithm = .bidirectional_search,
             .max_depth = 10,
             .max_results = 100,
-            .edge_type_filter = EdgeType.calls,
+            .edge_filter = .{ .only_type = EdgeType.calls },
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -295,7 +295,7 @@ test "Bidirectional search - disconnected component scenarios" {
             .algorithm = .bidirectional_search,
             .max_depth = 1, // Very shallow
             .max_results = 100,
-            .edge_type_filter = EdgeType.calls,
+            .edge_filter = .{ .only_type = EdgeType.calls },
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -334,7 +334,7 @@ test "Topological sort - cycle detection edge cases" {
             .algorithm = .topological_sort,
             .max_depth = 5,
             .max_results = 100,
-            .edge_type_filter = EdgeType.calls,
+            .edge_filter = .{ .only_type = EdgeType.calls },
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -352,7 +352,7 @@ test "Topological sort - cycle detection edge cases" {
             .algorithm = .topological_sort,
             .max_depth = 10,
             .max_results = 100,
-            .edge_type_filter = EdgeType.depends_on,
+            .edge_filter = .{ .only_type = EdgeType.depends_on },
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -391,7 +391,7 @@ test "SCC detection - self-loop edge cases" {
             .algorithm = .strongly_connected,
             .max_depth = 10,
             .max_results = 100,
-            .edge_type_filter = null, // Allow all edge types
+            .edge_filter = .all_types, // Allow all edge types
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -412,7 +412,7 @@ test "SCC detection - self-loop edge cases" {
             .algorithm = .strongly_connected,
             .max_depth = 5,
             .max_results = 100,
-            .edge_type_filter = EdgeType.calls,
+            .edge_filter = .{ .only_type = EdgeType.calls },
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -451,7 +451,7 @@ test "Algorithm robustness - malformed input edge cases" {
             .algorithm = .astar_search,
             .max_depth = 0,
             .max_results = 100,
-            .edge_type_filter = EdgeType.calls,
+            .edge_filter = .{ .only_type = EdgeType.calls },
         };
 
         // Should return InvalidDepth error for zero depth
@@ -469,7 +469,7 @@ test "Algorithm robustness - malformed input edge cases" {
             .algorithm = .astar_search,
             .max_depth = 10,
             .max_results = 100,
-            .edge_type_filter = EdgeType.calls,
+            .edge_filter = .{ .only_type = EdgeType.calls },
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -487,7 +487,7 @@ test "Algorithm robustness - malformed input edge cases" {
             .algorithm = .breadth_first,
             .max_depth = 1,
             .max_results = TraversalQuery.ABSOLUTE_MAX_RESULTS, // Maximum allowed
-            .edge_type_filter = null,
+            .edge_filter = .all_types,
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -505,7 +505,7 @@ test "Algorithm robustness - malformed input edge cases" {
             .algorithm = .breadth_first,
             .max_depth = 1,
             .max_results = TraversalQuery.ABSOLUTE_MAX_RESULTS + 1, // Exceeds limit
-            .edge_type_filter = null,
+            .edge_filter = .all_types,
         };
 
         // Should return InvalidMaxResults error for excessive value
@@ -561,7 +561,7 @@ test "Algorithm performance - edge case timing validation" {
             .algorithm = .astar_search,
             .max_depth = 20,
             .max_results = 100,
-            .edge_type_filter = EdgeType.calls,
+            .edge_filter = .{ .only_type = EdgeType.calls },
         };
 
         var result = try query_eng.execute_traversal(query);
@@ -588,7 +588,7 @@ test "Algorithm performance - edge case timing validation" {
             .algorithm = .bidirectional_search,
             .max_depth = 15,
             .max_results = 100,
-            .edge_type_filter = EdgeType.calls,
+            .edge_filter = .{ .only_type = EdgeType.calls },
         };
 
         var result = try query_eng.execute_traversal(query);

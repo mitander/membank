@@ -30,6 +30,7 @@ pub const TraversalQuery = traversal.TraversalQuery;
 pub const TraversalResult = traversal.TraversalResult;
 pub const TraversalDirection = traversal.TraversalDirection;
 pub const TraversalAlgorithm = traversal.TraversalAlgorithm;
+pub const EdgeTypeFilter = traversal.EdgeTypeFilter;
 
 pub const SemanticQuery = operations.SemanticQuery;
 pub const SemanticQueryResult = operations.SemanticQueryResult;
@@ -517,7 +518,7 @@ pub const QueryEngine = struct {
                 @intFromEnum(query.direction),
                 @intFromEnum(query.algorithm),
                 query.max_depth,
-                if (query.edge_type_filter) |et| @intFromEnum(et) else null,
+                traversal.edge_filter_to_hash(query.edge_filter),
             );
 
             if (self.query_cache.get(cache_key, self.allocator)) |cached_value| {
@@ -553,7 +554,7 @@ pub const QueryEngine = struct {
                 @intFromEnum(query.direction),
                 @intFromEnum(query.algorithm),
                 query.max_depth,
-                if (query.edge_type_filter) |et| @intFromEnum(et) else null,
+                traversal.edge_filter_to_hash(query.edge_filter),
             );
             const cache_value = cache.CacheValue{ .traversal = result };
             self.query_cache.put(cache_key, cache_value) catch {

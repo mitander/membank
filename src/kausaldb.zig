@@ -29,6 +29,7 @@ pub const TraversalResult = query_engine.TraversalResult;
 pub const FindBlocksQuery = query_engine.FindBlocksQuery;
 pub const TraversalQuery = query_engine.TraversalQuery;
 pub const TraversalAlgorithm = query_engine.TraversalAlgorithm;
+pub const EdgeTypeFilter = query_engine.EdgeTypeFilter;
 pub const SemanticQuery = query_engine.SemanticQuery;
 pub const SemanticQueryResult = query_engine.SemanticQueryResult;
 pub const SemanticResult = query_engine.SemanticResult;

@@ -225,6 +225,6 @@ fn generate_random_traversal_query(allocator: std.mem.Allocator, random: std.Ran
         .algorithm = algorithms[random.intRangeAtMost(usize, 0, algorithms.len - 1)],
         .max_depth = random.intRangeAtMost(u32, 1, 10),
         .max_results = random.intRangeAtMost(u32, 1, 100),
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 }

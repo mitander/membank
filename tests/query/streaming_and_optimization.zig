@@ -299,7 +299,7 @@ test "complex graph traversal with streaming optimization" {
         .algorithm = .breadth_first,
         .max_depth = tree_depth,
         .max_results = tree_size,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 
     const traversal_start = std.time.nanoTimestamp();

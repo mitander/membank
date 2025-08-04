@@ -38,6 +38,57 @@ const BlockIdHashMap = std.HashMap(
     std.hash_map.default_max_load_percentage,
 );
 
+/// Check if an edge passes the specified filter criteria
+fn edge_passes_filter(edge: GraphEdge, filter: EdgeTypeFilter) bool {
+    switch (filter) {
+        .all_types => return true,
+        .only_type => |target_type| return edge.edge_type == target_type,
+        .exclude_types => |excluded_types| {
+            for (excluded_types) |excluded_type| {
+                if (edge.edge_type == excluded_type) return false;
+            }
+            return true;
+        },
+        .include_types => |included_types| {
+            for (included_types) |included_type| {
+                if (edge.edge_type == included_type) return true;
+            }
+            return false;
+        },
+    }
+}
+
+/// Convert EdgeTypeFilter to hash for cache key generation
+pub fn edge_filter_to_hash(filter: EdgeTypeFilter) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+
+    switch (filter) {
+        .all_types => {
+            hasher.update(&[_]u8{0}); // Type discriminator
+        },
+        .only_type => |edge_type| {
+            hasher.update(&[_]u8{1}); // Type discriminator
+            hasher.update(std.mem.asBytes(&@intFromEnum(edge_type)));
+        },
+        .exclude_types => |excluded_types| {
+            hasher.update(&[_]u8{2}); // Type discriminator
+            hasher.update(std.mem.asBytes(&excluded_types.len));
+            for (excluded_types) |edge_type| {
+                hasher.update(std.mem.asBytes(&@intFromEnum(edge_type)));
+            }
+        },
+        .include_types => |included_types| {
+            hasher.update(&[_]u8{3}); // Type discriminator
+            hasher.update(std.mem.asBytes(&included_types.len));
+            for (included_types) |edge_type| {
+                hasher.update(std.mem.asBytes(&@intFromEnum(edge_type)));
+            }
+        },
+    }
+
+    return hasher.final();
+}
+
 /// Traversal operation errors
 pub const TraversalError = error{
     /// Block not found in storage
@@ -92,6 +143,18 @@ pub const TraversalAlgorithm = enum(u8) {
     }
 };
 
+/// Edge type filtering strategy for traversal queries
+pub const EdgeTypeFilter = union(enum) {
+    /// Include all edge types (no filtering)
+    all_types,
+    /// Include only the specified edge type
+    only_type: EdgeType,
+    /// Include all types except the specified ones
+    exclude_types: []const EdgeType,
+    /// Include only the specified edge types
+    include_types: []const EdgeType,
+};
+
 /// Query for traversing the knowledge graph
 pub const TraversalQuery = struct {
     /// Starting block ID for traversal
@@ -104,8 +167,8 @@ pub const TraversalQuery = struct {
     max_depth: u32,
     /// Maximum number of blocks to return
     max_results: u32,
-    /// Optional edge type filter (null = all types)
-    edge_type_filter: ?EdgeType,
+    /// Edge type filtering strategy
+    edge_filter: EdgeTypeFilter,
 
     /// Default maximum depth for traversal
     pub const DEFAULT_MAX_DEPTH = 10;
@@ -122,7 +185,7 @@ pub const TraversalQuery = struct {
             .algorithm = .breadth_first,
             .max_depth = DEFAULT_MAX_DEPTH,
             .max_results = DEFAULT_MAX_RESULTS,
-            .edge_type_filter = null,
+            .edge_filter = .all_types,
         };
     }
 
@@ -480,9 +543,7 @@ fn add_neighbors_to_queue(
         const edges = storage_engine.find_outgoing_edges(current_id);
         if (edges.len > 0) {
             for (edges) |edge| {
-                if (query.edge_type_filter) |filter| {
-                    if (edge.edge_type != filter) continue;
-                }
+                if (!edge_passes_filter(edge, query.edge_filter)) continue;
 
                 if (!visited.contains(edge.target_id)) {
                     const new_path = try allocator.alloc(BlockId, current_path.len + 1);
@@ -503,9 +564,7 @@ fn add_neighbors_to_queue(
         const edges = storage_engine.find_incoming_edges(current_id);
         if (edges.len > 0) {
             for (edges) |edge| {
-                if (query.edge_type_filter) |filter| {
-                    if (edge.edge_type != filter) continue;
-                }
+                if (!edge_passes_filter(edge, query.edge_filter)) continue;
 
                 if (!visited.contains(edge.source_id)) {
                     const new_path = try allocator.alloc(BlockId, current_path.len + 1);
@@ -540,9 +599,7 @@ fn add_neighbors_to_stack(
         const edges = storage_engine.find_outgoing_edges(current_id);
         if (edges.len > 0) {
             for (edges) |edge| {
-                if (query.edge_type_filter) |filter| {
-                    if (edge.edge_type != filter) continue;
-                }
+                if (!edge_passes_filter(edge, query.edge_filter)) continue;
 
                 if (!visited.contains(edge.target_id)) {
                     const new_path = try allocator.alloc(BlockId, current_path.len + 1);
@@ -563,9 +620,7 @@ fn add_neighbors_to_stack(
         const edges = storage_engine.find_incoming_edges(current_id);
         if (edges.len > 0) {
             for (edges) |edge| {
-                if (query.edge_type_filter) |filter| {
-                    if (edge.edge_type != filter) continue;
-                }
+                if (!edge_passes_filter(edge, query.edge_filter)) continue;
 
                 if (!visited.contains(edge.source_id)) {
                     const new_path = try allocator.alloc(BlockId, current_path.len + 1);
@@ -914,9 +969,7 @@ fn add_neighbors_to_astar_queue(
         const edges = storage_engine.find_outgoing_edges(current_id);
         if (edges.len > 0) {
             for (edges) |edge| {
-                if (query.edge_type_filter) |filter| {
-                    if (edge.edge_type != filter) continue;
-                }
+                if (!edge_passes_filter(edge, query.edge_filter)) continue;
 
                 if (!visited.contains(edge.target_id)) {
                     const new_path = try allocator.alloc(BlockId, current_path.len + 1);
@@ -946,9 +999,7 @@ fn add_neighbors_to_astar_queue(
         const edges = storage_engine.find_incoming_edges(current_id);
         if (edges.len > 0) {
             for (edges) |edge| {
-                if (query.edge_type_filter) |filter| {
-                    if (edge.edge_type != filter) continue;
-                }
+                if (!edge_passes_filter(edge, query.edge_filter)) continue;
 
                 if (!visited.contains(edge.source_id)) {
                     const new_path = try allocator.alloc(BlockId, current_path.len + 1);
@@ -999,9 +1050,7 @@ fn add_neighbors_to_bidirectional_queue(
         const edges = storage_engine.find_outgoing_edges(current_id);
         if (edges.len > 0) {
             for (edges) |edge| {
-                if (query.edge_type_filter) |filter| {
-                    if (edge.edge_type != filter) continue;
-                }
+                if (!edge_passes_filter(edge, query.edge_filter)) continue;
 
                 if (!visited.contains(edge.target_id)) {
                     const new_path = try allocator.alloc(BlockId, current_path.len + 1);
@@ -1025,9 +1074,7 @@ fn add_neighbors_to_bidirectional_queue(
         const edges = storage_engine.find_incoming_edges(current_id);
         if (edges.len > 0) {
             for (edges) |edge| {
-                if (query.edge_type_filter) |filter| {
-                    if (edge.edge_type != filter) continue;
-                }
+                if (!edge_passes_filter(edge, query.edge_filter)) continue;
 
                 if (!visited.contains(edge.source_id)) {
                     const new_path = try allocator.alloc(BlockId, current_path.len + 1);
@@ -1073,7 +1120,7 @@ pub fn traverse_outgoing(
         .algorithm = .breadth_first,
         .max_depth = max_depth,
         .max_results = TraversalQuery.DEFAULT_MAX_RESULTS,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
     return execute_traversal(allocator, storage_engine, query);
 }
@@ -1091,7 +1138,7 @@ pub fn traverse_incoming(
         .algorithm = .breadth_first,
         .max_depth = max_depth,
         .max_results = TraversalQuery.DEFAULT_MAX_RESULTS,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
     return execute_traversal(allocator, storage_engine, query);
 }
@@ -1109,7 +1156,7 @@ pub fn traverse_bidirectional(
         .algorithm = .breadth_first,
         .max_depth = max_depth,
         .max_results = TraversalQuery.DEFAULT_MAX_RESULTS,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
     return execute_traversal(allocator, storage_engine, query);
 }
@@ -1127,7 +1174,7 @@ pub fn traverse_astar(
         .algorithm = .astar_search,
         .max_depth = max_depth,
         .max_results = TraversalQuery.DEFAULT_MAX_RESULTS,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
     return execute_traversal(allocator, storage_engine, query);
 }
@@ -1266,7 +1313,7 @@ test "outgoing traversal with linear chain" {
         .algorithm = .breadth_first,
         .max_depth = 2,
         .max_results = 10,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 
     const result = try execute_traversal(allocator, &storage_engine, query);
@@ -1401,7 +1448,7 @@ test "edge type filtering" {
         .algorithm = .breadth_first,
         .max_depth = 1,
         .max_results = 10,
-        .edge_type_filter = .calls,
+        .edge_filter = .{ .only_type = .calls },
     };
 
     const result_calls = try execute_traversal(allocator, &storage_engine, query_calls);
@@ -1460,7 +1507,7 @@ test "max depth limit enforcement" {
         .algorithm = .breadth_first,
         .max_depth = 2,
         .max_results = 10,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 
     const result = try execute_traversal(allocator, &storage_engine, query);
@@ -1519,7 +1566,7 @@ test "max results limit enforcement" {
         .algorithm = .breadth_first,
         .max_depth = 2,
         .max_results = 3,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 
     const result = try execute_traversal(allocator, &storage_engine, query);
@@ -1576,7 +1623,7 @@ test "breadth-first vs depth-first traversal ordering" {
         .algorithm = .breadth_first,
         .max_depth = 2,
         .max_results = 10,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 
     const bfs_result = try execute_traversal(allocator, &storage_engine, bfs_query);
@@ -1589,7 +1636,7 @@ test "breadth-first vs depth-first traversal ordering" {
         .algorithm = .depth_first,
         .max_depth = 2,
         .max_results = 10,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 
     const dfs_result = try execute_traversal(allocator, &storage_engine, dfs_query);
@@ -1696,7 +1743,7 @@ test "A* search algorithm basic functionality" {
         .algorithm = .astar_search,
         .max_depth = 2,
         .max_results = 10,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 
     const result = try execute_traversal(allocator, &storage_engine, query);
@@ -1748,7 +1795,7 @@ test "bidirectional search algorithm" {
         .algorithm = .bidirectional_search,
         .max_depth = 4, // Allow enough depth for bidirectional exploration
         .max_results = 10,
-        .edge_type_filter = null,
+        .edge_filter = .all_types,
     };
 
     const result = try execute_traversal(allocator, &storage_engine, query);

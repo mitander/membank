@@ -54,14 +54,18 @@ pub const CacheKey = struct {
     }
 
     /// Create cache key for traversal query
-    pub fn for_traversal(start_id: BlockId, direction: u8, algorithm: u8, max_depth: u32, edge_type: ?u16) CacheKey {
+    pub fn for_traversal(
+        start_id: BlockId,
+        direction: u8,
+        algorithm: u8,
+        max_depth: u32,
+        edge_filter_hash: u64,
+    ) CacheKey {
         var hasher = std.hash.Wyhash.init(0);
         hasher.update(&[_]u8{direction});
         hasher.update(&[_]u8{algorithm});
         hasher.update(std.mem.asBytes(&max_depth));
-        if (edge_type) |et| {
-            hasher.update(std.mem.asBytes(&et));
-        }
+        hasher.update(std.mem.asBytes(&edge_filter_hash));
 
         return CacheKey{
             .query_type = .traversal,

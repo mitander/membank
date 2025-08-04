@@ -170,7 +170,7 @@ test "traversal result caching" {
         .max_depth_reached = 1,
     };
 
-    const cache_key = CacheKey.for_traversal(test_blocks[0].id, 1, 1, 5, null);
+    const cache_key = CacheKey.for_traversal(test_blocks[0].id, 1, 1, 5, 0);
     const cache_value = cache.CacheValue{ .traversal = traversal_result };
 
     // Test cache miss
@@ -459,7 +459,7 @@ test "global traversal invalidation" {
         .max_depth_reached = 0,
     };
 
-    const traversal_key = CacheKey.for_traversal(test_block.id, 1, 1, 5, null);
+    const traversal_key = CacheKey.for_traversal(test_block.id, 1, 1, 5, 0);
     const traversal_value = cache.CacheValue{ .traversal = traversal_result };
     try query_cache.put(traversal_key, traversal_value);
 
