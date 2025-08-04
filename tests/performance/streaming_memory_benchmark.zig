@@ -465,7 +465,7 @@ test "memory_management_efficiency_benchmark" {
     } else if (memory_growth > expected_maximum) {
         log.warn("Memory growth higher than expected: {} bytes vs {} bytes maximum", .{ memory_growth, expected_maximum });
     } else {
-        log.warn("Memory growth within expected range: {} bytes", .{memory_growth});
+        log.debug("Memory growth within expected range: {} bytes", .{memory_growth});
     }
 }
 

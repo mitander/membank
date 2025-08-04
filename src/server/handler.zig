@@ -161,8 +161,16 @@ pub const Server = struct {
         const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
         _ = try std.posix.fcntl(self.listener.?.stream.handle, std.posix.F.SETFL, flags | nonblock_flag);
 
-        log.info("KausalDB server bound to port {d}", .{self.config.port});
+        log.info("KausalDB server bound to port {d}", .{self.bound_port()});
         log.info("Server config: max_connections={d}, timeout={d}s", .{ self.config.max_connections, self.config.connection_timeout_sec });
+    }
+
+    /// Query the actual port the server is bound to (useful for ephemeral ports)
+    pub fn bound_port(self: *const Server) u16 {
+        if (self.listener) |listener| {
+            return listener.listen_address.getPort();
+        }
+        return self.config.port;
     }
 
     /// Run the blocking event loop

@@ -76,6 +76,11 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/integration/ingestion.zig",
             .description = "ingestion pipeline integration tests",
         },
+        .{
+            .name = "integration_server",
+            .source_file = "tests/integration/server_lifecycle.zig",
+            .description = "server startup and lifecycle integration tests",
+        },
 
         // Simulation tests - deterministic failure scenario validation
         .{
