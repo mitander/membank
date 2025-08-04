@@ -81,7 +81,6 @@ pub const SourceContent = struct {
     timestamp_ns: u64,
 
     pub fn deinit(self: *SourceContent, allocator: std.mem.Allocator) void {
-        // Free all values in metadata HashMap
         // Note: HashMap keys are string literals and should not be freed
         var iterator = self.metadata.iterator();
         while (iterator.next()) |entry| {
@@ -111,7 +110,6 @@ pub const ParsedUnit = struct {
     pub fn deinit(self: *ParsedUnit, allocator: std.mem.Allocator) void {
         self.edges.deinit();
 
-        // Free all values in metadata HashMap
         // Note: HashMap keys are string literals and should not be freed
         var iterator = self.metadata.iterator();
         while (iterator.next()) |entry| {
@@ -396,14 +394,12 @@ pub const IngestionPipeline = struct {
         const allocator = self.arena.allocator();
         var all_blocks = std.ArrayList(ContextBlock).init(allocator);
 
-        // Process each source
         for (self.sources.items) |source| {
             self.process_source(source, &all_blocks) catch |err| {
                 self.current_stats.sources_failed += 1;
                 if (!self.config.continue_on_error) {
                     return err;
                 }
-                // Log error and continue with next source
                 continue;
             };
             self.current_stats.sources_processed += 1;
@@ -422,11 +418,8 @@ pub const IngestionPipeline = struct {
         const start_time = std.time.nanoTimestamp();
         defer self.current_stats.processing_time_ns = @intCast(std.time.nanoTimestamp() - start_time);
 
-        // Initialize backpressure tracking
         self.current_stats.backpressure.max_batch_size_used = self.current_batch_size;
         self.current_stats.backpressure.min_batch_size_used = self.current_batch_size;
-
-        // Process each source with backpressure
         for (self.sources.items) |source| {
             self.process_source_with_backpressure(source, storage_engine) catch |err| {
                 self.current_stats.sources_failed += 1;
@@ -447,11 +440,9 @@ pub const IngestionPipeline = struct {
     ) IngestionError!void {
         const main_allocator = self.arena.allocator();
 
-        // Fetch content iterator from source
         var content_iterator = try source.fetch(main_allocator, self.file_system);
         defer content_iterator.deinit(main_allocator);
 
-        // Process each content item from the source
         while (try content_iterator.next(main_allocator)) |content| {
             // Memory optimization: Use temporary arena per file to bound memory usage.
             // Without this, the main arena would accumulate memory for ALL files in the
@@ -465,13 +456,12 @@ pub const IngestionPipeline = struct {
             var mutable_content = content;
             defer mutable_content.deinit(main_allocator);
 
-            // Find compatible parser
+            // Silently skip unsupported content types to avoid failing entire ingestion
             const parser = self.find_parser(mutable_content.content_type) orelse {
-                // Skip unsupported content types instead of failing
                 continue;
             };
 
-            // Parse content into semantic units using temporary allocator
+            // Transform raw text into structured elements for context building using temporary allocator
             const units = try parser.parse(temp_allocator, mutable_content);
             defer {
                 for (units) |*unit| {
@@ -481,7 +471,6 @@ pub const IngestionPipeline = struct {
             }
             self.current_stats.units_parsed += @intCast(units.len);
 
-            // Find compatible chunker and convert to blocks
             for (self.chunkers.items) |chunker| {
                 const temp_blocks = try chunker.chunk(temp_allocator, units);
 
@@ -530,7 +519,6 @@ pub const IngestionPipeline = struct {
         source: Source,
         storage_engine: anytype,
     ) IngestionError!void {
-        // Create per-source arena for temporary processing
         var source_arena = std.heap.ArenaAllocator.init(self.allocator);
         defer source_arena.deinit(); // O(1) cleanup when source completes
         const temp_allocator = source_arena.allocator();
@@ -541,7 +529,6 @@ pub const IngestionPipeline = struct {
         // Use main allocator for batch buffer to survive arena resets
         var batch_buffer = std.ArrayList(ContextBlock).init(self.allocator);
         defer {
-            // Clean up any remaining blocks in the batch buffer
             for (batch_buffer.items) |*block| {
                 self.allocator.free(block.source_uri);
                 self.allocator.free(block.metadata_json);
@@ -551,19 +538,16 @@ pub const IngestionPipeline = struct {
         }
 
         while (try content_iterator.next(temp_allocator)) |content| {
-            // Process content through parsing and chunking pipeline
             try self.process_content_to_batch_with_copying(content, temp_allocator, &batch_buffer);
 
             // Flush batch when full or under memory pressure
             if (batch_buffer.items.len >= self.current_batch_size) {
-                // Check storage pressure and adapt batch size if needed
                 if (self.should_check_storage_pressure()) {
                     try self.adapt_batch_size_to_pressure(storage_engine);
                 }
 
                 try self.flush_batch_to_storage(storage_engine, &batch_buffer);
 
-                // Clean up flushed blocks
                 for (batch_buffer.items) |*block| {
                     self.allocator.free(block.source_uri);
                     self.allocator.free(block.metadata_json);
@@ -574,7 +558,6 @@ pub const IngestionPipeline = struct {
             }
         }
 
-        // Flush any remaining blocks in final partial batch
         if (batch_buffer.items.len > 0) {
             try self.flush_batch_to_storage(storage_engine, &batch_buffer);
         }
@@ -622,10 +605,8 @@ pub const IngestionPipeline = struct {
         temp_allocator: std.mem.Allocator,
         batch_buffer: *std.ArrayList(ContextBlock),
     ) !void {
-        // Find appropriate parser
         const parser = self.find_parser(content.content_type) orelse return;
 
-        // Parse content into semantic units
         const parsed_units = try parser.parse(temp_allocator, content);
         defer {
             for (parsed_units) |*unit| {
@@ -635,12 +616,10 @@ pub const IngestionPipeline = struct {
         }
         self.current_stats.units_parsed += @intCast(parsed_units.len);
 
-        // Chunk units into context blocks
         for (self.chunkers.items) |chunker| {
             const chunked_blocks = try chunker.chunk(temp_allocator, parsed_units);
             defer temp_allocator.free(chunked_blocks);
 
-            // Add blocks to batch buffer
             try batch_buffer.appendSlice(chunked_blocks);
         }
     }
@@ -653,10 +632,8 @@ pub const IngestionPipeline = struct {
         temp_allocator: std.mem.Allocator,
         batch_buffer: *std.ArrayList(ContextBlock),
     ) !void {
-        // Find appropriate parser
         const parser = self.find_parser(content.content_type) orelse return;
 
-        // Parse content into semantic units
         const parsed_units = try parser.parse(temp_allocator, content);
         defer {
             for (parsed_units) |*unit| {
@@ -666,7 +643,6 @@ pub const IngestionPipeline = struct {
         }
         self.current_stats.units_parsed += @intCast(parsed_units.len);
 
-        // Chunk units into context blocks
         for (self.chunkers.items) |chunker| {
             const chunked_blocks = try chunker.chunk(temp_allocator, parsed_units);
             defer temp_allocator.free(chunked_blocks);
@@ -699,7 +675,6 @@ pub const IngestionPipeline = struct {
             self.current_stats.backpressure.total_backpressure_wait_ns += @intCast(flush_time);
         }
 
-        // Write each block directly to storage
         for (batch_buffer.items) |block| {
             storage_engine.put_block(block) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -733,7 +708,6 @@ test "pipeline creation and cleanup" {
     var pipeline = try IngestionPipeline.init(allocator, &sim_vfs.vfs, config);
     defer pipeline.deinit();
 
-    // Verify initial state
     try testing.expectEqual(@as(usize, 0), pipeline.sources.items.len);
     try testing.expectEqual(@as(usize, 0), pipeline.parsers.items.len);
     try testing.expectEqual(@as(usize, 0), pipeline.chunkers.items.len);

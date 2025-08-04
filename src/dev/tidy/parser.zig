@@ -29,17 +29,14 @@ pub fn parse_source(allocator: std.mem.Allocator, file_path: []const u8, source:
             continue;
         }
 
-        // Parse function definitions
         if (parse_function(trimmed, line_num)) |func| {
             try functions.append(func);
         }
 
-        // Parse variable/constant declarations
         if (parse_variable(trimmed, line_num)) |variable| {
             try variables.append(variable);
         }
 
-        // Parse imports
         if (parse_import(trimmed, line_num)) |import| {
             try imports.append(import);
         }
@@ -66,7 +63,6 @@ fn parse_function(line: []const u8, line_num: u32) ?FunctionInfo {
 
     if (func_name.len == 0) return null;
 
-    // Count parameters (simple heuristic)
     const params_end = std.mem.indexOf(u8, remaining[paren_pos..], ")") orelse return null;
     const params = remaining[paren_pos + 1 .. paren_pos + params_end];
     const param_count = if (std.mem.trim(u8, params, " \t").len == 0) 0 else count_commas(params) + 1;
@@ -99,7 +95,6 @@ fn parse_variable(line: []const u8, line_num: u32) ?VariableInfo {
     const colon_pos = std.mem.indexOf(u8, remaining, ":");
     const equals_pos = std.mem.indexOf(u8, remaining, "=");
 
-    // Variable name ends at first colon or equals
     const name_end = if (colon_pos != null and equals_pos != null)
         @min(colon_pos.?, equals_pos.?)
     else
@@ -108,7 +103,6 @@ fn parse_variable(line: []const u8, line_num: u32) ?VariableInfo {
     const var_name = std.mem.trim(u8, remaining[0..name_end], " \t");
     if (var_name.len == 0) return null;
 
-    // Extract type hint if present
     var type_hint: ?[]const u8 = null;
     if (colon_pos != null and equals_pos != null) {
         const type_end = if (equals_pos.? > colon_pos.?) equals_pos.? else remaining.len;

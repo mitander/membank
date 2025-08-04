@@ -73,7 +73,6 @@ fn analyze_file(
     file_path: []const u8,
     source: []const u8,
 ) !void {
-    // Parse source for semantic analysis
     const context = parser.parse_source(allocator, file_path, source) catch |err| {
         std.debug.print("Parse error in {s}: {}\n", .{ file_path, err });
         return;
@@ -105,8 +104,6 @@ fn analyze_file(
 /// Discover all Zig source files in the project
 fn discover_source_files(allocator: std.mem.Allocator) ![][]const u8 {
     var file_paths = std.ArrayList([]const u8).init(allocator);
-
-    // Search key directories
     const search_dirs = [_][]const u8{ "src", "tests" };
 
     for (search_dirs) |dir| {
@@ -143,7 +140,7 @@ fn discover_files_recursive(
                 }
             },
             .directory => {
-                // Skip certain directories
+                // Skip excluded directories
                 if (mem.eql(u8, entry.name, "zig-cache") or
                     mem.eql(u8, entry.name, "zig-out") or
                     mem.eql(u8, entry.name, ".git"))

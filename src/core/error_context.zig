@@ -251,7 +251,6 @@ pub fn log_buffer_error(err: anyerror, context: BufferContext) void {
 
 /// Check if we're in verbose mode (used by fuzz testing)
 fn is_verbose_mode() bool {
-    // Check if we're in a fuzz testing context with verbose enabled
     if (@hasDecl(@import("root"), "global_verbose_mode")) {
         const root = @import("root");
         return root.global_verbose_mode.load(.seq_cst);
@@ -270,10 +269,8 @@ fn increment_validation_errors() void {
 /// Log a storage error with context in verbose mode only.
 /// Counts validation errors for statistics but only logs details when verbose enabled.
 pub fn log_storage_error(err: anyerror, context: StorageContext) void {
-    // Always count validation errors for summary statistics
     increment_validation_errors();
 
-    // Only log details in verbose mode (for fuzzing compatibility)
     if (is_verbose_mode()) {
         log.warn("Storage operation failed: {any} - {any}", .{ err, context });
     }
@@ -446,8 +443,6 @@ pub fn chunking_context(
     };
 }
 
-// Tests
-
 test "StorageContext formatting" {
     const test_id = try BlockId.from_hex("0123456789abcdeffedcba9876543210");
 
@@ -464,7 +459,6 @@ test "StorageContext formatting" {
     var buf: [512]u8 = undefined;
     const formatted = try std.fmt.bufPrint(&buf, "{any}", .{ctx});
 
-    // Should contain all the context fields
     try std.testing.expect(std.mem.indexOf(u8, formatted, "block_deserialization") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "test.sst") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "offset=1024") != null);
@@ -473,7 +467,6 @@ test "StorageContext formatting" {
 test "error context helpers in debug mode" {
     const test_id = try BlockId.from_hex("1111111111111111111111111111111");
 
-    // Test that helpers create proper context
     const block_ctx = block_context("test_operation", test_id);
     try std.testing.expectEqualStrings("test_operation", block_ctx.operation);
     try std.testing.expect(block_ctx.block_id != null);
@@ -527,8 +520,6 @@ test "IngestionContext formatting" {
 
     var buf: [1024]u8 = undefined;
     const formatted = try std.fmt.bufPrint(&buf, "{any}", .{ctx});
-
-    // Should contain all the context fields
     try std.testing.expect(std.mem.indexOf(u8, formatted, "parse_zig_function") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "./my-repo") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "src/parser.zig") != null);
@@ -540,26 +531,22 @@ test "IngestionContext formatting" {
 }
 
 test "ingestion context helpers" {
-    // Test repository context
     const repo_ctx = repository_context("validate_repository", "/path/to/repo");
     try std.testing.expectEqualStrings("validate_repository", repo_ctx.operation);
     try std.testing.expectEqualStrings("/path/to/repo", repo_ctx.repository_path.?);
 
-    // Test file context
     const file_ctx = ingestion_file_context("read_file", "/repo", "file.zig", "text/zig");
     try std.testing.expectEqualStrings("read_file", file_ctx.operation);
     try std.testing.expectEqualStrings("/repo", file_ctx.repository_path.?);
     try std.testing.expectEqualStrings("file.zig", file_ctx.file_path.?);
     try std.testing.expectEqualStrings("text/zig", file_ctx.content_type.?);
 
-    // Test file size context
     const size_ctx = file_size_context("validate_size", "large_file.txt", 20480, 10240);
     try std.testing.expectEqualStrings("validate_size", size_ctx.operation);
     try std.testing.expectEqualStrings("large_file.txt", size_ctx.file_path.?);
     try std.testing.expectEqual(@as(u64, 20480), size_ctx.file_size.?);
     try std.testing.expectEqual(@as(u64, 10240), size_ctx.max_allowed_size.?);
 
-    // Test parsing context
     const parse_ctx = parsing_context("parse_function", "test.zig", "text/zig", 42, "ast_generation");
     try std.testing.expectEqualStrings("parse_function", parse_ctx.operation);
     try std.testing.expectEqualStrings("test.zig", parse_ctx.file_path.?);
@@ -567,7 +554,6 @@ test "ingestion context helpers" {
     try std.testing.expectEqual(@as(u32, 42), parse_ctx.line_number.?);
     try std.testing.expectEqualStrings("ast_generation", parse_ctx.parsing_stage.?);
 
-    // Test chunking context
     const chunk_ctx = chunking_context("create_chunks", "function", 15);
     try std.testing.expectEqualStrings("create_chunks", chunk_ctx.operation);
     try std.testing.expectEqualStrings("function", chunk_ctx.unit_type.?);

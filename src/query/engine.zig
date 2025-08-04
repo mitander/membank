@@ -101,7 +101,6 @@ pub const QueryPlan = struct {
         const complexity_factor = block_count + (edge_count / 2);
         self.estimated_cost = complexity_factor * 10;
 
-        // Multi-tier optimization strategy
         if (complexity_factor > 10000) {
             self.optimization_hints.use_index = true;
             self.optimization_hints.enable_prefetch = true;
@@ -118,7 +117,6 @@ pub const QueryPlan = struct {
             self.execution_strategy = .direct_storage;
         }
 
-        // Set optimal batch sizes based on query type and complexity
         switch (self.query_type) {
             .find_blocks => {
                 if (complexity_factor > 500) {
@@ -217,15 +215,12 @@ pub const QueryEngine = struct {
     storage_engine: *StorageEngine,
     initialized: bool,
 
-    // Query result caching for expensive operations
     query_cache: cache.QueryCache,
     caching_enabled: bool,
 
-    // Query planning and optimization
     next_query_id: stdx.MetricsCounter,
     planning_enabled: bool,
 
-    // Thread-safe metrics using coordination primitives
     queries_executed: stdx.MetricsCounter,
     find_blocks_queries: stdx.MetricsCounter,
     traversal_queries: stdx.MetricsCounter,
@@ -279,18 +274,13 @@ pub const QueryEngine = struct {
                 @intCast(storage_metrics.edges_added.load()),
             );
 
-            // Apply workload-adaptive optimizations
             self.apply_workload_optimizations(&plan, estimated_results);
 
-            // Enable caching based on cost and query patterns
             if (plan.estimated_cost > 5000 or self.should_cache_query(query_type)) {
                 plan.cache_eligible = true;
             }
 
-            // Generate cache key for eligible queries
             if (plan.cache_eligible) {
-                // Cache key generation will be implemented with actual caching system
-                // For now, we prepare the infrastructure
             }
         }
 
@@ -308,7 +298,6 @@ pub const QueryEngine = struct {
                     plan.optimization_hints.batch_size = 32;
                 }
 
-                // Prefer memtable for small queries on recent data
                 if (estimated_results <= 10 and recent_query_ratio > 0.7) {
                     plan.optimization_hints.prefer_memtable = true;
                 }
@@ -316,7 +305,6 @@ pub const QueryEngine = struct {
             .traversal => {
                 plan.optimization_hints.result_limit = estimated_results;
 
-                // Enable prefetching for complex traversals
                 if (estimated_results > 50) {
                     plan.optimization_hints.enable_prefetch = true;
                     plan.execution_strategy = .optimized_traversal;
@@ -328,7 +316,6 @@ pub const QueryEngine = struct {
                     plan.execution_strategy = .index_lookup;
                 }
 
-                // Use streaming for large result sets
                 if (estimated_results > 1000) {
                     plan.execution_strategy = .streaming_scan;
                 }
@@ -340,7 +327,6 @@ pub const QueryEngine = struct {
     fn should_cache_query(self: *QueryEngine, query_type: QueryPlan.QueryType) bool {
         _ = self; // Reserved for future cache hit rate analysis
 
-        // Cache expensive query types by default
         return switch (query_type) {
             .semantic, .filtered => true, // Complex queries benefit from caching
             .traversal => true, // Graph traversals often repeat
@@ -368,16 +354,12 @@ pub const QueryEngine = struct {
         const duration_ns = context.execution_duration_ns();
         self.total_query_time_ns.add(duration_ns);
 
-        // Record optimization effectiveness
         if (context.plan.optimization_hints.use_index and context.metrics.index_lookups > 0) {
-            // Index optimization was beneficial
         }
 
         if (context.plan.optimization_hints.prefer_memtable and context.metrics.memtable_hits > 0) {
-            // Memtable preference was effective
         }
 
-        // Track cache effectiveness for future planning
         if (context.plan.cache_eligible) {
             const cache_hit_rate = if (context.metrics.cache_hits + context.metrics.cache_misses > 0)
                 @as(f32, @floatFromInt(context.metrics.cache_hits)) /
@@ -385,12 +367,9 @@ pub const QueryEngine = struct {
             else
                 0.0;
 
-            // Future: Adjust caching strategies based on hit rates
             _ = cache_hit_rate;
         }
 
-        // Future: Machine learning hooks for query pattern recognition
-        // This data will feed into sophisticated optimization algorithms
     }
 
     /// Execute a FindBlocks query to retrieve blocks by ID
@@ -404,20 +383,16 @@ pub const QueryEngine = struct {
         assert(self.initialized);
         if (!self.initialized) return EngineError.NotInitialized;
 
-        // Create query plan and execution context
         const query_id = self.generate_query_id();
         const plan = self.create_query_plan(.find_blocks, @intCast(query.block_ids.len));
         var context = QueryContext.create(query_id, plan);
 
-        // Apply optimization hints from query plan
         const optimized_query = query;
         if (plan.optimization_hints.batch_size) |batch_size| {
-            // Future: Implement batched execution for large queries
             _ = batch_size;
         }
 
         const result = if (plan.optimization_hints.prefer_memtable)
-            // Optimize for recent data by checking memtable first
             self.execute_find_blocks_optimized(optimized_query, &context)
         else
             operations.execute_find_blocks(
@@ -432,7 +407,6 @@ pub const QueryEngine = struct {
                 return err;
             };
 
-        // Record execution metrics for future optimization
         context.metrics.blocks_scanned = @intCast(query.block_ids.len);
         context.metrics.optimization_applied = plan.optimization_hints.prefer_memtable or
             plan.optimization_hints.batch_size != null;
@@ -446,47 +420,38 @@ pub const QueryEngine = struct {
         assert(self.initialized);
         if (!self.initialized) return EngineError.NotInitialized;
 
-        // Check cache first for single block lookups
         if (self.caching_enabled) {
             const cache_key = cache.CacheKey.for_single_block(block_id);
             if (self.query_cache.get(cache_key, self.allocator)) |cached_value| {
                 switch (cached_value) {
                     .find_blocks => {
-                        // Create QueryResult from cached block
                         const blocks_array = try self.allocator.alloc(BlockId, 1);
                         blocks_array[0] = block_id;
 
                         const result = QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, blocks_array);
 
-                        // Update cache hit metrics
                         return result;
                     },
                     else => {
-                        // Cache miss, continue with storage lookup
                     },
                 }
             }
         }
 
-        // Cache miss or caching disabled - fetch from storage
         if (self.storage_engine.find_block(block_id)) |maybe_block| {
             if (maybe_block) |block| {
-                // Cache the individual block if caching enabled
                 if (self.caching_enabled) {
                     const cache_key = cache.CacheKey.for_single_block(block_id);
                     const cache_value = cache.CacheValue{ .find_blocks = block };
                     self.query_cache.put(cache_key, cache_value) catch {
-                        // Cache put failed, continue without caching
                     };
                 }
 
-                // Create QueryResult
                 const blocks_array = try self.allocator.alloc(BlockId, 1);
                 blocks_array[0] = block_id;
                 return QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, blocks_array);
             }
 
-            // Block not found - return empty result
             const empty_array = try self.allocator.alloc(BlockId, 0);
             return QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, empty_array);
         } else |err| {
@@ -508,10 +473,8 @@ pub const QueryEngine = struct {
         assert(self.initialized);
         if (!self.initialized) return EngineError.NotInitialized;
 
-        // Validate query parameters first
         try query.validate();
 
-        // Check cache first for expensive traversal operations
         if (self.caching_enabled) {
             const cache_key = cache.CacheKey.for_traversal(
                 query.start_block_id,
@@ -527,13 +490,11 @@ pub const QueryEngine = struct {
                         return cached_result;
                     },
                     else => {
-                        // Wrong cache type, continue with fresh query
                     },
                 }
             }
         }
 
-        // Cache miss or caching disabled - execute traversal
         const result = traversal.execute_traversal(
             self.allocator,
             self.storage_engine,
@@ -547,7 +508,6 @@ pub const QueryEngine = struct {
             return err;
         };
 
-        // Cache the result if it's worth caching (non-empty and expensive)
         if (self.caching_enabled and result.blocks.len > 0) {
             const cache_key = cache.CacheKey.for_traversal(
                 query.start_block_id,
@@ -558,7 +518,6 @@ pub const QueryEngine = struct {
             );
             const cache_value = cache.CacheValue{ .traversal = result };
             self.query_cache.put(cache_key, cache_value) catch {
-                // Cache put failed, continue without caching
             };
         }
 
@@ -687,7 +646,6 @@ pub const QueryEngine = struct {
         assert(self.initialized);
         if (!self.initialized) return EngineError.NotInitialized;
 
-        // Create optimized execution plan for semantic queries
         const query_id = self.generate_query_id();
         const plan = self.create_query_plan(.semantic, query.max_results orelse 100);
         var context = QueryContext.create(query_id, plan);
@@ -706,7 +664,6 @@ pub const QueryEngine = struct {
             return err;
         };
 
-        // Record semantic query metrics
         context.metrics.optimization_applied = plan.execution_strategy != .direct_storage;
         if (plan.optimization_hints.use_index) {
             context.metrics.index_lookups = 1; // Simplified metric
@@ -725,7 +682,6 @@ pub const QueryEngine = struct {
         var result_blocks = std.ArrayList(ContextBlock).init(self.allocator);
         defer result_blocks.deinit();
 
-        // Pre-allocate the ArrayList with the maximum possible capacity we might need
         try result_blocks.ensureTotalCapacity(@as(u32, @intCast(query.block_ids.len)));
 
         var blocks_found: u32 = 0;
@@ -754,7 +710,6 @@ pub const QueryEngine = struct {
         context.metrics.sstable_reads = sstable_reads;
         context.metrics.optimization_applied = true;
 
-        // Bridge optimized materialization to streaming interface
         const block_ids = try self.allocator.alloc(BlockId, result_blocks.items.len);
         for (result_blocks.items, 0..) |block, i| {
             block_ids[i] = block.id;
@@ -769,8 +724,6 @@ pub const QueryEngine = struct {
         query: SemanticQuery,
         context: *QueryContext,
     ) !SemanticQueryResult {
-        // Index optimization: Currently no secondary indices implemented
-        // This provides a clean interface for future index integration
         context.metrics.index_lookups += 1;
         context.metrics.optimization_applied = true;
 
@@ -797,11 +750,9 @@ pub const QueryEngine = struct {
         );
         defer full_result.deinit();
 
-        // Streaming optimization: process filtered results in memory-efficient chunks
         var streaming_blocks = std.ArrayList(ContextBlock).init(self.allocator);
         defer streaming_blocks.deinit();
 
-        // Pre-allocate with the chunk size to avoid reallocations
         try streaming_blocks.ensureTotalCapacity(@min(FILTER_STREAMING_CHUNK_SIZE, full_result.blocks.len));
 
         var chunk_start: usize = 0;
@@ -812,7 +763,6 @@ pub const QueryEngine = struct {
                 try streaming_blocks.append(block);
                 blocks_evaluated += 1;
 
-                // Early termination for very large result sets
                 if (streaming_blocks.items.len >= 1000) break;
             }
 
@@ -832,8 +782,6 @@ pub const QueryEngine = struct {
         query: FilteredQuery,
         context: *QueryContext,
     ) !FilteredQueryResult {
-        // Index optimization: Currently no secondary indices for filtering
-        // This provides a clean interface for future index-based filtering
         context.metrics.index_lookups += 1;
         context.metrics.optimization_applied = true;
 
@@ -911,7 +859,6 @@ test "query engine statistics tracking" {
     var query_engine = QueryEngine.init(allocator, &storage_engine);
     defer query_engine.deinit();
 
-    // Initial statistics should be zero
     const initial_stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 0), initial_stats.queries_executed);
     try testing.expectEqual(@as(u64, 0), initial_stats.find_blocks_queries);
@@ -921,12 +868,10 @@ test "query engine statistics tracking" {
     const test_block = create_test_block(test_id, "test content");
     try storage_engine.put_block(test_block);
 
-    // Execute a query
     const query = FindBlocksQuery{ .block_ids = &[_]BlockId{test_id} };
     const result = try query_engine.execute_find_blocks(query);
     defer result.deinit();
 
-    // Statistics should be updated
     const updated_stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 1), updated_stats.queries_executed);
     try testing.expectEqual(@as(u64, 1), updated_stats.find_blocks_queries);
@@ -943,12 +888,11 @@ test "query engine statistics calculations" {
     var query_engine = QueryEngine.init(allocator, &storage_engine);
     defer query_engine.deinit();
 
-    // Test average latency with zero queries
+
     const empty_stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 0), empty_stats.average_query_latency_ns());
     try testing.expectEqual(@as(f64, 0.0), empty_stats.queries_per_second());
 
-    // Manually set some statistics for calculation testing
     query_engine.queries_executed.store(10);
     query_engine.total_query_time_ns.store(1_000_000_000); // 1 second
 
@@ -966,12 +910,10 @@ test "query engine statistics reset" {
     var query_engine = QueryEngine.init(allocator, &storage_engine);
     defer query_engine.deinit();
 
-    // Set some statistics
     query_engine.queries_executed.store(5);
     query_engine.find_blocks_queries.store(3);
     query_engine.total_query_time_ns.store(1000000);
 
-    // Reset and verify
     query_engine.reset_statistics();
 
     const reset_stats = query_engine.statistics();
@@ -998,7 +940,6 @@ test "query engine find_blocks execution" {
     try storage_engine.put_block(test_block1);
     try storage_engine.put_block(test_block2);
 
-    // Execute query for both blocks
     const query = FindBlocksQuery{ .block_ids = &[_]BlockId{ test_id1, test_id2 } };
     const result = try query_engine.execute_find_blocks(query);
     defer result.deinit();
@@ -1020,7 +961,6 @@ test "query engine find_block convenience method" {
     const test_block = create_test_block(test_id, "single block content");
     try storage_engine.put_block(test_block);
 
-    // Use convenience method
     const result = try query_engine.find_block(test_id);
     defer result.deinit();
 
@@ -1043,11 +983,9 @@ test "query engine block_exists check" {
     const existing_id = try BlockId.from_hex("4444444444444444444444444444444444444444");
     const missing_id = try BlockId.from_hex("5555555555555555555555555555555555555555");
 
-    // Initially, block shouldn't exist
     try testing.expect(!query_engine.block_exists(existing_id));
     try testing.expect(!query_engine.block_exists(missing_id));
 
-    // Add block and test again
     const test_block = create_test_block(existing_id, "exists test");
     try storage_engine.put_block(test_block);
 
@@ -1063,13 +1001,11 @@ test "query engine uninitialized error handling" {
 
     var query_engine = QueryEngine.init(allocator, &storage_engine);
 
-    // Mark as uninitialized
     query_engine.initialized = false;
 
     const test_id = try BlockId.from_hex("6666666666666666666666666666666666666666");
     const query = FindBlocksQuery{ .block_ids = &[_]BlockId{test_id} };
 
-    // Should return NotInitialized error
     try testing.expectError(EngineError.NotInitialized, query_engine.execute_find_blocks(query));
 }
 
@@ -1077,12 +1013,12 @@ test "convenience query functions" {
     const test_id = try BlockId.from_hex("7777777777777777777777777777777777777777");
     const test_ids = [_]BlockId{ test_id, try BlockId.from_hex("8888888888888888888888888888888888888888") };
 
-    // Test single block query
+
     const single_query = single_block_query(test_id);
     try testing.expectEqual(@as(usize, 1), single_query.block_ids.len);
     try testing.expect(single_query.block_ids[0].eql(test_id));
 
-    // Test multi block query
+
     const multi_query = multi_block_query(&test_ids);
     try testing.expectEqual(@as(usize, 2), multi_query.block_ids.len);
     try testing.expect(multi_query.block_ids[0].eql(test_ids[0]));
@@ -1095,7 +1031,6 @@ test "query command enum parsing" {
     try testing.expectEqual(QueryCommand.filter, try QueryCommand.from_u8(0x03));
     try testing.expectEqual(QueryCommand.semantic, try QueryCommand.from_u8(0x04));
 
-    // Invalid command should return error
     try testing.expectError(EngineError.NotInitialized, QueryCommand.from_u8(0xFF));
 }
 
@@ -1112,7 +1047,7 @@ test "query engine traversal integration" {
     const test_block = create_test_block(start_id, "traversal start");
     try storage_engine.put_block(test_block);
 
-    // Test traversal convenience methods
+
     const outgoing_result = try query_engine.traverse_outgoing(start_id, 2);
     defer outgoing_result.deinit();
 
@@ -1122,7 +1057,6 @@ test "query engine traversal integration" {
     const bidirectional_result = try query_engine.traverse_bidirectional(start_id, 2);
     defer bidirectional_result.deinit();
 
-    // Verify statistics were updated
     const stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 3), stats.traversal_queries);
     try testing.expectEqual(@as(u64, 3), stats.queries_executed);

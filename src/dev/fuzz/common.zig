@@ -82,28 +82,26 @@ pub const FuzzStats = struct {
         // Simple linear search for uniqueness - fine for small crash counts
         for (self.seen_crashes.items) |seen_hash| {
             if (seen_hash == crash_hash) {
-                return false; // Already seen
+                return false;
             }
         }
         self.seen_crashes.append(crash_hash) catch return false;
-        return true; // New crash
+        return true;
     }
 };
 
 /// Setup crash reporting infrastructure
 pub fn setup_crash_reporting(allocator: std.mem.Allocator) !void {
-    // Ensure crash report directory exists
+    _ = allocator;
+
     std.fs.cwd().makeDir(CRASH_REPORT_DIR) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return err,
     };
 
-    // Log startup
     const timestamp = std.time.timestamp();
     std.debug.print("Fuzzing session started at {}\n", .{timestamp});
     std.debug.print("Crash reports will be saved to: {s}/\n", .{CRASH_REPORT_DIR});
-
-    _ = allocator;
 }
 
 /// Generate detailed crash report for debugging
@@ -152,7 +150,6 @@ pub fn report_crash(
     defer allocator.free(report_content);
 
     try report_file.writeAll(report_content);
-
     std.debug.print("Crash report saved: {s}\n", .{report_filename});
 }
 
@@ -166,18 +163,17 @@ pub fn calculate_error_hash(err: anyerror) u64 {
 
 /// Check for git updates during continuous fuzzing
 pub fn check_git_updates() bool {
-    // Simple git check - return true if updates are available
     const result = std.process.Child.run(.{
         .allocator = std.heap.page_allocator,
         .argv = &[_][]const u8{ "git", "fetch", "--dry-run" },
         .max_output_bytes = 1024,
     }) catch {
-        return false; // Error checking git, assume no updates
+        return false;
     };
     defer std.heap.page_allocator.free(result.stdout);
     defer std.heap.page_allocator.free(result.stderr);
 
-    // If fetch has output, there are updates
+    // Output means there are updates
     return result.stderr.len > 0;
 }
 
@@ -195,7 +191,7 @@ pub fn generate_random_block(allocator: std.mem.Allocator, random: std.Random) !
     const id = generate_random_block_id(random);
     const version = random.int(u64);
 
-    // Generate random strings with potential edge cases
+    // Random strings with potential edge cases
     const source_uri = try generate_random_string(allocator, random, 1, 200);
     const metadata_json = try generate_random_json_like_string(allocator, random);
     const content = try generate_random_string(allocator, random, 1, 1000);
@@ -284,7 +280,6 @@ pub fn generate_malformed_zig_source(allocator: std.mem.Allocator, random: std.R
         "\x00\x01\x02\x03",
     };
 
-    // Pre-allocate with estimated capacity
     const line_count = random.intRangeAtMost(usize, 1, 20);
     const estimated_capacity = 100 * line_count; // tidy:ignore-perf - capacity managed explicitly
 
@@ -298,7 +293,7 @@ pub fn generate_malformed_zig_source(allocator: std.mem.Allocator, random: std.R
         const template = templates[random.intRangeAtMost(usize, 0, templates.len - 1)];
         try result.appendSlice(template);
 
-        // Occasionally inject random bytes
+        // Randomly inject bytes
         if (random.boolean()) {
             const random_bytes = random.intRangeAtMost(usize, 1, 10);
             try result.ensureUnusedCapacity(random_bytes);
@@ -320,7 +315,6 @@ test "fuzz: basic data generation functionality" {
     var prng = std.Random.DefaultPrng.init(12345);
     const random = prng.random();
 
-    // Test helper functions don't crash
     const block = try generate_random_block(std.testing.allocator, random);
     defer {
         std.testing.allocator.free(block.source_uri);
@@ -330,7 +324,6 @@ test "fuzz: basic data generation functionality" {
 
     _ = generate_random_block_id(random);
 
-    // Test string generation
     const test_string = try generate_random_string(std.testing.allocator, random, 5, 10);
     defer std.testing.allocator.free(test_string);
 

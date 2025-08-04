@@ -22,13 +22,11 @@ pub fn check_naming_conventions(file: SourceFile) ?NamingViolation {
     while (lines.next()) |line| {
         defer line_num += 1;
 
-        // Skip empty lines and comments
         const trimmed = mem.trim(u8, line, " \t");
         if (trimmed.len == 0 or mem.startsWith(u8, trimmed, "//")) {
             continue;
         }
 
-        // Check function naming
         if (check_function_naming(line)) |violation| {
             return NamingViolation{
                 .line = line_num,
@@ -36,7 +34,6 @@ pub fn check_naming_conventions(file: SourceFile) ?NamingViolation {
             };
         }
 
-        // Check variable naming
         if (check_variable_naming(line)) |violation| {
             return NamingViolation{
                 .line = line_num,
@@ -44,7 +41,6 @@ pub fn check_naming_conventions(file: SourceFile) ?NamingViolation {
             };
         }
 
-        // Check constant naming
         if (check_constant_naming(line)) |violation| {
             return NamingViolation{
                 .line = line_num,
@@ -61,15 +57,12 @@ pub fn check_naming_conventions(file: SourceFile) ?NamingViolation {
 fn check_function_naming(line: []const u8) ?[]const u8 {
     const trimmed = mem.trim(u8, line, " \t");
 
-    // Look for function definitions
     if (mem.startsWith(u8, trimmed, "pub fn ") or mem.startsWith(u8, trimmed, "fn ")) {
         const fn_start = if (mem.startsWith(u8, trimmed, "pub fn ")) 7 else 3;
         const remaining = trimmed[fn_start..];
 
-        // Find function name (up to opening parenthesis)
         if (mem.indexOf(u8, remaining, "(")) |paren_pos| {
             const fn_name = mem.trim(u8, remaining[0..paren_pos], " \t");
-
             if (!is_valid_snake_case_function(fn_name)) {
                 return "function names must use snake_case";
             }
@@ -82,7 +75,6 @@ fn check_function_naming(line: []const u8) ?[]const u8 {
 /// Check variable naming conventions.
 /// Variables should use snake_case.
 fn check_variable_naming(line: []const u8) ?[]const u8 {
-    // Check for obvious camelCase patterns in variable contexts
     if (has_camel_case_identifier(line)) {
         return "variable names should use snake_case, not camelCase";
     }
@@ -105,7 +97,6 @@ fn check_constant_naming(line: []const u8) ?[]const u8 {
 fn is_valid_snake_case_function(name: []const u8) bool {
     if (name.len == 0) return false;
 
-    // Special cases that are allowed
     if (mem.eql(u8, name, "main") or
         mem.eql(u8, name, "init") or
         mem.eql(u8, name, "deinit") or
@@ -114,12 +105,10 @@ fn is_valid_snake_case_function(name: []const u8) bool {
         return true;
     }
 
-    // Check for conventional patterns that override snake_case
     if (has_conventional_name(name)) {
         return true;
     }
 
-    // Standard snake_case validation
     var has_lower = false;
     var prev_was_underscore = false;
 
@@ -152,7 +141,6 @@ fn has_camel_case_identifier(line: []const u8) bool {
             continue;
         }
 
-        // Look for identifier start
         if ((line[i] >= 'a' and line[i] <= 'z') or line[i] == '_') {
             const start = i;
             while (i < line.len and ((line[i] >= 'a' and line[i] <= 'z') or
@@ -183,7 +171,8 @@ fn has_camel_case_in_name(name: []const u8) bool {
         if (char >= 'a' and char <= 'z') {
             has_lower = true;
         } else if (char >= 'A' and char <= 'Z' and has_lower) {
-            return true; // Found uppercase after lowercase = camelCase
+            // Found uppercase after lowercase = camelCase
+            return true;
         }
     }
     return false;
@@ -214,13 +203,11 @@ fn is_inside_string_literal(line: []const u8, pos: usize) bool {
 
 /// Check for improper constant case patterns.
 fn has_improper_constant_case(line: []const u8) bool {
-    // Look for const declarations
     if (mem.indexOf(u8, line, "const ")) |const_pos| {
         const after_const = line[const_pos + 6 ..];
         if (mem.indexOf(u8, after_const, " =")) |eq_pos| {
             const const_name = mem.trim(u8, after_const[0..eq_pos], " \t");
 
-            // Skip if it's a type or function
             if (const_name.len == 0 or
                 (const_name[0] >= 'A' and const_name[0] <= 'Z' and
                     !mem.containsAtLeast(u8, const_name, 1, "_")))
@@ -228,7 +215,6 @@ fn has_improper_constant_case(line: []const u8) bool {
                 return false; // Likely a type name
             }
 
-            // Check if it's a literal constant that should be SCREAMING_SNAKE_CASE
             if (has_lowercase_in_constant(const_name)) {
                 return true;
             }

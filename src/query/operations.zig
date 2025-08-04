@@ -96,7 +96,6 @@ pub const QueryResult = struct {
     pub fn next(self: *QueryResult) QueryError!?ContextBlock {
         if (self.iterator.next()) |block| {
             self.consumed_count += 1;
-            // Clone block to prevent use-after-free when storage data changes
             return try clone_block(self.allocator, block);
         }
         return null;
@@ -168,7 +167,6 @@ const QueryBlockIterator = struct {
             const block_id = self.block_ids[self.current_index];
             self.current_index += 1;
 
-            // Skip missing blocks to maintain backward compatibility
             if (self.storage_engine.find_block(block_id) catch null) |block| {
                 return block;
             }
@@ -177,7 +175,6 @@ const QueryBlockIterator = struct {
     }
 
     fn deinit(_: QueryBlockIterator) void {
-        // Iterator owns no allocated resources
     }
 };
 
@@ -418,15 +415,12 @@ test "find blocks query validation" {
 }
 
 test "semantic query validation" {
-    // Valid query
     var query = SemanticQuery.init("test query");
     try query.validate();
 
-    // Empty query text
     query.query_text = "";
     try testing.expectError(QueryError.InvalidSemanticQuery, query.validate());
 
-    // Invalid similarity threshold
     query.query_text = "test";
     query.similarity_threshold = 1.5;
     try testing.expectError(QueryError.InvalidSemanticQuery, query.validate());
@@ -434,7 +428,6 @@ test "semantic query validation" {
     query.similarity_threshold = -0.1;
     try testing.expectError(QueryError.InvalidSemanticQuery, query.validate());
 
-    // Too many results
     query.similarity_threshold = 0.7;
     query.max_results = 1000;
     try testing.expectError(QueryError.TooManyResults, query.validate());
@@ -513,7 +506,6 @@ test "semantic result sorting" {
     const sorted_blocks = try semantic_result.sorted_blocks(testing.allocator);
     defer testing.allocator.free(sorted_blocks);
 
-    // Higher similarity should come first
     try testing.expect(sorted_blocks[0].id == 2);
     try testing.expect(sorted_blocks[1].id == 1);
 }
@@ -550,7 +542,7 @@ test "execute_find_blocks with storage engine" {
     try storage_engine.put_block(block1);
     try storage_engine.put_block(block2);
 
-    // Test finding existing blocks
+
     const query = FindBlocksQuery{
         .block_ids = &[_]BlockId{ test_id1, test_id2 },
     };
@@ -561,7 +553,7 @@ test "execute_find_blocks with storage engine" {
     try testing.expectEqual(@as(u32, 2), result.total_found);
     try testing.expect(!result.is_empty());
 
-    // Test partial results (some blocks missing)
+
     const partial_query = FindBlocksQuery{
         .block_ids = &[_]BlockId{ test_id1, missing_id, test_id2 },
     };
@@ -610,7 +602,6 @@ test "execute_keyword_query with word matching" {
         try storage_engine.put_block(block);
     }
 
-    // Execute semantic query
     const query = SemanticQuery{
         .query_text = "hello world",
         .max_results = 10,
@@ -620,11 +611,9 @@ test "execute_keyword_query with word matching" {
     const result = try execute_keyword_query(allocator, &storage_engine, query);
     defer result.deinit();
 
-    // Should find blocks with sufficient similarity
     try testing.expect(result.total_matches >= 1);
     try testing.expect(result.results.len <= query.max_results);
 
-    // Results should be sorted by similarity (if multiple results)
     if (result.results.len > 1) {
         for (result.results[0 .. result.results.len - 1], result.results[1..]) |current, next| {
             try testing.expect(current.similarity_score >= next.similarity_score);
@@ -708,12 +697,11 @@ test "semantic query result operations" {
     try testing.expectEqual(@as(u32, 2), semantic_result.total_matches);
     try testing.expectEqual(@as(usize, 2), semantic_result.results.len);
 
-    // Test sorted blocks retrieval
+
     const sorted_blocks = try semantic_result.sorted_blocks(allocator);
     defer allocator.free(sorted_blocks);
 
     try testing.expectEqual(@as(usize, 2), sorted_blocks.len);
-    // Verify sorting by similarity (highest first)
     try testing.expect(semantic_result.results[0].similarity_score >= semantic_result.results[1].similarity_score);
 }
 
@@ -730,7 +718,6 @@ test "block existence checking" {
     const existing_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
     const missing_id = try BlockId.from_hex("2222222222222222222222222222222222222222");
 
-    // Initially, no blocks exist
     try testing.expect(!block_exists(&storage_engine, existing_id));
     try testing.expect(!block_exists(&storage_engine, missing_id));
 
@@ -743,11 +730,10 @@ test "block existence checking" {
     };
     try storage_engine.put_block(test_block);
 
-    // Now one should exist
     try testing.expect(block_exists(&storage_engine, existing_id));
     try testing.expect(!block_exists(&storage_engine, missing_id));
 
-    // Test count_existing_blocks
+
     const test_ids = [_]BlockId{ existing_id, missing_id };
     const count = count_existing_blocks(&storage_engine, &test_ids);
     try testing.expectEqual(@as(usize, 1), count);
@@ -773,7 +759,7 @@ test "find_block convenience function" {
     };
     try storage_engine.put_block(test_block);
 
-    // Test finding the block
+
     const result = try find_block(allocator, &storage_engine, test_id);
     defer result.deinit();
 
@@ -817,7 +803,6 @@ test "large dataset query performance" {
         try storage_engine.put_block(test_block);
     }
 
-    // Query all blocks
     const query = FindBlocksQuery{
         .block_ids = block_ids,
     };
@@ -829,19 +814,18 @@ test "large dataset query performance" {
 
     try testing.expectEqual(@as(u32, block_count), result.total_found);
 
-    // Verify reasonable performance (should complete in reasonable time)
     const query_duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
     try testing.expect(query_duration_ms < 1000.0); // Should complete in under 1 second
 }
 
 test "query error handling" {
-    // Test empty query validation
+
     const empty_query = FindBlocksQuery{
         .block_ids = &[_]BlockId{},
     };
     try testing.expectError(QueryError.EmptyQuery, empty_query.validate());
 
-    // Test too many blocks query
+
     var too_many_ids: [1001]BlockId = undefined;
     for (&too_many_ids, 0..) |*id, i| {
         var id_bytes: [16]u8 = undefined;
@@ -853,16 +837,16 @@ test "query error handling" {
     };
     try testing.expectError(QueryError.TooManyResults, large_query.validate());
 
-    // Test semantic query validation errors
+
     var semantic_query = SemanticQuery.init("");
     try testing.expectError(QueryError.InvalidSemanticQuery, semantic_query.validate());
 
     semantic_query = SemanticQuery.init("valid query");
-    semantic_query.similarity_threshold = 1.5; // Invalid threshold
+    semantic_query.similarity_threshold = 1.5;
     try testing.expectError(QueryError.InvalidSemanticQuery, semantic_query.validate());
 
     semantic_query.similarity_threshold = 0.7;
-    semantic_query.max_results = 600; // Too many results
+    semantic_query.max_results = 600;
     try testing.expectError(QueryError.TooManyResults, semantic_query.validate());
 }
 
@@ -876,7 +860,7 @@ test "query result formatting edge cases" {
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    // Test empty result formatting
+
     var empty_result = QueryResult.init(allocator, &storage_engine, &[_]BlockId{});
     defer empty_result.deinit();
 
@@ -889,7 +873,7 @@ test "query result formatting edge cases" {
     const empty_formatted = empty_formatted_output.items;
     try testing.expect(std.mem.indexOf(u8, empty_formatted, "Retrieved 0 blocks") != null);
 
-    // Test result with special characters
+
     const special_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
     const special_block = ContextBlock{
         .id = special_id,

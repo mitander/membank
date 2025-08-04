@@ -41,7 +41,6 @@ pub const GitSourceConfig = struct {
     follow_symlinks: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, repository_path: []const u8) !GitSourceConfig {
-        // Default include patterns for common text files - use ** to match in subdirectories
         var include_patterns = std.ArrayList([]const u8).init(allocator);
         try include_patterns.append(try allocator.dupe(u8, "**/*.zig"));
         try include_patterns.append(try allocator.dupe(u8, "**/*.md"));
@@ -51,7 +50,6 @@ pub const GitSourceConfig = struct {
         try include_patterns.append(try allocator.dupe(u8, "**/*.yaml"));
         try include_patterns.append(try allocator.dupe(u8, "**/*.yml"));
 
-        // Default exclude patterns
         var exclude_patterns = std.ArrayList([]const u8).init(allocator);
         try exclude_patterns.append(try allocator.dupe(u8, ".git/*"));
         try exclude_patterns.append(try allocator.dupe(u8, "*.bin"));
@@ -172,7 +170,6 @@ pub const GitSourceIterator = struct {
         const file = &self.files[self.current_index];
         self.current_index += 1;
 
-        // Create metadata for this specific file
         var metadata_map = std.StringHashMap([]const u8).init(allocator);
         try metadata_map.put("repository_path", try allocator.dupe(u8, self.git_source.config.repository_path));
         try metadata_map.put("file_path", try allocator.dupe(u8, file.relative_path));
@@ -199,7 +196,6 @@ pub const GitSourceIterator = struct {
         self.allocator.free(self.files);
     }
 
-    // Iterator vtable implementations
     fn next_impl(ptr: *anyopaque, allocator: std.mem.Allocator) IngestionError!?SourceContent {
         const self = @as(*GitSourceIterator, @ptrCast(@alignCast(ptr)));
         return self.next(allocator);
@@ -263,7 +259,6 @@ pub const GitSource = struct {
     fn fetch_iterator(self: *GitSource, allocator: std.mem.Allocator, file_system: *VFS) IngestionError!SourceIterator {
         concurrency.assert_main_thread();
 
-        // Validate repository exists
         const repo_stat = file_system.stat(self.config.repository_path) catch |err| {
             error_context.log_ingestion_error(err, error_context.repository_context(
                 "stat_repository",
@@ -279,15 +274,11 @@ pub const GitSource = struct {
             return IngestionError.SourceFetchFailed;
         }
 
-        // Scan repository for Git metadata
         try self.scan_repository_metadata(self.allocator, file_system);
 
-        // Find all matching files (discovery phase)
         const files = try self.find_matching_files(allocator, file_system);
 
-        // Create iterator that owns the files array
         // Note: We still do the file discovery up front, but yield files one by one
-        // This is a middle ground - we don't load ALL content at once, but we do
         // discover file paths. Future optimization could make discovery lazy too.
         var iterator = try allocator.create(GitSourceIterator);
         iterator.* = GitSourceIterator.init(self, files, allocator);
@@ -300,11 +291,9 @@ pub const GitSource = struct {
         const git_dir = try std.fs.path.join(allocator, &.{ self.config.repository_path, ".git" });
         defer allocator.free(git_dir);
 
-        // Check if .git directory exists
         const git_stat = file_system.stat(git_dir) catch null;
         const git_exists = if (git_stat) |stat| stat.is_directory else false;
         if (!git_exists) {
-            // Not a Git repository, use fallback metadata
             var metadata = GitMetadata{
                 .commit_hash_buf = undefined,
                 .commit_hash_len = 0,
@@ -319,11 +308,9 @@ pub const GitSource = struct {
             return;
         }
 
-        // Try to read HEAD file for current commit/branch
         const head_path = try std.fs.path.join(allocator, &.{ git_dir, "HEAD" });
         defer allocator.free(head_path);
 
-        // Initialize metadata with fallback values
         var metadata = GitMetadata{
             .commit_hash_buf = undefined,
             .commit_hash_len = 0,
@@ -340,10 +327,8 @@ pub const GitSource = struct {
 
             const trimmed = std.mem.trim(u8, head_content, " \t\n\r");
             if (std.mem.startsWith(u8, trimmed, "ref: refs/heads/")) {
-                // Branch reference
                 metadata.update_branch(trimmed[16..]);
 
-                // Try to read the commit hash from the branch ref
                 const branch_ref_path = try std.fs.path.join(allocator, &.{ git_dir, "refs", "heads", metadata.branch() });
                 defer allocator.free(branch_ref_path);
 
@@ -354,7 +339,6 @@ pub const GitSource = struct {
                     metadata.update_commit_hash("unknown");
                 }
             } else if (trimmed.len >= 40) {
-                // Direct commit hash
                 metadata.update_commit_hash(trimmed[0..40]);
                 metadata.update_branch("detached");
             }
@@ -370,7 +354,6 @@ pub const GitSource = struct {
         var files = std.ArrayList(GitFileInfo).init(allocator);
         try self.scan_directory_recursive(allocator, file_system, self.config.repository_path, "", &files);
 
-        // Sort files by relative path to ensure consistent processing order
         const file_slice = try files.toOwnedSlice();
         std.sort.block(GitFileInfo, file_slice, {}, struct {
             fn less_than(context: void, a: GitFileInfo, b: GitFileInfo) bool {
@@ -397,7 +380,6 @@ pub const GitSource = struct {
             try std.fs.path.join(allocator, &.{ base_path, relative_path });
         defer allocator.free(full_path);
 
-        // Use proper directory iterator following arena-per-subsystem principle
         var dir_iterator = file_system.iterate_directory(full_path, allocator) catch {
             return;
         };
@@ -410,12 +392,10 @@ pub const GitSource = struct {
                 try std.fs.path.join(allocator, &.{ relative_path, entry_name });
             defer allocator.free(entry_relative);
 
-            // Check if excluded
             if (self.is_excluded(entry_relative)) {
                 continue;
             }
 
-            // Use entry type from iterator (no need for separate stat call)
             switch (entry.kind) {
                 .directory => {
                     try self.scan_directory_recursive(allocator, file_system, base_path, entry_relative, files);
@@ -493,7 +473,6 @@ pub const GitSource = struct {
         };
     }
 
-    // Source interface implementations
     fn fetch_impl(ptr: *anyopaque, allocator: std.mem.Allocator, file_system: *VFS) IngestionError!SourceIterator {
         const self: *GitSource = @ptrCast(@alignCast(ptr));
         return self.fetch_iterator(allocator, file_system);
@@ -542,19 +521,18 @@ test "git source creation and cleanup" {
 
 test "pattern matching" {
 
-    // Test exact matches
     try testing.expect(glob_matcher.matches_pattern("file.zig", "file.zig"));
     try testing.expect(!glob_matcher.matches_pattern("other.zig", "file.zig"));
 
-    // Test suffix patterns
+
     try testing.expect(glob_matcher.matches_pattern("*.zig", "src/main.zig"));
     try testing.expect(!glob_matcher.matches_pattern("*.zig", "src/main.rs"));
 
-    // Test prefix patterns (directory exclusions)
+
     try testing.expect(glob_matcher.matches_pattern(".git/*", ".git/config"));
     try testing.expect(!glob_matcher.matches_pattern(".git/*", "src/.git"));
 
-    // Test advanced glob patterns
+
     try testing.expect(glob_matcher.matches_pattern("src/**/*.zig", "src/parser/lexer.zig"));
     try testing.expect(glob_matcher.matches_pattern("test[0-9].zig", "test1.zig"));
     try testing.expect(!glob_matcher.matches_pattern("src/**/*.zig", "tests/main.zig"));

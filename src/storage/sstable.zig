@@ -111,7 +111,6 @@ pub const SSTable = struct {
         bloom_filter_size: u32, // 4 bytes: Size of serialized bloom filter
         reserved: [20]u8, // 20 bytes: Reserved for future use
 
-        // Compile-time guarantees for SSTable on-disk format integrity
         comptime {
             comptime_assert(@sizeOf(Header) == 64, "SSTable Header must be exactly 64 bytes for cache-aligned performance");
             comptime_assert(HEADER_SIZE == @sizeOf(Header), "HEADER_SIZE constant must match actual Header struct size");
@@ -151,7 +150,6 @@ pub const SSTable = struct {
             std.mem.writeInt(u32, buffer[offset..][0..4], self.bloom_filter_size, .little);
             offset += 4;
 
-            // Reserved bytes must be zero for future compatibility
             @memset(buffer[offset .. offset + 20], 0);
         }
 
@@ -190,7 +188,6 @@ pub const SSTable = struct {
             const bloom_filter_size = std.mem.readInt(u32, buffer[offset..][0..4], .little);
             offset += 4;
 
-            // Validate reserved bytes are zero for forward compatibility
             const reserved = buffer[offset .. offset + 20];
             for (reserved) |byte| {
                 if (byte != 0) return error.InvalidReservedBytes;
@@ -240,14 +237,12 @@ pub const SSTable = struct {
         assert.assert_fmt(blocks.len <= 1000000, "Too many blocks for single SSTable: {}", .{blocks.len});
         assert.assert_fmt(@intFromPtr(blocks.ptr) != 0, "Blocks array has null pointer", .{});
 
-        // Validate each block before writing
         for (blocks, 0..) |block, i| {
             assert.assert_fmt(block.content.len > 0, "Block {} has empty content", .{i});
             assert.assert_fmt(block.source_uri.len > 0, "Block {} has empty source_uri", .{i});
             assert.assert_fmt(block.content.len < 100 * 1024 * 1024, "Block {} content too large: {} bytes", .{ i, block.content.len });
         }
 
-        // Sort blocks by ID for efficient range queries
         const sorted_blocks = try self.allocator.dupe(ContextBlock, blocks);
         defer self.allocator.free(sorted_blocks);
 
@@ -348,7 +343,6 @@ pub const SSTable = struct {
         try file.flush();
         self.block_count = @intCast(sorted_blocks.len);
 
-        // Store the Bloom filter in memory for future queries
         self.bloom_filter = bloom;
     }
 
@@ -357,7 +351,6 @@ pub const SSTable = struct {
         _ = self;
         var crc = std.hash.Crc32.init();
 
-        // This includes: blocks + index + bloom filter (but excludes header and footer)
         _ = try file.seek(HEADER_SIZE, .start);
         const content_size = content_end_offset - HEADER_SIZE;
 
@@ -387,9 +380,7 @@ pub const SSTable = struct {
         const header = try Header.deserialize(&header_buffer);
         self.block_count = header.block_count;
 
-        // Verify file checksum if present
         if (header.file_checksum != 0) {
-            // Content integrity validation excludes header to prevent checksum recursion
             const content_end = if (header.bloom_filter_size > 0)
                 header.bloom_filter_offset + header.bloom_filter_size
             else
@@ -415,7 +406,6 @@ pub const SSTable = struct {
             try self.index.append(entry);
         }
 
-        // Sort index by block ID for binary search
         std.mem.sort(IndexEntry, self.index.items, {}, struct {
             fn less_than(context: void, a: IndexEntry, b: IndexEntry) bool {
                 _ = context;
@@ -423,7 +413,6 @@ pub const SSTable = struct {
             }
         }.less_than);
 
-        // Load Bloom filter if present
         if (header.bloom_filter_size > 0) {
             _ = try file.seek(@intCast(header.bloom_filter_offset), .start);
 
@@ -438,16 +427,12 @@ pub const SSTable = struct {
 
     /// Find a block by ID from this SSTable
     pub fn find_block(self: *SSTable, block_id: BlockId) !?ContextBlock {
-        // Bloom filter eliminates 99%+ disk I/O for non-existent keys
         if (self.bloom_filter) |*filter| {
             if (!filter.might_contain(block_id)) {
-                // Definitely not in this SSTable - no false negatives
                 return null;
             }
-            // Might be in SSTable - proceed with index lookup (could be false positive)
         }
 
-        // Binary search through sorted index for O(log n) performance
         var left: usize = 0;
         var right: usize = self.index.items.len;
         var entry: ?IndexEntry = null;
@@ -586,7 +571,6 @@ pub const Compactor = struct {
             all_blocks.deinit();
         }
 
-        // Pre-allocate capacity based on sum of input table block counts
         var total_capacity: u32 = 0;
         for (input_tables) |*table| {
             total_capacity += table.block_count;
@@ -602,7 +586,6 @@ pub const Compactor = struct {
             }
         }
 
-        // LSM-tree semantics require latest version precedence for deduplication
         const unique_blocks = try self.dedup_blocks(all_blocks.items);
         defer {
             for (unique_blocks) |block| {
@@ -613,7 +596,6 @@ pub const Compactor = struct {
 
         try output_table.write_blocks(unique_blocks);
 
-        // Cleanup phase: input SSTables no longer needed after merge
         for (input_paths) |path| {
             self.filesystem.remove(path) catch |err| {
                 log.warn("Failed to remove input SSTable {s}: {}", .{ path, err });
@@ -633,7 +615,6 @@ pub const Compactor = struct {
                 _ = context;
                 const order = std.mem.order(u8, &a.id.bytes, &b.id.bytes);
                 if (order == .eq) {
-                    // Same ID - sort by version descending (highest first)
                     return a.version > b.version;
                 }
                 return order == .lt;
@@ -643,7 +624,6 @@ pub const Compactor = struct {
         var unique = std.ArrayList(ContextBlock).init(self.allocator);
         defer unique.deinit();
 
-        // Pre-allocate capacity - worst case is all blocks are unique
         try unique.ensureTotalCapacity(sorted.len);
 
         var prev_id: ?BlockId = null;
@@ -666,7 +646,6 @@ pub const Compactor = struct {
     }
 };
 
-// Tests
 
 test "SSTable write and read" {
     const allocator = testing.allocator;
@@ -750,7 +729,7 @@ test "SSTable iterator" {
     try sstable.write_blocks(&blocks);
     try sstable.read_index();
 
-    // Test iterator returns blocks in sorted order
+
     var iter = sstable.iterator();
     defer iter.deinit();
 
@@ -833,7 +812,6 @@ test "SSTable compaction" {
     try compacted.read_index();
     try std.testing.expectEqual(@as(u32, 3), compacted.block_count);
 
-    // Should have version 2 of the duplicate block
     const test_id = try BlockId.from_hex("1111111111111111111111111111111");
     const retrieved = try compacted.find_block(test_id);
     try std.testing.expect(retrieved != null);
@@ -873,7 +851,6 @@ test "SSTable checksum validation" {
     var file = try sim_vfs.vfs().open("checksum_test.sst", .write);
     defer file.close() catch {};
 
-    // Modify a byte in the block data section (after header)
     _ = try file.seek(SSTable.HEADER_SIZE + 10, .start);
     const corrupt_byte = [1]u8{0xFF};
     _ = try file.write(&corrupt_byte);
@@ -912,19 +889,17 @@ test "SSTable Bloom filter functionality" {
 
     const blocks = [_]ContextBlock{ block1, block2 };
 
-    // Write blocks - this should create and populate the Bloom filter
     try sstable.write_blocks(&blocks);
 
-    // Verify Bloom filter was created
     try std.testing.expect(sstable.bloom_filter != null);
 
-    // Test that all written blocks are found by Bloom filter
+
     if (sstable.bloom_filter) |*filter| {
         try std.testing.expect(filter.might_contain(block1.id));
         try std.testing.expect(filter.might_contain(block2.id));
     }
 
-    // Test actual block retrieval works
+
     const retrieved1 = try sstable.find_block(block1.id);
     try std.testing.expect(retrieved1 != null);
     try std.testing.expect(retrieved1.?.id.eql(block1.id));
@@ -932,7 +907,7 @@ test "SSTable Bloom filter functionality" {
         block.deinit(allocator);
     }
 
-    // Test with non-existent block - Bloom filter should eliminate false negatives
+
     const non_existent_id = try BlockId.from_hex("1111111111111111111111111111111");
     const not_found = try sstable.find_block(non_existent_id);
     try std.testing.expect(not_found == null);
@@ -965,7 +940,6 @@ test "SSTable Bloom filter persistence" {
 
     const blocks = [_]ContextBlock{ block1, block2 };
 
-    // Write SSTable with Bloom filter
     {
         var sstable_write = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, file_path));
         defer sstable_write.deinit();
@@ -974,7 +948,6 @@ test "SSTable Bloom filter persistence" {
         try std.testing.expect(sstable_write.bloom_filter != null);
     }
 
-    // Read SSTable and verify Bloom filter is loaded
     {
         var sstable_read = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, file_path));
         defer sstable_read.deinit();
@@ -982,13 +955,12 @@ test "SSTable Bloom filter persistence" {
         try sstable_read.read_index();
         try std.testing.expect(sstable_read.bloom_filter != null);
 
-        // Verify Bloom filter behavior is preserved
         if (sstable_read.bloom_filter) |*filter| {
             try std.testing.expect(filter.might_contain(block1.id));
             try std.testing.expect(filter.might_contain(block2.id));
         }
 
-        // Test actual retrieval still works
+
         const retrieved = try sstable_read.find_block(block1.id);
         try std.testing.expect(retrieved != null);
         if (retrieved) |block| {
@@ -1006,7 +978,6 @@ test "SSTable Bloom filter with many blocks" {
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_many_test.sst"));
     defer sstable.deinit();
 
-    // Create many blocks to test Bloom filter scaling
     var blocks = std.ArrayList(ContextBlock).init(allocator);
     defer {
         for (blocks.items) |block| {
@@ -1034,7 +1005,6 @@ test "SSTable Bloom filter with many blocks" {
 
     try sstable.write_blocks(blocks.items);
 
-    // Verify Bloom filter was created and all blocks are detected
     try std.testing.expect(sstable.bloom_filter != null);
     if (sstable.bloom_filter) |*filter| {
         for (blocks.items) |block| {
@@ -1042,7 +1012,7 @@ test "SSTable Bloom filter with many blocks" {
         }
     }
 
-    // Test retrieval of several blocks
+
     const retrieved_first = try sstable.find_block(blocks.items[0].id);
     try std.testing.expect(retrieved_first != null);
     if (retrieved_first) |block| {
@@ -1055,7 +1025,7 @@ test "SSTable Bloom filter with many blocks" {
         block.deinit(allocator);
     }
 
-    // Test non-existent block
+
     var non_existent_bytes: [16]u8 = undefined;
     @memset(&non_existent_bytes, 0xFF);
     const non_existent_id = BlockId{ .bytes = non_existent_bytes };
@@ -1072,7 +1042,6 @@ test "SSTable binary search performance" {
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "binary_search_test.sst"));
     defer sstable.deinit();
 
-    // Create blocks with IDs that will test binary search ordering
     var blocks = std.ArrayList(ContextBlock).init(allocator);
     defer {
         for (blocks.items) |block| {
@@ -1081,13 +1050,12 @@ test "SSTable binary search performance" {
         blocks.deinit();
     }
 
-    // Create blocks with deliberately unsorted IDs to verify sorting works
     const test_ids = [_][]const u8{
-        "ffff000000000000000000000000000", // Should be last after sorting
-        "0000000000000000000000000000000", // Should be first after sorting
-        "8888888888888888888888888888888", // Should be in middle
-        "4444444444444444444444444444444", // Should be in first half
-        "cccccccccccccccccccccccccccccccc", // Should be in second half
+        "ffff000000000000000000000000000",
+        "0000000000000000000000000000000",
+        "8888888888888888888888888888888",
+        "4444444444444444444444444444444",
+        "cccccccccccccccccccccccccccccccc",
     };
 
     try blocks.ensureCapacity(test_ids.len);
@@ -1105,7 +1073,6 @@ test "SSTable binary search performance" {
     try sstable.write_blocks(blocks.items);
     try sstable.read_index();
 
-    // Verify all blocks can be found (binary search should work correctly)
     for (blocks.items) |original_block| {
         const found = try sstable.find_block(original_block.id);
         try std.testing.expect(found != null);
@@ -1115,7 +1082,6 @@ test "SSTable binary search performance" {
         }
     }
 
-    // Verify index is properly sorted
     for (1..sstable.index.items.len) |i| {
         const prev = sstable.index.items[i - 1];
         const curr = sstable.index.items[i];

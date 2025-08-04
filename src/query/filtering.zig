@@ -257,10 +257,8 @@ pub fn execute_filtered_query(
     var blocks_collected: u32 = 0;
     const max_to_collect = query.max_results;
 
-    // Pre-allocate the ArrayList with the maximum possible capacity we might need
     var matched_blocks = std.ArrayList(ContextBlock).init(allocator);
     errdefer {
-        // In case of error, free any blocks we've already allocated
         for (matched_blocks.items) |block| {
             allocator.free(block.source_uri);
             allocator.free(block.metadata_json);
@@ -424,15 +422,12 @@ test "filter expression - logical AND" {
 test "filtered query validation" {
     const condition = FilterExpression{ .condition = filter_by_content_contains("test") };
 
-    // Valid query
     var query = FilteredQuery.init(condition);
     try query.validate();
 
-    // Invalid - zero max results
     query.max_results = 0;
     try testing.expectError(FilterError.EmptyQuery, query.validate());
 
-    // Invalid - too many results
     query.max_results = 20000;
     try testing.expectError(FilterError.ResultsLimitExceeded, query.validate());
 }
@@ -456,17 +451,17 @@ test "filter operators - comparison operations" {
         .content = "version 2 content",
     };
 
-    // Test version greater than
+
     const gt_condition = FilterCondition.init(.version, .greater_than, "1");
     try testing.expect(!try gt_condition.matches(block_v1, allocator));
     try testing.expect(try gt_condition.matches(block_v2, allocator));
 
-    // Test version less than or equal
+
     const lte_condition = FilterCondition.init(.version, .less_equal, "2");
     try testing.expect(try lte_condition.matches(block_v1, allocator));
     try testing.expect(try lte_condition.matches(block_v2, allocator));
 
-    // Test not equal
+
     const ne_condition = FilterCondition.init(.version, .not_equal, "1");
     try testing.expect(!try ne_condition.matches(block_v1, allocator));
     try testing.expect(try ne_condition.matches(block_v2, allocator));
@@ -483,21 +478,21 @@ test "filter operators - string operations" {
         .content = "function hello_world() { return 'Hello, World!'; }",
     };
 
-    // Test starts_with
+
     const starts_condition = FilterCondition.init(.source_uri, .starts_with, "hello");
     try testing.expect(try starts_condition.matches(block, allocator));
 
     const no_start_condition = FilterCondition.init(.source_uri, .starts_with, "goodbye");
     try testing.expect(!try no_start_condition.matches(block, allocator));
 
-    // Test ends_with
+
     const ends_condition = FilterCondition.init(.source_uri, .ends_with, ".zig");
     try testing.expect(try ends_condition.matches(block, allocator));
 
     const no_end_condition = FilterCondition.init(.source_uri, .ends_with, ".rs");
     try testing.expect(!try no_end_condition.matches(block, allocator));
 
-    // Test contains in content
+
     const contains_condition = FilterCondition.init(.content, .contains, "Hello, World!");
     try testing.expect(try contains_condition.matches(block, allocator));
 
@@ -527,10 +522,9 @@ test "filter expression - logical OR operation" {
         },
     };
 
-    // Should match because second condition is true
     try testing.expect(try or_expr.matches(block, allocator));
 
-    // Test with both conditions false
+
     const false_cond1 = FilterExpression{ .condition = filter_by_content_contains("nonexistent") };
     const false_cond2 = FilterExpression{ .condition = filter_by_source_uri("missing.zig") };
 
@@ -565,7 +559,6 @@ test "filter expression - logical NOT operation" {
         },
     };
 
-    // NOT true should be false
     try testing.expect(!try not_expr.matches(block, allocator));
 
     const false_condition = FilterExpression{ .condition = filter_by_content_contains("missing") };
@@ -577,7 +570,6 @@ test "filter expression - logical NOT operation" {
         },
     };
 
-    // NOT false should be true
     try testing.expect(try not_false_expr.matches(block, allocator));
 }
 
@@ -600,12 +592,12 @@ test "filter target - content length filtering" {
         .content = "this is much longer content", // 27 characters
     };
 
-    // Test content length greater than 10
+
     const length_condition = FilterCondition.init(.content_length, .greater_than, "10");
     try testing.expect(!try length_condition.matches(short_block, allocator));
     try testing.expect(try length_condition.matches(long_block, allocator));
 
-    // Test content length equal to exact value
+
     const exact_length_condition = FilterCondition.init(.content_length, .equal, "5");
     try testing.expect(try exact_length_condition.matches(short_block, allocator));
     try testing.expect(!try exact_length_condition.matches(long_block, allocator));
@@ -703,7 +695,7 @@ test "filtered query result operations" {
     try testing.expectEqual(@as(usize, 2), result.blocks.len);
     try testing.expect(result.has_more);
 
-    // Test formatting
+
     var formatted_output = std.ArrayList(u8).init(allocator);
     defer formatted_output.deinit();
 
@@ -808,7 +800,7 @@ test "filtered query with pagination" {
         try storage_engine.put_block(block);
     }
 
-    // Test first page
+
     const condition = FilterExpression{ .condition = filter_by_content_contains("matching") };
     var query = FilteredQuery{
         .expression = condition,
@@ -823,7 +815,7 @@ test "filtered query with pagination" {
     try testing.expectEqual(@as(usize, 5), first_page.blocks.len);
     try testing.expect(first_page.has_more);
 
-    // Test second page
+
     query.offset = 5;
     const second_page = try execute_filtered_query(allocator, &storage_engine, query);
     defer second_page.deinit();
@@ -836,7 +828,7 @@ test "filtered query with pagination" {
 test "metadata field extraction edge cases" {
     const allocator = testing.allocator;
 
-    // Test malformed JSON
+
     const malformed_block = ContextBlock{
         .id = 1,
         .version = 1,
@@ -848,7 +840,7 @@ test "metadata field extraction edge cases" {
     const condition = filter_by_metadata_field("incomplete", "value");
     try testing.expect(!try condition.matches(malformed_block, allocator));
 
-    // Test empty metadata
+
     const empty_block = ContextBlock{
         .id = 2,
         .version = 1,
@@ -860,7 +852,7 @@ test "metadata field extraction edge cases" {
     const empty_condition = filter_by_metadata_field("missing", "value");
     try testing.expect(!try empty_condition.matches(empty_block, allocator));
 
-    // Test nested JSON extraction (simple case)
+
     const nested_block = ContextBlock{
         .id = 3,
         .version = 1,
@@ -884,15 +876,15 @@ test "numeric comparison edge cases" {
         .content = "test content",
     };
 
-    // Test floating point comparison
+
     const float_condition = FilterCondition.init(.version, .equal, "42.0");
     try testing.expect(try float_condition.matches(block, allocator));
 
-    // Test lexical vs numeric comparison
+
     const lexical_condition = FilterCondition.init(.source_uri, .greater_than, "a");
     try testing.expect(try lexical_condition.matches(block, allocator)); // "numeric.zig" > "a"
 
-    // Test invalid numeric comparison falls back to lexical
+
     const mixed_condition = FilterCondition.init(.source_uri, .greater_than, "100");
     try testing.expect(try mixed_condition.matches(block, allocator)); // "numeric.zig" > "100" lexically
 }

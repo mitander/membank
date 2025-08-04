@@ -83,7 +83,6 @@ fn match_recursive(pattern: []const u8, text: []const u8) bool {
 fn match_double_star(pattern: []const u8, text: []const u8) bool {
     assert(pattern.len >= 2 and pattern[0] == '*' and pattern[1] == '*');
 
-    // Skip the **
     var remaining_pattern = pattern[2..];
 
     // If ** is followed by /, skip the / too
@@ -145,7 +144,7 @@ fn pattern_matches_empty(pattern: []const u8) bool {
                 }
                 return pattern_matches_empty(remaining);
             } else {
-                // * can match empty
+                // Wildcard must handle zero-length matches for edge cases
                 return pattern_matches_empty(pattern[1..]);
             }
         },

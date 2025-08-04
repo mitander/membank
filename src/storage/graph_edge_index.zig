@@ -80,7 +80,6 @@ pub const GraphEdgeIndex = struct {
     /// ArrayLists must be cleaned up before HashMap deallocation to prevent
     /// use-after-free of arena-allocated list storage.
     pub fn deinit(self: *GraphEdgeIndex) void {
-        // Clean up ArrayLists first to avoid use-after-free
         var outgoing_iter = self.outgoing_edges.iterator();
         while (outgoing_iter.next()) |entry| {
             entry.value_ptr.deinit();
@@ -100,11 +99,9 @@ pub const GraphEdgeIndex = struct {
     /// bulk cleanup. Edges are stored in both directions to enable fast
     /// traversal regardless of direction.
     pub fn put_edge(self: *GraphEdgeIndex, edge: GraphEdge) !void {
-        // Defensive self-pointer validation
         assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
         assert.assert_fmt(@intFromPtr(&self.arena) != 0, "GraphEdgeIndex arena pointer cannot be null", .{});
 
-        // Defensive edge validation
         var source_non_zero: u32 = 0;
         var target_non_zero: u32 = 0;
         for (edge.source_id.bytes) |byte| {
@@ -127,7 +124,6 @@ pub const GraphEdgeIndex = struct {
         try outgoing_result.value_ptr.append(edge); // tidy:ignore-perf - incremental edge building, size unknown
         assert.assert_fmt(outgoing_result.value_ptr.items.len == outgoing_before + 1, "Outgoing edge append failed", .{});
 
-        // Bidirectional indexing enables both forward and reverse graph traversal
         var incoming_result = try self.incoming_edges.getOrPut(edge.target_id);
         if (!incoming_result.found_existing) {
             incoming_result.value_ptr.* = std.ArrayList(GraphEdge).init(arena_allocator);
@@ -141,10 +137,8 @@ pub const GraphEdgeIndex = struct {
     /// Returns slice into ArrayList storage for zero-copy access.
     /// Used for forward graph traversal operations.
     pub fn find_outgoing_edges(self: *const GraphEdgeIndex, source_id: BlockId) ?[]const GraphEdge {
-        // Defensive self-pointer validation
         assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
 
-        // Validate source_id structure
         var non_zero_bytes: u32 = 0;
         for (source_id.bytes) |byte| {
             if (byte != 0) non_zero_bytes += 1;
@@ -162,10 +156,8 @@ pub const GraphEdgeIndex = struct {
     /// Returns slice into ArrayList storage for zero-copy access.
     /// Used for backward graph traversal operations.
     pub fn find_incoming_edges(self: *const GraphEdgeIndex, target_id: BlockId) ?[]const GraphEdge {
-        // Defensive self-pointer validation
         assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
 
-        // Validate target_id structure
         var non_zero_bytes: u32 = 0;
         for (target_id.bytes) |byte| {
             if (byte != 0) non_zero_bytes += 1;
@@ -199,7 +191,6 @@ pub const GraphEdgeIndex = struct {
     pub fn remove_edge(self: *GraphEdgeIndex, source_id: BlockId, target_id: BlockId, edge_type: EdgeType) bool {
         var removed = false;
 
-        // Remove from outgoing edges
         if (self.outgoing_edges.getPtr(source_id)) |edge_list| {
             for (edge_list.items, 0..) |edge, i| {
                 if (edge.target_id.eql(target_id) and edge.edge_type == edge_type) {
@@ -210,7 +201,6 @@ pub const GraphEdgeIndex = struct {
             }
         }
 
-        // Remove from incoming edges
         if (self.incoming_edges.getPtr(target_id)) |edge_list| {
             for (edge_list.items, 0..) |edge, i| {
                 if (edge.source_id.eql(source_id) and edge.edge_type == edge_type) {
@@ -227,7 +217,6 @@ pub const GraphEdgeIndex = struct {
     /// Counts outgoing edges only to avoid double-counting since each edge
     /// appears in both outgoing and incoming indexes.
     pub fn edge_count(self: *const GraphEdgeIndex) u32 {
-        // Defensive self-pointer validation
         assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
 
         var total: u32 = 0;
@@ -253,7 +242,6 @@ pub const GraphEdgeIndex = struct {
     /// Clear all edges and reset arena for O(1) bulk deallocation.
     /// Retains HashMap capacity for efficient reuse after clearing.
     pub fn clear(self: *GraphEdgeIndex) void {
-        // Clean up ArrayLists first
         var outgoing_iter = self.outgoing_edges.iterator();
         while (outgoing_iter.next()) |entry| {
             entry.value_ptr.deinit();
@@ -269,7 +257,6 @@ pub const GraphEdgeIndex = struct {
     }
 };
 
-// Tests
 const testing = std.testing;
 
 test "graph edge index initialization creates empty index" {
@@ -297,14 +284,14 @@ test "put and find edge operations work correctly" {
 
     try testing.expectEqual(@as(u32, 1), index.edge_count());
 
-    // Test outgoing edges
+
     const outgoing = index.find_outgoing_edges(source_id);
     try testing.expect(outgoing != null);
     try testing.expectEqual(@as(usize, 1), outgoing.?.len);
     try testing.expect(outgoing.?[0].target_id.eql(target_id));
     try testing.expectEqual(EdgeType.calls, outgoing.?[0].edge_type);
 
-    // Test incoming edges
+
     const incoming = index.find_incoming_edges(target_id);
     try testing.expect(incoming != null);
     try testing.expectEqual(@as(usize, 1), incoming.?.len);
@@ -349,7 +336,6 @@ test "remove specific edge works correctly" {
     const source_id = BlockId.generate();
     const target_id = BlockId.generate();
 
-    // Add two different edge types between same blocks
     const edge1 = GraphEdge{
         .source_id = source_id,
         .target_id = target_id,
@@ -367,13 +353,11 @@ test "remove specific edge works correctly" {
 
     try testing.expectEqual(@as(u32, 2), index.edge_count());
 
-    // Remove only the calls edge
     const removed = index.remove_edge(source_id, target_id, EdgeType.calls);
     try testing.expect(removed);
 
     try testing.expectEqual(@as(u32, 1), index.edge_count());
 
-    // Verify imports edge remains
     const outgoing = index.find_outgoing_edges(source_id);
     try testing.expect(outgoing != null);
     try testing.expectEqual(@as(usize, 1), outgoing.?.len);
@@ -388,20 +372,16 @@ test "remove block edges cleans up all references" {
     const block_b = BlockId.generate();
     const block_c = BlockId.generate();
 
-    // Create edges: A -> B, B -> C, C -> A
     try index.put_edge(GraphEdge{ .source_id = block_a, .target_id = block_b, .edge_type = EdgeType.calls });
     try index.put_edge(GraphEdge{ .source_id = block_b, .target_id = block_c, .edge_type = EdgeType.calls });
     try index.put_edge(GraphEdge{ .source_id = block_c, .target_id = block_a, .edge_type = EdgeType.calls });
 
     try testing.expectEqual(@as(u32, 3), index.edge_count());
 
-    // Remove block B
     index.remove_block_edges(block_b);
 
-    // Should remove A->B and B->C edges (2 edges removed)
     try testing.expectEqual(@as(u32, 1), index.edge_count());
 
-    // Only C->A should remain
     try testing.expect(index.find_outgoing_edges(block_a) == null);
     try testing.expect(index.find_outgoing_edges(block_b) == null);
     try testing.expect(index.find_outgoing_edges(block_c) != null);
@@ -411,7 +391,6 @@ test "clear operation resets index to empty state" {
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
-    // Add multiple edges
     for (0..5) |i| {
         const source_id = BlockId.generate();
         const target_id = BlockId.generate();
@@ -445,14 +424,12 @@ test "bidirectional index consistency" {
 
     try index.put_edge(edge);
 
-    // Verify edge appears in both directions
     const outgoing = index.find_outgoing_edges(source_id);
     const incoming = index.find_incoming_edges(target_id);
 
     try testing.expect(outgoing != null);
     try testing.expect(incoming != null);
 
-    // Both should reference the same edge data
     try testing.expect(outgoing.?[0].source_id.eql(incoming.?[0].source_id));
     try testing.expect(outgoing.?[0].target_id.eql(incoming.?[0].target_id));
     try testing.expectEqual(outgoing.?[0].edge_type, incoming.?[0].edge_type);
@@ -467,13 +444,11 @@ test "hash context provides good distribution for block ids" {
     const hash1 = ctx.hash(id1);
     const hash2 = ctx.hash(id2);
 
-    // Different IDs should hash to different values
     try testing.expect(hash1 != hash2);
 
-    // Same ID should hash consistently
     try testing.expectEqual(hash1, ctx.hash(id1));
 
-    // Test equality function
+
     try testing.expect(ctx.eql(id1, id1));
     try testing.expect(!ctx.eql(id1, id2));
 }
@@ -482,7 +457,6 @@ test "edge count accuracy with complex graph" {
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
-    // Create a more complex graph structure
     const blocks = [_]BlockId{
         BlockId.generate(),
         BlockId.generate(),
@@ -490,7 +464,6 @@ test "edge count accuracy with complex graph" {
         BlockId.generate(),
     };
 
-    // Create various connections
     const edges = [_]GraphEdge{
         GraphEdge{ .source_id = blocks[0], .target_id = blocks[1], .edge_type = EdgeType.calls },
         GraphEdge{ .source_id = blocks[0], .target_id = blocks[2], .edge_type = EdgeType.imports },
@@ -504,6 +477,6 @@ test "edge count accuracy with complex graph" {
     }
 
     try testing.expectEqual(@as(u32, 5), index.edge_count());
-    try testing.expect(index.source_block_count() <= 4); // At most 4 unique sources
-    try testing.expect(index.target_block_count() <= 4); // At most 4 unique targets
+    try testing.expect(index.source_block_count() <= 4);
+    try testing.expect(index.target_block_count() <= 4);
 }

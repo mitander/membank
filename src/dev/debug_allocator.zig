@@ -32,15 +32,11 @@ const GUARD_SIZE: usize = 32;
 const MAX_TRACKED_ALLOCATIONS: usize = if (builtin.mode == .Debug) 512 else 256;
 
 /// Enable stack trace capture (can be disabled to avoid slow Debug linking)
-// Stack traces disabled in ReleaseSafe due to Zig linking performance constraints.
-// Debug builds experience 60+ second link times with comprehensive stack traces.
-// Current approach prioritizes fast development iteration over detailed debugging.
 const ENABLE_STACK_TRACES: bool = false;
 
 /// Maximum depth for stack trace collection
 const MAX_STACK_TRACE_DEPTH: usize = if (ENABLE_STACK_TRACES and builtin.mode == .Debug) 16 else 0;
 
-// Compile-time guarantees to prevent debug features in release builds
 comptime {
     if (builtin.mode != .Debug and ENABLE_STACK_TRACES) {
         @compileError("Stack traces cannot be enabled in release builds - would severely impact performance");
@@ -78,7 +74,6 @@ const AllocationInfo = struct {
             .thread_id = current_thread_id(),
         };
 
-        // Capture stack trace when enabled and in debug builds
         if (ENABLE_STACK_TRACES and builtin.mode == .Debug) {
             var stack_trace = std.builtin.StackTrace{
                 .index = 0,
@@ -124,7 +119,6 @@ const AllocationHeader = struct {
             .tracker_index = tracker_index,
             .guard_prefix = undefined,
         };
-        // Fill guard region with known pattern
         @memset(&header.guard_prefix, @truncate(GUARD_MAGIC));
         return header;
     }
@@ -166,7 +160,6 @@ const AllocationFooter = struct {
             .guard_suffix = undefined,
             .magic = ALLOCATION_MAGIC,
         };
-        // Fill guard region with different pattern than header
         @memset(&footer.guard_suffix, @truncate(GUARD_MAGIC >> 8));
         return footer;
     }
@@ -282,7 +275,6 @@ pub const DebugAllocator = struct {
             .stats_protected = .{ .value = DebugAllocatorStats.init() },
         };
 
-        // Initialize all allocation entries as free
         debug_alloc.allocations_protected.with(fn (*[MAX_TRACKED_ALLOCATIONS]AllocationInfo) void, {}, struct {
             fn f(allocations: *[MAX_TRACKED_ALLOCATIONS]AllocationInfo) void {
                 for (allocations) |*alloc| {
@@ -386,7 +378,6 @@ pub const DebugAllocator = struct {
         _ = buf_align;
         _ = new_len;
         _ = ret_addr;
-        // Debug allocator does not support resizing to maintain tracking integrity
         return false;
     }
 
@@ -411,7 +402,6 @@ pub const DebugAllocator = struct {
         _ = buf_align;
         _ = new_len;
         _ = ret_addr;
-        // Debug allocator does not support remapping
         return null;
     }
 
@@ -426,13 +416,11 @@ pub const DebugAllocator = struct {
         const footer_size = @sizeOf(AllocationFooter);
         const guard_suffix_size = if (self.config.enable_guard_validation) GUARD_SIZE else 0;
 
-        // Calculate alignment requirements
         const alignment_bytes = @as(usize, 1) << @intFromEnum(ptr_align);
         const header_align = @alignOf(AllocationHeader);
         const required_align = @max(alignment_bytes, header_align);
         const required_align_enum = std.mem.Alignment.fromByteUnits(required_align);
 
-        // Calculate user data offset with proper alignment
         const user_data_offset = std.mem.alignForward(usize, header_size, alignment_bytes);
         const total_size = user_data_offset + len + guard_suffix_size + footer_size;
 
@@ -475,7 +463,6 @@ pub const DebugAllocator = struct {
             }
         }
 
-        // Write guard suffix after user data if guard validation is enabled
         if (self.config.enable_guard_validation) {
             const guard_suffix = user_ptr[len .. len + GUARD_SIZE];
             const guard_pattern: u8 = @truncate(GUARD_MAGIC >> 8);
@@ -495,7 +482,6 @@ pub const DebugAllocator = struct {
             }
         }.record_allocation);
 
-        // Update statistics
         self.stats_protected.with(fn (*DebugAllocatorStats, usize) void, len, struct {
             fn update_alloc(stats: *DebugAllocatorStats, size: usize) void {
                 stats.total_allocations += 1;
@@ -521,7 +507,6 @@ pub const DebugAllocator = struct {
         const user_ptr = buf.ptr;
         const user_addr = @intFromPtr(user_ptr);
 
-        // Find allocation in tracker
         var tracker_index: ?usize = null;
         var iterator = self.free_slots.iterator(.{ .kind = .unset });
         while (iterator.next()) |index| {
@@ -551,7 +536,6 @@ pub const DebugAllocator = struct {
             }
         }.get);
 
-        // Check for double free
         if (!info.is_valid()) {
             self.stats_protected.with(fn (*DebugAllocatorStats) void, {}, struct {
                 fn inc_double_frees(stats: *DebugAllocatorStats) void {
@@ -561,17 +545,14 @@ pub const DebugAllocator = struct {
             return DebugAllocatorError.DoubleFree;
         }
 
-        // Validate guards if enabled
         if (self.config.enable_guard_validation) {
             try self.validate_allocation_internal(user_addr, info);
         }
 
-        // Poison freed memory if enabled
         if (self.config.enable_poison_free) {
             @memset(buf, 0xDE); // "DEAD" pattern
         }
 
-        // Calculate original allocation size and offset
         const header_size = @sizeOf(AllocationHeader);
         const footer_size = @sizeOf(AllocationFooter);
         const guard_suffix_size = if (self.config.enable_guard_validation) GUARD_SIZE else 0;
@@ -580,7 +561,6 @@ pub const DebugAllocator = struct {
         const total_size = user_data_offset + info.size + guard_suffix_size + footer_size;
         const raw_ptr = user_ptr - user_data_offset;
 
-        // Free the underlying memory
         self.backing_allocator.vtable.free(
             self.backing_allocator.ptr,
             raw_ptr[0..total_size],
@@ -588,11 +568,9 @@ pub const DebugAllocator = struct {
             @returnAddress(),
         );
 
-        // Mark allocation as freed
         info.invalidate();
         self.free_slots.set(found_index);
 
-        // Update statistics
         self.stats_protected.with(fn (*DebugAllocatorStats, usize) void, info.size, struct {
             fn update_dealloc(stats: *DebugAllocatorStats, size: usize) void {
                 stats.total_deallocations += 1;
@@ -610,15 +588,12 @@ pub const DebugAllocator = struct {
         const user_ptr: [*]u8 = @ptrFromInt(user_addr);
         const header_size = @sizeOf(AllocationHeader);
 
-        // Calculate the offset using the allocation's alignment
         const alignment_bytes = @as(usize, 1) << @intFromEnum(allocation_info.alignment);
         const user_data_offset = std.mem.alignForward(usize, header_size, alignment_bytes);
         const header: *AllocationHeader = @ptrCast(@alignCast(user_ptr - user_data_offset));
 
-        // Validate header and guards
         try header.validate_guards(user_ptr);
 
-        // Validate allocation info consistency
         if (header.tracker_index >= MAX_TRACKED_ALLOCATIONS) {
             return DebugAllocatorError.CorruptedHeader;
         }
@@ -627,7 +602,6 @@ pub const DebugAllocator = struct {
             return DebugAllocatorError.UseAfterFree;
         }
 
-        // Validate footer
         const guard_suffix_size = if (self.config.enable_guard_validation) GUARD_SIZE else 0;
         const footer: *AllocationFooter = @ptrCast(@alignCast(user_ptr + allocation_info.size + guard_suffix_size));
         if (!footer.is_valid()) {
@@ -648,11 +622,8 @@ fn timestamp_ns() u64 {
 
 /// Get current thread ID (simplified for single-threaded model)
 fn current_thread_id() u64 {
-    // In KausalDB's single-threaded model, always return 1
     return 1;
 }
-
-// Tests
 
 test "DebugAllocator basic allocation" {
     var debug_allocator = DebugAllocator.init(std.testing.allocator);
@@ -661,10 +632,8 @@ test "DebugAllocator basic allocation" {
     const memory = try allocator.alloc(u8, 128);
     defer allocator.free(memory);
 
-    // Verify allocation worked
     try std.testing.expectEqual(@as(usize, 128), memory.len);
 
-    // Verify statistics
     const stats = debug_allocator.statistics();
     try std.testing.expectEqual(@as(u64, 1), stats.total_allocations);
     try std.testing.expectEqual(@as(u64, 1), stats.active_allocations);
@@ -678,9 +647,7 @@ test "DebugAllocator double free detection" {
     const memory = try allocator.alloc(u8, 64);
     allocator.free(memory);
 
-    // Second free should be caught in debug mode
     if (builtin.mode == .Debug) {
-        // Note: This would panic in actual usage, testing the detection mechanism
         const stats = debug_allocator.statistics();
         try std.testing.expect(stats.total_deallocations > 0);
     }
@@ -690,7 +657,6 @@ test "DebugAllocator statistics tracking" {
     var debug_allocator = DebugAllocator.init(std.testing.allocator);
     const allocator = debug_allocator.allocator();
 
-    // Allocate several different sizes
     const mem1 = try allocator.alloc(u8, 100);
     const mem2 = try allocator.alloc(u32, 50); // 200 bytes
     const mem3 = try allocator.alloc(u64, 25); // 200 bytes
@@ -700,7 +666,6 @@ test "DebugAllocator statistics tracking" {
     try std.testing.expectEqual(@as(u64, 3), stats_before_free.active_allocations);
     try std.testing.expectEqual(@as(u64, 500), stats_before_free.total_bytes_allocated);
 
-    // Free one allocation
     allocator.free(mem1);
 
     const stats_after_free = debug_allocator.statistics();
@@ -708,7 +673,6 @@ test "DebugAllocator statistics tracking" {
     try std.testing.expectEqual(@as(u64, 2), stats_after_free.active_allocations);
     try std.testing.expectEqual(@as(u64, 400), stats_after_free.current_bytes_allocated);
 
-    // Clean up
     allocator.free(mem2);
     allocator.free(mem3);
 }
@@ -717,15 +681,12 @@ test "DebugAllocator all allocations validation" {
     var debug_allocator = DebugAllocator.init(std.testing.allocator);
     const allocator = debug_allocator.allocator();
 
-    // Allocate several blocks
     const mem1 = try allocator.alloc(u8, 64);
     const mem2 = try allocator.alloc(u16, 32);
     const mem3 = try allocator.alloc(u32, 16);
 
-    // Validate all allocations (should succeed)
     try debug_allocator.validate_all_allocations();
 
-    // Clean up
     allocator.free(mem1);
     allocator.free(mem2);
     allocator.free(mem3);

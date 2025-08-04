@@ -145,8 +145,6 @@ pub const ConcurrencyModel = struct {
     }
 };
 
-// Tests
-
 test "main thread detection" {
     // Initialize from test thread
     init();

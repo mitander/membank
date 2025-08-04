@@ -16,18 +16,15 @@ const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 
-// Performance thresholds based on measured baseline with CI safety margins
 const BLOCK_WRITE_THRESHOLD_NS = 100_000; // measured 21µs → 100µs (4.7x margin)
 const BLOCK_READ_THRESHOLD_NS = 1_000; // measured 0.06µs → 1µs (17x margin)
 const BLOCK_UPDATE_THRESHOLD_NS = 50_000; // measured 10.2µs → 50µs (4.9x margin)
 const BLOCK_DELETE_THRESHOLD_NS = 15_000; // measured 2.9µs → 15µs (5.2x margin)
 const WAL_FLUSH_THRESHOLD_NS = 10_000; // conservative for no-op operation
 
-// Memory limits for regression detection
 const MAX_PEAK_MEMORY_BYTES = 100 * 1024 * 1024; // 100MB for 10K operations
 const MAX_MEMORY_GROWTH_PER_OP = 1024; // 1KB average per operation
 
-// Benchmark parameters optimized for CI speed
 const ITERATIONS = 1000;
 const WARMUP_ITERATIONS = 50;
 const LARGE_ITERATIONS = 50;
@@ -165,14 +162,12 @@ fn benchmark_block_writes(storage_engine: *StorageEngine, allocator: std.mem.All
     var timings = try allocator.alloc(u64, ITERATIONS);
     defer allocator.free(timings);
 
-    // Warmup phase to stabilize performance
     for (0..WARMUP_ITERATIONS) |i| {
         const block = try create_test_block(allocator, i);
         defer free_test_block(allocator, block);
         _ = try storage_engine.put_block(block);
     }
 
-    // Benchmark phase with timing
     for (0..ITERATIONS) |i| {
         const block = try create_test_block(allocator, WARMUP_ITERATIONS + i);
         defer free_test_block(allocator, block);
@@ -215,7 +210,6 @@ fn benchmark_block_writes(storage_engine: *StorageEngine, allocator: std.mem.All
 }
 
 fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allocator, json_output: bool) !void {
-    // Setup test data for reading
     const block_ids = try setup_read_test_blocks(storage_engine, allocator);
     defer allocator.free(block_ids);
 
@@ -223,13 +217,11 @@ fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allo
     var timings = try allocator.alloc(u64, ITERATIONS);
     defer allocator.free(timings);
 
-    // Warmup reads
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = block_ids[i % block_ids.len];
         _ = try storage_engine.find_block(block_id);
     }
 
-    // Benchmark phase
     for (0..ITERATIONS) |i| {
         const block_id = block_ids[i % block_ids.len];
 
@@ -271,7 +263,6 @@ fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allo
 }
 
 fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Allocator, json_output: bool) !void {
-    // Setup initial blocks for updating
     const block_ids = try setup_read_test_blocks(storage_engine, allocator);
     defer allocator.free(block_ids);
 
@@ -279,7 +270,6 @@ fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Al
     var timings = try allocator.alloc(u64, ITERATIONS);
     defer allocator.free(timings);
 
-    // Warmup updates
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = block_ids[i % block_ids.len];
         const updated_block = try create_updated_test_block(allocator, block_id, i);
@@ -287,7 +277,6 @@ fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Al
         _ = try storage_engine.put_block(updated_block);
     }
 
-    // Benchmark phase
     for (0..ITERATIONS) |i| {
         const block_id = block_ids[i % block_ids.len];
         const updated_block = try create_updated_test_block(allocator, block_id, WARMUP_ITERATIONS + i);
@@ -331,7 +320,6 @@ fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Al
 }
 
 fn benchmark_block_deletes(storage_engine: *StorageEngine, allocator: std.mem.Allocator, json_output: bool) !void {
-    // Setup blocks for deletion benchmarking
     const block_ids = try setup_delete_test_blocks(storage_engine, allocator);
     defer allocator.free(block_ids);
 
@@ -339,7 +327,6 @@ fn benchmark_block_deletes(storage_engine: *StorageEngine, allocator: std.mem.Al
     var timings = try allocator.alloc(u64, ITERATIONS);
     defer allocator.free(timings);
 
-    // Warmup deletes (recreate deleted blocks to maintain test data)
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = block_ids[i % block_ids.len];
         const start_time = std.time.nanoTimestamp();
@@ -347,13 +334,11 @@ fn benchmark_block_deletes(storage_engine: *StorageEngine, allocator: std.mem.Al
         const end_time = std.time.nanoTimestamp();
         timings[i] = @intCast(end_time - start_time);
 
-        // Recreate for continued testing
         const replacement_block = try create_test_block(allocator, i + 10000);
         defer free_test_block(allocator, replacement_block);
         _ = try storage_engine.put_block(replacement_block);
     }
 
-    // Benchmark phase
     for (0..ITERATIONS) |i| {
         const block_id = if (i < block_ids.len) block_ids[i] else block_ids[i % block_ids.len];
 
@@ -399,7 +384,6 @@ fn benchmark_wal_flush(storage_engine: *StorageEngine, allocator: std.mem.Alloca
     var timings = try allocator.alloc(u64, ITERATIONS);
     defer allocator.free(timings);
 
-    // WAL flush operations benchmark
     for (0..ITERATIONS) |i| {
         const start_time = std.time.nanoTimestamp();
         try storage_engine.flush_wal();
@@ -438,7 +422,7 @@ fn benchmark_wal_flush(storage_engine: *StorageEngine, allocator: std.mem.Alloca
     }
 }
 
-// Test data creation utilities
+
 fn create_test_block(allocator: std.mem.Allocator, index: usize) !ContextBlock {
     const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{index});
     defer allocator.free(block_id_hex);
@@ -507,7 +491,6 @@ fn setup_delete_test_blocks(storage_engine: *StorageEngine, allocator: std.mem.A
     return block_ids;
 }
 
-// Cross-platform memory profiling
 fn query_current_rss_memory() u64 {
     return switch (builtin.os.tag) {
         .linux => query_rss_linux() catch 0,
@@ -525,7 +508,6 @@ fn query_rss_linux() !u64 {
     const bytes_read = try file.readAll(&buf);
     const content = buf[0..bytes_read];
 
-    // VmRSS reports resident memory in kilobytes
     if (std.mem.indexOf(u8, content, "VmRSS:")) |start| {
         const line_start = start;
         const line_end = std.mem.indexOfScalarPos(u8, content, line_start, '\n') orelse content.len;
@@ -590,7 +572,6 @@ fn query_rss_windows() !u64 {
     return pmc.WorkingSetSize;
 }
 
-// Statistical analysis for timing data
 fn analyze_timings(timings: []u64) struct {
     total_time_ns: u64,
     min: u64,
@@ -601,7 +582,6 @@ fn analyze_timings(timings: []u64) struct {
 } {
     if (timings.len == 0) return .{ .total_time_ns = 0, .min = 0, .max = 0, .mean = 0, .median = 0, .stddev = 0 };
 
-    // Sort for median calculation
     std.mem.sort(u64, timings, {}, std.sort.asc(u64));
 
     const min = timings[0];
@@ -612,7 +592,6 @@ fn analyze_timings(timings: []u64) struct {
     for (timings) |time| total_time_ns += time;
     const mean = total_time_ns / timings.len;
 
-    // Calculate standard deviation
     var variance_sum: u64 = 0;
     for (timings) |time| {
         const diff = if (time > mean) time - mean else mean - time;

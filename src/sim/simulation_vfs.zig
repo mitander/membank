@@ -38,7 +38,6 @@ const MAX_REASONABLE_FILE_SIZE: u64 = 1024 * 1024 * 1024; // 1GB
 /// Default maximum disk space for simulation (unlimited if not set)
 const DEFAULT_MAX_DISK_SPACE: u64 = 1024 * 1024 * 1024 * 1024; // 1TB
 
-// Cross-platform compatibility and security validation
 comptime {
     assert(MAX_PATH_LENGTH > 0);
     assert(MAX_PATH_LENGTH <= 8192);
@@ -198,10 +197,7 @@ pub const SimulationVFS = struct {
 
         const files = std.StringHashMap(FileHandle).init(allocator);
         var file_storage = std.ArrayList(FileStorage).init(arena.allocator());
-        // Pre-allocate large initial capacity to avoid reallocations
-        // Arena allocators don't support resizing, so we need generous initial capacity
-        // Safety: unreachable is safe because we're in test environment with unlimited memory
-        file_storage.ensureTotalCapacity(512) catch unreachable; // Generous initial capacity
+        file_storage.ensureTotalCapacity(512) catch unreachable; // Safety: generous initial capacity for testing
 
         return SimulationVFS{
             .allocator = allocator,
@@ -271,7 +267,6 @@ pub const SimulationVFS = struct {
         assert(max_bytes <= DEFAULT_MAX_DISK_SPACE);
 
         self.fault_injection.max_disk_space = max_bytes;
-        // Recalculate current usage
         self.fault_injection.used_disk_space = 0;
         for (self.file_storage.items) |storage| {
             if (storage.active) {
@@ -311,25 +306,22 @@ pub const SimulationVFS = struct {
     /// Apply fault injection logic for VFile write operations
     /// Returns actual bytes to write (may be less than requested for torn writes)
     fn fault_injection_fn(vfs_ptr: *anyopaque, write_size: usize) VFileWriteError!usize {
-        assert(@intFromPtr(vfs_ptr) >= 0x1000); // Pointer sanity check
-        assert(write_size > 0); // Valid write size
-        assert(write_size <= MAX_REASONABLE_FILE_SIZE); // Sanity limit
+        assert(@intFromPtr(vfs_ptr) >= 0x1000);
+        assert(write_size > 0);
+        assert(write_size <= MAX_REASONABLE_FILE_SIZE);
 
         const self: *SimulationVFS = @ptrCast(@alignCast(vfs_ptr));
 
-        // Disk space validation prevents runaway allocation
         if (self.fault_injection.used_disk_space + write_size > self.fault_injection.max_disk_space) {
             return VFileWriteError.NoSpaceLeft;
         }
 
-        // Torn write simulation for crash testing
         if (self.fault_injection.should_torn_write(write_size)) |partial_size| {
             assert(partial_size <= write_size); // Torn writes never exceed original
             self.fault_injection.used_disk_space += partial_size;
             return partial_size;
         }
 
-        // Normal write path
         self.fault_injection.used_disk_space += write_size;
         return write_size;
     }
@@ -341,8 +333,6 @@ pub const SimulationVFS = struct {
 
         const path_copy = try self.arena.allocator().dupe(u8, path);
 
-        // Arena allocator provides capacity - no dynamic growing
-        // Generous initial capacity (512) should handle most test scenarios
         try self.file_storage.append(FileStorage{
             .data = data,
             .path = path_copy,
@@ -357,7 +347,6 @@ pub const SimulationVFS = struct {
     fn remove_file_storage(self: *SimulationVFS, handle: FileHandle) void {
         for (self.file_storage.items) |*storage| {
             if (storage.handle == handle and storage.active) {
-                // Path allocated from arena - no manual free needed
                 storage.active = false;
                 break;
             }
@@ -365,14 +354,12 @@ pub const SimulationVFS = struct {
     }
 
     pub fn deinit(self: *SimulationVFS) void {
-        // Free HashMap keys (allocated with backing allocator)
         var file_iter = self.files.iterator();
         while (file_iter.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
         }
         self.files.deinit();
 
-        // Arena handles file_storage, paths and content cleanup
         self.arena.deinit();
     }
 
@@ -500,9 +487,6 @@ pub const SimulationVFS = struct {
         }
         assert(path.len > 0 and path.len < MAX_PATH_LENGTH);
 
-        // File creation succeeds even with low disk space - disk full errors
-        // occur during write operations to match real filesystem behavior
-
         const file_data = FileData{
             .content = std.ArrayList(u8).init(self.arena.allocator()),
             .created_time = self.current_time_ns,
@@ -545,14 +529,11 @@ pub const SimulationVFS = struct {
             return VFSError.IsDirectory;
         }
 
-        // Update disk usage
         self.fault_injection.update_disk_usage(file_data.content.items.len, 0);
 
-        // Remove from files map - free backing allocator key
         const removed_entry = self.files.fetchRemove(path).?;
         self.allocator.free(removed_entry.key);
 
-        // Mark file storage as inactive
         self.remove_file_storage(handle);
     }
 
@@ -602,8 +583,6 @@ pub const SimulationVFS = struct {
             }
         }
 
-        // For simulation, mkdir_all behaves the same as mkdir
-        // Real implementation would create parent directories
         return mkdir(ptr, path);
     }
 
@@ -618,7 +597,6 @@ pub const SimulationVFS = struct {
             return VFSError.NotDirectory;
         }
 
-        // Check if directory is empty by looking for child entries
         var iterator = self.files.iterator();
         while (iterator.next()) |entry| {
             const file_path = entry.key_ptr.*;
@@ -630,11 +608,9 @@ pub const SimulationVFS = struct {
             }
         }
 
-        // Remove from files map - free backing allocator key
         const removed_entry = self.files.fetchRemove(path).?;
         self.allocator.free(removed_entry.key);
 
-        // Mark file storage as inactive
         self.remove_file_storage(handle);
     }
 
@@ -667,7 +643,6 @@ pub const SimulationVFS = struct {
                     const child_handle = entry.value_ptr.*;
                     const child_data = self.file_data_by_handle(child_handle) orelse continue;
 
-                    // This is a direct child - allocate name in caller's arena
                     const name = try allocator.dupe(u8, relative_path);
                     const kind = if (child_data.is_directory)
                         DirectoryEntry.Kind.directory
@@ -682,7 +657,6 @@ pub const SimulationVFS = struct {
             }
         }
 
-        // Sort entries alphabetically for deterministic behavior
         const entries_slice = try entries.toOwnedSlice();
         std.sort.block(DirectoryEntry, entries_slice, {}, struct {
             fn less_than(context: void, lhs: DirectoryEntry, rhs: DirectoryEntry) bool {
@@ -712,7 +686,6 @@ pub const SimulationVFS = struct {
 
         const new_path_copy = try self.allocator.dupe(u8, new_path);
 
-        // Move the file handle - free old key from backing allocator
         const removed_entry = self.files.fetchRemove(old_path).?;
         self.allocator.free(removed_entry.key);
         try self.files.put(new_path_copy, removed_entry.value);
@@ -740,14 +713,12 @@ pub const SimulationVFS = struct {
             return VFSError.IoError;
         }
 
-        // Simulation VFS sync is a no-op since everything is already in memory
     }
 
     fn deinit_vfs(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         const self: *Self = @ptrCast(@alignCast(ptr));
         _ = allocator;
         _ = self;
-        // SimulationVFS resources are cleaned up by explicit deinit() call
     }
 };
 
@@ -759,7 +730,7 @@ test "SimulationVFS basic file operations" {
 
     const vfs_interface = sim_vfs.vfs();
 
-    // Test file creation and basic I/O
+
     const test_path = "test_file.txt";
     var file = try vfs_interface.create(test_path);
     defer {
@@ -793,17 +764,16 @@ test "SimulationVFS directory operations" {
     try vfs_interface.mkdir(test_dir);
     defer vfs_interface.rmdir(test_dir) catch {};
 
-    // Test directory existence
+
     try testing.expect(vfs_interface.exists(test_dir));
 
-    // Test directory iteration with arena allocator
+
     var iter_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer iter_arena.deinit();
     const iter_allocator = iter_arena.allocator();
 
     var iterator = try vfs_interface.iterate_directory(test_dir, iter_allocator);
 
-    // Empty directory should have no entries
     try testing.expectEqual(@as(usize, 0), iterator.remaining());
     try testing.expect(iterator.next() == null);
 }
@@ -814,7 +784,6 @@ test "SimulationVFS fault injection - torn writes" {
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 12345);
     defer sim_vfs.deinit();
 
-    // Enable torn writes with 100% probability, 50% completion
     sim_vfs.enable_torn_writes(1000, 1, 500);
 
     const vfs_interface = sim_vfs.vfs();
@@ -828,14 +797,11 @@ test "SimulationVFS fault injection - torn writes" {
         vfs_interface.remove("test.txt") catch {};
     }
 
-    // Write should be torn (only partial data written)
     const written = try file.write(test_data);
 
-    // Verify that less data was written than requested
     try testing.expect(written < test_data.len);
     try testing.expect(written > 0); // At least some data was written
 
-    // Read back and verify partial content
     _ = try file.seek(0, .start);
     var buffer: [100]u8 = undefined;
     const read_bytes = try file.read(&buffer);
@@ -850,7 +816,6 @@ test "SimulationVFS fault injection - read corruption" {
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 54321);
     defer sim_vfs.deinit();
 
-    // Enable read corruption with high probability
     sim_vfs.enable_read_corruption(1000, 3); // 100% chance per KB, up to 3 bits
 
     const vfs_interface = sim_vfs.vfs();
@@ -867,13 +832,11 @@ test "SimulationVFS fault injection - read corruption" {
     _ = try file.write(test_data);
     _ = try file.seek(0, .start);
 
-    // Read back - should have corruption
     var buffer: [1024]u8 = undefined;
     const read_bytes = try file.read(&buffer);
 
     try testing.expectEqual(test_data.len, read_bytes);
 
-    // Should have some corruption (not all bytes should match)
     var corruption_detected = false;
     for (0..read_bytes) |i| {
         if (buffer[i] != test_data[i]) {
@@ -890,7 +853,6 @@ test "SimulationVFS fault injection - disk full" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Set a very small disk limit
     sim_vfs.configure_disk_space_limit(10);
 
     const vfs_interface = sim_vfs.vfs();
@@ -904,7 +866,6 @@ test "SimulationVFS fault injection - disk full" {
         vfs_interface.remove("test.txt") catch {};
     }
 
-    // Write should fail due to disk space limit
     const result = file.write(test_data);
     try testing.expectError(VFileError.WriteError, result);
 }
@@ -915,12 +876,10 @@ test "SimulationVFS fault injection - io failures" {
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 99999);
     defer sim_vfs.deinit();
 
-    // Enable 100% failure rate for create operations
     sim_vfs.enable_io_failures(1000, .{ .create = true });
 
     const vfs_interface = sim_vfs.vfs();
 
-    // Create should fail
     const result = vfs_interface.create("test.txt");
     try testing.expectError(VFSError.IoError, result);
 }
@@ -928,7 +887,6 @@ test "SimulationVFS fault injection - io failures" {
 test "SimulationVFS deterministic behavior" {
     const allocator = testing.allocator;
 
-    // Same seed should produce identical behavior
     const seed: u64 = 12345;
     var results: [2]usize = undefined;
 
@@ -952,7 +910,6 @@ test "SimulationVFS deterministic behavior" {
         results[iteration] = try file.write(test_data);
     }
 
-    // Both runs should produce identical results
     try testing.expectEqual(results[0], results[1]);
 }
 
@@ -963,7 +920,6 @@ test "simulation_vfs_memory_safety_arraylist_expansion_resilience" {
     defer sim_vfs.deinit();
     const vfs_interface = sim_vfs.vfs();
 
-    // Create file and establish initial small allocation
     var file = try vfs_interface.create("expansion_test.log");
     defer {
         file.close();
@@ -971,19 +927,16 @@ test "simulation_vfs_memory_safety_arraylist_expansion_resilience" {
         vfs_interface.remove("expansion_test.log") catch {};
     }
 
-    // Small write to establish baseline allocation pattern
     const header_data = "HDR12345";
     const written_header = try file.write(header_data);
     try testing.expectEqual(header_data.len, written_header);
 
-    // Verify integrity before expansion
     _ = try file.seek(0, .start);
     var verify_header: [8]u8 = undefined;
     const read_header = try file.read(&verify_header);
     try testing.expectEqual(header_data.len, read_header);
     try testing.expect(std.mem.eql(u8, header_data, verify_header[0..read_header]));
 
-    // Force ArrayList expansion with large write that exceeds typical initial capacity
     var large_buffer: [32768]u8 = undefined; // 32KB to trigger multiple reallocations
     @memset(&large_buffer, 0xCC);
 
@@ -991,19 +944,15 @@ test "simulation_vfs_memory_safety_arraylist_expansion_resilience" {
     const written_large = try file.write(&large_buffer);
     try testing.expectEqual(large_buffer.len, written_large);
 
-    // Critical verification: original data must survive ArrayList expansion
     _ = try file.seek(0, .start);
     var verify_after_expansion: [8]u8 = undefined;
     const read_after = try file.read(&verify_after_expansion);
     try testing.expectEqual(8, read_after);
 
-    // Memory corruption detection - original header must be intact
     if (!std.mem.eql(u8, header_data, verify_after_expansion)) {
-        // In production code, this would use error_context for rich diagnostics
         return VFileError.CorruptedData;
     }
 
-    // Verify large data integrity to ensure no cross-contamination
     _ = try file.seek(8, .start);
     var sample_verify: [256]u8 = undefined;
     const read_sample = try file.read(&sample_verify);
@@ -1021,11 +970,9 @@ test "simulation_vfs_memory_safety_concurrent_file_creation_stress" {
     defer sim_vfs.deinit();
     const vfs_interface = sim_vfs.vfs();
 
-    // Stress test file storage HashMap expansion resilience
     const num_files = 64; // Chosen to trigger HashMap expansion
     var file_patterns: [num_files][24]u8 = undefined;
 
-    // Create many files with unique patterns to trigger storage expansion
     for (0..num_files) |i| {
         const file_name = try std.fmt.allocPrint(allocator, "stress_file_{}.dat", .{i});
         defer allocator.free(file_name);
@@ -1037,7 +984,6 @@ test "simulation_vfs_memory_safety_concurrent_file_creation_stress" {
             vfs_interface.remove(file_name) catch {};
         }
 
-        // Create unique, verifiable pattern for each file
         const pattern_base = @as(u64, i) ^ 0xFEEDFACE;
         std.mem.writeInt(u64, file_patterns[i][0..8], pattern_base, .little);
         std.mem.writeInt(u64, file_patterns[i][8..16], pattern_base ^ 0xDEADBEEF, .little);
@@ -1047,8 +993,6 @@ test "simulation_vfs_memory_safety_concurrent_file_creation_stress" {
         try testing.expectEqual(24, written);
     }
 
-    // Verification phase: all files must retain correct unique patterns
-    // This detects memory corruption from HashMap expansion or file cross-contamination
     for (0..num_files) |i| {
         const file_name = try std.fmt.allocPrint(allocator, "stress_file_{}.dat", .{i});
         defer allocator.free(file_name);
@@ -1063,13 +1007,10 @@ test "simulation_vfs_memory_safety_concurrent_file_creation_stress" {
         const bytes_read = try file.read(&read_pattern);
         try testing.expectEqual(24, bytes_read);
 
-        // Pattern integrity verification - any corruption indicates system failure
         if (!std.mem.eql(u8, &file_patterns[i], &read_pattern)) {
-            // In production, this would use error_context with file details
             return VFileError.CorruptedData;
         }
 
-        // Additional verification: decode pattern to ensure uniqueness preservation
         const read_base = std.mem.readInt(u64, read_pattern[0..8], .little);
         const expected_base = @as(u64, i) ^ 0xFEEDFACE;
         try testing.expectEqual(expected_base, read_base);
@@ -1090,21 +1031,17 @@ test "simulation_vfs_memory_safety_zero_initialization_gap_filling" {
         vfs_interface.remove("gap_fill_test.dat") catch {};
     }
 
-    // Write initial data at position 0
     const initial_data = "INITIAL_DATA";
     const written_initial = try file.write(initial_data);
     try testing.expectEqual(initial_data.len, written_initial);
 
-    // Seek beyond current file size to create a gap
     const gap_start = 1000;
     _ = try file.seek(gap_start, .start);
 
-    // Write data after the gap
     const final_data = "FINAL_DATA";
     const written_final = try file.write(final_data);
     try testing.expectEqual(final_data.len, written_final);
 
-    // Verify file expansion with zero-initialization of gap
     _ = try file.seek(0, .start);
     const total_size = initial_data.len + (gap_start - initial_data.len) + final_data.len;
     var full_buffer = try allocator.alloc(u8, total_size);
@@ -1113,10 +1050,8 @@ test "simulation_vfs_memory_safety_zero_initialization_gap_filling" {
     const total_read = try file.read(full_buffer);
     try testing.expectEqual(total_size, total_read);
 
-    // Verify initial data integrity
     try testing.expect(std.mem.eql(u8, initial_data, full_buffer[0..initial_data.len]));
 
-    // Critical: gap must be zero-initialized, not contain stale memory
     var gap_corruption_count: u32 = 0;
     for (full_buffer[initial_data.len..gap_start]) |byte| {
         if (byte != 0) {
@@ -1124,12 +1059,10 @@ test "simulation_vfs_memory_safety_zero_initialization_gap_filling" {
         }
     }
 
-    // Zero gap corruption indicates proper memory management
     if (gap_corruption_count > 0) {
         return VFileError.CorruptedData;
     }
 
-    // Verify final data integrity
     const final_start = gap_start;
     const final_end = final_start + final_data.len;
     try testing.expect(std.mem.eql(u8, final_data, full_buffer[final_start..final_end]));

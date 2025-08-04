@@ -174,7 +174,6 @@ pub const Node = struct {
     fn handle_message(self: *Self, message: Message) void {
         _ = self;
         _ = message;
-        // Future: Handle different message types
     }
 
     /// Send a message to another node.
@@ -388,7 +387,6 @@ pub const Network = struct {
 
     pub fn process_tick(self: *Self) void {
         _ = self; // Unused for now
-        // For now, this is a placeholder
     }
 
     pub fn partition_nodes(self: *Self, node_a: NodeId, node_b: NodeId) void {
@@ -418,19 +416,18 @@ test "simulation basic functionality" {
     var sim = try Simulation.init(allocator, 0xDEADBEEF);
     defer sim.deinit();
 
-    // Add some nodes
     const node1 = try sim.add_node();
     const node2 = try sim.add_node();
 
     try std.testing.expect(node1.id == 0);
     try std.testing.expect(node2.id == 1);
 
-    // Test basic tick functionality
+
     const initial_tick = sim.ticks();
     sim.tick();
     try std.testing.expect(sim.ticks() == initial_tick + 1);
 
-    // Test multiple ticks
+
     sim.tick_multiple(5);
     try std.testing.expect(sim.ticks() == initial_tick + 6);
 }
@@ -444,7 +441,7 @@ test "simulation node filesystem" {
     const node1 = try sim.add_node();
     const node = sim.find_node(node1);
 
-    // Test filesystem operations
+
     var vfs_interface = node.filesystem_interface();
 
     var file = try vfs_interface.create("test.txt");
@@ -455,7 +452,6 @@ test "simulation node filesystem" {
 
     try std.testing.expect(vfs_interface.exists("test.txt"));
 
-    // Get filesystem state
     const state = try sim.node_filesystem_state(node1);
     defer {
         for (state) |file_state| {
@@ -481,26 +477,22 @@ test "simulation network partitions" {
     const node1 = try sim.add_node();
     const node2 = try sim.add_node();
 
-    // Create partition
     sim.partition_nodes(node1, node2);
 
-    // Test that partition exists (we'd need to extend the API to check this)
-    // For now, we just test that the functions don't crash
 
-    // Heal partition
+
     sim.heal_partition(node1, node2);
 
-    // Test packet loss
+
     sim.configure_packet_loss(node1, node2, 0.5);
 
-    // Test latency
+
     sim.configure_latency(node1, node2, 10);
 }
 
 test "simulation deterministic behavior" {
     const allocator = std.testing.allocator;
 
-    // Run the same simulation twice with the same seed
     const seed = 0xDEADBEEF;
 
     var sim1 = try Simulation.init(allocator, seed);
@@ -509,17 +501,14 @@ test "simulation deterministic behavior" {
     var sim2 = try Simulation.init(allocator, seed);
     defer sim2.deinit();
 
-    // Perform the same operations on both
     _ = try sim1.add_node();
     _ = try sim2.add_node();
 
     sim1.tick_multiple(10);
     sim2.tick_multiple(10);
 
-    // Both should have the same tick count
     try std.testing.expect(sim1.ticks() == sim2.ticks());
 
-    // Both should generate the same random numbers
     const rand1 = sim1.random();
     const rand2 = sim2.random();
     try std.testing.expect(rand1 == rand2);

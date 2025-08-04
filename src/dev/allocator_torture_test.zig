@@ -63,7 +63,7 @@ pub const TortureTestStats = struct {
             self.successful_allocations += 1;
             self.total_bytes_allocated += size;
 
-            // Categorize allocation size
+            // Determine allocation size based on category
             if (size <= 256) {
                 self.small_allocations += 1;
             } else if (size <= 4096) {
@@ -141,7 +141,8 @@ const TrackedAllocation = struct {
 
     /// Verify allocation pattern is intact
     pub fn verify_pattern(self: *const TrackedAllocation) bool {
-        if (self.is_freed) return true; // Don't access freed memory
+        // Don't access freed memory
+        if (self.is_freed) return true;
 
         for (0..self.size) |i| {
             if (self.ptr[i] != self.pattern) {
@@ -187,7 +188,6 @@ pub const AllocatorTortureTester = struct {
     }
 
     pub fn deinit(self: *AllocatorTortureTester) void {
-        // Clean up any remaining allocations with proper alignment
         for (self.tracked_allocations.items) |*tracked| {
             if (!tracked.is_freed) {
                 const slice = tracked.ptr[0..tracked.size];
@@ -201,7 +201,7 @@ pub const AllocatorTortureTester = struct {
                     5 => self.allocator.rawFree(slice, @enumFromInt(5), @returnAddress()),
                     6 => self.allocator.rawFree(slice, @enumFromInt(6), @returnAddress()),
                     7 => self.allocator.rawFree(slice, @enumFromInt(7), @returnAddress()),
-                    else => self.allocator.free(slice), // fallback
+                    else => self.allocator.free(slice),
                 }
             }
         }
@@ -241,12 +241,10 @@ pub const AllocatorTortureTester = struct {
         // Final verification
         try self.verify_all_allocations();
 
-        // Test boundary cases if enabled
         if (self.config.enable_boundary_testing) {
             try self.test_size_boundaries();
         }
 
-        // Test double-free scenarios if enabled
         if (self.config.enable_double_free_testing) {
             try self.test_double_free_scenarios();
         }
@@ -254,7 +252,6 @@ pub const AllocatorTortureTester = struct {
 
     /// Perform a random allocation with random size and alignment
     fn perform_random_allocation(self: *AllocatorTortureTester, random: std.Random) !void {
-        // Generate random allocation parameters
         const size = if (self.config.min_allocation_size >= self.config.max_allocation_size)
             self.config.min_allocation_size
         else
@@ -268,7 +265,6 @@ pub const AllocatorTortureTester = struct {
 
         const alignment: std.mem.Alignment = @enumFromInt(alignment_exp);
 
-        // Generate unique pattern for this allocation
         const pattern = @as(u8, @truncate(self.next_allocation_id));
 
         // Attempt allocation with dynamic alignment handling
@@ -284,7 +280,6 @@ pub const AllocatorTortureTester = struct {
         };
 
         if (maybe_memory) |memory| {
-            // Successful allocation
             var tracked = TrackedAllocation.init(memory.ptr, size, alignment, pattern, self.next_allocation_id);
             self.next_allocation_id += 1;
 
@@ -313,7 +308,6 @@ pub const AllocatorTortureTester = struct {
             self.current_bytes_allocated += size;
             self.current_stats.record_allocation(size, true);
         } else {
-            // Failed allocation
             self.current_stats.record_allocation(size, false);
         }
     }
@@ -322,7 +316,6 @@ pub const AllocatorTortureTester = struct {
     fn perform_random_free(self: *AllocatorTortureTester, random: std.Random) !void {
         if (self.tracked_allocations.items.len == 0) return;
 
-        // Select random allocation to free
         const index = random.intRangeLessThan(usize, 0, self.tracked_allocations.items.len);
         var tracked = self.tracked_allocations.swapRemove(index);
 
@@ -361,7 +354,6 @@ pub const AllocatorTortureTester = struct {
         }
         tracked.mark_freed();
 
-        // Update statistics
         self.current_bytes_allocated -= tracked.size;
         self.current_stats.record_free(true);
     }
@@ -394,13 +386,10 @@ pub const AllocatorTortureTester = struct {
 
         for (boundary_sizes) |size| {
             if (size > self.config.max_allocation_size) continue;
-
             const maybe_memory = self.allocator.alloc(u8, size) catch null;
-            if (maybe_memory) |memory| {
-                // Fill with pattern
-                @memset(memory, 0xBC); // "Boundary Check" pattern
 
-                // Verify pattern
+            if (maybe_memory) |memory| {
+                @memset(memory, 0xBC); // "Boundary Check" pattern
                 for (memory) |byte| {
                     if (byte != 0xBC) {
                         self.current_stats.pattern_violations += 1;
@@ -419,15 +408,15 @@ pub const AllocatorTortureTester = struct {
 
     /// Test double-free detection and handling
     fn test_double_free_scenarios(self: *AllocatorTortureTester) !void {
-        // Allocate a test block
         const test_size = 128;
         const maybe_memory = self.allocator.alloc(u8, test_size) catch null;
         if (maybe_memory == null) return; // Skip if allocation failed
 
-        const memory = maybe_memory.?;
+        if (maybe_memory) |memory| {
+            // First free - should succeed
+            self.allocator.free(memory);
+        }
 
-        // First free - should succeed
-        self.allocator.free(memory);
         self.current_stats.record_free(true);
 
         // Note: We cannot actually test double-free because it would cause
@@ -441,8 +430,6 @@ pub const AllocatorTortureTester = struct {
         return self.current_stats;
     }
 };
-
-// Tests
 
 test "AllocatorTortureTester: basic functionality" {
     const config = TortureTestConfig{
@@ -512,10 +499,9 @@ pub fn run_allocator_torture_test(allocator: std.mem.Allocator, config: TortureT
 }
 
 /// Run comprehensive torture test suite with different configurations
-pub fn run_comprehensive_torture_tests(allocator: std.mem.Allocator) !void {
+pub fn run_torture_tests(allocator: std.mem.Allocator) !void {
     std.debug.print("Starting comprehensive allocator torture tests...\n", .{});
 
-    // Test 1: Basic stress test
     {
         std.debug.print("\n=== Test 1: Basic Stress Test ===\n", .{});
         const config = TortureTestConfig{
@@ -527,7 +513,6 @@ pub fn run_comprehensive_torture_tests(allocator: std.mem.Allocator) !void {
         stats.print_summary();
     }
 
-    // Test 2: Alignment stress test
     {
         std.debug.print("\n=== Test 2: Alignment Stress Test ===\n", .{});
         const config = TortureTestConfig{
@@ -540,7 +525,6 @@ pub fn run_comprehensive_torture_tests(allocator: std.mem.Allocator) !void {
         stats.print_summary();
     }
 
-    // Test 3: Boundary testing
     {
         std.debug.print("\n=== Test 3: Size Boundary Test ===\n", .{});
         const config = TortureTestConfig{
@@ -561,5 +545,5 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try run_comprehensive_torture_tests(allocator);
+    try run_torture_tests(allocator);
 }

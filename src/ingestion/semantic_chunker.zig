@@ -87,7 +87,6 @@ pub const SemanticChunker = struct {
         var blocks = std.ArrayList(ContextBlock).init(allocator);
 
         for (units) |unit| {
-            // Chunking size limit prevents memory exhaustion during ingestion
             if (unit.content.len > self.config.max_chunk_size) {
                 continue;
             }
@@ -163,7 +162,6 @@ pub const SemanticChunker = struct {
 
     /// Generate a deterministic block ID for a parsed unit
     fn generate_block_id(self: *SemanticChunker, allocator: std.mem.Allocator, unit: ParsedUnit) !BlockId {
-        // Deterministic ID generation combines content, type, and location
         const id_string = try std.fmt.allocPrint(
             allocator,
             "{s}_{s}_{s}_{d}_{d}",
@@ -183,7 +181,6 @@ pub const SemanticChunker = struct {
         var hash: [32]u8 = undefined;
         hasher.final(&hash);
 
-        // Truncate to 128-bit for BlockId compatibility
         var block_id: BlockId = undefined;
         @memcpy(block_id.bytes[0..16], hash[0..16]);
 
@@ -207,10 +204,8 @@ pub const SemanticChunker = struct {
 
         try json.appendSlice("{");
 
-        // Add unit type and ID
         try json.writer().print("\"unit_type\":\"{s}\",\"unit_id\":\"{s}\"", .{ unit.unit_type, unit.id });
 
-        // Add source location if configured
         if (self.config.include_source_location) {
             try json.writer().print(",\"location\":{{\"file_path\":\"{s}\",\"line_start\":{d},\"line_end\":{d},\"col_start\":{d},\"col_end\":{d}}}", .{
                 unit.location.file_path,
@@ -221,7 +216,6 @@ pub const SemanticChunker = struct {
             });
         }
 
-        // Add original unit metadata if configured
         if (self.config.preserve_unit_metadata and unit.metadata.count() > 0) {
             try json.appendSlice(",\"original_metadata\":{");
             var first = true;
@@ -234,7 +228,6 @@ pub const SemanticChunker = struct {
             try json.appendSlice("}");
         }
 
-        // Add edge information
         if (unit.edges.items.len > 0) {
             try json.appendSlice(",\"edges\":[");
             for (unit.edges.items, 0..) |edge, i| {
@@ -261,7 +254,6 @@ pub const SemanticChunker = struct {
         return json.toOwnedSlice();
     }
 
-    // Chunker interface implementations
     fn chunk_impl(
         ptr: *anyopaque,
         allocator: std.mem.Allocator,
@@ -302,7 +294,6 @@ test "convert unit to block" {
     var semantic_chunker = SemanticChunker.init(allocator, config);
     defer semantic_chunker.deinit(allocator);
 
-    // Create a test parsed unit
     var metadata = std.StringHashMap([]const u8).init(allocator);
     try metadata.put("function_name", "test_func");
     try metadata.put("is_public", "true");
@@ -324,12 +315,10 @@ test "convert unit to block" {
 
     const block = try semantic_chunker.convert_unit_to_block(allocator, unit);
 
-    // Verify block structure
     try testing.expectEqualStrings("pub fn test_func() void {}", block.content);
     try testing.expectEqualStrings("file://test.zig#L10-12", block.source_uri);
     try testing.expectEqual(@as(u64, 1), block.version);
 
-    // Verify metadata JSON contains expected fields
     try testing.expect(std.mem.indexOf(u8, block.metadata_json, "unit_type") != null);
     try testing.expect(std.mem.indexOf(u8, block.metadata_json, "function") != null);
     try testing.expect(std.mem.indexOf(u8, block.metadata_json, "location") != null);
@@ -358,7 +347,6 @@ test "generate deterministic block ID" {
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
 
-    // Generate ID twice - should be identical
     const id1 = try semantic_chunker.generate_block_id(allocator, unit);
     const id2 = try semantic_chunker.generate_block_id(allocator, unit);
 
@@ -373,10 +361,8 @@ test "chunk multiple units" {
     var semantic_chunker = SemanticChunker.init(allocator, config);
     defer semantic_chunker.deinit(allocator);
 
-    // Create test units
     var units = std.ArrayList(ParsedUnit).init(allocator);
 
-    // Unit 1: Function
     var metadata1 = std.StringHashMap([]const u8).init(allocator);
     try metadata1.put("function_name", "func1");
 
@@ -396,7 +382,6 @@ test "chunk multiple units" {
     };
     try units.append(unit1);
 
-    // Unit 2: Constant
     var metadata2 = std.StringHashMap([]const u8).init(allocator);
     try metadata2.put("constant_name", "VERSION");
 

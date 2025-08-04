@@ -6,21 +6,18 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-// Core knowledge graph data structures
 pub const types = @import("core/types.zig");
 pub const ContextBlock = types.ContextBlock;
 pub const BlockId = types.BlockId;
 pub const GraphEdge = types.GraphEdge;
 pub const EdgeType = types.EdgeType;
 
-// Database storage and configuration
 pub const storage = @import("storage/engine.zig");
 pub const Database = storage.StorageEngine;
 pub const StorageEngine = storage.StorageEngine;
 pub const Config = storage.StorageEngine.Config;
 pub const Error = storage.StorageEngine.StorageError;
 
-// Query engine for knowledge graph traversal
 pub const query_engine = @import("query/engine.zig");
 pub const QueryEngine = query_engine.QueryEngine;
 pub const QueryResult = query_engine.QueryResult;
@@ -40,7 +37,6 @@ pub const FilterExpression = query_engine.FilterExpression;
 pub const FilterOperator = query_engine.FilterOperator;
 pub const FilterTarget = query_engine.FilterTarget;
 
-// Content ingestion and parsing pipeline
 pub const pipeline = @import("ingestion/pipeline.zig");
 pub const IngestionPipeline = pipeline.IngestionPipeline;
 pub const PipelineConfig = pipeline.PipelineConfig;
@@ -64,14 +60,11 @@ pub const semantic_chunker = @import("ingestion/semantic_chunker.zig");
 pub const SemanticChunker = semantic_chunker.SemanticChunker;
 pub const SemanticChunkerConfig = semantic_chunker.SemanticChunkerConfig;
 
-// TCP server for database access
 pub const handler = @import("server/handler.zig");
 pub const Server = handler.Server;
 
-// Standard allocator type alias
 pub const Allocator = std.mem.Allocator;
 
-// Version information
 pub const version = .{
     .major = 0,
     .minor = 1,

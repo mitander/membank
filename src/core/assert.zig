@@ -263,10 +263,10 @@ pub fn expensive_check_enabled() bool {
 test "assert basic functionality" {
     // Simple assert should not panic
     assert(true);
-
+    
     // Rich assert should not panic
     assert_fmt(true, "This should not fail", .{});
-
+    
     // Test with formatting
     const value = 42;
     assert_fmt(value == 42, "Expected 42, got {}", .{value});
@@ -333,7 +333,6 @@ test "assert_counter_bounds functionality" {
 test "assert_state_valid functionality" {
     const State = enum { init, ready, running, stopped };
     const current_state = State.ready;
-
     assert_state_valid(current_state == .ready, "Invalid state: {}", .{current_state});
 }
 
@@ -363,7 +362,6 @@ test "assertion behavior matches documentation" {
     // Verify that assertion enablement matches documented behavior:
     // - Debug builds: assertions are active
     // - Release builds: assertions are compiled out (no-ops)
-
     const debug_mode = builtin.mode == .Debug;
 
     // Verify assertion enablement utilities match build mode
@@ -374,11 +372,9 @@ test "assertion behavior matches documentation" {
     // (These should be no-ops in release, active in debug)
     assert(true);
     assert_fmt(true, "Debug assertion with valid condition", .{});
-
+    
     // Test that fatal assertions always work regardless of build mode
     fatal_assert(true, "Fatal assertion should always be active", .{});
-
-    // Test backward compatibility alias
     assert_always(true, "Backward compatibility alias works", .{});
 
     // This test validates our fix to P0.2: Assertion Framework Inconsistency

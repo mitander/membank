@@ -16,16 +16,12 @@ const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 
-// Compaction-specific performance thresholds
-// Conservative thresholds because compaction is background operation
 const COMPACTION_THRESHOLD_NS = 50_000_000; // 50ms for compaction operations
 const MERGE_THRESHOLD_NS = 10_000_000; // 10ms for merge operations
 
-// Memory limits during compaction
 const MAX_PEAK_MEMORY_BYTES = 200 * 1024 * 1024; // 200MB during compaction
 const MAX_MEMORY_GROWTH_PER_OP = 10 * 1024; // 10KB per compaction
 
-// Reduced iterations because compaction operations are expensive
 const COMPACTION_ITERATIONS = 10;
 const WARMUP_ITERATIONS = 2;
 
@@ -113,21 +109,17 @@ fn benchmark_compaction_operations(
     allocator: std.mem.Allocator,
     json_output: bool,
 ) !void {
-    // Setup significant data to trigger compaction
     try setup_compaction_test_data(storage_engine, allocator);
 
     const initial_memory = query_current_rss_memory();
     var timings = try allocator.alloc(u64, COMPACTION_ITERATIONS);
     defer allocator.free(timings);
 
-    // Warmup compaction cycles
     for (0..WARMUP_ITERATIONS) |_| {
         try storage_engine.flush_memtable_to_sstable();
     }
 
-    // Benchmark compaction cycles
     for (0..COMPACTION_ITERATIONS) |i| {
-        // Add more data before each compaction to maintain realistic conditions
         try add_compaction_test_data(storage_engine, allocator, i);
 
         const start_time = std.time.nanoTimestamp();
@@ -167,9 +159,8 @@ fn benchmark_compaction_operations(
     }
 }
 
-// Test data creation for compaction scenarios
+
 fn setup_compaction_test_data(storage_engine: *StorageEngine, allocator: std.mem.Allocator) !void {
-    // Create enough data to fill multiple SSTables and trigger compaction
     const num_blocks = 1000;
 
     for (0..num_blocks) |i| {
@@ -177,7 +168,6 @@ fn setup_compaction_test_data(storage_engine: *StorageEngine, allocator: std.mem
         defer free_compaction_test_block(allocator, block);
         _ = try storage_engine.put_block(block);
 
-        // Periodically flush to create multiple SSTables
         if (i > 0 and i % 100 == 0) {
             try storage_engine.flush_memtable_to_sstable();
         }
@@ -185,7 +175,6 @@ fn setup_compaction_test_data(storage_engine: *StorageEngine, allocator: std.mem
 }
 
 fn add_compaction_test_data(storage_engine: *StorageEngine, allocator: std.mem.Allocator, iteration: usize) !void {
-    // Add incremental data before each compaction benchmark
     const base_offset = 10000 + (iteration * 100);
 
     for (0..50) |i| {
@@ -194,7 +183,6 @@ fn add_compaction_test_data(storage_engine: *StorageEngine, allocator: std.mem.A
         _ = try storage_engine.put_block(block);
     }
 
-    // Force flush to create new SSTable for compaction
     try storage_engine.flush_memtable_to_sstable();
 }
 
@@ -206,7 +194,6 @@ fn create_compaction_test_block(allocator: std.mem.Allocator, index: usize) !Con
     const source_uri = try std.fmt.allocPrint(allocator, "compaction://test_block_{}.zig", .{index});
     const metadata_json = try std.fmt.allocPrint(allocator, "{{\"type\":\"compaction_test\",\"index\":{}}}", .{index});
 
-    // Larger content to make compaction more realistic
     const content = try std.fmt.allocPrint(allocator,
         \\pub fn compaction_test_function_{}() void {{
         \\    // This is test content for compaction benchmarking
@@ -236,7 +223,6 @@ fn free_compaction_test_block(allocator: std.mem.Allocator, block: ContextBlock)
     allocator.free(block.content);
 }
 
-// Memory profiling utilities
 fn query_current_rss_memory() u64 {
     return switch (builtin.os.tag) {
         .linux => query_rss_linux() catch 0,
@@ -318,7 +304,6 @@ fn query_rss_windows() !u64 {
     return pmc.WorkingSetSize;
 }
 
-// Statistical analysis
 fn analyze_timings(timings: []u64) struct {
     total_time_ns: u64,
     min: u64,

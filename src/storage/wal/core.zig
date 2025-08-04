@@ -46,7 +46,6 @@ pub const WAL = struct {
     allocator: std.mem.Allocator,
     stats: WALStats,
 
-    // File naming scheme limits maximum segments, preventing overflow
     comptime {
         assert(@sizeOf(u32) == 4);
         assert(@sizeOf(u64) == 8);
@@ -78,7 +77,6 @@ pub const WAL = struct {
     pub fn startup(self: *WAL) WALError!void {
         concurrency.assert_main_thread();
 
-        // WAL persistence requires directory structure to exist
         self.vfs.mkdir(self.directory) catch |err| switch (err) {
             error.FileExists => {},
             error.AccessDenied => return WALError.AccessDenied,
@@ -87,7 +85,6 @@ pub const WAL = struct {
             else => return WALError.IoError,
         };
 
-        // Discover existing segments and initialize active segment
         try self.initialize_active_segment();
     }
 
@@ -117,7 +114,6 @@ pub const WAL = struct {
     fn validate_entry_for_write(self: *WAL, entry: WALEntry) WALError!usize {
         concurrency.assert_main_thread();
 
-        // Entry validation prevents corruption from propagating to disk
         assert(self.active_file != null);
         assert(entry.payload.len <= MAX_PAYLOAD_SIZE);
         assert(entry.payload_size == entry.payload.len);
@@ -133,7 +129,6 @@ pub const WAL = struct {
 
     /// Ensure active segment has capacity for entry, rotating if necessary
     fn ensure_segment_capacity(self: *WAL, required_size: usize) WALError!void {
-        // Rotation before write prevents partial entries spanning segments
         if (self.segment_size + required_size > MAX_SEGMENT_SIZE) {
             assert(self.segment_size <= MAX_SEGMENT_SIZE);
             try self.rotate_segment();
@@ -144,13 +139,11 @@ pub const WAL = struct {
 
     /// Serialize entry with validation and corruption detection
     fn serialize_with_validation(self: *WAL, entry: WALEntry, serialized_size: usize) WALError![]u8 {
-        // CRITICAL: Use completely separate allocator for WAL serialization buffer
         // to prevent any memory sharing with the entry payload data
         var write_arena = std.heap.ArenaAllocator.init(self.allocator);
         defer write_arena.deinit();
         const write_allocator = write_arena.allocator();
 
-        // Fill with distinctive pattern first to detect uninitialized writes,
         // then zero-initialize for actual serialization use
         const write_buffer = try write_allocator.alloc(u8, serialized_size);
         @memset(write_buffer, 0xDD);
@@ -159,13 +152,11 @@ pub const WAL = struct {
         const bytes_written = try entry.serialize(write_buffer);
         assert(bytes_written == serialized_size);
 
-        // Early corruption detection: validate write_buffer before write
         if (write_buffer.len >= WALEntry.HEADER_SIZE) {
             const serialized_checksum = std.mem.readInt(u64, write_buffer[0..8], .little);
             const serialized_type = write_buffer[8];
             const serialized_payload_size = std.mem.readInt(u32, write_buffer[9..13], .little);
 
-            // Detect garbage values that indicate memory corruption
             if (serialized_checksum == 0x5555555555555555 or
                 serialized_checksum == 0xAAAAAAAAAAAAAAAA or
                 serialized_payload_size > MAX_PAYLOAD_SIZE or
@@ -180,20 +171,17 @@ pub const WAL = struct {
                 return WALError.InvalidChecksum;
             }
 
-            // Additional corruption check: verify no 'xxxx' pattern in header
             if (serialized_payload_size == 0x78787878) {
                 log.err("WAL header corrupted with content pattern (0x78787878)", .{});
                 return WALError.CorruptedEntry;
             }
         }
 
-        // Return owned buffer - caller must manage memory
         return try self.allocator.dupe(u8, write_buffer);
     }
 
     /// Write buffer to file with immediate verification
     fn write_and_verify(self: *WAL, entry: WALEntry, write_buffer: []const u8) WALError!usize {
-        // Atomic write guarantees durability before transaction commits
         const written = self.active_file.?.write(write_buffer) catch return WALError.IoError;
         assert(written == write_buffer.len);
 
@@ -202,14 +190,10 @@ pub const WAL = struct {
             return WALError.IoError;
         }
 
-        // Individual file flush ensures data reaches OS buffers
         self.active_file.?.flush() catch return WALError.IoError;
 
-        // Global filesystem sync ensures data reaches physical storage
-        // Critical for durability guarantee - without this, power loss could lose data
         self.vfs.sync() catch return WALError.IoError;
 
-        // Immediate verification: read back WAL header to detect corruption
         if (write_buffer.len >= WALEntry.HEADER_SIZE) {
             const current_pos = self.active_file.?.tell() catch return WALError.IoError;
             const verify_pos = current_pos - write_buffer.len;
@@ -234,7 +218,6 @@ pub const WAL = struct {
                 }
             }
 
-            // Restore file position
             _ = self.active_file.?.seek(@intCast(current_pos), .start) catch return WALError.IoError;
         }
 
@@ -248,7 +231,6 @@ pub const WAL = struct {
         self.stats.entries_written += 1;
         self.stats.bytes_written += bytes_written;
 
-        // Size tracking consistency prevents segment overflow bugs
         assert(self.segment_size == old_segment_size + bytes_written);
         assert(self.segment_size <= MAX_SEGMENT_SIZE);
         assert(self.stats.entries_written > 0);
@@ -301,8 +283,6 @@ pub const WAL = struct {
 
         const files = file_list.toOwnedSlice() catch return WALError.OutOfMemory;
 
-        // Sort files by name to ensure chronological processing
-        // WAL files are named wal_NNNN.log where NNNN is sequential
         std.sort.insertion([]const u8, files, {}, struct {
             fn less_than(_: void, lhs: []const u8, rhs: []const u8) bool {
                 return std.mem.order(u8, lhs, rhs) == .lt;
@@ -325,13 +305,10 @@ pub const WAL = struct {
             self.allocator.free(segment_files);
         }
 
-        // If we only have 1 or fewer segments, no cleanup needed
         if (segment_files.len <= 1) {
             return;
         }
 
-        // Remove all segments except the last one (most recent)
-        // Keep the active segment for ongoing writes
         for (segment_files[0 .. segment_files.len - 1]) |file_name| {
             const file_path = try std.fmt.allocPrint(
                 self.allocator,
@@ -342,7 +319,6 @@ pub const WAL = struct {
 
             self.vfs.remove(file_path) catch |err| switch (err) {
                 error.FileNotFound => {
-                    // File already removed, continue
                     continue;
                 },
                 else => return WALError.IoError,
@@ -354,7 +330,6 @@ pub const WAL = struct {
 
     /// Rotate to a new WAL segment, closing the current one
     fn rotate_segment(self: *WAL) WALError!void {
-        // Close current segment
         if (self.active_file) |*file| {
             file.flush() catch return WALError.IoError;
             file.close();
@@ -365,7 +340,6 @@ pub const WAL = struct {
         self.segment_size = 0;
         self.stats.segments_rotated += 1;
 
-        // Create new segment file
         try self.open_segment_file();
 
         log.info("Rotated to WAL segment {d}", .{self.segment_number});
@@ -373,13 +347,10 @@ pub const WAL = struct {
 
     /// Initialize the active segment by discovering existing segments or creating the first one
     fn initialize_active_segment(self: *WAL) WALError!void {
-        // Discover highest numbered segment
         self.segment_number = try self.discover_latest_segment_number();
 
-        // Try to open existing segment or create new one
         self.open_segment_file() catch |err| switch (err) {
             WALError.FileNotFound => {
-                // No existing segment, start with segment 0
                 self.segment_number = 0;
                 try self.create_new_segment();
             },
@@ -412,7 +383,6 @@ pub const WAL = struct {
                         found_any = true;
                     }
                 } else |_| {
-                    // Invalid segment file name, skip
                     continue;
                 }
             }
@@ -426,7 +396,6 @@ pub const WAL = struct {
         const filename = try self.segment_filename();
         defer self.allocator.free(filename);
 
-        // Try to open existing file first in read-write mode (needed for file_size calls)
         self.active_file = self.vfs.open(filename, .read_write) catch |open_err| switch (open_err) {
             error.FileNotFound => self.vfs.create(filename) catch |create_err| switch (create_err) {
                 error.AccessDenied => return WALError.AccessDenied,
@@ -438,7 +407,6 @@ pub const WAL = struct {
             else => return WALError.IoError,
         };
 
-        // Seek to end for append operations
         _ = self.active_file.?.seek(0, .end) catch return WALError.IoError;
     }
 
@@ -466,7 +434,6 @@ pub const WAL = struct {
     }
 };
 
-// Tests
 
 fn create_test_block() ContextBlock {
     return ContextBlock{
@@ -499,13 +466,11 @@ test "WAL initialization and cleanup" {
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_init");
     defer wal.deinit();
 
-    // Verify initialization state
     try testing.expect(wal.active_file != null);
     try testing.expectEqual(@as(u32, 0), wal.segment_number);
     try testing.expectEqual(@as(u64, 0), wal.segment_size);
     try testing.expect(std.mem.eql(u8, "./test_wal_init", wal.directory));
 
-    // Verify initial statistics
     const stats = wal.statistics();
     try testing.expectEqual(@as(u64, 0), stats.entries_written);
     try testing.expectEqual(@as(u64, 0), stats.bytes_written);
@@ -527,7 +492,6 @@ test "WAL write single entry" {
 
     try wal.write_entry(entry);
 
-    // Verify statistics updated
     const stats = wal.statistics();
     try testing.expectEqual(@as(u64, 1), stats.entries_written);
     try testing.expect(stats.bytes_written > 0);
@@ -568,19 +532,16 @@ test "WAL write different entry types" {
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_types");
     defer wal.deinit();
 
-    // Write put_block entry
     const test_block = create_test_block();
     const put_entry = try WALEntry.create_put_block(test_block, allocator);
     defer put_entry.deinit(allocator);
     try wal.write_entry(put_entry);
 
-    // Write delete_block entry
     const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
     const delete_entry = try WALEntry.create_delete_block(test_id, allocator);
     defer delete_entry.deinit(allocator);
     try wal.write_entry(delete_entry);
 
-    // Write put_edge entry
     const test_edge = create_test_edge();
     const edge_entry = try WALEntry.create_put_edge(test_edge, allocator);
     defer edge_entry.deinit(allocator);
@@ -601,7 +562,6 @@ test "WAL segment rotation" {
 
     const initial_segment = wal.segment_number;
 
-    // Write entries until segment rotation
     const large_payload_size = 1024 * 1024; // 1MB
     const large_payload = try allocator.alloc(u8, large_payload_size);
     defer allocator.free(large_payload);
@@ -610,7 +570,6 @@ test "WAL segment rotation" {
     var rotation_occurred = false;
     var entries_written: u32 = 0;
 
-    // Write large entries to trigger rotation
     while (!rotation_occurred and entries_written < 100) {
         const checksum = WALEntry.calculate_checksum(.put_block, large_payload);
         const large_entry = WALEntry{
@@ -643,7 +602,6 @@ test "WAL recovery functionality" {
 
     const test_dir = "./test_wal_recovery";
 
-    // Write some entries
     {
         var wal = try WAL.init(allocator, sim_vfs.vfs(), test_dir);
         defer wal.deinit();
@@ -657,7 +615,6 @@ test "WAL recovery functionality" {
         try wal.write_entry(entry);
     }
 
-    // Recovery test context
     const RecoveryContext = struct {
         entries_recovered: u32,
 
@@ -670,7 +627,7 @@ test "WAL recovery functionality" {
 
     var recovery_ctx = RecoveryContext{ .entries_recovered = 0 };
 
-    // Test recovery
+
     var wal = try WAL.init(allocator, sim_vfs.vfs(), test_dir);
     defer wal.deinit();
 
@@ -685,7 +642,7 @@ test "WAL error handling - directory creation failure" {
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Test with invalid directory path (empty)
+
     try testing.expectError(error.InvalidArgument, WAL.init(allocator, sim_vfs.vfs(), ""));
 }
 
@@ -698,7 +655,6 @@ test "WAL cleanup old segments" {
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_cleanup");
     defer wal.deinit();
 
-    // Create some old segment files manually
     const old_files = [_][]const u8{
         "./test_wal_cleanup/wal_0000.log",
         "./test_wal_cleanup/wal_0001.log",
@@ -711,11 +667,9 @@ test "WAL cleanup old segments" {
         file.close();
     }
 
-    // Test cleanup (keep last 2 segments)
+
     try wal.cleanup_old_segments(2);
 
-    // Verify old segments were cleaned up appropriately
-    // Note: This is a basic test - in practice you'd verify file existence
 }
 
 test "WAL statistics accuracy" {
@@ -753,7 +707,7 @@ test "WAL filename generation" {
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_filename");
     defer wal.deinit();
 
-    // Test initial filename
+
     const filename = try wal.segment_filename();
     defer allocator.free(filename);
 
@@ -767,7 +721,6 @@ test "WAL concurrent safety assertions" {
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Initialize concurrency tracking
     concurrency.init();
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_concurrency");
@@ -777,7 +730,6 @@ test "WAL concurrent safety assertions" {
     const entry = try WALEntry.create_put_block(test_block, allocator);
     defer entry.deinit(allocator);
 
-    // Should succeed when called from main thread
     try wal.write_entry(entry);
 
     const stats = wal.statistics();

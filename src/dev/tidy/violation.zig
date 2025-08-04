@@ -55,11 +55,9 @@ pub const ViolationSummary = struct {
         try self.all_violations.append(violation);
         self.total_violations += 1;
 
-        // Update type count
         const current_type_count = self.violations_by_type.get(violation.violation_type) orelse 0;
         self.violations_by_type.put(violation.violation_type, current_type_count + 1);
 
-        // Update file count
         const current_file_count = self.violations_by_file.get(violation.file_path) orelse 0;
         try self.violations_by_file.put(violation.file_path, current_file_count + 1);
     }
@@ -74,10 +72,8 @@ pub const ViolationSummary = struct {
         std.debug.print("=======================\n", .{});
         std.debug.print("Total violations: {d}\n\n", .{self.total_violations});
 
-        // Summary by type
         std.debug.print("BY VIOLATION TYPE:\n", .{});
 
-        // Check each violation type and print counts
         const all_types = [_]ViolationType{
             .naming_convention,
             .banned_pattern,
@@ -99,7 +95,6 @@ pub const ViolationSummary = struct {
             }
         }
 
-        // Summary by file (top 10 most problematic)
         std.debug.print("\nBY FILE (most problematic first):\n", .{});
         var file_list = std.ArrayList(struct { []const u8, u32 }).init(std.heap.page_allocator);
         defer file_list.deinit();
@@ -109,7 +104,6 @@ pub const ViolationSummary = struct {
             file_list.append(.{ entry.key_ptr.*, entry.value_ptr.* }) catch continue;
         }
 
-        // Simple sort by violation count
         std.sort.insertion(@TypeOf(file_list.items[0]), file_list.items, {}, struct {
             fn less_than(_: void, lhs: @TypeOf(file_list.items[0]), rhs: @TypeOf(file_list.items[0])) bool {
                 return lhs[1] > rhs[1]; // Descending order
@@ -130,7 +124,6 @@ pub const ViolationSummary = struct {
         std.debug.print("DETAILED VIOLATIONS:\n", .{});
         std.debug.print("====================\n\n", .{});
 
-        // Group by file for easier fixing
         var current_file: ?[]const u8 = null;
 
         for (self.all_violations.items) |violation| {

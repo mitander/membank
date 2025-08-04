@@ -38,7 +38,6 @@ pub const Shell = struct {
     ) ![]const u8 {
         const arena_allocator = self.arena.allocator();
 
-        // Format the command with arguments
         const full_cmd = try std.fmt.allocPrint(arena_allocator, cmd, args);
 
         // Split command into argv
@@ -50,7 +49,6 @@ pub const Shell = struct {
 
         if (argv.items.len == 0) return error.EmptyCommand;
 
-        // Prepare process
         var process = std.process.Child.init(argv.items, arena_allocator);
         process.stdout_behavior = .Pipe;
         process.stderr_behavior = .Pipe;
@@ -59,10 +57,8 @@ pub const Shell = struct {
             process.stdin_behavior = .Pipe;
         }
 
-        // Start the process
         try process.spawn();
 
-        // Handle stdin if provided
         if (options.stdin_slice) |stdin_data| {
             if (process.stdin) |stdin| {
                 try stdin.writeAll(stdin_data);
@@ -71,7 +67,6 @@ pub const Shell = struct {
             }
         }
 
-        // Read stdout and stderr
         const stdout = if (process.stdout) |stdout_pipe|
             try stdout_pipe.readToEndAlloc(arena_allocator, std.math.maxInt(usize))
         else
@@ -82,7 +77,6 @@ pub const Shell = struct {
         else
             "";
 
-        // Wait for process to complete
         const result = try process.wait();
 
         switch (result) {
@@ -113,7 +107,6 @@ test "shell basic execution" {
     const shell = try Shell.create(allocator);
     defer shell.destroy();
 
-    // Test basic echo command
     const result = try shell.exec_stdout("echo hello", .{});
     try std.testing.expect(std.mem.startsWith(u8, result, "hello"));
 }
@@ -124,7 +117,6 @@ test "shell with arguments" {
     const shell = try Shell.create(allocator);
     defer shell.destroy();
 
-    // Test command with formatted arguments
     const result = try shell.exec_stdout("echo {s}", .{"test_argument"});
     try std.testing.expect(std.mem.startsWith(u8, result, "test_argument"));
 }
@@ -135,7 +127,6 @@ test "shell git command" {
     const shell = try Shell.create(allocator);
     defer shell.destroy();
 
-    // Test git command (will only work in a git repository)
     const result = shell.exec_stdout("git --version", .{}) catch |err| switch (err) {
         error.CommandFailed => return, // Git not available or not in a git repo
         else => return err,

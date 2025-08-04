@@ -42,7 +42,6 @@ const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
 const EdgeType = context_block.EdgeType;
 
-// Benchmark configuration - reduced for fast CI execution
 const BENCHMARK_ITERATIONS = 1000;
 const WARMUP_ITERATIONS = 50;
 const LARGE_BENCHMARK_ITERATIONS = 50;
@@ -50,6 +49,7 @@ const STATISTICAL_SAMPLES = 5;
 
 // CI Performance Regression Thresholds (nanoseconds)
 // Based on measured performance with margin for CI hardware and variance
+
 // Measured: 21µs -> Threshold: 100µs (4.7x margin for CI slower hardware)
 const BLOCK_WRITE_THRESHOLD_NS = 100_000;
 // Measured: 0.06µs -> Threshold: 1µs (17x margin for variance)
@@ -65,7 +65,6 @@ const QUERY_BATCH_THRESHOLD_NS = 5_000;
 // WAL flush is currently a no-op, set conservative threshold
 const WAL_FLUSH_THRESHOLD_NS = 10_000; // 10µs
 
-// Memory usage thresholds (bytes)
 const MAX_PEAK_MEMORY_BYTES = 100 * 1024 * 1024; // 100MB for 10K operations
 const MAX_MEMORY_GROWTH_PER_OP = 1024; // 1KB average growth per operation
 
@@ -82,7 +81,6 @@ const BenchmarkResult = struct {
     throughput_ops_per_sec: f64,
     passed_threshold: bool,
     threshold_ns: u64,
-    // Memory profiling metrics
     peak_memory_bytes: u64,
     memory_growth_bytes: u64,
     memory_efficient: bool,
@@ -112,7 +110,6 @@ const BenchmarkResult = struct {
         std.debug.print("Threshold:  {}ns ({d:.2}µs)\n", .{ self.threshold_ns, threshold_us });
         std.debug.print("Status:     {s}[{s}]\x1b[0m\n", .{ status_color, status });
 
-        // Memory profiling results
         std.debug.print("\n--- Memory Profile ---\n", .{});
         const peak_memory_mb = @as(f64, @floatFromInt(self.peak_memory_bytes)) / (1024.0 * 1024.0);
         const growth_kb = @as(f64, @floatFromInt(self.memory_growth_bytes)) / 1024.0;
@@ -147,38 +144,33 @@ const MemoryProfiler = struct {
     initial_rss_bytes: u64,
     peak_rss_bytes: u64,
 
-    const Self = @This();
-
-    pub fn init() Self {
-        return Self{
+    pub fn init() MemoryProfiler {
+        return MemoryProfiler{
             .initial_rss_bytes = 0,
             .peak_rss_bytes = 0,
         };
     }
 
-    pub fn start_profiling(self: *Self) void {
-        // Record actual process memory usage at benchmark start
+    pub fn start_profiling(self: *MemoryProfiler) void {
         self.initial_rss_bytes = query_current_rss_memory();
         self.peak_rss_bytes = self.initial_rss_bytes;
     }
 
-    pub fn sample_memory(self: *Self) void {
-        // Sample current RSS and update peak if higher
+    pub fn sample_memory(self: *MemoryProfiler) void {
         const current_rss = query_current_rss_memory();
         if (current_rss > self.peak_rss_bytes) {
             self.peak_rss_bytes = current_rss;
         }
     }
 
-    pub fn calculate_memory_growth(self: *const Self) u64 {
+    pub fn calculate_memory_growth(self: *const MemoryProfiler) u64 {
         if (self.peak_rss_bytes >= self.initial_rss_bytes) {
             return self.peak_rss_bytes - self.initial_rss_bytes;
         }
         return 0;
     }
 
-    pub fn is_memory_efficient(self: *const Self, operations: u64) bool {
-        // Memory efficiency based on real process memory growth
+    pub fn is_memory_efficient(self: *const MemoryProfiler, operations: u64) bool {
         const growth_bytes = self.calculate_memory_growth();
         const peak_efficient = self.peak_rss_bytes <= MAX_PEAK_MEMORY_BYTES;
         const growth_per_op = if (operations > 0) growth_bytes / operations else 0;
@@ -197,7 +189,6 @@ fn query_current_rss_memory() u64 {
     }
 }
 
-// Linux RSS memory via /proc/self/status
 fn query_rss_linux() !u64 {
     const file = std.fs.openFileAbsolute("/proc/self/status", .{}) catch return 0;
     defer file.close();
@@ -206,11 +197,9 @@ fn query_rss_linux() !u64 {
     const bytes_read = file.readAll(&buf) catch return 0;
     const content = buf[0..bytes_read];
 
-    // Search for "VmRSS:" line in /proc/self/status
     var lines = std.mem.splitSequence(u8, content, "\n");
     while (lines.next()) |line| {
         if (std.mem.startsWith(u8, line, "VmRSS:")) {
-            // Parse: "VmRSS:    1234 kB"
             var parts = std.mem.splitSequence(u8, line, " ");
             _ = parts.next(); // Skip "VmRSS:"
             while (parts.next()) |part| {
@@ -235,10 +224,7 @@ fn query_rss_macos() !u64 {
     return @as(u64, @intCast(usage.maxrss));
 }
 
-// Windows RSS memory via GetProcessMemoryInfo
 fn query_rss_windows() !u64 {
-    // For Zig 0.13+, this would use Windows API calls
-    // For now, return 0 as fallback (Windows support can be added later)
     return 0;
 }
 
@@ -271,7 +257,6 @@ const StatisticalAnalyzer = struct {
     ) BenchmarkResult {
         assert(self.samples.items.len > 0);
 
-        // Sort for median calculation
         std.sort.pdq(u64, self.samples.items, {}, std.sort.asc(u64));
 
         const min_ns = self.samples.items[0];
@@ -324,7 +309,6 @@ const StatisticalAnalyzer = struct {
     }
 };
 
-// Global state for output format
 var json_output = false;
 var all_results = std.ArrayList(BenchmarkResult).init(std.heap.page_allocator);
 
@@ -341,7 +325,6 @@ pub fn main() !void {
         return;
     }
 
-    // Parse command line options
     var benchmark_name: []const u8 = "";
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -443,7 +426,6 @@ fn run_storage_benchmarks(allocator: std.mem.Allocator) !void {
         std.debug.print("============================\n", .{});
     }
 
-    // Initialize storage engine
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -452,16 +434,9 @@ fn run_storage_benchmarks(allocator: std.mem.Allocator) !void {
 
     try storage_engine.startup();
 
-    // Block write benchmark
     try benchmark_block_writes(&storage_engine, allocator);
-
-    // Block read benchmark
     try benchmark_block_reads(&storage_engine, allocator);
-
-    // Block update benchmark
     try benchmark_block_updates(&storage_engine, allocator);
-
-    // Block delete benchmark
     try benchmark_block_deletes(&storage_engine, allocator);
 }
 
@@ -471,7 +446,6 @@ fn run_query_benchmarks(allocator: std.mem.Allocator) !void {
         std.debug.print("==========================\n", .{});
     }
 
-    // Initialize engines
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -484,11 +458,7 @@ fn run_query_benchmarks(allocator: std.mem.Allocator) !void {
     defer query_eng.deinit();
 
     try setup_query_test_data(&storage_engine);
-
-    // Single block query benchmark
     try benchmark_single_block_queries(&query_eng, allocator);
-
-    // Batch query benchmark
     try benchmark_batch_queries(&query_eng, allocator);
 }
 
@@ -498,7 +468,6 @@ fn run_compaction_benchmarks(allocator: std.mem.Allocator) !void {
         std.debug.print("===================================\n", .{});
     }
 
-    // Initialize storage engine
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -509,12 +478,8 @@ fn run_compaction_benchmarks(allocator: std.mem.Allocator) !void {
     try storage_engine.startup();
 
     try setup_compaction_test_data(&storage_engine);
-
-    // WAL flush benchmark
     try benchmark_wal_flush(&storage_engine, allocator);
 }
-
-// Storage benchmarks implementation
 
 fn benchmark_block_writes(storage_engine: *StorageEngine, allocator: std.mem.Allocator) !void {
     var analyzer = StatisticalAnalyzer.init(allocator);
@@ -522,19 +487,17 @@ fn benchmark_block_writes(storage_engine: *StorageEngine, allocator: std.mem.All
 
     var memory_profiler = MemoryProfiler.init();
 
-    // Warmup - not profiled
     for (0..WARMUP_ITERATIONS) |i| {
         const block = try create_test_block(allocator, i);
         defer free_test_block(allocator, block);
         try storage_engine.put_block(block);
     }
 
-    // Start memory profiling before benchmark operations
     memory_profiler.start_profiling();
 
-    // Benchmark with periodic memory sampling
     for (0..STATISTICAL_SAMPLES) |sample| {
-        memory_profiler.sample_memory(); // Sample at start of each batch
+        // Sample at start of each batch
+        memory_profiler.sample_memory();
 
         const start_time = std.time.nanoTimestamp();
 
@@ -550,7 +513,9 @@ fn benchmark_block_writes(storage_engine: *StorageEngine, allocator: std.mem.All
         const per_op_time = batch_time / LARGE_BENCHMARK_ITERATIONS;
 
         try analyzer.add_sample(per_op_time);
-        memory_profiler.sample_memory(); // Sample at end of each batch
+
+        // Sample at end of each batch
+        memory_profiler.sample_memory();
     }
 
     const total_operations = STATISTICAL_SAMPLES * LARGE_BENCHMARK_ITERATIONS;
@@ -567,16 +532,13 @@ fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allo
     const test_ids = try setup_read_test_blocks(storage_engine, allocator);
     defer allocator.free(test_ids);
 
-    // Warmup
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = test_ids[i % test_ids.len];
         _ = try storage_engine.find_block(block_id);
     }
 
-    // Start memory profiling
     memory_profiler.start_profiling();
 
-    // Benchmark
     for (0..STATISTICAL_SAMPLES) |_| {
         memory_profiler.sample_memory();
 
@@ -609,7 +571,6 @@ fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Al
     const test_ids = try setup_read_test_blocks(storage_engine, allocator);
     defer allocator.free(test_ids);
 
-    // Warmup
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = test_ids[i % test_ids.len];
         const updated_block = try create_updated_test_block(allocator, block_id, i);
@@ -617,10 +578,8 @@ fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Al
         try storage_engine.put_block(updated_block);
     }
 
-    // Start memory profiling
     memory_profiler.start_profiling();
 
-    // Benchmark
     for (0..STATISTICAL_SAMPLES) |sample| {
         memory_profiler.sample_memory();
 
@@ -656,11 +615,8 @@ fn benchmark_block_deletes(storage_engine: *StorageEngine, allocator: std.mem.Al
     defer analyzer.deinit();
 
     var memory_profiler = MemoryProfiler.init();
-
-    // Start memory profiling
     memory_profiler.start_profiling();
 
-    // Benchmark
     var total_deletes: u64 = 0;
     for (0..STATISTICAL_SAMPLES) |sample| {
         memory_profiler.sample_memory();
@@ -686,8 +642,6 @@ fn benchmark_block_deletes(storage_engine: *StorageEngine, allocator: std.mem.Al
     try store_and_print_result(result);
 }
 
-// Query benchmarks implementation
-
 fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator) !void {
     var analyzer = StatisticalAnalyzer.init(allocator);
     defer analyzer.deinit();
@@ -697,20 +651,17 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
     const test_ids = try create_query_test_block_ids(allocator);
     defer allocator.free(test_ids);
 
-    // Warmup
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = test_ids[i % test_ids.len];
         const result = try query_eng.find_block(block_id);
         defer result.deinit();
     }
 
-    // Start memory profiling
+    // Start after warmup
     memory_profiler.start_profiling();
 
-    // Benchmark
     for (0..STATISTICAL_SAMPLES) |_| {
         memory_profiler.sample_memory();
-
         const start_time = std.time.nanoTimestamp();
 
         for (0..LARGE_BENCHMARK_ITERATIONS) |i| {
@@ -746,19 +697,16 @@ fn benchmark_batch_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator
         .block_ids = test_ids[0..batch_size],
     };
 
-    // Warmup
     for (0..WARMUP_ITERATIONS) |_| {
         const result = try query_eng.execute_find_blocks(batch_query);
         defer result.deinit();
     }
 
-    // Start memory profiling
+    // Start after warmup
     memory_profiler.start_profiling();
 
-    // Benchmark
     for (0..STATISTICAL_SAMPLES) |_| {
         memory_profiler.sample_memory();
-
         const start_time = std.time.nanoTimestamp();
 
         for (0..LARGE_BENCHMARK_ITERATIONS) |_| {
@@ -779,22 +727,16 @@ fn benchmark_batch_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator
     try store_and_print_result(result);
 }
 
-// Compaction benchmarks implementation
-
 fn benchmark_wal_flush(storage_engine: *StorageEngine, allocator: std.mem.Allocator) !void {
     var analyzer = StatisticalAnalyzer.init(allocator);
     defer analyzer.deinit();
 
     var memory_profiler = MemoryProfiler.init();
-
-    // Start memory profiling
     memory_profiler.start_profiling();
 
-    // Benchmark
     for (0..STATISTICAL_SAMPLES) |_| {
         memory_profiler.sample_memory();
 
-        // Add some data to flush
         for (0..10) |i| {
             const block = try create_test_block(allocator, i + 50000);
             defer free_test_block(allocator, block);
@@ -813,8 +755,6 @@ fn benchmark_wal_flush(storage_engine: *StorageEngine, allocator: std.mem.Alloca
     const result = analyzer.analyze("WAL Flush", WAL_FLUSH_THRESHOLD_NS, &memory_profiler, STATISTICAL_SAMPLES);
     try store_and_print_result(result);
 }
-
-// Helper functions for test data setup
 
 fn create_test_block(allocator: std.mem.Allocator, index: usize) !ContextBlock {
     const block_id_hex = try std.fmt.allocPrint(allocator, "b{x:0>31}", .{index});
@@ -907,7 +847,6 @@ fn setup_delete_test_blocks(
 }
 
 fn setup_query_test_data(storage_engine: *StorageEngine) !void {
-    // Query benchmarks will use blocks already created by storage benchmarks
     _ = storage_engine;
 }
 
@@ -925,12 +864,10 @@ fn create_query_test_block_ids(allocator: std.mem.Allocator) ![]BlockId {
 }
 
 fn setup_compaction_test_data(storage_engine: *StorageEngine) !void {
-    // Compaction benchmarks will add their own test data
     _ = storage_engine;
 }
 
 test "benchmark framework tests" {
-    // Test statistical analyzer
     var analyzer = StatisticalAnalyzer.init(std.testing.allocator);
     defer analyzer.deinit();
 

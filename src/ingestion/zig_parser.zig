@@ -213,7 +213,6 @@ pub const ZigParser = struct {
                 continue;
             }
 
-            // Parse different types of declarations
             if (std.mem.startsWith(u8, trimmed, "//")) {
                 try self.parse_comment_block(context);
             } else if (std.mem.startsWith(u8, trimmed, "const ") and std.mem.indexOf(u8, trimmed, "@import") != null) {
@@ -247,7 +246,6 @@ pub const ZigParser = struct {
         var content_builder = std.ArrayList(u8).init(context.allocator);
         defer content_builder.deinit();
 
-        // Read consecutive comment lines
         while (!context.is_at_end()) {
             const line = context.peek_line();
             const trimmed = std.mem.trim(u8, line, " \t");
@@ -291,7 +289,6 @@ pub const ZigParser = struct {
         const start_line = context.current_line;
         const line = context.read_line();
 
-        // Extract import name and path
         var import_path: ?[]const u8 = null;
         var var_name: ?[]const u8 = null;
 
@@ -343,7 +340,6 @@ pub const ZigParser = struct {
         const start_line = context.current_line;
         const signature_line = context.read_line();
 
-        // Extract function name
         const fn_name = extract_function_name(signature_line) orelse return;
 
         var content_builder = std.ArrayList(u8).init(context.allocator);
@@ -352,7 +348,6 @@ pub const ZigParser = struct {
         try content_builder.appendSlice(std.mem.trim(u8, signature_line, " \t"));
 
         if (self.config.include_function_bodies) {
-            // Read function body until matching brace
             var brace_count: i32 = 0;
             var found_opening_brace = false;
 
@@ -483,7 +478,6 @@ pub const ZigParser = struct {
 
         try content_builder.appendSlice(std.mem.trim(u8, signature_line, " \t"));
 
-        // Read struct body
         var brace_count: i32 = 0;
         var found_opening_brace = false;
 
@@ -588,7 +582,6 @@ pub const ZigParser = struct {
         try content_builder.appendSlice(std.mem.trim(u8, signature_line, " \t"));
 
         if (self.config.include_function_bodies) {
-            // Read test body
             var brace_count: i32 = 0;
             var found_opening_brace = false;
 
@@ -638,7 +631,6 @@ pub const ZigParser = struct {
         try context.units.append(unit);
     }
 
-    // Parser interface implementations
     fn parse_impl(ptr: *anyopaque, allocator: std.mem.Allocator, content: SourceContent) IngestionError![]ParsedUnit {
         const self: *ZigParser = @ptrCast(@alignCast(ptr));
         return self.parse_content(allocator, content);
@@ -661,7 +653,6 @@ pub const ZigParser = struct {
     }
 };
 
-// Utility functions for extracting names from declarations
 
 fn contains_keyword(line: []const u8, keyword: []const u8) bool {
     return std.mem.indexOf(u8, line, keyword) != null;
@@ -672,13 +663,11 @@ fn extract_function_name(line: []const u8) ?[]const u8 {
     const fn_pos = std.mem.indexOf(u8, line, "fn ") orelse return null;
     const after_fn = line[fn_pos + 3 ..];
 
-    // Skip whitespace
     var start: usize = 0;
     while (start < after_fn.len and (after_fn[start] == ' ' or after_fn[start] == '\t')) {
         start += 1;
     }
 
-    // Find end of name (before '(')
     var end = start;
     while (end < after_fn.len and after_fn[end] != '(' and after_fn[end] != ' ' and after_fn[end] != '\t') {
         end += 1;
@@ -695,13 +684,11 @@ fn extract_constant_name(line: []const u8) ?[]const u8 {
     const const_pos = std.mem.indexOf(u8, line, "const ") orelse return null;
     const after_const = line[const_pos + 6 ..];
 
-    // Skip whitespace
     var start: usize = 0;
     while (start < after_const.len and (after_const[start] == ' ' or after_const[start] == '\t')) {
         start += 1;
     }
 
-    // Find end of name (before '=' or ':')
     var end = start;
     while (end < after_const.len and after_const[end] != '=' and after_const[end] != ':' and after_const[end] != ' ' and after_const[end] != '\t') {
         end += 1;
@@ -718,13 +705,11 @@ fn extract_variable_name(line: []const u8) ?[]const u8 {
     const var_pos = std.mem.indexOf(u8, line, "var ") orelse return null;
     const after_var = line[var_pos + 4 ..];
 
-    // Skip whitespace
     var start: usize = 0;
     while (start < after_var.len and (after_var[start] == ' ' or after_var[start] == '\t')) {
         start += 1;
     }
 
-    // Find end of name (before '=' or ':')
     var end = start;
     while (end < after_var.len and after_var[end] != '=' and after_var[end] != ':' and after_var[end] != ' ' and after_var[end] != '\t') {
         end += 1;
@@ -737,18 +722,15 @@ fn extract_variable_name(line: []const u8) ?[]const u8 {
 }
 
 fn extract_struct_name(line: []const u8) ?[]const u8 {
-    // Handle various struct patterns
 
     if (std.mem.indexOf(u8, line, "const ")) |const_pos| {
         const after_const = line[const_pos + 6 ..];
 
-        // Skip whitespace
         var start: usize = 0;
         while (start < after_const.len and (after_const[start] == ' ' or after_const[start] == '\t')) {
             start += 1;
         }
 
-        // Find end of name (before '=' or ' ')
         var end = start;
         while (end < after_const.len and after_const[end] != '=' and after_const[end] != ' ' and after_const[end] != '\t') {
             end += 1;
@@ -767,13 +749,11 @@ fn extract_enum_name(line: []const u8) ?[]const u8 {
     const const_pos = std.mem.indexOf(u8, line, "const ") orelse return null;
     const after_const = line[const_pos + 6 ..];
 
-    // Skip whitespace
     var start: usize = 0;
     while (start < after_const.len and (after_const[start] == ' ' or after_const[start] == '\t')) {
         start += 1;
     }
 
-    // Find end of name (before '=' or ' ')
     var end = start;
     while (end < after_const.len and after_const[end] != '=' and after_const[end] != ' ' and after_const[end] != '\t') {
         end += 1;
@@ -790,7 +770,6 @@ fn extract_test_name(line: []const u8) ?[]const u8 {
     const test_pos = std.mem.indexOf(u8, line, "test ") orelse return null;
     const after_test = line[test_pos + 5 ..];
 
-    // Skip whitespace
     var start: usize = 0;
     while (start < after_test.len and (after_test[start] == ' ' or after_test[start] == '\t')) {
         start += 1;
@@ -798,7 +777,6 @@ fn extract_test_name(line: []const u8) ?[]const u8 {
 
     if (start >= after_test.len) return null;
 
-    // Handle quoted test names: test "name"
     if (after_test[start] == '"') {
         start += 1; // skip opening quote
         var end = start;
@@ -809,7 +787,6 @@ fn extract_test_name(line: []const u8) ?[]const u8 {
             return after_test[start..end];
         }
     } else {
-        // Handle unquoted test names (rare but possible)
         var end = start;
         while (end < after_test.len and after_test[end] != ' ' and after_test[end] != '\t' and after_test[end] != '{') {
             end += 1;

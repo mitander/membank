@@ -89,7 +89,6 @@ pub fn ProtectedType(comptime T: type) type {
 pub fn copy_left(comptime T: type, dest: []T, source: []const T) void {
     assert(dest.len >= source.len);
     assert(@intFromPtr(dest.ptr) != @intFromPtr(source.ptr) or dest.len == 0);
-
     std.mem.copyForwards(T, dest, source);
 }
 
@@ -131,7 +130,6 @@ pub fn copy_disjoint(comptime T: type, dest: []T, source: []const T) void {
     const source_end = source_start + source.len * @sizeOf(T);
 
     assert(dest_end <= source_start or source_end <= dest_start);
-
     @memcpy(dest[0..source.len], source);
 }
 

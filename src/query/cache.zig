@@ -40,7 +40,6 @@ pub const CacheKey = struct {
 
     /// Create cache key for find_blocks query (currently not used for caching due to streaming nature)
     pub fn for_find_blocks(block_ids: []const BlockId) CacheKey {
-        // Simple hash of all block IDs for multi-block queries
         var hasher = std.hash.Wyhash.init(0);
         for (block_ids) |id| {
             hasher.update(&id.bytes);
@@ -176,11 +175,9 @@ pub const QueryCache = struct {
     arena: std.heap.ArenaAllocator,
     cache: std.HashMap(CacheKey, CacheEntry, CacheKeyHashContext, 80),
 
-    // Cache configuration
     max_entries: u32,
     ttl_ns: i64,
 
-    // Cache statistics
     hits: u64,
     misses: u64,
     evictions: u64,
@@ -215,7 +212,6 @@ pub const QueryCache = struct {
         self.cache.clearRetainingCapacity();
         _ = self.arena.reset(.retain_capacity); // Arena handles all value cleanup
 
-        // Reset statistics but preserve configuration
         self.hits = 0;
         self.misses = 0;
         self.evictions = 0;
@@ -242,12 +238,10 @@ pub const QueryCache = struct {
 
     /// Store query result in cache
     pub fn put(self: *QueryCache, key: CacheKey, value: CacheValue) !void {
-        // Check if we need to evict entries
         if (self.cache.count() >= self.max_entries) {
             try self.evict_lru_entries();
         }
 
-        // Clone the value for storage in cache
         const arena_allocator = self.arena.allocator();
         const cached_value = try value.clone(arena_allocator);
 
@@ -267,7 +261,6 @@ pub const QueryCache = struct {
         self.cache.clearRetainingCapacity();
         _ = self.arena.reset(.retain_capacity); // Arena handles all value cleanup
 
-        // Increment invalidation count but preserve other statistics
         self.invalidations += 1;
     }
 
@@ -275,7 +268,6 @@ pub const QueryCache = struct {
     fn evict_lru_entries(self: *QueryCache) !void {
         const target_size = (self.max_entries * 3) / 4; // Evict 25% of entries
 
-        // Collect entries with access information for LRU calculation
         var eviction_candidates = try std.ArrayList(struct {
             key: CacheKey,
             last_access: i64,
@@ -292,7 +284,6 @@ pub const QueryCache = struct {
             });
         }
 
-        // Sort by LRU criteria (least recently accessed first, then by access count)
         std.sort.pdq(
             @TypeOf(eviction_candidates.items[0]),
             eviction_candidates.items,
@@ -312,7 +303,6 @@ pub const QueryCache = struct {
             }.less_than,
         );
 
-        // Evict entries until we reach target size
         const entries_to_evict = self.cache.count() - target_size;
         for (eviction_candidates.items[0..entries_to_evict]) |candidate| {
             if (self.cache.getPtr(candidate.key)) |_| {
@@ -341,11 +331,8 @@ pub const QueryCache = struct {
 
     /// Estimate cache memory usage for monitoring
     pub fn estimate_memory_usage(self: *const QueryCache) u64 {
-        // Rough estimate: cache structure + arena usage
         const cache_overhead = self.cache.count() * (@sizeOf(CacheKey) + @sizeOf(CacheEntry));
 
-        // Arena allocator doesn't expose usage directly, so we estimate
-        // This is conservative and includes overhead from allocator structures
         return cache_overhead + @as(u64, @intCast(self.cache.count() * 1024)); // Estimate 1KB per cached result
     }
 };
@@ -363,7 +350,6 @@ pub const CacheStatistics = struct {
 
     /// Check if cache is performing well
     pub fn is_effective(self: *const CacheStatistics) bool {
-        // Cache is considered effective if hit rate > 20% and we're using capacity
         return self.hit_rate > 0.2 and self.current_entries > (self.max_entries / 4);
     }
 
@@ -372,7 +358,6 @@ pub const CacheStatistics = struct {
         const total_operations = self.hits + self.misses;
         if (total_operations == 0) return false;
 
-        // If evictions are more than 10% of total operations, cache may need larger size
         const eviction_rate = @as(f64, @floatFromInt(self.evictions)) / @as(f64, @floatFromInt(total_operations));
         return eviction_rate > 0.1;
     }

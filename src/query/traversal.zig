@@ -261,7 +261,6 @@ pub const TraversalResult = struct {
 
     /// Clone traversal result for caching
     pub fn clone(self: TraversalResult, allocator: std.mem.Allocator) !TraversalResult {
-        // Clone blocks array
         const cloned_blocks = try allocator.alloc(ContextBlock, self.blocks.len);
         for (self.blocks, 0..) |block, i| {
             cloned_blocks[i] = ContextBlock{
@@ -273,13 +272,11 @@ pub const TraversalResult = struct {
             };
         }
 
-        // Clone paths array
         const cloned_paths = try allocator.alloc([]const BlockId, self.paths.len);
         for (self.paths, 0..) |path, i| {
             cloned_paths[i] = try allocator.dupe(BlockId, path);
         }
 
-        // Clone depths array
         const cloned_depths = try allocator.dupe(u32, self.depths);
 
         return TraversalResult{
@@ -799,7 +796,6 @@ fn traverse_bidirectional_search(
         queue_backward.deinit();
     }
 
-    // Initialize forward search from start
     const start_path = try allocator.alloc(BlockId, 1);
     start_path[0] = query.start_block_id;
 
@@ -812,7 +808,6 @@ fn traverse_bidirectional_search(
 
     try visited_forward.put(query.start_block_id, {});
 
-    // For bidirectional search in a graph without a specific target,
     // we'll search outward in both directions from the start node
     if (query.direction == .bidirectional) {
         const backward_path = try allocator.alloc(BlockId, 1);
@@ -831,12 +826,10 @@ fn traverse_bidirectional_search(
     var blocks_traversed: u32 = 0;
     var max_depth_reached: u32 = 0;
 
-    // Alternate between forward and backward search
     while ((queue_forward.items.len > 0 or queue_backward.items.len > 0) and
         result_blocks.items.len < query.max_results)
     {
 
-        // Process forward queue
         if (queue_forward.items.len > 0) {
             const current = queue_forward.orderedRemove(0);
             defer allocator.free(current.path);
@@ -857,7 +850,6 @@ fn traverse_bidirectional_search(
             try result_depths.append(current.depth); // tidy:ignore-perf ensureCapacity called with query.max_results
 
             if (query.max_depth > 0 and current.depth >= query.max_depth / 2) {
-                // Limit depth for each direction
                 continue;
             }
 
@@ -874,7 +866,6 @@ fn traverse_bidirectional_search(
             );
         }
 
-        // Process backward queue (only if bidirectional)
         if (queue_backward.items.len > 0 and query.direction == .bidirectional) {
             const current = queue_backward.orderedRemove(0);
             defer allocator.free(current.path);
@@ -882,9 +873,7 @@ fn traverse_bidirectional_search(
             blocks_traversed += 1;
             max_depth_reached = @max(max_depth_reached, current.depth);
 
-            // Check if we've already found this block in forward search
             if (visited_forward.contains(current.block_id)) {
-                // Found intersection point - could reconstruct full path here
                 continue;
             }
 
@@ -938,7 +927,6 @@ fn traverse_strongly_connected(
     storage_engine: *StorageEngine,
     query: TraversalQuery,
 ) !TraversalResult {
-    // Implement Tarjan's SCC algorithm for cycle detection
     return traverse_depth_first(allocator, storage_engine, query);
 }
 
@@ -948,7 +936,6 @@ fn traverse_topological_sort(
     storage_engine: *StorageEngine,
     query: TraversalQuery,
 ) !TraversalResult {
-    // Implement Kahn's algorithm for topological sorting
     return traverse_breadth_first(allocator, storage_engine, query);
 }
 
@@ -976,7 +963,7 @@ fn add_neighbors_to_astar_queue(
                     @memcpy(new_path[0..current_path.len], current_path);
                     new_path[current_path.len] = edge.target_id;
 
-                    const g_cost = current_g_cost + 1.0; // Each edge has cost 1
+                    const g_cost = current_g_cost + 1.0;
                     const h_cost = calculate_heuristic(storage_engine, edge.target_id, query.start_block_id);
                     const f_cost = g_cost + h_cost;
 
@@ -1040,7 +1027,6 @@ fn add_neighbors_to_bidirectional_queue(
 ) !void {
     const QueueItem = @TypeOf(queue.items[0]);
 
-    // For bidirectional search, forward goes outgoing, backward goes incoming
     const use_outgoing = (is_forward and (query.direction == .outgoing or query.direction == .bidirectional)) or
         (!is_forward and (query.direction == .incoming or query.direction == .bidirectional));
     const use_incoming = (is_forward and (query.direction == .incoming or query.direction == .bidirectional)) or
@@ -1102,8 +1088,6 @@ fn calculate_heuristic(storage_engine: *StorageEngine, from_id: BlockId, to_id: 
     _ = from_id;
     _ = to_id;
 
-    // Simple heuristic for now - could be enhanced with content similarity
-    // For optimal pathfinding, we want to minimize distance to target
     return 1.0; // Uniform cost for now
 }
 
@@ -1208,25 +1192,20 @@ fn create_test_edge(from_id: BlockId, to_id: BlockId, edge_type: EdgeType) Graph
 test "traversal query validation" {
     const start_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
 
-    // Valid query
     const valid_query = TraversalQuery.init(start_id, .outgoing);
     try valid_query.validate();
 
-    // Invalid - zero max depth
     var invalid_query = TraversalQuery.init(start_id, .outgoing);
     invalid_query.max_depth = 0;
     try testing.expectError(TraversalError.InvalidDepth, invalid_query.validate());
 
-    // Invalid - excessive max depth
     invalid_query.max_depth = 101; // > 100
     try testing.expectError(TraversalError.InvalidDepth, invalid_query.validate());
 
-    // Invalid - zero max results
     invalid_query.max_depth = TraversalQuery.DEFAULT_MAX_DEPTH;
     invalid_query.max_results = 0;
     try testing.expectError(TraversalError.InvalidMaxResults, invalid_query.validate());
 
-    // Invalid - excessive max results
     invalid_query.max_results = 20000; // > ABSOLUTE_MAX_RESULTS
     try testing.expectError(TraversalError.InvalidMaxResults, invalid_query.validate());
 }
@@ -1236,7 +1215,6 @@ test "traversal direction enum parsing" {
     try testing.expectEqual(TraversalDirection.incoming, try TraversalDirection.from_u8(0x02));
     try testing.expectEqual(TraversalDirection.bidirectional, try TraversalDirection.from_u8(0x03));
 
-    // Invalid direction should return error
     try testing.expectError(TraversalError.InvalidDirection, TraversalDirection.from_u8(0xFF));
 }
 
@@ -1244,7 +1222,6 @@ test "traversal algorithm enum parsing" {
     try testing.expectEqual(TraversalAlgorithm.breadth_first, try TraversalAlgorithm.from_u8(0x01));
     try testing.expectEqual(TraversalAlgorithm.depth_first, try TraversalAlgorithm.from_u8(0x02));
 
-    // Invalid algorithm should return error
     try testing.expectError(TraversalError.InvalidAlgorithm, TraversalAlgorithm.from_u8(0xFF));
 }
 
@@ -1272,12 +1249,10 @@ test "basic traversal with empty graph" {
     const start_block = create_test_block(start_id, "isolated block");
     try storage_engine.put_block(start_block);
 
-    // Execute traversal
     const query = TraversalQuery.init(start_id, .outgoing);
     const result = try execute_traversal(allocator, &storage_engine, query);
     defer result.deinit();
 
-    // Should only find the starting block
     try testing.expectEqual(@as(usize, 1), result.count());
     try testing.expect(result.blocks[0].id.eql(start_id));
     try testing.expectEqual(@as(u32, 0), result.max_depth_reached);
@@ -1306,7 +1281,6 @@ test "outgoing traversal with linear chain" {
     try storage_engine.put_edge(edge_ab);
     try storage_engine.put_edge(edge_bc);
 
-    // Traverse outgoing from A with max depth 2
     const query = TraversalQuery{
         .start_block_id = id_a,
         .direction = .outgoing,
@@ -1319,11 +1293,9 @@ test "outgoing traversal with linear chain" {
     const result = try execute_traversal(allocator, &storage_engine, query);
     defer result.deinit();
 
-    // Should find A, B, C (depth 0, 1, 2)
     try testing.expectEqual(@as(usize, 3), result.count());
     try testing.expectEqual(@as(u32, 2), result.max_depth_reached);
 
-    // Verify blocks are in the result
     var found_a = false;
     var found_b = false;
     var found_c = false;
@@ -1358,11 +1330,9 @@ test "incoming traversal" {
     try storage_engine.put_edge(edge_ab);
     try storage_engine.put_edge(edge_bc);
 
-    // Traverse incoming from C
     const result = try traverse_incoming(allocator, &storage_engine, id_c, 2);
     defer result.deinit();
 
-    // Should find C, B, A (following edges backwards)
     try testing.expectEqual(@as(usize, 3), result.count());
 
     var found_a = false;
@@ -1399,11 +1369,9 @@ test "bidirectional traversal" {
     try storage_engine.put_edge(edge_ab);
     try storage_engine.put_edge(edge_cb);
 
-    // Traverse bidirectional from B
     const result = try traverse_bidirectional(allocator, &storage_engine, id_b, 1);
     defer result.deinit();
 
-    // Should find A, B, C
     try testing.expectEqual(@as(usize, 3), result.count());
 
     var found_a = false;
@@ -1435,13 +1403,11 @@ test "edge type filtering" {
     try storage_engine.put_block(block_b);
     try storage_engine.put_block(block_c);
 
-    // A -> B (calls), A -> C (imports)
     const edge_ab_calls = create_test_edge(id_a, id_b, .calls);
     const edge_ac_imports = create_test_edge(id_a, id_c, .imports);
     try storage_engine.put_edge(edge_ab_calls);
     try storage_engine.put_edge(edge_ac_imports);
 
-    // Traverse outgoing from A, filtering only 'calls' edges
     const query_calls = TraversalQuery{
         .start_block_id = id_a,
         .direction = .outgoing,
@@ -1454,7 +1420,6 @@ test "edge type filtering" {
     const result_calls = try execute_traversal(allocator, &storage_engine, query_calls);
     defer result_calls.deinit();
 
-    // Should find A and B only (not C)
     try testing.expectEqual(@as(usize, 2), result_calls.count());
 
     var found_a = false;
@@ -1500,7 +1465,6 @@ test "max depth limit enforcement" {
         try storage_engine.put_edge(edge);
     }
 
-    // Traverse with max depth 2
     const query = TraversalQuery{
         .start_block_id = id_a,
         .direction = .outgoing,
@@ -1513,7 +1477,6 @@ test "max depth limit enforcement" {
     const result = try execute_traversal(allocator, &storage_engine, query);
     defer result.deinit();
 
-    // Should find A, B, C but not D (depth 0, 1, 2 but not 3)
     try testing.expectEqual(@as(usize, 3), result.count());
     try testing.expectEqual(@as(u32, 2), result.max_depth_reached);
 
@@ -1559,7 +1522,6 @@ test "max results limit enforcement" {
         try storage_engine.put_edge(edge);
     }
 
-    // Traverse with max results 3
     const query = TraversalQuery{
         .start_block_id = id_a,
         .direction = .outgoing,
@@ -1572,7 +1534,6 @@ test "max results limit enforcement" {
     const result = try execute_traversal(allocator, &storage_engine, query);
     defer result.deinit();
 
-    // Should find exactly 3 blocks (limited by max_results)
     try testing.expectEqual(@as(usize, 3), result.count());
 }
 
@@ -1616,7 +1577,7 @@ test "breadth-first vs depth-first traversal ordering" {
         try storage_engine.put_edge(edge);
     }
 
-    // Test breadth-first
+
     const bfs_query = TraversalQuery{
         .start_block_id = id_a,
         .direction = .outgoing,
@@ -1629,7 +1590,7 @@ test "breadth-first vs depth-first traversal ordering" {
     const bfs_result = try execute_traversal(allocator, &storage_engine, bfs_query);
     defer bfs_result.deinit();
 
-    // Test depth-first
+
     const dfs_query = TraversalQuery{
         .start_block_id = id_a,
         .direction = .outgoing,
@@ -1642,11 +1603,9 @@ test "breadth-first vs depth-first traversal ordering" {
     const dfs_result = try execute_traversal(allocator, &storage_engine, dfs_query);
     defer dfs_result.deinit();
 
-    // Both should find all 5 blocks
     try testing.expectEqual(@as(usize, 5), bfs_result.count());
     try testing.expectEqual(@as(usize, 5), dfs_result.count());
 
-    // Verify both approaches visit the same blocks
     var bfs_ids = std.ArrayList(BlockId).init(allocator);
     defer bfs_ids.deinit();
     var dfs_ids = std.ArrayList(BlockId).init(allocator);
@@ -1661,7 +1620,6 @@ test "breadth-first vs depth-first traversal ordering" {
         try dfs_ids.append(block.id);
     }
 
-    // Both should have same set of IDs (though possibly different order)
     try testing.expectEqual(bfs_ids.items.len, dfs_ids.items.len);
 }
 
@@ -1671,14 +1629,13 @@ test "traversal error handling" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    // Test traversal with non-existent start block
+
     const missing_id = try BlockId.from_hex("0000000000000000000000000000000000000000");
 
     const query = TraversalQuery.init(missing_id, .outgoing);
     const result = try execute_traversal(allocator, &storage_engine, query);
     defer result.deinit();
 
-    // Should return empty result for missing start block
     try testing.expect(result.is_empty());
     try testing.expectEqual(@as(usize, 0), result.count());
 }
@@ -1693,7 +1650,7 @@ test "convenience traversal functions" {
     const test_block = create_test_block(start_id, "convenience test");
     try storage_engine.put_block(test_block);
 
-    // Test convenience functions
+
     const outgoing_result = try traverse_outgoing(allocator, &storage_engine, start_id, 2);
     defer outgoing_result.deinit();
 
@@ -1703,7 +1660,6 @@ test "convenience traversal functions" {
     const bidirectional_result = try traverse_bidirectional(allocator, &storage_engine, start_id, 2);
     defer bidirectional_result.deinit();
 
-    // All should find at least the starting block
     try testing.expect(!outgoing_result.is_empty());
     try testing.expect(!incoming_result.is_empty());
     try testing.expect(!bidirectional_result.is_empty());
@@ -1736,7 +1692,7 @@ test "A* search algorithm basic functionality" {
     try storage_engine.put_edge(edge_ab);
     try storage_engine.put_edge(edge_bc);
 
-    // Test A* search
+
     const query = TraversalQuery{
         .start_block_id = id_a,
         .direction = .outgoing,
@@ -1749,11 +1705,9 @@ test "A* search algorithm basic functionality" {
     const result = try execute_traversal(allocator, &storage_engine, query);
     defer result.deinit();
 
-    // Should find A, B, C (similar to BFS for this simple case)
     try testing.expectEqual(@as(usize, 3), result.count());
     try testing.expectEqual(@as(u32, 2), result.max_depth_reached);
 
-    // Verify blocks are in the result
     var found_a = false;
     var found_b = false;
     var found_c = false;
@@ -1788,7 +1742,7 @@ test "bidirectional search algorithm" {
     try storage_engine.put_edge(edge_ab);
     try storage_engine.put_edge(edge_bc);
 
-    // Test bidirectional search
+
     const query = TraversalQuery{
         .start_block_id = id_a,
         .direction = .bidirectional,
@@ -1801,11 +1755,9 @@ test "bidirectional search algorithm" {
     const result = try execute_traversal(allocator, &storage_engine, query);
     defer result.deinit();
 
-    // Should find blocks reachable from A in both directions
     try testing.expect(result.count() >= 1); // At least A itself
     try testing.expect(result.blocks_traversed > 0);
 
-    // Verify A is in the result
     var found_a = false;
     for (result.blocks) |block| {
         if (block.id.eql(id_a)) found_a = true;
@@ -1814,7 +1766,7 @@ test "bidirectional search algorithm" {
 }
 
 test "advanced algorithm enum values" {
-    // Test new algorithm enum values
+
     try testing.expectEqual(TraversalAlgorithm.astar_search, try TraversalAlgorithm.from_u8(0x03));
     try testing.expectEqual(TraversalAlgorithm.bidirectional_search, try TraversalAlgorithm.from_u8(0x04));
     try testing.expectEqual(TraversalAlgorithm.strongly_connected, try TraversalAlgorithm.from_u8(0x05));

@@ -114,7 +114,6 @@ pub fn run(
 
 /// Execute a single fuzzing iteration against storage engine
 fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !common.FuzzResult {
-    // Create simulation VFS with random corruption potential
     var sim_vfs = SimulationVFS.init(allocator) catch {
         return common.FuzzResult.expected_error;
     };
@@ -126,7 +125,6 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
     };
     defer engine.deinit();
 
-    // Initialize storage before using it
     engine.startup() catch {
         return common.FuzzResult.expected_error;
     };
@@ -148,7 +146,7 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
     return common.FuzzResult.success;
 }
 
-/// Test random block insertion operations
+/
 fn test_block_insertion(engine: *StorageEngine, allocator: std.mem.Allocator, random: std.Random) !void {
     const block = try common.generate_random_block(allocator, random);
     _ = engine.put_block(block) catch {
@@ -157,7 +155,7 @@ fn test_block_insertion(engine: *StorageEngine, allocator: std.mem.Allocator, ra
     };
 }
 
-/// Test random block lookup operations
+/
 fn test_block_lookup(engine: *StorageEngine, random: std.Random) !void {
     const random_id = common.generate_random_block_id(random);
     _ = engine.find_block(random_id) catch {
@@ -166,7 +164,7 @@ fn test_block_lookup(engine: *StorageEngine, random: std.Random) !void {
     };
 }
 
-/// Test random block deletion operations
+/
 fn test_block_deletion(engine: *StorageEngine, random: std.Random) !void {
     const random_id = common.generate_random_block_id(random);
     _ = engine.delete_block(random_id) catch {
@@ -175,9 +173,8 @@ fn test_block_deletion(engine: *StorageEngine, random: std.Random) !void {
     };
 }
 
-/// Test memtable flush behavior under load
+/
 fn test_memtable_flush(engine: *StorageEngine, allocator: std.mem.Allocator, random: std.Random) !void {
-    // Insert multiple blocks to trigger potential flush
     const block_count = random.intRangeAtMost(u32, 5, 20);
     for (0..block_count) |_| {
         const block = common.generate_random_block(allocator, random) catch continue;
@@ -185,7 +182,7 @@ fn test_memtable_flush(engine: *StorageEngine, allocator: std.mem.Allocator, ran
     }
 }
 
-/// Test WAL recovery scenarios
+/
 fn test_wal_recovery(engine: *StorageEngine, allocator: std.mem.Allocator, random: std.Random) !void {
     // Insert some blocks
     const block_count = random.intRangeAtMost(u32, 1, 10);
@@ -194,7 +191,7 @@ fn test_wal_recovery(engine: *StorageEngine, allocator: std.mem.Allocator, rando
         _ = engine.put_block(block) catch continue;
     }
 
-    // Test recovery by reinitializing engine
+
     // This exercises WAL replay logic
     // Future: Add more sophisticated recovery testing with random corruption
 }

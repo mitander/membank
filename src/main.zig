@@ -18,7 +18,6 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 
 pub fn main() !void {
-    // Initialize concurrency model first
     concurrency.init();
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

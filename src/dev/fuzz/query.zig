@@ -163,7 +163,7 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
     return common.FuzzResult.success;
 }
 
-/// Test random block ID lookup queries
+/
 fn test_block_lookup(query_engine: *QueryEngine, random: std.Random) !void {
     const random_id = common.generate_random_block_id(random);
     _ = query_engine.storage_engine.find_block(random_id) catch {
@@ -172,7 +172,7 @@ fn test_block_lookup(query_engine: *QueryEngine, random: std.Random) !void {
     };
 }
 
-/// Test semantic query execution with random queries
+/
 fn test_filtered_query(query_engine: *QueryEngine, allocator: std.mem.Allocator, random: std.Random) !void {
     // Skip semantic query test for now due to missing generate function
     _ = query_engine;
@@ -180,7 +180,7 @@ fn test_filtered_query(query_engine: *QueryEngine, allocator: std.mem.Allocator,
     _ = random;
 }
 
-/// Test graph traversal queries with random parameters
+/
 fn test_traversal_query(query_engine: *QueryEngine, allocator: std.mem.Allocator, random: std.Random) !void {
     const traversal_query = try generate_random_traversal_query(allocator, random);
     var result = query_engine.execute_traversal(traversal_query) catch {

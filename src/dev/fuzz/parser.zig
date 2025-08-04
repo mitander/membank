@@ -124,11 +124,9 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
     var parser = ZigParser.init(allocator, config);
     defer parser.deinit();
 
-    // Generate malformed Zig source code
     const source_code = try common.generate_malformed_zig_source(allocator, random);
     defer allocator.free(source_code);
 
-    // Create source content
     var metadata = std.StringHashMap([]const u8).init(allocator);
     try metadata.put("file_path", "fuzz_test.zig");
 
@@ -139,9 +137,7 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
         .timestamp_ns = @intCast(std.time.nanoTimestamp()),
     };
 
-    // Try to parse - this should handle malformed input gracefully
     _ = parser.parser().parse(allocator, source_content) catch {
-        // Parsing errors are expected with malformed input
         return common.FuzzResult.expected_error;
     };
 

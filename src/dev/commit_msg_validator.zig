@@ -96,7 +96,6 @@ fn read_first_line(allocator: std.mem.Allocator, file_path: []const u8) Validati
     defer file.close();
 
     // Read commit message file content - allow larger files for rebase operations
-    // During rebasing, commit message files can be quite large
     const content = file.readToEndAlloc(allocator, 64 * 1024) catch |err| switch (err) {
         error.FileTooBig => {
             // For very large commit messages (e.g., during complex rebases),

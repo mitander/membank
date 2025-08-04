@@ -9,7 +9,6 @@ const kausaldb = @import("kausaldb");
 
 const stdx = kausaldb.stdx;
 
-// Import specialized fuzzing modules
 const storage_fuzz = @import("storage.zig");
 const query_fuzz = @import("query.zig");
 const parser_fuzz = @import("parser.zig");
@@ -20,7 +19,6 @@ const FUZZ_ITERATIONS_DEFAULT = 100_000;
 const FUZZ_ITERATIONS_CONTINUOUS = std.math.maxInt(u64);
 const FUZZ_SEED_DEFAULT = 42;
 
-// Global coordinator state
 var global_verbose_mode = stdx.ProtectedType(bool).init(false);
 var global_validation_errors = stdx.MetricsCounter.init(0);
 var global_shutdown_requested = stdx.ProtectedType(bool).init(false);
@@ -30,7 +28,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Initialize concurrency model
     kausaldb.concurrency.init();
 
     const args = try std.process.argsAlloc(allocator);
@@ -41,13 +38,11 @@ pub fn main() !void {
         return;
     }
 
-    // Parse arguments
     var target: []const u8 = undefined;
     var iterations: u64 = FUZZ_ITERATIONS_DEFAULT;
     var seed: u64 = FUZZ_SEED_DEFAULT;
     var arg_index: u32 = 1;
 
-    // Check for verbose flag
     if (arg_index < args.len and (std.mem.eql(u8, args[arg_index], "--verbose") or std.mem.eql(u8, args[arg_index], "-v"))) {
         _ = global_verbose_mode.with(
             fn (*bool, void) void,
@@ -62,7 +57,6 @@ pub fn main() !void {
         arg_index += 1;
     }
 
-    // Parse target
     if (arg_index >= args.len) {
         try print_usage();
         return;
@@ -70,7 +64,6 @@ pub fn main() !void {
     target = args[arg_index];
     arg_index += 1;
 
-    // Parse iterations
     if (arg_index < args.len) {
         if (std.mem.eql(u8, args[arg_index], "continuous")) {
             iterations = FUZZ_ITERATIONS_CONTINUOUS;
@@ -80,15 +73,12 @@ pub fn main() !void {
         arg_index += 1;
     }
 
-    // Parse seed
     if (arg_index < args.len) {
         seed = try std.fmt.parseInt(u64, args[arg_index], 10);
     }
 
-    // Setup crash reporting
     try common.setup_crash_reporting(allocator);
 
-    // Route to appropriate fuzzing module
     if (std.mem.eql(u8, target, "storage")) {
         try storage_fuzz.run(allocator, iterations, seed, &global_verbose_mode, &global_validation_errors);
     } else if (std.mem.eql(u8, target, "query")) {
@@ -157,7 +147,6 @@ fn run_all_targets(allocator: std.mem.Allocator, iterations: u64, seed: u64) !vo
             try serialization_fuzz.run(allocator, batch_size, current_seed + 3, &global_verbose_mode);
             current_seed += 4;
 
-            // Brief pause to prevent system overload
             std.Thread.sleep(100_000_000); // 100ms // tidy:ignore-arch - controlled coordination for system stability
         }
     } else {
@@ -170,7 +159,6 @@ fn run_all_targets(allocator: std.mem.Allocator, iterations: u64, seed: u64) !vo
     }
 }
 
-// Check for shutdown request
 pub fn check_shutdown_request() bool {
     if (global_shutdown_requested.with(
         fn (*const bool, void) bool,
@@ -185,12 +173,10 @@ pub fn check_shutdown_request() bool {
         return true;
     }
 
-    // Check for shutdown file (lightweight alternative to complex signal handling)
     std.fs.cwd().access(".kausaldb_stop", .{}) catch {
         return false; // File doesn't exist, continue
     };
 
-    // Shutdown file exists - request shutdown
     _ = global_shutdown_requested.with(
         fn (*bool, bool) void,
         true,
@@ -202,7 +188,6 @@ pub fn check_shutdown_request() bool {
     );
     std.debug.print("Shutdown requested via .kausaldb_stop file\n", .{});
 
-    // Clean up the file
     std.fs.cwd().deleteFile(".kausaldb_stop") catch {};
     return true;
 }

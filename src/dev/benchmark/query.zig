@@ -20,15 +20,12 @@ const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
 const EdgeType = context_block.EdgeType;
 
-// Performance thresholds based on measured performance with CI margins
 const SINGLE_QUERY_THRESHOLD_NS = 2_000; // measured 0.12µs → 2µs (17x margin)
 const BATCH_QUERY_THRESHOLD_NS = 5_000; // measured 0.33µs → 5µs (15x margin)
 
-// Memory efficiency limits
 const MAX_PEAK_MEMORY_BYTES = 100 * 1024 * 1024;
 const MAX_MEMORY_GROWTH_PER_OP = 1024;
 
-// Benchmark configuration
 const ITERATIONS = 1000;
 const WARMUP_ITERATIONS = 50;
 const BATCH_SIZE = 10;
@@ -131,7 +128,6 @@ pub fn run_batch_queries(allocator: std.mem.Allocator, json_output: bool) !void 
 }
 
 fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator, json_output: bool) !void {
-    // Setup test data for querying
     try setup_query_test_data(query_eng.storage_engine);
     const test_block_ids = try create_query_test_block_ids(allocator);
     defer allocator.free(test_block_ids);
@@ -140,14 +136,12 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
     var timings = try allocator.alloc(u64, ITERATIONS);
     defer allocator.free(timings);
 
-    // Warmup phase
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = test_block_ids[i % test_block_ids.len];
         var result = try query_eng.find_block(block_id);
         defer result.deinit();
     }
 
-    // Benchmark phase
     for (0..ITERATIONS) |i| {
         const block_id = test_block_ids[i % test_block_ids.len];
 
@@ -190,7 +184,6 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
 }
 
 fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allocator, json_output: bool) !void {
-    // Setup test data
     try setup_query_test_data(query_eng.storage_engine);
     const test_block_ids = try create_query_test_block_ids(allocator);
     defer allocator.free(test_block_ids);
@@ -199,7 +192,6 @@ fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allo
     var timings = try allocator.alloc(u64, ITERATIONS);
     defer allocator.free(timings);
 
-    // Warmup batch queries
     for (0..WARMUP_ITERATIONS) |i| {
         const start_idx = (i * BATCH_SIZE) % test_block_ids.len;
         const end_idx = @min(start_idx + BATCH_SIZE, test_block_ids.len);
@@ -210,7 +202,6 @@ fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allo
         defer result.deinit();
     }
 
-    // Benchmark batch queries
     for (0..ITERATIONS) |i| {
         const start_idx = (i * BATCH_SIZE) % test_block_ids.len;
         const end_idx = @min(start_idx + BATCH_SIZE, test_block_ids.len);
@@ -255,18 +246,16 @@ fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allo
     }
 }
 
-// Test data setup utilities
+
 fn setup_query_test_data(storage_engine: *StorageEngine) !void {
     const allocator = std.heap.page_allocator; // Temporary for setup
 
-    // Create test blocks for querying
     for (0..100) |i| {
         const block = try create_query_test_block(allocator, i);
         defer free_query_test_block(allocator, block);
         _ = try storage_engine.put_block(block);
     }
 
-    // Create some graph edges for traversal testing
     for (0..50) |i| {
         const source_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
         defer allocator.free(source_id_hex);
@@ -322,7 +311,6 @@ fn free_query_test_block(allocator: std.mem.Allocator, block: ContextBlock) void
     allocator.free(block.content);
 }
 
-// Memory profiling utilities
 fn query_current_rss_memory() u64 {
     return switch (builtin.os.tag) {
         .linux => query_rss_linux() catch 0,
@@ -404,7 +392,6 @@ fn query_rss_windows() !u64 {
     return pmc.WorkingSetSize;
 }
 
-// Statistical analysis
 fn analyze_timings(timings: []u64) struct {
     total_time_ns: u64,
     min: u64,

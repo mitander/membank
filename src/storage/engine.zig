@@ -22,14 +22,12 @@ const concurrency = @import("../core/concurrency.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
 
-// Import storage submodules
 const config_mod = @import("config.zig");
 const metrics_mod = @import("metrics.zig");
 const memtable_manager_mod = @import("memtable_manager.zig");
 const sstable_manager_mod = @import("sstable_manager.zig");
 const block_index_mod = @import("block_index.zig");
 
-// Import existing storage modules
 const sstable = @import("sstable.zig");
 const tiered_compaction = @import("tiered_compaction.zig");
 const wal = @import("wal.zig");
@@ -40,17 +38,14 @@ const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
-// Type aliases for cleaner code
 const BlockHashMap = std.HashMap(BlockId, ContextBlock, block_index_mod.BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage);
 const BlockHashMapIterator = BlockHashMap.Iterator;
 
-// Re-export submodule types
 pub const Config = config_mod.Config;
 pub const StorageMetrics = metrics_mod.StorageMetrics;
 pub const MemtableManager = memtable_manager_mod.MemtableManager;
 pub const SSTableManager = sstable_manager_mod.SSTableManager;
 
-// Re-export existing module types
 pub const SSTable = sstable.SSTable;
 pub const Compactor = sstable.Compactor;
 pub const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
@@ -157,7 +152,6 @@ pub const StorageEngine = struct {
             };
         }
 
-        // SSTable discovery must happen before WAL recovery to establish baseline state
         self.sstable_manager.startup() catch |err| {
             error_context.log_storage_error(err, error_context.file_context("sstable_manager_startup", self.data_dir));
             return err;
@@ -214,19 +208,16 @@ pub const StorageEngine = struct {
             return err;
         };
 
-        // Delegate to MemtableManager for durable storage with WAL-first pattern
         fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
         self.memtable_manager.put_block_durable(block) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("put_block_durable", block.id));
             return err;
         };
 
-        // Delegate flush decision to MemtableManager - no business logic in coordinator
         if (self.memtable_manager.should_flush()) {
             try self.coordinate_memtable_flush();
         }
 
-        // Delegate metrics tracking to dedicated method
         self.track_write_metrics(start_time, block.content.len);
     }
 
@@ -250,12 +241,8 @@ pub const StorageEngine = struct {
 
         fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
 
-        // LSM-tree read path prioritizes memtable for recency guarantees
         if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
-            // CRITICAL: Validate the returned block pointer and data integrity.
-            // These assertions protect against index corruption, pointer corruption,
             // and data corruption that could cause silent data loss or crashes.
-            // Failure here indicates serious memory corruption requiring immediate termination.
             fatal_assert(@intFromPtr(block_ptr) != 0, "MemtableManager returned null block pointer - heap corruption detected", .{});
             fatal_assert(block_ptr.content.len > 0, "MemtableManager returned block with empty content - data corruption detected", .{});
             fatal_assert(std.mem.eql(u8, &block_ptr.id.bytes, &block_id.bytes), "MemtableManager returned wrong block ID - index corruption detected", .{});
@@ -273,7 +260,6 @@ pub const StorageEngine = struct {
             return block_ptr.*;
         }
 
-        // LSM-tree requires newest-to-oldest SSTable search for write recency
         const sstable_result = self.sstable_manager.find_block_in_sstables(block_id, self.query_cache_arena.allocator()) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("find_block_in_sstables", block_id));
             return err;
@@ -285,7 +271,6 @@ pub const StorageEngine = struct {
             self.storage_metrics.total_read_time_ns.add(@intCast(end_time - start_time));
             self.storage_metrics.total_bytes_read.add(block.content.len);
 
-            // Periodically clear query cache to prevent unbounded growth
             self.maybe_clear_query_cache();
 
             return block;
@@ -336,7 +321,6 @@ pub const StorageEngine = struct {
 
         fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
 
-        // Delegate to MemtableManager for durable edge storage with WAL-first pattern
         self.memtable_manager.put_edge_durable(edge) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("put_edge_durable", edge.source_id));
             return err;
@@ -385,7 +369,6 @@ pub const StorageEngine = struct {
 
         if (edges.len > 0) {
             fatal_assert(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length - heap corruption detected", .{});
-            // Edge consistency validation prevents corrupted graph traversal
             fatal_assert(std.mem.eql(u8, &edges[0].source_id.bytes, &source_id.bytes), "First edge has wrong source_id - index corruption detected", .{});
         }
 
@@ -395,25 +378,21 @@ pub const StorageEngine = struct {
     /// Find all incoming edges to a target block.
     /// Delegates to memtable manager for reverse graph traversal operations.
     pub fn find_incoming_edges(self: *const StorageEngine, target_id: BlockId) []const GraphEdge {
-        // Defensive self-pointer validation
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
         fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
 
-        // Validate target_id structure
         var non_zero_bytes: u32 = 0;
         for (target_id.bytes) |byte| {
             if (byte != 0) non_zero_bytes += 1;
         }
         assert.assert_fmt(non_zero_bytes > 0, "Target block ID cannot be all zeros", .{});
 
-        // Validate manager state before access
         fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
 
         const edges = self.memtable_manager.find_incoming_edges(target_id);
 
         if (edges.len > 0) {
             fatal_assert(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length - heap corruption detected", .{});
-            // Edge consistency validation prevents corrupted graph traversal
             fatal_assert(std.mem.eql(u8, &edges[0].target_id.bytes, &target_id.bytes), "First edge has wrong target_id - index corruption detected", .{});
         }
 
@@ -432,11 +411,9 @@ pub const StorageEngine = struct {
         self: *StorageEngine,
         config: StorageMetrics.MemoryPressureConfig,
     ) StorageMetrics.MemoryPressure {
-        // Update metrics with current memory usage
         const memtable_bytes = self.memtable_manager.memory_usage();
         self.storage_metrics.memtable_memory_bytes.store(memtable_bytes);
 
-        // Update compaction queue size (SSTable manager tracks pending compactions)
         const queue_size = self.sstable_manager.pending_compaction_count();
         self.storage_metrics.compaction_queue_size.store(queue_size);
 
@@ -457,7 +434,6 @@ pub const StorageEngine = struct {
         }
 
         pub fn deinit(_: *BlockIterator) void {
-            // Memtable iterator requires no cleanup
         }
     };
 
@@ -476,13 +452,11 @@ pub const StorageEngine = struct {
     fn flush_memtable(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
 
-        // Delegate flush to MemtableManager for orchestration
         self.memtable_manager.flush_to_sstable(&self.sstable_manager) catch |err| {
             error_context.log_storage_error(err, error_context.StorageContext{ .operation = "flush_to_sstable" });
             return err;
         };
 
-        // Delegate compaction decision to SSTableManager - coordinator only orchestrates
         if (self.sstable_manager.should_compact()) {
             self.sstable_manager.execute_compaction() catch |err| {
                 error_context.log_storage_error(err, error_context.StorageContext{ .operation = "post_flush_compaction" });
@@ -499,7 +473,6 @@ pub const StorageEngine = struct {
         try self.flush_memtable();
     }
 
-    // Internal helper methods
 
     /// Coordinate memtable flush operation without containing business logic.
     /// Pure delegation to subsystems for flush orchestration.
@@ -554,7 +527,6 @@ pub const StorageEngine = struct {
     }
 };
 
-// Tests
 
 test "storage engine initialization and cleanup" {
     const allocator = testing.allocator;
@@ -581,7 +553,7 @@ test "storage engine startup and basic operations" {
     try engine.startup();
     try testing.expect(engine.initialized);
 
-    // Test basic block operations
+
     const block_id = BlockId.generate();
     const block = ContextBlock{
         .id = block_id,
@@ -608,7 +580,6 @@ test "memtable flush triggers at size threshold" {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Use minimal config for fast test
     const config = Config.minimal_for_testing();
     var engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "/test/data", config);
     defer engine.deinit();
@@ -629,13 +600,11 @@ test "memtable flush triggers at size threshold" {
         };
         try engine.put_block(block);
 
-        // Should flush and reset memtable when threshold exceeded
         if (i >= 3) { // After ~1MB of data
             try testing.expect(engine.memtable_manager.memory_usage() < config.memtable_max_size);
         }
     }
 
-    // Verify SSTable was created
     const metrics = engine.metrics();
     try testing.expect(metrics.sstable_writes.load() > 0);
 }
@@ -655,7 +624,6 @@ test "WAL recovery restores storage state" {
         .content = "test content",
     };
 
-    // Write data and clean shutdown
     {
         var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "/test/data");
         defer engine.deinit();
@@ -665,7 +633,6 @@ test "WAL recovery restores storage state" {
         try engine.flush_wal();
     }
 
-    // Restart and verify recovery
     {
         var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "/test/data");
         defer engine.deinit();
@@ -750,7 +717,7 @@ test "block iterator with empty storage" {
     defer engine.deinit();
     try engine.startup();
 
-    // Test iterator over empty storage
+
     var iterator = engine.iterate_all_blocks();
     defer iterator.deinit();
 
@@ -786,7 +753,6 @@ test "block iterator with memtable blocks only" {
     try engine.put_block(block1);
     try engine.put_block(block2);
 
-    // Iterate and collect all blocks
     var iterator = engine.iterate_all_blocks();
     defer iterator.deinit();
 
@@ -797,10 +763,8 @@ test "block iterator with memtable blocks only" {
         try found_blocks.append(block);
     }
 
-    // Should find exactly 2 blocks
     try testing.expectEqual(@as(usize, 2), found_blocks.items.len);
 
-    // Verify we can find both blocks (order may vary due to HashMap iteration)
     var found_block1 = false;
     var found_block2 = false;
     for (found_blocks.items) |block| {
@@ -822,7 +786,6 @@ test "block iterator with SSTable blocks" {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Use minimal config for fast test
     const config = Config.minimal_for_testing();
     var engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "/test/data", config);
     defer engine.deinit();
@@ -846,13 +809,10 @@ test "block iterator with SSTable blocks" {
     try engine.put_block(block1);
     try engine.put_block(block2);
 
-    // Force memtable flush to create SSTable
     try engine.flush_memtable_to_sstable();
 
-    // Verify memtable is empty
     try testing.expectEqual(@as(u32, 0), engine.block_count());
 
-    // Iterate and collect all blocks from SSTables
     var iterator = engine.iterate_all_blocks();
     defer iterator.deinit();
 
@@ -863,7 +823,6 @@ test "block iterator with SSTable blocks" {
         try found_blocks.append(block);
     }
 
-    // Should find exactly 2 blocks from SSTable
     try testing.expectEqual(@as(usize, 2), found_blocks.items.len);
 }
 
@@ -873,7 +832,6 @@ test "block iterator with mixed memtable and SSTable blocks" {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Use minimal config for fast test
     const config = Config.minimal_for_testing();
     var engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "/test/data", config);
     defer engine.deinit();
@@ -900,7 +858,6 @@ test "block iterator with mixed memtable and SSTable blocks" {
 
     try engine.put_block(memtable_block);
 
-    // Iterate and collect all blocks
     var iterator = engine.iterate_all_blocks();
     defer iterator.deinit();
 
@@ -911,10 +868,8 @@ test "block iterator with mixed memtable and SSTable blocks" {
         try found_blocks.append(block);
     }
 
-    // Should find blocks from both memtable and SSTable
     try testing.expectEqual(@as(usize, 2), found_blocks.items.len);
 
-    // Verify we get blocks from both sources
     var found_sstable_block = false;
     var found_memtable_block = false;
     for (found_blocks.items) |block| {
@@ -952,11 +907,9 @@ test "block iterator handles multiple calls to next after exhaustion" {
     var iterator = engine.iterate_all_blocks();
     defer iterator.deinit();
 
-    // First call should return the block
     const first = try iterator.next();
     try testing.expect(first != null);
 
-    // Subsequent calls should return null
     const second = try iterator.next();
     try testing.expectEqual(@as(?ContextBlock, null), second);
 
@@ -973,7 +926,7 @@ test "error context logging for storage operations" {
     var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "/test/data");
     defer engine.deinit();
 
-    // Test error context for uninitialized operations
+
     const test_block = ContextBlock{
         .id = BlockId.generate(),
         .version = 1,
@@ -982,7 +935,6 @@ test "error context logging for storage operations" {
         .content = "test content",
     };
 
-    // Should return NotInitialized error with context logging
     const put_result = engine.put_block(test_block);
     try testing.expectError(StorageError.NotInitialized, put_result);
 

@@ -57,14 +57,12 @@ fn platform_global_sync() PlatformSyncError!void {
             // Linux: sync() forces write of all modified in-core data to disk
             // POSIX.1-2001 standard requires sync() to schedule writes but may return before completion
             // Modern Linux sync() waits for completion, providing strong durability guarantee
-            const result = std.c.sync();
-            _ = result; // sync() has void return type
+            _ = std.c.sync();
         },
         .macos => {
             // macOS: sync() schedules all filesystem buffers to be written to disk
             // Darwin implementation waits for completion, ensuring durability
-            const result = std.c.sync();
-            _ = result; // sync() has void return type
+            _ = std.c.sync();
         },
         .windows => {
             // Windows: No direct equivalent to POSIX sync()
@@ -74,11 +72,7 @@ fn platform_global_sync() PlatformSyncError!void {
 
             // Best effort: flush C runtime buffers
             // Note: This does not provide the same durability guarantee as POSIX sync()
-            const flush_result = std.c._flushall();
-            _ = flush_result; // Returns number of streams flushed
-
-            // Additional Windows-specific sync could be implemented here
-            // using FlushFileBuffers on volume handles, but requires more complex implementation
+            _ = std.c._flushall();
         },
         else => {
             // Unsupported platforms: return error rather than silent no-op
@@ -92,18 +86,16 @@ fn platform_global_sync() PlatformSyncError!void {
 pub const ProductionVFS = struct {
     arena: std.heap.ArenaAllocator,
 
-    const Self = @This();
-
-    pub fn init(backing_allocator: std.mem.Allocator) Self {
-        return Self{ .arena = std.heap.ArenaAllocator.init(backing_allocator) };
+    pub fn init(backing_allocator: std.mem.Allocator) ProductionVFS {
+        return ProductionVFS{ .arena = std.heap.ArenaAllocator.init(backing_allocator) };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *ProductionVFS) void {
         self.arena.deinit();
     }
 
     /// Get VFS interface for this implementation
-    pub fn vfs(self: *Self) VFS {
+    pub fn vfs(self: *ProductionVFS) VFS {
         return VFS{
             .ptr = self,
             .vtable = &vtable_impl,
@@ -126,7 +118,7 @@ pub const ProductionVFS = struct {
     };
 
     fn open(ptr: *anyopaque, path: []const u8, mode: VFS.OpenMode) VFSError!VFile {
-        const self: *Self = @ptrCast(@alignCast(ptr));
+        const self: *ProductionVFS = @ptrCast(@alignCast(ptr));
         assert(path.len > 0 and path.len < MAX_PATH_LENGTH);
         _ = self; // ProductionVFS no longer needs arena for VFile
 
@@ -155,7 +147,7 @@ pub const ProductionVFS = struct {
     }
 
     fn create(ptr: *anyopaque, path: []const u8) VFSError!VFile {
-        const self: *Self = @ptrCast(@alignCast(ptr));
+        const self: *ProductionVFS = @ptrCast(@alignCast(ptr));
         assert(path.len > 0 and path.len < MAX_PATH_LENGTH);
         _ = self; // ProductionVFS no longer needs arena for VFile
 
@@ -338,9 +330,10 @@ pub const ProductionVFS = struct {
     }
 
     fn vfs_deinit(ptr: *anyopaque, allocator: std.mem.Allocator) void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
         _ = allocator;
+
         // Clean up arena allocator - this handles all VFile instances automatically
+        const self: *ProductionVFS = @ptrCast(@alignCast(ptr));
         self.arena.deinit();
     }
 };
@@ -357,7 +350,6 @@ test "ProductionVFS basic file operations" {
     const test_path = "/tmp/kausaldb_test_file";
     const test_data = "Hello, KausalDB!";
 
-    // Test file creation and writing
     {
         var write_file = try vfs_interface.create(test_path);
         defer {
@@ -370,7 +362,6 @@ test "ProductionVFS basic file operations" {
         try write_file.flush();
     }
 
-    // Test file reading
     {
         var read_file = try vfs_interface.open(test_path, .read);
         defer {
@@ -434,7 +425,6 @@ test "ProductionVFS global filesystem sync" {
         try test_file.flush();
     }
 
-    // Test global filesystem sync - should complete without error
     try vfs_interface.sync();
 
     // Verify file still exists and readable after sync
@@ -454,19 +444,13 @@ test "ProductionVFS global filesystem sync" {
 }
 
 test "platform_global_sync coverage" {
-    // Test platform-specific sync function directly
-    // Should complete without error on supported platforms (Linux, macOS)
-    // On Windows, provides best-effort flush behavior
-    // Unsupported platforms return IoError
-
     const result = platform_global_sync();
     switch (builtin.os.tag) {
-        .linux, .macos => {
-            // POSIX platforms should succeed
-            try result;
-        },
-        .windows => {
-            // Windows best-effort flush should succeed
+        .linux, .macos, .windows => {
+            // Should complete without error on supported platforms (Linux, macOS)
+            // On Windows, provides best-effort flush behavior
+            // Unsupported platforms return IoError
+
             try result;
         },
         else => {

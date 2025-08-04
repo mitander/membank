@@ -26,6 +26,10 @@ const comptime_no_padding = custom_assert.comptime_no_padding;
 pub const BlockId = struct {
     bytes: [16]u8,
 
+    comptime {
+        comptime_assert(@sizeOf(BlockId) == 16, "BlockId must be 16 bytes");
+    }
+
     /// Create BlockId from raw bytes.
     pub fn from_bytes(bytes: [16]u8) BlockId {
         return BlockId{ .bytes = bytes };
@@ -67,6 +71,10 @@ pub const EdgeType = enum(u16) {
     calls = 7, // A calls B (invocation relationship)
     depends_on = 8, // A depends on B (dependency relationship)
 
+    comptime {
+        comptime_assert(@sizeOf(EdgeType) == 2, "EdgeType must be 2 bytes (u16)");
+    }
+
     /// Convert EdgeType to u16 for serialization.
     pub fn to_u16(self: EdgeType) u16 {
         return @intFromEnum(self);
@@ -96,6 +104,9 @@ pub const ContextBlock = struct {
     /// The actual content/knowledge stored in this block
     content: []const u8,
 
+    pub const MAGIC: u32 = 0x42444358; // "XDBC" in little endian
+    pub const FORMAT_VERSION: u16 = 1;
+
     /// Serialized block header structure.
     pub const BlockHeader = struct {
         magic: u32,
@@ -111,6 +122,13 @@ pub const ContextBlock = struct {
 
         pub const SIZE: usize = 64;
 
+        comptime {
+            comptime_assert(@sizeOf(BlockHeader) == SIZE, "BlockHeader must be exactly 64 bytes for on-disk format compatibility");
+            comptime_assert(BlockHeader.SIZE == @sizeOf(BlockHeader), "BlockHeader.SIZE constant must match actual struct size");
+            comptime_assert(@sizeOf(u32) + @sizeOf(u16) + @sizeOf(u16) + 16 +
+                @sizeOf(u64) + @sizeOf(u32) + @sizeOf(u32) + @sizeOf(u64) + @sizeOf(u32) + 12 == 64, "BlockHeader field sizes must sum to exactly 64 bytes");
+        }
+
         pub fn serialize(self: BlockHeader, buffer: []u8) !usize {
             if (buffer.len < SIZE) return error.BufferTooSmall;
 
@@ -123,6 +141,7 @@ pub const ContextBlock = struct {
             offset += 2;
             @memcpy(buffer[offset .. offset + 16], &self.id);
             offset += 16;
+
             std.mem.writeInt(u64, buffer[offset .. offset + 8][0..8], self.block_version, .little);
             offset += 8;
             std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], self.source_uri_len, .little);
@@ -152,6 +171,7 @@ pub const ContextBlock = struct {
             var id: [16]u8 = undefined;
             @memcpy(&id, buffer[offset .. offset + 16]);
             offset += 16;
+
             const block_version = std.mem.readInt(u64, buffer[offset .. offset + 8][0..8], .little);
             offset += 8;
             const source_uri_len = std.mem.readInt(u32, buffer[offset .. offset + 4][0..4], .little);
@@ -191,12 +211,6 @@ pub const ContextBlock = struct {
             @sizeOf(u64) + @sizeOf(u32) + @sizeOf(u32) + @sizeOf(u64) + @sizeOf(u32) + 12 == 64, "BlockHeader field sizes must sum to exactly 64 bytes");
     }
 
-    pub const MAGIC: u32 = 0x42444358; // "XDBC" in little endian
-    pub const FORMAT_VERSION: u16 = 1;
-
-    /// Minimum size for a serialized block (header only).
-    pub const MIN_SERIALIZED_SIZE: usize = BlockHeader.SIZE;
-
     /// Calculate the total serialized size for this block.
     pub fn serialized_size(self: ContextBlock) usize {
         return BlockHeader.SIZE + self.source_uri.len + self.metadata_json.len + self.content.len;
@@ -221,7 +235,6 @@ pub const ContextBlock = struct {
         // Zero-initialize entire buffer to prevent garbage data
         @memset(buffer[0..required_size], 0);
 
-        // Create and serialize header
         const header = BlockHeader{
             .magic = MAGIC,
             .format_version = FORMAT_VERSION,
@@ -237,7 +250,6 @@ pub const ContextBlock = struct {
 
         var offset = try header.serialize(buffer);
 
-        // Serialize variable-length fields with bounds checking
         if (offset + self.source_uri.len > buffer.len) return error.BufferTooSmall;
         @memcpy(buffer[offset .. offset + self.source_uri.len], self.source_uri);
         offset += self.source_uri.len;
@@ -250,7 +262,6 @@ pub const ContextBlock = struct {
         @memcpy(buffer[offset .. offset + self.content.len], self.content);
         offset += self.content.len;
 
-        // Validate serialization completed correctly
         assert_fmt(offset == required_size, "Serialization size mismatch: expected {}, got {}", .{ required_size, offset });
         if (offset != required_size) return error.SerializationSizeMismatch;
 
@@ -260,11 +271,9 @@ pub const ContextBlock = struct {
     /// Deserialize a ContextBlock from a buffer.
     pub fn deserialize(buffer: []const u8, allocator: std.mem.Allocator) !ContextBlock {
         if (buffer.len < BlockHeader.SIZE) return error.BufferTooSmall;
-
-        const header = try BlockHeader.deserialize(buffer);
         var offset = BlockHeader.SIZE;
 
-        // Validate header fields for reasonable values
+        const header = try BlockHeader.deserialize(buffer);
         if (header.source_uri_len > 1024 * 1024) return error.InvalidSourceUriLength;
         if (header.metadata_json_len > 10 * 1024 * 1024) return error.InvalidMetadataLength;
         if (header.content_len > 100 * 1024 * 1024) return error.InvalidContentLength;
@@ -272,7 +281,6 @@ pub const ContextBlock = struct {
         const total_size = offset + header.source_uri_len + header.metadata_json_len + header.content_len;
         if (buffer.len < total_size) return error.IncompleteData;
 
-        // Extract variable-length fields with bounds validation
         if (offset + header.source_uri_len > buffer.len) return error.IncompleteData;
         const source_uri = try allocator.dupe(u8, buffer[offset .. offset + header.source_uri_len]);
         errdefer allocator.free(source_uri);
@@ -353,21 +361,17 @@ pub const ContextBlock = struct {
             };
             defer parsed.deinit();
         } else {
-            // In release modes, do basic JSON syntax validation
             if (!is_valid_json_syntax(self.metadata_json)) {
                 return error.InvalidMetadataJson;
             }
         }
 
-        // UTF-8 encoding validation for all text fields
         if (!std.unicode.utf8ValidateSlice(self.source_uri)) {
             return error.InvalidSourceUriEncoding;
         }
         if (!std.unicode.utf8ValidateSlice(self.metadata_json)) {
             return error.InvalidMetadataEncoding;
         }
-
-        // Version must be positive (zero indicates uninitialized state)
         if (self.version == 0) {
             return error.InvalidVersion;
         }
@@ -393,7 +397,7 @@ pub const ContextBlock = struct {
             return error.EmptyContent;
         }
 
-        // Validate that metadata contains required fields for ingestion
+        // JSON format validation - metadata must be parseable
         // Use builtin.mode check to avoid Zig JSON parser bug in ReleaseSafe mode
         if (builtin.mode == .Debug) {
             var parsed = std.json.parseFromSlice(
@@ -406,13 +410,10 @@ pub const ContextBlock = struct {
             };
             defer parsed.deinit();
         } else {
-            // In release modes, do basic JSON syntax validation
             if (!is_valid_json_syntax(self.metadata_json)) {
                 return error.InvalidMetadataJson;
             }
         }
-
-        // Future: Add specific metadata field requirements here
     }
 };
 
@@ -428,6 +429,11 @@ pub const GraphEdge = struct {
     edge_type: EdgeType,
 
     pub const SERIALIZED_SIZE: usize = 40; // 16 + 16 + 8 bytes
+
+    comptime {
+        comptime_assert(SERIALIZED_SIZE == 40, "GraphEdge SERIALIZED_SIZE must be 40 bytes (16 + 16 + 2 + 6 reserved)");
+        comptime_assert(16 + 16 + 2 + 6 == SERIALIZED_SIZE, "GraphEdge field sizes plus reserved bytes must equal SERIALIZED_SIZE");
+    }
 
     /// Serialize this GraphEdge to a buffer.
     pub fn serialize(self: GraphEdge, buffer: []u8) !usize {
@@ -476,15 +482,6 @@ pub const GraphEdge = struct {
     }
 };
 
-// Compile-time guarantees for GraphEdge serialization format
-comptime {
-    comptime_assert(GraphEdge.SERIALIZED_SIZE == 40, "GraphEdge SERIALIZED_SIZE must be 40 bytes (16 + 16 + 2 + 6 reserved)");
-    comptime_assert(@sizeOf(BlockId) == 16, "BlockId must be 16 bytes");
-    comptime_assert(@sizeOf(EdgeType) == 2, "EdgeType must be 2 bytes (u16)");
-    comptime_assert(16 + 16 + 2 + 6 == GraphEdge.SERIALIZED_SIZE, "GraphEdge field sizes plus reserved bytes must equal SERIALIZED_SIZE");
-}
-
-// Tests
 test "BlockId basic operations" {
     const hex_string = "deadbeefdeadbeefdeadbeefdeadbeef";
     const block_id = try BlockId.from_hex(hex_string);
@@ -684,7 +681,6 @@ test "ContextBlock checksum validation" {
 
     _ = try block.serialize(buffer);
 
-    // Corrupt the data
     buffer[buffer.len - 1] ^= 0xFF;
 
     // Should still deserialize but checksum would be wrong

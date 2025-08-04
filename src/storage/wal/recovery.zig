@@ -41,15 +41,11 @@ pub fn recover_from_segment(
     context: *anyopaque,
     stats: *types.WALStats,
 ) WALError!void {
-    // Path validation prevents buffer overflows in file operations
     assert(file_path.len > 0);
     assert(file_path.len < MAX_PATH_LENGTH);
 
-    // Corruption tracking for systematic failure detection
-    // Use testing mode during test runs to prevent false positives
     var corruption_tracker = if (builtin.is_test) CorruptionTracker.init_testing() else CorruptionTracker.init();
 
-    // Defensive limits to prevent runaway processing from corruption
     const MAX_ENTRIES_PER_SEGMENT = 1_000_000;
     const MAX_RECOVERY_TIME_MS = if (builtin.is_test) 30_000 else 120_000; // 30s test, 2min prod
     var entries_processed: u32 = 0;
@@ -72,14 +68,12 @@ pub fn recover_from_segment(
     var entries_recovered: u32 = 0;
 
     while (true) {
-        // Defensive check: prevent runaway processing from corrupted entries
         entries_processed += 1;
         if (entries_processed > MAX_ENTRIES_PER_SEGMENT) {
             log.err("WAL segment exceeded maximum entries limit: {d}", .{MAX_ENTRIES_PER_SEGMENT});
             return WALError.IoError;
         }
 
-        // Defensive check: prevent infinite loops from I/O hangs or corruption
         const current_time = std.time.milliTimestamp();
         if (current_time - recovery_start_time > MAX_RECOVERY_TIME_MS) {
             log.err("WAL recovery timeout exceeded: {}ms for segment: {s}", .{ current_time - recovery_start_time, file_path });
@@ -103,7 +97,6 @@ pub fn recover_from_segment(
 
         defer stream_entry.deinit(allocator);
 
-        // Convert stream entry to WAL entry format
         const wal_entry = WALEntry.from_stream_entry(stream_entry, allocator) catch |err| switch (err) {
             WALError.InvalidChecksum => {
                 corruption_tracker.record_failure("checksum_validation");
@@ -124,7 +117,6 @@ pub fn recover_from_segment(
 
     stats.entries_recovered += entries_recovered;
 
-    // Only log when entries are actually recovered to avoid spam from empty segments
     if (entries_recovered > 0) {
         log.info("Recovered {d} entries from segment: {s}", .{ entries_recovered, file_path });
     } else {
@@ -152,7 +144,6 @@ pub fn recover_from_segments(
 
     const initial_recovery_failures = stats.recovery_failures;
 
-    // Chronological processing ensures consistent replay ordering
     for (segment_files) |file_name| {
         assert(file_name.len > 0);
         assert(std.mem.startsWith(u8, file_name, "wal_"));
@@ -175,7 +166,6 @@ pub fn recover_from_segments(
         };
     }
 
-    // Monotonic failure count prevents counter manipulation bugs
     assert(stats.recovery_failures >= initial_recovery_failures);
 }
 
@@ -205,8 +195,6 @@ fn list_segment_files(filesystem: VFS, allocator: std.mem.Allocator, directory: 
 
     const files = file_list.toOwnedSlice() catch return WALError.OutOfMemory;
 
-    // Sort files by name to ensure chronological processing
-    // WAL files are named wal_NNNN.log where NNNN is sequential
     std.sort.insertion([]const u8, files, {}, struct {
         fn less_than(_: void, lhs: []const u8, rhs: []const u8) bool {
             return std.mem.order(u8, lhs, rhs) == .lt;
@@ -216,7 +204,6 @@ fn list_segment_files(filesystem: VFS, allocator: std.mem.Allocator, directory: 
     return files;
 }
 
-// Tests
 
 fn create_test_wal_entry(entry_type: u8, payload: []const u8, allocator: std.mem.Allocator) ![]u8 {
     var hasher = std.hash.Wyhash.init(0);
@@ -268,7 +255,6 @@ const TestRecoveryContext = struct {
 fn test_recovery_callback(entry: entry_mod.WALEntry, context: *anyopaque) WALError!void {
     const test_context: *TestRecoveryContext = @ptrCast(@alignCast(context));
 
-    // Clone the entry to store it
     const cloned_payload = try test_context.entries_recovered.allocator.dupe(u8, entry.payload);
     const cloned_entry = entry_mod.WALEntry{
         .checksum = entry.checksum,
@@ -293,7 +279,6 @@ test "recover_from_segment - empty file" {
     var sim_vfs = SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Create empty WAL file
     var file = try sim_vfs.vfs().create("empty.wal", .write);
     file.close();
 
@@ -318,7 +303,6 @@ test "recover_from_segment - single valid entry" {
     defer allocator.free(serialized_block);
     _ = try test_block.serialize(serialized_block);
 
-    // Create WAL file with put_block entry
     var file = try sim_vfs.vfs().create("single.wal", .write);
     const entry_data = try create_test_wal_entry(0x01, serialized_block, allocator);
     defer allocator.free(entry_data);
@@ -385,7 +369,6 @@ test "recover_from_segment - corrupted entry handling" {
     defer allocator.free(valid_entry);
     _ = try file.write(valid_entry);
 
-    // Write corrupted data (invalid entry type)
     var bad_data: [13]u8 = undefined; // Header size
     std.mem.writeInt(u64, bad_data[0..8], 0x1234567890abcdef, .little);
     bad_data[8] = 0xFF; // Invalid entry type
@@ -405,7 +388,6 @@ test "recover_from_segment - corrupted entry handling" {
 
     try recover_from_segment(sim_vfs.vfs(), allocator, "corrupted.wal", test_recovery_callback, &context, &stats);
 
-    // Should recover valid entries and skip corrupted ones
     try testing.expectEqual(@as(usize, 2), context.entries_recovered.items.len);
     try testing.expectEqual(@as(u64, 2), stats.entries_recovered);
 }
@@ -429,7 +411,6 @@ test "recover_from_segment - callback error handling" {
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Create WAL file with valid entry
     var file = try sim_vfs.vfs().create("callback_error.wal", .write);
     const test_payload = "test payload";
     const entry_data = try create_test_wal_entry(0x01, test_payload, allocator);
@@ -455,7 +436,6 @@ test "recover_from_segments - multiple segment files" {
     const test_dir = "test_segments";
     try sim_vfs.vfs().create_directory(test_dir);
 
-    // Create multiple WAL segment files
     const segment_files = [_][]const u8{ "wal_0000.log", "wal_0001.log", "wal_0002.log" };
     const payloads = [_][]const u8{ "first segment", "second segment", "third segment" };
 
@@ -479,7 +459,6 @@ test "recover_from_segments - multiple segment files" {
     try testing.expectEqual(@as(usize, 3), context.entries_recovered.items.len);
     try testing.expectEqual(@as(u64, 3), stats.entries_recovered);
 
-    // Verify entries are recovered in chronological order
     for (context.entries_recovered.items, payloads) |entry, expected_payload| {
         try testing.expect(std.mem.eql(u8, expected_payload, entry.payload));
     }
@@ -494,14 +473,12 @@ test "recover_from_segments - corrupted segment skipping" {
     const test_dir = "test_corrupted_segments";
     try sim_vfs.vfs().create_directory(test_dir);
 
-    // Create valid segment
     var file = try sim_vfs.vfs().create("test_corrupted_segments/wal_0000.log", .write);
     const valid_entry = try create_test_wal_entry(0x01, "valid", allocator);
     defer allocator.free(valid_entry);
     _ = try file.write(valid_entry);
     file.close();
 
-    // Create corrupted segment
     file = try sim_vfs.vfs().create("test_corrupted_segments/wal_0001.log", .write);
     const corrupted_data = [_]u8{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
     _ = try file.write(&corrupted_data);
@@ -519,7 +496,6 @@ test "recover_from_segments - corrupted segment skipping" {
 
     try recover_from_segments(sim_vfs.vfs(), allocator, test_dir, test_recovery_callback, &context, &stats);
 
-    // Should recover from valid segments and skip corrupted one
     try testing.expectEqual(@as(usize, 2), context.entries_recovered.items.len);
     try testing.expectEqual(@as(u64, 2), stats.entries_recovered);
     try testing.expectEqual(@as(u32, 1), stats.recovery_failures);
@@ -567,7 +543,6 @@ test "list_segment_files - mixed files" {
     const test_dir = "mixed_files";
     try sim_vfs.vfs().create_directory(test_dir);
 
-    // Create WAL files and non-WAL files
     const all_files = [_][]const u8{
         "wal_0000.log",
         "wal_0001.log",
@@ -591,7 +566,6 @@ test "list_segment_files - mixed files" {
         allocator.free(wal_files);
     }
 
-    // Should only return WAL files, sorted by name
     try testing.expectEqual(@as(usize, 3), wal_files.len);
     try testing.expect(std.mem.eql(u8, "wal_0000.log", wal_files[0]));
     try testing.expect(std.mem.eql(u8, "wal_0001.log", wal_files[1]));
@@ -607,7 +581,6 @@ test "list_segment_files - sorting verification" {
     const test_dir = "sorting_test";
     try sim_vfs.vfs().create_directory(test_dir);
 
-    // Create WAL files in non-sorted order
     const unsorted_files = [_][]const u8{
         "wal_0005.log",
         "wal_0001.log",
@@ -631,7 +604,6 @@ test "list_segment_files - sorting verification" {
         allocator.free(sorted_files);
     }
 
-    // Should be sorted chronologically
     try testing.expectEqual(@as(usize, 5), sorted_files.len);
     try testing.expect(std.mem.eql(u8, "wal_0001.log", sorted_files[0]));
     try testing.expect(std.mem.eql(u8, "wal_0002.log", sorted_files[1]));
@@ -646,10 +618,8 @@ test "wal_recovery_defensive_timeout_prevents_infinite_loops" {
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    // Create WAL file with a reasonable number of valid entries
     var file = try sim_vfs.vfs().create("timeout_test.wal", .write);
 
-    // Write exactly MAX_ENTRIES_PER_SEGMENT entries to test the limit
     var entries_written: u32 = 0;
     const target_entries = 100; // Reasonable number for testing
 
@@ -667,23 +637,17 @@ test "wal_recovery_defensive_timeout_prevents_infinite_loops" {
     var context = TestRecoveryContext.init(allocator);
     defer context.deinit();
 
-    // Record start time to verify recovery completes within reasonable bounds
     const test_start = std.time.milliTimestamp();
 
-    // Recovery should complete successfully for reasonable number of entries
     try recover_from_segment(sim_vfs.vfs(), allocator, "timeout_test.wal", test_recovery_callback, &context, &stats);
 
     const test_duration = std.time.milliTimestamp() - test_start;
 
-    // Verify all entries were recovered correctly
     try testing.expectEqual(@as(usize, target_entries), context.entries_recovered.items.len);
     try testing.expectEqual(@as(u64, target_entries), stats.entries_recovered);
 
-    // Verify recovery completed in reasonable time (should be well under timeout)
-    // In test mode, timeout is 30 seconds, so recovery should be much faster
     try testing.expect(test_duration < 5000); // 5 seconds is generous for 100 entries
 
-    // Verify entries are correctly ordered and contain expected data
     for (context.entries_recovered.items, 0..) |entry, i| {
         const expected_payload = try std.fmt.allocPrint(allocator, "entry_{d}", .{i});
         defer allocator.free(expected_payload);

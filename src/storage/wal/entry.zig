@@ -135,7 +135,7 @@ pub const WALEntry = struct {
 
         const payload = try allocator.alloc(u8, payload_size);
         errdefer allocator.free(payload);
-        @memset(payload, 0); // Zero-initialize to prevent garbage data
+        @memset(payload, 0);
 
         const bytes_written = try block.serialize(payload);
 
@@ -196,7 +196,7 @@ pub const WALEntry = struct {
     pub fn create_put_edge(edge: GraphEdge, allocator: std.mem.Allocator) WALError!WALEntry {
         const payload = try allocator.alloc(u8, 40); // GraphEdge.SERIALIZED_SIZE
         errdefer allocator.free(payload);
-        @memset(payload, 0); // Zero-initialize to prevent garbage data
+        @memset(payload, 0);
 
         _ = try edge.serialize(payload);
         const checksum = calculate_checksum(.put_edge, payload);
@@ -217,7 +217,6 @@ pub const WALEntry = struct {
         payload: []const u8,
         allocator: std.mem.Allocator,
     ) WALError!WALEntry {
-        // Validate entry type range
         const entry_type: WALEntryType = switch (entry_type_raw) {
             1 => .put_block,
             2 => .delete_block,
@@ -225,11 +224,8 @@ pub const WALEntry = struct {
             else => return WALError.InvalidEntryType,
         };
 
-        // Create owned copy of payload for WALEntry
         const owned_payload = try allocator.dupe(u8, payload);
         errdefer allocator.free(owned_payload);
-
-        // Validate checksum matches payload
         const expected_checksum = calculate_checksum(entry_type, owned_payload);
         if (checksum != expected_checksum) {
             return WALError.InvalidChecksum;
@@ -286,7 +282,7 @@ pub const WALEntry = struct {
     }
 };
 
-// Tests
+
 const testing = std.testing;
 
 fn create_test_block() ContextBlock {
@@ -321,13 +317,9 @@ test "WALEntry checksum calculation consistency" {
     const checksum3 = WALEntry.calculate_checksum(.put_block, different_payload);
     const checksum4 = WALEntry.calculate_checksum(.delete_block, payload1);
 
-    // Same type and payload should produce same checksum
     try testing.expectEqual(checksum1, checksum2);
 
-    // Different payload should produce different checksum
     try testing.expect(checksum1 != checksum3);
-
-    // Different type should produce different checksum
     try testing.expect(checksum1 != checksum4);
 }
 
@@ -344,15 +336,12 @@ test "WALEntry serialization roundtrip" {
         .payload = test_payload,
     };
 
-    // Serialize entry
     var buffer: [1024]u8 = undefined;
     const serialized_size = try original_entry.serialize(&buffer);
 
-    // Deserialize entry
     const deserialized_entry = try WALEntry.deserialize(buffer[0..serialized_size], allocator);
     defer deserialized_entry.deinit(allocator);
 
-    // Verify all fields match
     try testing.expectEqual(original_entry.checksum, deserialized_entry.checksum);
     try testing.expectEqual(original_entry.entry_type, deserialized_entry.entry_type);
     try testing.expectEqual(original_entry.payload_size, deserialized_entry.payload_size);
@@ -370,7 +359,6 @@ test "WALEntry serialization buffer too small" {
         .payload = test_payload,
     };
 
-    // Try to serialize into buffer that's too small
     var small_buffer: [10]u8 = undefined;
     try testing.expectError(WALError.BufferTooSmall, entry.serialize(&small_buffer));
 }
@@ -378,15 +366,12 @@ test "WALEntry serialization buffer too small" {
 test "WALEntry deserialization buffer too small" {
     const allocator = testing.allocator;
 
-    // Buffer smaller than header
     var small_buffer: [5]u8 = undefined;
     try testing.expectError(WALError.BufferTooSmall, WALEntry.deserialize(&small_buffer, allocator));
-
-    // Buffer with valid header but insufficient payload space
     var partial_buffer: [WALEntry.HEADER_SIZE + 5]u8 = undefined;
     std.mem.writeInt(u64, partial_buffer[0..8], 0x1234567890abcdef, .little);
-    partial_buffer[8] = 0x01; // put_block
-    std.mem.writeInt(u32, partial_buffer[9..13], 100, .little); // payload size > available space
+    partial_buffer[8] = 0x01;
+    std.mem.writeInt(u32, partial_buffer[9..13], 100, .little);
 
     try testing.expectError(WALError.BufferTooSmall, WALEntry.deserialize(&partial_buffer, allocator));
 }
@@ -397,9 +382,8 @@ test "WALEntry deserialization invalid checksum" {
     const test_payload = "test payload";
     var buffer: [1024]u8 = undefined;
 
-    // Create valid entry structure with invalid checksum
-    std.mem.writeInt(u64, buffer[0..8], 0xdeadbeef, .little); // Wrong checksum
-    buffer[8] = 0x01; // put_block
+    std.mem.writeInt(u64, buffer[0..8], 0xdeadbeef, .little);
+    buffer[8] = 0x01;
     std.mem.writeInt(u32, buffer[9..13], @intCast(test_payload.len), .little);
     @memcpy(buffer[13 .. 13 + test_payload.len], test_payload);
 
@@ -412,7 +396,7 @@ test "WALEntry deserialization invalid entry type" {
 
     var buffer: [WALEntry.HEADER_SIZE]u8 = undefined;
     std.mem.writeInt(u64, buffer[0..8], 0, .little);
-    buffer[8] = 0xFF; // Invalid entry type
+    buffer[8] = 0xFF;
     std.mem.writeInt(u32, buffer[9..13], 0, .little);
 
     try testing.expectError(WALError.InvalidEntryType, WALEntry.deserialize(&buffer, allocator));
@@ -423,8 +407,8 @@ test "WALEntry deserialization oversized payload" {
 
     var buffer: [WALEntry.HEADER_SIZE]u8 = undefined;
     std.mem.writeInt(u64, buffer[0..8], 0, .little);
-    buffer[8] = 0x01; // put_block
-    std.mem.writeInt(u32, buffer[9..13], MAX_PAYLOAD_SIZE + 1, .little); // Too large
+    buffer[8] = 0x01;
+    std.mem.writeInt(u32, buffer[9..13], MAX_PAYLOAD_SIZE + 1, .little);
 
     try testing.expectError(WALError.CorruptedEntry, WALEntry.deserialize(&buffer, allocator));
 }
@@ -440,7 +424,6 @@ test "WALEntry create_put_block" {
     try testing.expectEqual(@as(u32, @intCast(test_block.serialized_size())), entry.payload_size);
     try testing.expect(entry.payload.len > 0);
 
-    // Verify checksum is calculated correctly
     const expected_checksum = WALEntry.calculate_checksum(.put_block, entry.payload);
     try testing.expectEqual(expected_checksum, entry.checksum);
 }
@@ -453,13 +436,9 @@ test "WALEntry create_delete_block" {
     defer entry.deinit(allocator);
 
     try testing.expectEqual(WALEntryType.delete_block, entry.entry_type);
-    try testing.expectEqual(@as(u32, 16), entry.payload_size); // BlockId size
+    try testing.expectEqual(@as(u32, 16), entry.payload_size);
     try testing.expectEqual(@as(usize, 16), entry.payload.len);
-
-    // Verify payload contains the block ID
     try testing.expect(std.mem.eql(u8, &test_id.bytes, entry.payload));
-
-    // Verify checksum
     const expected_checksum = WALEntry.calculate_checksum(.delete_block, entry.payload);
     try testing.expectEqual(expected_checksum, entry.checksum);
 }
@@ -472,10 +451,8 @@ test "WALEntry create_put_edge" {
     defer entry.deinit(allocator);
 
     try testing.expectEqual(WALEntryType.put_edge, entry.entry_type);
-    try testing.expectEqual(@as(u32, 40), entry.payload_size); // GraphEdge.SERIALIZED_SIZE
+    try testing.expectEqual(@as(u32, 40), entry.payload_size);
     try testing.expectEqual(@as(usize, 40), entry.payload.len);
-
-    // Verify checksum
     const expected_checksum = WALEntry.calculate_checksum(.put_edge, entry.payload);
     try testing.expectEqual(expected_checksum, entry.checksum);
 }
@@ -501,7 +478,6 @@ test "WALEntry deserialize_from_stream invalid type" {
     const test_payload = "test payload";
     const checksum = WALEntry.calculate_checksum(.put_block, test_payload);
 
-    // Invalid entry type
     try testing.expectError(WALError.InvalidEntryType, WALEntry.deserialize_from_stream(checksum, 0xFF, test_payload, allocator));
 }
 
@@ -515,7 +491,6 @@ test "WALEntry deserialize_from_stream invalid checksum" {
 }
 
 test "WALEntry header size constant" {
-    // Verify header size calculation
     const expected_size = @sizeOf(u64) + @sizeOf(u8) + @sizeOf(u32);
     try testing.expectEqual(@as(usize, expected_size), WALEntry.HEADER_SIZE);
     try testing.expectEqual(@as(usize, 13), WALEntry.HEADER_SIZE);
@@ -524,22 +499,20 @@ test "WALEntry header size constant" {
 test "WALEntry memory management" {
     const allocator = testing.allocator;
 
-    // Test that deinit properly releases memory
+
     const test_block = create_test_block();
     const entry = try WALEntry.create_put_block(test_block, allocator);
 
-    // Verify entry has allocated payload
     try testing.expect(entry.payload.len > 0);
     try testing.expectEqual(entry.payload.len, entry.payload_size);
 
-    // deinit should not crash
     entry.deinit(allocator);
 }
 
 test "WALEntry edge cases" {
     const allocator = testing.allocator;
 
-    // Test empty payload
+
     const empty_checksum = WALEntry.calculate_checksum(.put_block, "");
     const empty_entry = WALEntry{
         .checksum = empty_checksum,
@@ -564,8 +537,7 @@ test "WALEntry edge cases" {
 test "WALEntry large payload handling" {
     const allocator = testing.allocator;
 
-    // Create large payload (within limits)
-    const large_payload_size = 1024 * 1024; // 1MB
+    const large_payload_size = 1024 * 1024;
     const large_payload = try allocator.alloc(u8, large_payload_size);
     defer allocator.free(large_payload);
     @memset(large_payload, 0xAA);
@@ -578,7 +550,6 @@ test "WALEntry large payload handling" {
         .payload = large_payload,
     };
 
-    // Serialize and deserialize
     const buffer = try allocator.alloc(u8, WALEntry.HEADER_SIZE + large_payload_size);
     defer allocator.free(buffer);
 
@@ -601,13 +572,11 @@ test "WALEntry extract_block success" {
     const entry = try WALEntry.create_put_block(test_block, allocator);
     defer entry.deinit(allocator);
 
-    // Extract the block
     const extracted_block = try entry.extract_block(allocator);
     defer allocator.free(extracted_block.source_uri);
     defer allocator.free(extracted_block.metadata_json);
     defer allocator.free(extracted_block.content);
 
-    // Verify extracted block matches original
     try testing.expect(test_block.id.eql(extracted_block.id));
     try testing.expectEqual(test_block.version, extracted_block.version);
     try testing.expectEqualStrings(test_block.source_uri, extracted_block.source_uri);
@@ -622,7 +591,6 @@ test "WALEntry extract_block invalid entry type" {
     const entry = try WALEntry.create_delete_block(test_id, allocator);
     defer entry.deinit(allocator);
 
-    // Should fail when trying to extract block from delete_block entry
     try testing.expectError(WALError.InvalidEntryType, entry.extract_block(allocator));
 }
 
@@ -633,10 +601,7 @@ test "WALEntry extract_block_id success" {
     const entry = try WALEntry.create_delete_block(test_id, allocator);
     defer entry.deinit(allocator);
 
-    // Extract the block ID
     const extracted_id = try entry.extract_block_id();
-
-    // Verify extracted ID matches original
     try testing.expect(test_id.eql(extracted_id));
 }
 
@@ -647,12 +612,10 @@ test "WALEntry extract_block_id invalid entry type" {
     const entry = try WALEntry.create_put_block(test_block, allocator);
     defer entry.deinit(allocator);
 
-    // Should fail when trying to extract block ID from put_block entry
     try testing.expectError(WALError.InvalidEntryType, entry.extract_block_id());
 }
 
 test "WALEntry extract_block_id corrupted payload" {
-    // Create entry with wrong payload size for delete_block
     const corrupted_payload = "short";
     const checksum = WALEntry.calculate_checksum(.delete_block, corrupted_payload);
 
@@ -663,7 +626,6 @@ test "WALEntry extract_block_id corrupted payload" {
         .payload = corrupted_payload,
     };
 
-    // Should fail due to incorrect payload size
     try testing.expectError(WALError.CorruptedEntry, entry.extract_block_id());
 }
 
@@ -674,10 +636,7 @@ test "WALEntry extract_edge success" {
     const entry = try WALEntry.create_put_edge(test_edge, allocator);
     defer entry.deinit(allocator);
 
-    // Extract the edge
     const extracted_edge = try entry.extract_edge();
-
-    // Verify extracted edge matches original
     try testing.expect(test_edge.from_block_id.eql(extracted_edge.from_block_id));
     try testing.expect(test_edge.to_block_id.eql(extracted_edge.to_block_id));
     try testing.expectEqual(test_edge.edge_type, extracted_edge.edge_type);
@@ -691,12 +650,10 @@ test "WALEntry extract_edge invalid entry type" {
     const entry = try WALEntry.create_put_block(test_block, allocator);
     defer entry.deinit(allocator);
 
-    // Should fail when trying to extract edge from put_block entry
     try testing.expectError(WALError.InvalidEntryType, entry.extract_edge());
 }
 
 test "WALEntry extract_edge corrupted payload" {
-    // Create entry with wrong payload size for put_edge
     const corrupted_payload = "wrong_size_payload";
     const checksum = WALEntry.calculate_checksum(.put_edge, corrupted_payload);
 

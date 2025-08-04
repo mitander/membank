@@ -238,7 +238,7 @@ fn check_naming_conventions(context: *RuleContext) []const Rule.RuleViolation {
 
         // Also check for camelCase while we're parsing function definitions
         if (find_function_definition(line)) |func_name| {
-            if (has_camel_case_name(func_name)) {
+            if (is_camel_case(func_name)) {
                 violations.append(.{
                     .line = line_num,
                     .message = "Function names must use snake_case, not camelCase",
@@ -266,7 +266,9 @@ fn is_comment_or_string_line(line: []const u8) bool {
     return quote_count >= 2; // Likely contains string literals
 }
 
-/// Extract function name from a function definition line
+/// Extract function name from a source line containing function definition.
+/// Handles all Zig function prefixes (pub, export, const, etc.).
+/// Returns function name or null if line doesn't contain a function definition.
 fn find_function_definition(line: []const u8) ?[]const u8 {
     const trimmed = std.mem.trim(u8, line, " \t");
 
@@ -311,8 +313,9 @@ fn find_function_definition(line: []const u8) ?[]const u8 {
     return if (func_name.len > 0) func_name else null;
 }
 
-/// Check if a function name contains camelCase pattern
-fn has_camel_case_name(name: []const u8) bool {
+/// Check if an identifier follows camelCase pattern.
+/// Takes a bare identifier name (not source code).
+fn is_camel_case(name: []const u8) bool {
     // Skip common exceptions - standard functions
     if (std.mem.eql(u8, name, "main") or
         std.mem.eql(u8, name, "init") or
@@ -345,42 +348,6 @@ fn has_camel_case_name(name: []const u8) bool {
     return false;
 }
 
-/// Check if a line contains a camelCase function definition
-fn has_camel_case_function(line: []const u8) bool {
-    // Find "fn " pattern
-    const fn_pos = std.mem.indexOf(u8, line, "fn ") orelse return false;
-    const after_fn = line[fn_pos + 3 ..];
-
-    // Find function name (up to opening paren or space)
-    var name_end: usize = 0;
-    for (after_fn, 0..) |char, i| {
-        if (char == '(' or char == ' ' or char == '\t') {
-            name_end = i;
-            break;
-        }
-    }
-
-    if (name_end == 0) return false;
-    const fn_name = after_fn[0..name_end];
-
-    // Skip common exceptions
-    if (std.mem.eql(u8, fn_name, "main") or
-        std.mem.eql(u8, fn_name, "init") or
-        std.mem.eql(u8, fn_name, "deinit") or
-        std.mem.startsWith(u8, fn_name, "test"))
-    {
-        return false;
-    }
-
-    // Check for camelCase pattern (contains uppercase after first character)
-    for (fn_name[1..]) |char| {
-        if (char >= 'A' and char <= 'Z') {
-            return true;
-        }
-    }
-
-    return false;
-}
 
 /// Rule: Prevent threading primitives in single-threaded architecture
 fn check_single_threaded(context: *RuleContext) []const Rule.RuleViolation {
@@ -1137,15 +1104,49 @@ fn check_comment_quality(context: *RuleContext) []const Rule.RuleViolation {
         return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
     }
 
+    // Skip test files - they use flow comments to explain test scenarios
+    if (std.mem.endsWith(u8, context.file_path, "_test.zig") or
+        std.mem.indexOf(u8, context.file_path, "/tests/") != null or
+        std.mem.indexOf(u8, context.file_path, "test ") != null)
+    {
+        return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+    }
+
     var line_start: usize = 0;
     var line_num: u32 = 1;
+    var in_test_function = false;
+    var brace_depth: u32 = 0;
 
     while (line_start < context.source.len) {
         const line_end = std.mem.indexOfScalarPos(u8, context.source, line_start, '\n') orelse context.source.len;
         const line = context.source[line_start..line_end];
+        const trimmed_line = std.mem.trim(u8, line, " \t");
+
+        // Track test function boundaries
+        if (std.mem.startsWith(u8, trimmed_line, "test ")) {
+            in_test_function = true;
+            brace_depth = 0;
+        }
+
+        // Track brace depth to know when test function ends
+        for (line) |char| {
+            if (char == '{') brace_depth += 1;
+            if (char == '}') {
+                if (brace_depth > 0) brace_depth -= 1;
+                if (in_test_function and brace_depth == 0) {
+                    in_test_function = false;
+                }
+            }
+        }
 
         // Look for single-line comments (not doc comments)
         if (std.mem.indexOf(u8, line, "//") != null and std.mem.indexOf(u8, line, "///") == null) {
+            // Skip comments inside test functions - they explain test flow
+            if (in_test_function) {
+                line_start = line_end + 1;
+                line_num += 1;
+                continue;
+            }
             const comment_start = std.mem.indexOf(u8, line, "//").?;
             const comment_text = std.mem.trim(u8, line[comment_start + 2 ..], " \t");
 
@@ -1248,29 +1249,30 @@ fn is_simple_getter_or_setter(source: []const u8, line_start: usize, func_name: 
     if (std.mem.startsWith(u8, func_name, "get") and func_name.len > 3) {
         return true;
     }
-    
+
     // Setters rarely have complex business logic worth documenting
     if (std.mem.startsWith(u8, func_name, "set") and func_name.len > 3) {
         return true;
     }
-    
+
     // Boolean checks are typically self-explanatory from function name
     if (std.mem.startsWith(u8, func_name, "is") or
         std.mem.startsWith(u8, func_name, "has") or
-        std.mem.startsWith(u8, func_name, "can")) {
+        std.mem.startsWith(u8, func_name, "can"))
+    {
         return true;
     }
-    
+
     // Find the function body to analyze its complexity
     const func_pattern = std.fmt.allocPrint(std.heap.page_allocator, "fn {s}(", .{func_name}) catch return false;
     defer std.heap.page_allocator.free(func_pattern);
-    
+
     const func_start = std.mem.indexOf(u8, source[line_start..], func_pattern) orelse return false;
-    const func_body_start = std.mem.indexOf(u8, source[line_start + func_start..], "{") orelse return false;
+    const func_body_start = std.mem.indexOf(u8, source[line_start + func_start ..], "{") orelse return false;
     const func_body_end = blk: {
         var brace_count: i32 = 0;
         var pos = line_start + func_start + func_body_start;
-        
+
         while (pos < source.len) {
             if (source[pos] == '{') {
                 brace_count += 1;
@@ -1284,24 +1286,25 @@ fn is_simple_getter_or_setter(source: []const u8, line_start: usize, func_name: 
         }
         break :blk source.len;
     };
-    
-    const func_body = source[line_start + func_start + func_body_start..func_body_end];
-    
+
+    const func_body = source[line_start + func_start + func_body_start .. func_body_end];
+
     // Count non-trivial lines (exclude braces, returns, simple assignments)
     var meaningful_lines: u32 = 0;
     var body_line_it = std.mem.splitSequence(u8, func_body, "\n");
     while (body_line_it.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t");
-        if (trimmed.len == 0 or 
-            std.mem.eql(u8, trimmed, "{") or 
+        if (trimmed.len == 0 or
+            std.mem.eql(u8, trimmed, "{") or
             std.mem.eql(u8, trimmed, "}") or
             std.mem.startsWith(u8, trimmed, "return") or
-            std.mem.indexOf(u8, trimmed, " = ") != null) {
+            std.mem.indexOf(u8, trimmed, " = ") != null)
+        {
             continue;
         }
         meaningful_lines += 1;
     }
-    
+
     // Simple functions have <= 2 meaningful lines
     return meaningful_lines <= 2;
 }
@@ -1310,32 +1313,32 @@ fn is_simple_getter_or_setter(source: []const u8, line_start: usize, func_name: 
 fn is_obvious_what_comment(context: *RuleContext, comment_text: []const u8, next_line: []const u8) bool {
     // Skip very short comments or code lines (not enough data to analyze)
     if (comment_text.len < 10 or next_line.len < 10) return false;
-    
+
     // Context-aware exemptions: Skip files/contexts where descriptive comments are valuable
     if (is_test_context(context.file_path)) return false;
     if (is_documentation_context(comment_text)) return false;
     if (is_why_explanation(comment_text)) return false;
-    
+
     // Convert both to lowercase for comparison
     const lower_comment = std.ascii.allocLowerString(context.allocator, comment_text) catch return false;
     defer context.allocator.free(lower_comment);
-    
+
     const lower_code = std.ascii.allocLowerString(context.allocator, next_line) catch return false;
     defer context.allocator.free(lower_code);
-    
+
     // Extract meaningful words (>3 chars) from comment
     var comment_words = std.ArrayList([]const u8).init(context.allocator);
     defer comment_words.deinit();
-    
+
     var comment_word_it = std.mem.tokenizeAny(u8, lower_comment, " \t(){}[].,;:");
     while (comment_word_it.next()) |word| {
         if (word.len > 3 and !is_common_word(word)) {
             comment_words.append(word) catch continue;
         }
     }
-    
+
     if (comment_words.items.len == 0) return false;
-    
+
     // Count how many comment words appear in the code line
     var matching_words: u32 = 0;
     for (comment_words.items) |word| {
@@ -1343,7 +1346,7 @@ fn is_obvious_what_comment(context: *RuleContext, comment_text: []const u8, next
             matching_words += 1;
         }
     }
-    
+
     // If >60% of meaningful words in comment appear in code, likely a "WHAT" comment
     const overlap_ratio = (matching_words * 100) / @as(u32, @intCast(comment_words.items.len));
     return overlap_ratio > 60;
@@ -1352,10 +1355,10 @@ fn is_obvious_what_comment(context: *RuleContext, comment_text: []const u8, next
 /// Check if word is too common to be meaningful for overlap analysis
 fn is_common_word(word: []const u8) bool {
     const common_words = [_][]const u8{
-        "the", "and", "for", "with", "this", "that", "from", "into", "over", "than",
+        "the",  "and",  "for",  "with", "this", "that", "from", "into", "over", "than",
         "when", "will", "have", "been", "they", "were", "what", "some", "time",
     };
-    
+
     for (common_words) |common| {
         if (std.mem.eql(u8, word, common)) return true;
     }
@@ -1365,21 +1368,21 @@ fn is_common_word(word: []const u8) bool {
 /// Context-aware refinement: Check if file is in test context where descriptive comments are valuable
 fn is_test_context(file_path: []const u8) bool {
     return std.mem.indexOf(u8, file_path, "test") != null or
-           std.mem.indexOf(u8, file_path, "spec") != null or
-           std.mem.endsWith(u8, file_path, "_test.zig") or
-           std.mem.endsWith(u8, file_path, "test.zig");
+        std.mem.indexOf(u8, file_path, "spec") != null or
+        std.mem.endsWith(u8, file_path, "_test.zig") or
+        std.mem.endsWith(u8, file_path, "test.zig");
 }
 
 /// Context-aware refinement: Check if comment is documentation context (examples, API usage)
 fn is_documentation_context(comment_text: []const u8) bool {
     const doc_indicators = [_][]const u8{
-        "example", "usage", "note:", "important:", "warning:", "todo:",
-        "fixme:", "hack:", "see also", "reference", "spec", "rfc",
+        "example", "usage", "note:",    "important:", "warning:", "todo:",
+        "fixme:",  "hack:", "see also", "reference",  "spec",     "rfc",
     };
-    
+
     const lower_comment = std.ascii.allocLowerString(std.heap.page_allocator, comment_text) catch return false;
     defer std.heap.page_allocator.free(lower_comment);
-    
+
     for (doc_indicators) |indicator| {
         if (std.mem.indexOf(u8, lower_comment, indicator) != null) return true;
     }
@@ -1390,29 +1393,29 @@ fn is_documentation_context(comment_text: []const u8) bool {
 fn is_why_explanation(comment_text: []const u8) bool {
     // WHY indicators: words that typically introduce rationale or design reasoning
     const why_indicators = [_][]const u8{
-        "enables", "allows", "provides", "ensures", "guarantees", "prevents",
-        "avoids", "optimizes", "improves", "reduces", "increases", "maintains",
-        "because", "since", "due to", "in order to", "so that", "to avoid",
-        "for performance", "for safety", "for correctness", "for robustness",
-        "without this", "otherwise", "alternatively", "instead of",
-        "trade-off", "tradeoff", "compromise", "design decision", "rationale",
-        "requirement", "constraint", "limitation", "assumption", "invariant",
-        "protocol", "specification", "standard", "convention", "pattern",
+        "enables",         "allows",        "provides",        "ensures",        "guarantees",   "prevents",
+        "avoids",          "optimizes",     "improves",        "reduces",        "increases",    "maintains",
+        "because",         "since",         "due to",          "in order to",    "so that",      "to avoid",
+        "for performance", "for safety",    "for correctness", "for robustness", "without this", "otherwise",
+        "alternatively",   "instead of",    "trade-off",       "tradeoff",       "compromise",   "design decision",
+        "rationale",       "requirement",   "constraint",      "limitation",     "assumption",   "invariant",
+        "protocol",        "specification", "standard",        "convention",     "pattern",
     };
-    
+
     const lower_comment = std.ascii.allocLowerString(std.heap.page_allocator, comment_text) catch return false;
     defer std.heap.page_allocator.free(lower_comment);
-    
+
     for (why_indicators) |indicator| {
         if (std.mem.indexOf(u8, lower_comment, indicator) != null) return true;
     }
-    
+
     // Additional heuristic: Comments with justification structure ("X because Y", "X to Y")
     if (std.mem.indexOf(u8, lower_comment, " because ") != null or
         std.mem.indexOf(u8, lower_comment, " to ") != null or
-        std.mem.indexOf(u8, lower_comment, " for ") != null) {
+        std.mem.indexOf(u8, lower_comment, " for ") != null)
+    {
         return true;
     }
-    
+
     return false;
 }

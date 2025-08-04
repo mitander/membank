@@ -82,7 +82,6 @@ pub const WALEntryStream = struct {
     const MAX_ENTRIES_PER_STREAM = 1_000_000;
 
     pub fn init(allocator: std.mem.Allocator, file: *VFile) StreamError!WALEntryStream {
-        // Reset file position to start for consistent streaming behavior
         _ = file.seek(0, .start) catch return StreamError.IoError;
 
         return WALEntryStream{
@@ -142,10 +141,8 @@ pub const WALEntryStream = struct {
                 return null;
             }
 
-            // Detect zero progress: if we're not advancing through the file and have suspicious data
             if (self.zero_progress_count >= MAX_ZERO_PROGRESS_ITERATIONS) {
                 if (available >= WAL_HEADER_SIZE) {
-                    // Check if this looks like corrupted/padding data
                     const checksum = std.mem.readInt(u64, self.process_buffer[0..8], .little);
                     const entry_type = self.process_buffer[8];
                     const payload_size = std.mem.readInt(u32, self.process_buffer[9..13], .little);
@@ -157,7 +154,6 @@ pub const WALEntryStream = struct {
                 }
             }
 
-            // Update position tracking for debugging and zero progress detection
             if (current_position != self.last_file_position) {
                 self.last_file_position = current_position;
                 self.zero_progress_count = 0;
@@ -178,14 +174,12 @@ pub const WALEntryStream = struct {
     fn fill_process_buffer(self: *WALEntryStream) StreamError!usize {
         const position_before_read = self.file.tell() catch return StreamError.IoError;
 
-        // Update buffer position tracking on fresh reads
         if (self.remaining_len == 0) {
             self.buffer_start_file_pos = position_before_read;
         }
 
         const bytes_read = self.file.read(&self.read_buffer) catch return StreamError.IoError;
 
-        // Clear process buffer for clean state
         @memset(&self.process_buffer, 0);
 
         const available = self.remaining_len + bytes_read;
@@ -214,7 +208,6 @@ pub const WALEntryStream = struct {
             return null;
         }
 
-        // Parse entry header for size calculation
         const checksum = std.mem.readInt(u64, self.process_buffer[0..8], .little);
         const entry_type = self.process_buffer[8];
         const payload_size = std.mem.readInt(u32, self.process_buffer[9..13], .little);
@@ -231,13 +224,10 @@ pub const WALEntryStream = struct {
         }
 
         if (entry_type == 0 or entry_type > 3) {
-            // Check if this looks like EOF padding (small checksum, zero values)
             const looks_like_eof_padding = (checksum <= 0xFF) and (entry_type == 0) and (payload_size == 0);
 
             if (looks_like_eof_padding) {
-                // This appears to be uninitialized data at EOF, treat as end of stream
                 log.debug("WAL stream reached EOF padding at buffer position {}", .{self.buffer_start_file_pos});
-                // Don't preserve any data, just signal EOF
                 self.remaining_len = 0;
                 return null;
             }
@@ -265,11 +255,9 @@ pub const WALEntryStream = struct {
             }
         }
 
-        // Complete entry available in buffer
         const entry_position = self.buffer_start_file_pos;
         const payload = try self.allocator.dupe(u8, self.process_buffer[WAL_HEADER_SIZE..entry_size]);
 
-        // Advance buffer state past this entry
         self.preserve_remaining_data(entry_size, available);
 
         return StreamEntry{
@@ -303,13 +291,10 @@ pub const WALEntryStream = struct {
             return StreamError.IoError;
         }
 
-        // Extract payload from complete entry buffer
         const payload = try self.allocator.dupe(u8, entry_buffer[WAL_HEADER_SIZE..]);
 
-        // Position file after this entry for continued streaming
         _ = self.file.seek(entry_position + entry_size, .start) catch return StreamError.IoError;
 
-        // Clear buffer state since we bypassed buffering
         self.remaining_len = 0;
         self.buffer_start_file_pos = entry_position + entry_size;
 
@@ -360,7 +345,7 @@ comptime {
     custom_assert.comptime_assert(PROCESS_BUFFER_SIZE >= READ_BUFFER_SIZE, "Process buffer must be at least as large as read buffer");
 }
 
-// Tests
+
 test "WALEntryStream initialization" {
     const allocator = testing.allocator;
 
@@ -374,7 +359,6 @@ test "WALEntryStream initialization" {
 
     var stream = try WALEntryStream.init(allocator, &file);
 
-    // Verify initial state
     try testing.expectEqual(@as(u32, 0), stream.entries_read);
     try testing.expectEqual(@as(u32, 0), stream.read_iterations);
     try testing.expectEqual(@as(usize, 0), stream.remaining_len);
@@ -416,7 +400,6 @@ test "WALEntryStream read single complete entry" {
     const entry_type: u8 = 0x01; // put_block
     const payload_size: u32 = @intCast(test_payload.len);
 
-    // Write entry header
     var header_buffer: [WAL_HEADER_SIZE]u8 = undefined;
     std.mem.writeInt(u64, header_buffer[0..8], checksum, .little);
     header_buffer[8] = entry_type;
@@ -429,7 +412,6 @@ test "WALEntryStream read single complete entry" {
     var stream = try WALEntryStream.init(allocator, &file);
     defer file.close();
 
-    // Read the entry
     const entry = try stream.next();
     try testing.expect(entry != null);
 
@@ -587,13 +569,11 @@ test "WALEntryStream large entry handling" {
     const test_path = "large_entry.wal";
     var file = try vfs_sim.vfs().create(test_path);
 
-    // Create large payload that exceeds process buffer size
     const large_payload_size = PROCESS_BUFFER_SIZE + 1000;
     const large_payload = try allocator.alloc(u8, large_payload_size);
     defer allocator.free(large_payload);
     @memset(large_payload, 0xAA);
 
-    // Write large entry
     var header_buffer: [WAL_HEADER_SIZE]u8 = undefined;
     const checksum: u64 = 0x1234567890abcdef;
     std.mem.writeInt(u64, header_buffer[0..8], checksum, .little);
@@ -607,7 +587,6 @@ test "WALEntryStream large entry handling" {
     var stream = try WALEntryStream.init(allocator, &file);
     defer file.close();
 
-    // Read large entry
     const entry = try stream.next();
     try testing.expect(entry != null);
 

@@ -111,10 +111,9 @@ pub fn run(
 
 /// Execute a single fuzzing iteration against serialization system
 fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !common.FuzzResult {
-    // Test ContextBlock serialization with random/corrupted data
+
     const original_block = try common.generate_random_block(allocator, random);
 
-    // Serialize the block
     const buffer_size = original_block.serialized_size();
     const buffer = try allocator.alloc(u8, buffer_size);
     defer allocator.free(buffer);
@@ -123,7 +122,7 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
         return common.FuzzResult.expected_error;
     };
 
-    // Test different corruption strategies
+
     const corruption_type = random.intRangeAtMost(u32, 0, 3);
     switch (corruption_type) {
         0 => try test_random_corruption(allocator, buffer, random),
@@ -136,7 +135,7 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
     return common.FuzzResult.success;
 }
 
-/// Test random byte corruption throughout the buffer
+/
 fn test_random_corruption(allocator: std.mem.Allocator, buffer: []const u8, random: std.Random) !void {
     var corrupted = try allocator.dupe(u8, buffer);
     defer allocator.free(corrupted);
@@ -147,33 +146,28 @@ fn test_random_corruption(allocator: std.mem.Allocator, buffer: []const u8, rand
         corrupted[pos] = random.int(u8);
     }
 
-    // Try to deserialize corrupted data
     _ = ContextBlock.deserialize(corrupted, allocator) catch {
-        // Deserialization errors are expected with corrupted data
         return;
     };
 }
 
-/// Test truncation at various points
+/
 fn test_truncation(allocator: std.mem.Allocator, buffer: []const u8, random: std.Random) !void {
     if (buffer.len == 0) return;
 
     const truncate_at = random.intRangeAtMost(usize, 0, buffer.len - 1);
     const truncated = buffer[0..truncate_at];
 
-    // Try to deserialize truncated data
     _ = ContextBlock.deserialize(truncated, allocator) catch {
-        // Deserialization errors are expected with truncated data
         return;
     };
 }
 
-/// Test corruption of header/magic bytes
+/
 fn test_header_corruption(allocator: std.mem.Allocator, buffer: []const u8, random: std.Random) !void {
     var corrupted = try allocator.dupe(u8, buffer);
     defer allocator.free(corrupted);
 
-    // Corrupt first few bytes (likely header/magic)
     const header_corruption_count = @min(16, corrupted.len);
     for (0..header_corruption_count) |i| {
         if (random.boolean()) {
@@ -181,19 +175,16 @@ fn test_header_corruption(allocator: std.mem.Allocator, buffer: []const u8, rand
         }
     }
 
-    // Try to deserialize header-corrupted data
     _ = ContextBlock.deserialize(corrupted, allocator) catch {
-        // Deserialization errors are expected with header corruption
         return;
     };
 }
 
-/// Test corruption at buffer boundaries
+/
 fn test_boundary_corruption(allocator: std.mem.Allocator, buffer: []const u8, random: std.Random) !void {
     var corrupted = try allocator.dupe(u8, buffer);
     defer allocator.free(corrupted);
 
-    // Corrupt last few bytes (likely checksum/footer)
     if (corrupted.len > 0) {
         const boundary_corruption_count = @min(8, corrupted.len);
         const start_pos = corrupted.len - boundary_corruption_count;
@@ -204,9 +195,7 @@ fn test_boundary_corruption(allocator: std.mem.Allocator, buffer: []const u8, ra
         }
     }
 
-    // Try to deserialize boundary-corrupted data
     _ = ContextBlock.deserialize(corrupted, allocator) catch {
-        // Deserialization errors are expected with boundary corruption
         return;
     };
 }

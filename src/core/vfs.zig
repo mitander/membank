@@ -24,7 +24,6 @@ const PRODUCTION_FILE_MAGIC = 0xDEADBEEF_CAFEBABE;
 /// Maximum reasonable file size to prevent memory exhaustion attacks
 const MAX_REASONABLE_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
 
-// Cross-platform compatibility and security validation
 comptime {
     assert(MAX_PATH_LENGTH > 0);
     assert(MAX_PATH_LENGTH <= 8192);
@@ -103,11 +102,9 @@ pub const DirectoryIterator = struct {
     /// Clean up allocated memory for directory entries.
     /// Must be called with the same allocator used for iterate_directory().
     pub fn deinit(self: *DirectoryIterator, allocator: std.mem.Allocator) void {
-        // Free each entry name
         for (self.entries) |entry| {
             allocator.free(entry.name);
         }
-        // Free the entries array
         allocator.free(self.entries);
     }
 
@@ -131,23 +128,19 @@ pub const VFS = struct {
     vtable: *const VTable,
 
     pub const VTable = struct {
-        // File operations
         open: *const fn (ptr: *anyopaque, path: []const u8, mode: OpenMode) VFSError!VFile,
         create: *const fn (ptr: *anyopaque, path: []const u8) VFSError!VFile,
         remove: *const fn (ptr: *anyopaque, path: []const u8) VFSError!void,
         exists: *const fn (ptr: *anyopaque, path: []const u8) bool,
 
-        // Directory operations
         mkdir: *const fn (ptr: *anyopaque, path: []const u8) VFSError!void,
         mkdir_all: *const fn (ptr: *anyopaque, path: []const u8) VFSError!void,
         rmdir: *const fn (ptr: *anyopaque, path: []const u8) VFSError!void,
         iterate_directory: *const fn (ptr: *anyopaque, path: []const u8, allocator: std.mem.Allocator) VFSError!DirectoryIterator,
 
-        // Metadata operations
         rename: *const fn (ptr: *anyopaque, old_path: []const u8, new_path: []const u8) VFSError!void,
         stat: *const fn (ptr: *anyopaque, path: []const u8) VFSError!FileStat,
 
-        // System operations
         sync: *const fn (ptr: *anyopaque) VFSError!void,
         deinit: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
     };
@@ -182,8 +175,6 @@ pub const VFS = struct {
                 self.modified_time >= self.created_time;
         }
     };
-
-    // Delegation methods for type-safe interface
 
     pub fn open(self: VFS, path: []const u8, mode: OpenMode) VFSError!VFile {
         return self.vtable.open(self.ptr, path, mode);
@@ -256,7 +247,6 @@ pub const VFS = struct {
             else => return VFSError.IoError,
         };
 
-        // Truncate if file was smaller than reported size
         if (bytes_read < content.len) {
             return allocator.realloc(content, bytes_read);
         }
@@ -296,8 +286,6 @@ pub const VFile = struct {
         end = 0x03,
     };
 
-    // Public interface methods
-
     pub fn read(self: *VFile, buffer: []u8) VFileError!usize {
         return switch (self.impl) {
             .production => |*prod| blk: {
@@ -312,11 +300,9 @@ pub const VFile = struct {
                 if (sim.closed) return VFileError.FileClosed;
                 if (!sim.mode.can_read()) return VFileError.ReadError;
 
-                // CRITICAL: VFS handle corruption detection
                 fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
                 fatal_assert(!sim.closed, "VFS file handle used after close - use-after-free detected", .{});
 
-                // Get file data via stable handle
                 const data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
 
                 const available = @min(buffer.len, data.content.items.len - sim.position);
@@ -345,17 +331,13 @@ pub const VFile = struct {
                 if (sim.closed) return VFileError.FileClosed;
                 if (!sim.mode.can_write()) return VFileError.WriteError;
 
-                // CRITICAL: VFS handle corruption detection
                 fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in write: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
                 assert(data.len > 0);
 
-                // Check fault injection (torn writes, disk space limits, etc.)
                 const actual_write_size = sim.fault_injection_fn(sim.vfs_ptr, data.len) catch |err| {
                     return err;
                 };
 
-                // Handle file extension safely via handle-based access
-                // This eliminates stale pointer risks by using fresh handle access for each operation
                 {
                     const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
                     if (sim.position + actual_write_size > file_data.content.items.len) {
@@ -365,39 +347,31 @@ pub const VFile = struct {
                         // ensureTotalCapacity preserves existing data automatically
                         try file_data.content.ensureTotalCapacity(new_len);
 
-                        // Handle-based access eliminates stale pointer risks after reallocation
                         const fresh_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
 
-                        // Set length using fresh handle access
                         fresh_file_data.content.items.len = new_len;
 
-                        // Zero all newly allocated regions
                         @memset(fresh_file_data.content.items[old_len..new_len], 0);
 
-                        // Zero any unused capacity beyond new_len to prevent garbage bleeding
                         const allocated_slice = fresh_file_data.content.allocatedSlice();
                         if (allocated_slice.len > new_len) {
                             @memset(allocated_slice[new_len..], 0);
                         }
 
-                        // Ensure the gap before write position is zeroed (sparse file behavior)
                         if (sim.position > old_len) {
                             @memset(fresh_file_data.content.items[old_len..sim.position], 0);
                         }
                     }
                 }
 
-                // Perform write operation with fresh handle access
                 const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
                 @memcpy(file_data.content.items[sim.position .. sim.position + actual_write_size], data[0..actual_write_size]);
                 sim.position += actual_write_size;
 
-                // Immediate corruption detection: verify written data is readable via handle access
                 const write_start_pos = sim.position - actual_write_size;
                 const verify_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
                 const written_slice = verify_file_data.content.items[write_start_pos..sim.position];
 
-                // VFS write verification (disabled - proven to work correctly)
                 if (false) {
                     std.debug.print("=== VFS WRITE VERIFICATION: pos={}, size={} ===\n", .{ write_start_pos, actual_write_size });
                     std.debug.print("Expected first 20 bytes: ", .{});
@@ -411,7 +385,6 @@ pub const VFile = struct {
                     }
                     std.debug.print("\n", .{});
 
-                    // Also debug the entire file from the beginning via handle access
                     const debug_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
                     std.debug.print("=== FULL FILE CONTENT (first 64 bytes) ===\n", .{});
                     for (debug_file_data.content.items[0..@min(64, debug_file_data.content.items.len)], 0..) |byte, i| {
@@ -431,7 +404,6 @@ pub const VFile = struct {
                     return VFileError.IoError;
                 }
 
-                // Update modified time via handle access
                 const time_update_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
                 time_update_file_data.modified_time = sim.current_time_fn(sim.vfs_ptr);
                 break :blk actual_write_size;
@@ -444,13 +416,9 @@ pub const VFile = struct {
             .production => |*prod| blk: {
                 if (prod.closed) return VFileError.FileClosed;
 
-                // Save current position
                 const current_pos = prod.file.getPos() catch return VFileError.IoError;
-
-                // Seek to target offset
                 prod.file.seekTo(offset) catch return VFileError.IoError;
 
-                // Write data
                 const bytes_written = prod.file.write(data) catch |err| switch (err) {
                     error.AccessDenied => return VFileError.WriteError,
                     error.NoSpaceLeft => return VFileError.WriteError,
@@ -458,7 +426,6 @@ pub const VFile = struct {
                     else => return VFileError.IoError,
                 };
 
-                // Restore original position
                 prod.file.seekTo(current_pos) catch return VFileError.IoError;
 
                 break :blk bytes_written;
@@ -467,25 +434,20 @@ pub const VFile = struct {
                 if (sim.closed) return VFileError.FileClosed;
                 if (!sim.mode.can_write()) return VFileError.WriteError;
 
-                // CRITICAL: VFS handle corruption detection
                 fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in write_at: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
                 assert(data.len > 0);
 
-                // Check fault injection
                 const actual_write_size = sim.fault_injection_fn(sim.vfs_ptr, data.len) catch |err| {
                     return err;
                 };
 
-                // Ensure file is large enough
                 const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.IoError;
                 const required_size = offset + actual_write_size;
                 if (file_data.content.items.len < required_size) {
                     file_data.content.resize(required_size) catch return VFileError.WriteError;
                 }
 
-                // Write data at offset
                 @memcpy(file_data.content.items[offset .. offset + actual_write_size], data[0..actual_write_size]);
-
                 break :blk actual_write_size;
             },
         };
@@ -519,11 +481,9 @@ pub const VFile = struct {
             .simulation => |*sim| blk: {
                 if (sim.closed) return VFileError.FileClosed;
 
-                // CRITICAL: VFS handle corruption detection
                 fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in seek: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
                 fatal_assert(!sim.closed, "VFS file handle used after close in seek - use-after-free detected", .{});
 
-                // Get file data via stable handle
                 const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
 
                 const target_pos = switch (whence) {
@@ -564,7 +524,6 @@ pub const VFile = struct {
             },
             .simulation => |*sim| blk: {
                 if (sim.closed) return VFileError.FileClosed;
-                // Simulation files are always "flushed" (in memory)
                 break :blk;
             },
         };
@@ -595,7 +554,6 @@ pub const VFile = struct {
                     };
                 };
 
-                // Defensive validation of file size
                 if (size > MAX_REASONABLE_FILE_SIZE) {
                     return VFileError.IoError;
                 }
@@ -605,13 +563,10 @@ pub const VFile = struct {
             .simulation => |*sim| blk: {
                 if (sim.closed) return VFileError.FileClosed;
 
-                // CRITICAL: VFS handle corruption detection
                 fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in file_size: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
                 fatal_assert(!sim.closed, "VFS file handle used after close in file_size - use-after-free detected", .{});
 
-                // Get file data via stable handle
                 const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
-
                 break :blk file_data.content.items.len;
             },
         };
@@ -619,10 +574,8 @@ pub const VFile = struct {
 
     /// No-op for value type - resources managed by parent systems
     pub fn deinit(self: VFile) void {
+        // TODO: remove?
         _ = self;
-        // VFile is a value type - no manual cleanup needed
-        // Production files are closed via close()
-        // Simulation data is owned by VFS arena
     }
 };
 
@@ -635,9 +588,6 @@ pub const SimulationFileData = struct {
     is_directory: bool,
 };
 
-// ============================================================================
-// VFS Memory Safety Tests
-// ============================================================================
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
@@ -651,12 +601,10 @@ test "vfs memory expansion safety" {
     var file = try test_vfs.create("expansion_test.log");
     defer file.close();
 
-    // Write small amount to establish initial allocation
     const header = "HEADER01";
     const written_header = try file.write(header);
     try testing.expectEqual(header.len, written_header);
 
-    // Force ArrayList expansion with large write
     var large_buffer: [32768]u8 = undefined;
     @memset(&large_buffer, 0xAB);
 
@@ -664,14 +612,12 @@ test "vfs memory expansion safety" {
     const written_large = try file.write(&large_buffer);
     try testing.expectEqual(large_buffer.len, written_large);
 
-    // Verify original data remains intact after expansion
     _ = try file.seek(0, .start);
     var header_verify: [8]u8 = undefined;
     const read_header = try file.read(&header_verify);
     try testing.expectEqual(header.len, read_header);
     try testing.expect(std.mem.eql(u8, header, header_verify[0..read_header]));
 
-    // Verify expanded data integrity
     _ = try file.seek(header.len, .start);
     var large_verify: [1024]u8 = undefined;
     const read_large = try file.read(&large_verify);
@@ -693,13 +639,11 @@ test "vfs multiple file handle stability" {
     var files: [num_files]VFile = undefined;
     var file_data: [num_files][16]u8 = undefined;
 
-    // Create many files to trigger internal reallocation
     for (0..num_files) |i| {
         const file_name = try std.fmt.allocPrint(allocator, "stress_file_{}.log", .{i});
         defer allocator.free(file_name);
         files[i] = try test_vfs.create(file_name);
 
-        // Write unique pattern to each file
         std.mem.writeInt(u64, file_data[i][0..8], @as(u64, i), .little);
         std.mem.writeInt(u64, file_data[i][8..16], @as(u64, i) ^ 0xDEADBEEF, .little);
 
@@ -707,7 +651,6 @@ test "vfs multiple file handle stability" {
         try testing.expectEqual(16, written);
     }
 
-    // Verify all files retain correct data after potential reallocation
     for (0..num_files) |i| {
         _ = try files[i].seek(0, .start);
         var read_data: [16]u8 = undefined;
@@ -728,27 +671,22 @@ test "vfs sparse file handling" {
     var file = try test_vfs.create("sparse_test.log");
     defer file.close();
 
-    // Write header at beginning
     const header = "HEADER01";
     _ = try file.write(header);
 
-    // Seek far ahead creating a gap
     _ = try file.seek(4096, .start);
     const footer = "FOOTER01";
     _ = try file.write(footer);
 
-    // Verify file size accounts for gap
     const file_size = try file.file_size();
     try testing.expectEqual(4096 + footer.len, file_size);
 
-    // Verify header integrity
     _ = try file.seek(0, .start);
     var header_buffer: [8]u8 = undefined;
     const read_header = try file.read(&header_buffer);
     try testing.expectEqual(header.len, read_header);
     try testing.expect(std.mem.eql(u8, header, header_buffer[0..read_header]));
 
-    // Verify gap is properly zeroed
     _ = try file.seek(header.len, .start);
     var gap_buffer: [100]u8 = undefined;
     const read_gap = try file.read(&gap_buffer);
@@ -758,7 +696,6 @@ test "vfs sparse file handling" {
         try testing.expectEqual(@as(u8, 0), byte);
     }
 
-    // Verify footer integrity
     _ = try file.seek(4096, .start);
     var footer_buffer: [8]u8 = undefined;
     const read_footer = try file.read(&footer_buffer);
@@ -776,7 +713,6 @@ test "vfs capacity boundary conditions" {
     var file = try test_vfs.create("boundary_test.log");
     defer file.close();
 
-    // Test writes at common capacity boundaries
     const boundary_sizes = [_]usize{ 127, 128, 129, 255, 256, 257, 511, 512, 513, 1023, 1024, 1025 };
 
     for (boundary_sizes) |size| {
@@ -787,7 +723,6 @@ test "vfs capacity boundary conditions" {
         const written = try file.write(write_buffer);
         try testing.expectEqual(size, written);
 
-        // Immediate verification to catch boundary corruption
         const pos = try file.tell();
         _ = try file.seek(pos - size, .start);
 
@@ -820,7 +755,6 @@ test "vfs data integrity with checksums" {
 
     _ = try file.write(test_data);
 
-    // Multiple read-back verifications with checksum validation
     for (0..5) |_| {
         _ = try file.seek(0, .start);
 
@@ -829,7 +763,6 @@ test "vfs data integrity with checksums" {
         try testing.expectEqual(test_data.len, read_bytes);
         try testing.expect(std.mem.eql(u8, test_data, &read_buffer));
 
-        // Verify checksum remains consistent across reads
         var hasher = std.hash.Crc32.init();
         hasher.update(&read_buffer);
         const actual_checksum = hasher.final();
@@ -844,24 +777,20 @@ test "vfs directory operations" {
     defer sim_vfs.deinit();
     const test_vfs = sim_vfs.vfs();
 
-    // Test directory creation
     try test_vfs.mkdir("test_dir");
     try testing.expect(test_vfs.exists("test_dir"));
 
-    // Test nested directory creation
     try test_vfs.mkdir_all("nested/deep/structure");
     try testing.expect(test_vfs.exists("nested"));
     try testing.expect(test_vfs.exists("nested/deep"));
     try testing.expect(test_vfs.exists("nested/deep/structure"));
 
-    // Test file creation within directories
     var nested_file = try test_vfs.create("nested/deep/test_file.log");
     defer nested_file.close();
 
     const nested_data = "Nested file data";
     _ = try nested_file.write(nested_data);
 
-    // Verify file exists and contains correct data
     try testing.expect(test_vfs.exists("nested/deep/test_file.log"));
 
     _ = try nested_file.seek(0, .start);
@@ -878,15 +807,12 @@ test "vfs error handling patterns" {
     defer sim_vfs.deinit();
     const test_vfs = sim_vfs.vfs();
 
-    // Test reading from non-existent file
     const open_result = test_vfs.open("non_existent.log");
     try testing.expectError(error.FileNotFound, open_result);
 
-    // Test operations on closed file
     var file = try test_vfs.create("close_test.log");
     _ = try file.write("test");
     file.close();
 
-    // Verify file was created successfully before close
     try testing.expect(test_vfs.exists("close_test.log"));
 }

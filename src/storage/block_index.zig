@@ -130,7 +130,6 @@ pub const BlockIndex = struct {
             self.memory_used -= old_memory;
         }
 
-        // Add new block's memory usage to tracking
         const new_memory = block.source_uri.len + block.metadata_json.len + block.content.len;
         self.memory_used += new_memory;
 
@@ -185,7 +184,7 @@ pub const BlockIndex = struct {
     }
 };
 
-// Tests
+
 const testing = std.testing;
 
 test "block index initialization creates empty index" {
@@ -373,7 +372,7 @@ test "block id hash context provides good distribution" {
     // Same ID should hash to same value
     try testing.expectEqual(hash1, ctx.hash(id1));
 
-    // Test equality
+
     try testing.expect(ctx.eql(id1, id1));
     try testing.expect(!ctx.eql(id1, id2));
 }

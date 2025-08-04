@@ -168,12 +168,10 @@ pub const TieredCompactionManager = struct {
     pub fn check_compaction_needed(self: *TieredCompactionManager) !?CompactionJob {
         concurrency.assert_main_thread();
 
-        // Check L0 first - it has count-based compaction
         if (self.tiers[0].sstables.items.len >= self.config.l0_compaction_threshold) {
             return self.create_l0_compaction_job();
         }
 
-        // Check other levels for size-tiered compaction
         for (self.tiers[1..], 1..) |*tier, level_idx| {
             const level: u8 = @intCast(level_idx);
 
@@ -201,11 +199,9 @@ pub const TieredCompactionManager = struct {
     }
 
     fn create_l0_compaction_job(self: *TieredCompactionManager) CompactionJob {
-        // Compact all L0 SSTables into L1
         var input_paths = std.ArrayList([]const u8).init(self.allocator);
         for (self.tiers[0].sstables.items) |info| {
-            // Safety: L0 sstables count is bounded by config.max_sstables_per_tier - allocation guaranteed
-            input_paths.append(info.path) catch unreachable;
+            input_paths.append(info.path) catch unreachable; // Safety: paths are pre-allocated strings
         }
 
         return CompactionJob{
@@ -218,17 +214,14 @@ pub const TieredCompactionManager = struct {
     }
 
     fn create_tier_compaction_job(self: *TieredCompactionManager, level: u8) !CompactionJob {
-        // Find SSTables of similar size to compact together
         const tier = &self.tiers[level];
         var candidates = std.ArrayList(usize).init(self.allocator);
         defer candidates.deinit();
         try candidates.ensureTotalCapacity(self.config.max_sstables_per_tier);
 
-        // Simple heuristic: find the largest group of similarly-sized SSTables
         for (tier.sstables.items, 0..) |info, i| {
             _ = info;
-            // Safety: Bounded by max_sstables_per_tier config limit - guaranteed capacity
-            candidates.append(i) catch unreachable;
+            candidates.append(i) catch unreachable; // Safety: capacity ensured above
             if (candidates.items.len >= self.config.max_sstables_per_tier) break;
         }
 
@@ -238,8 +231,7 @@ pub const TieredCompactionManager = struct {
 
         for (candidates.items) |idx| {
             const info = tier.sstables.items[idx];
-            // Safety: Appending exact number of candidate items - no reallocation needed
-            input_paths.append(info.path) catch unreachable;
+            input_paths.append(info.path) catch unreachable; // Safety: paths are pre-allocated strings
             total_size += info.size;
         }
 
@@ -255,12 +247,10 @@ pub const TieredCompactionManager = struct {
     fn should_compact_tier(self: *TieredCompactionManager, level: u8) bool {
         const tier = &self.tiers[level];
 
-        // Too many SSTables in this tier
         if (tier.sstables.items.len >= self.config.max_sstables_per_tier) {
             return true;
         }
 
-        // Tier has grown too large compared to target size
         const target_size = TierState.target_size(level, self.config);
         if (tier.total_size > target_size * 2) {
             return true;
@@ -279,7 +269,6 @@ pub const TieredCompactionManager = struct {
 
         try self.compactor.compact_sstables(job.input_paths.items, output_path);
 
-        // Update tier tracking
         for (job.input_paths.items) |path| {
             self.remove_sstable(path, 0);
         }
@@ -297,7 +286,6 @@ pub const TieredCompactionManager = struct {
 
         try self.compactor.compact_sstables(job.input_paths.items, output_path);
 
-        // Update tier tracking
         for (job.input_paths.items) |path| {
             self.remove_sstable(path, job.input_level);
         }
@@ -326,38 +314,31 @@ pub const CompactionJob = struct {
     }
 };
 
-// Tests
 
 test "TieredCompactionManager initialization" {
     const allocator = std.testing.allocator;
-    _ = allocator; // Test placeholder - VFS required for actual testing
+    _ = allocator;
 
-    // We need a VFS for testing, but can't easily create one here
-    // This would be tested in integration tests with SimulationVFS
 }
 
 test "tier size calculation" {
     const config = TieredCompactionManager.CompactionConfig{};
 
-    // L0 has no size limit
     try std.testing.expectEqual(
         @as(u64, 0),
         TieredCompactionManager.TierState.target_size(0, config),
     );
 
-    // L1 = base size (64MB)
     try std.testing.expectEqual(
         @as(u64, 64 * 1024 * 1024),
         TieredCompactionManager.TierState.target_size(1, config),
     );
 
-    // L2 = base * ratio (256MB)
     try std.testing.expectEqual(
         @as(u64, 256 * 1024 * 1024),
         TieredCompactionManager.TierState.target_size(2, config),
     );
 
-    // L3 = base * ratio^2 (1GB)
     try std.testing.expectEqual(
         @as(u64, 1024 * 1024 * 1024),
         TieredCompactionManager.TierState.target_size(3, config),
@@ -365,6 +346,4 @@ test "tier size calculation" {
 }
 
 test "compaction thresholds" {
-    // This would require more complex setup with actual SSTables
-    // Integration tests would cover the full compaction logic
 }
