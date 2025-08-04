@@ -125,6 +125,18 @@ pub const KAUSALDB_RULES = [_]Rule{
         .check_fn = check_documentation_standards,
     },
     .{
+        .name = "public_function_documentation",
+        .description = "Require all public functions to have comprehensive documentation",
+        .violation_type = .documentation_standard,
+        .check_fn = check_public_function_documentation,
+    },
+    .{
+        .name = "intelligent_comment_analysis",
+        .description = "Detect 'WHAT' comments that restate obvious code instead of explaining 'WHY'",
+        .violation_type = .comment_quality,
+        .check_fn = check_comment_quality,
+    },
+    .{
         .name = "function_length",
         .description = "Prevent functions from exceeding maximum line count",
         .violation_type = .function_length,
@@ -1050,4 +1062,357 @@ fn check_function_declaration_length(context: *RuleContext) []const Rule.RuleVio
     }
 
     return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+}
+
+/// Rule: Require all public functions to have comprehensive documentation
+fn check_public_function_documentation(context: *RuleContext) []const Rule.RuleViolation {
+    var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+
+    // Skip test files - test functions don't need full documentation
+    if (std.mem.indexOf(u8, context.file_path, "test") != null or
+        std.mem.endsWith(u8, context.file_path, "_test.zig") or
+        std.mem.indexOf(u8, context.file_path, "tidy/rules.zig") != null)
+    {
+        return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+    }
+
+    var line_start: usize = 0;
+    var line_num: u32 = 1;
+
+    while (line_start < context.source.len) {
+        const line_end = std.mem.indexOfScalarPos(u8, context.source, line_start, '\n') orelse context.source.len;
+        const line = context.source[line_start..line_end];
+
+        // Look for public function declarations
+        if (std.mem.indexOf(u8, line, "pub fn ") != null) {
+            if (find_function_definition(line)) |func_name| {
+                // Skip functions that don't need documentation:
+                // - Standard lifecycle functions
+                // - Simple getters/setters (single return statement)
+                // - Standard interface implementations (alloc, free, etc.)
+                // - Test functions
+                if (std.mem.eql(u8, func_name, "main") or
+                    std.mem.eql(u8, func_name, "init") or
+                    std.mem.eql(u8, func_name, "deinit") or
+                    std.mem.startsWith(u8, func_name, "test") or
+                    // Standard allocator interface
+                    std.mem.eql(u8, func_name, "alloc") or
+                    std.mem.eql(u8, func_name, "free") or
+                    std.mem.eql(u8, func_name, "dupe") or
+                    std.mem.eql(u8, func_name, "realloc") or
+                    // Simple getters (likely trivial)
+                    is_simple_getter_or_setter(context.source, line_start, func_name))
+                {
+                    line_start = line_end + 1;
+                    line_num += 1;
+                    continue;
+                }
+
+                // Check if there's a /// comment preceding this function
+                const has_doc_comment = has_documentation_comment_before(context.source, line_start);
+
+                if (!has_doc_comment) {
+                    violations.append(.{
+                        .line = line_num,
+                        .message = "Public function must have documentation comment (///) explaining purpose, parameters, and errors",
+                        .suggested_fix = "Add /// comment block before function explaining what it does and why",
+                    }) catch {};
+                }
+            }
+        }
+
+        line_start = line_end + 1;
+        line_num += 1;
+    }
+
+    return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+}
+
+/// Rule: Intelligent detection of "WHAT" comments that should explain "WHY"
+fn check_comment_quality(context: *RuleContext) []const Rule.RuleViolation {
+    var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+
+    // Skip tidy files - they contain pattern examples
+    if (std.mem.indexOf(u8, context.file_path, "tidy/rules.zig") != null) {
+        return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+    }
+
+    var line_start: usize = 0;
+    var line_num: u32 = 1;
+
+    while (line_start < context.source.len) {
+        const line_end = std.mem.indexOfScalarPos(u8, context.source, line_start, '\n') orelse context.source.len;
+        const line = context.source[line_start..line_end];
+
+        // Look for single-line comments (not doc comments)
+        if (std.mem.indexOf(u8, line, "//") != null and std.mem.indexOf(u8, line, "///") == null) {
+            const comment_start = std.mem.indexOf(u8, line, "//").?;
+            const comment_text = std.mem.trim(u8, line[comment_start + 2 ..], " \t");
+
+            // Skip valid comments that explain WHY, constraints, or rationale
+            if (comment_text.len == 0 or
+                std.mem.startsWith(u8, comment_text, "tidy:") or
+                std.mem.startsWith(u8, comment_text, "Safety:") or
+                std.mem.startsWith(u8, comment_text, "NOTE:") or
+                std.mem.startsWith(u8, comment_text, "TODO:") or
+                std.mem.startsWith(u8, comment_text, "FIXME:") or
+                std.mem.startsWith(u8, comment_text, "BUG:") or
+                std.mem.startsWith(u8, comment_text, "HACK:") or
+                std.mem.startsWith(u8, comment_text, "Per ") or // "Per RFC specification"
+                std.mem.startsWith(u8, comment_text, "RFC ") or // "RFC 3095 requires"
+                // Comments that explain WHY/rationale (good comments)
+                std.mem.indexOf(u8, comment_text, "because") != null or
+                std.mem.indexOf(u8, comment_text, "since") != null or
+                std.mem.indexOf(u8, comment_text, "to prevent") != null or
+                std.mem.indexOf(u8, comment_text, "to avoid") != null or
+                std.mem.indexOf(u8, comment_text, "for performance") != null or
+                std.mem.indexOf(u8, comment_text, "instead of") != null or
+                std.mem.indexOf(u8, comment_text, "rather than") != null or
+                std.mem.indexOf(u8, comment_text, "ensures") != null or
+                std.mem.indexOf(u8, comment_text, "guarantees") != null)
+            {
+                line_start = line_end + 1;
+                line_num += 1;
+                continue;
+            }
+
+            // Check for "WHAT" comment patterns that restate obvious code
+            const next_line_start = line_end + 1;
+            if (next_line_start < context.source.len) {
+                const next_line_end = std.mem.indexOfScalarPos(u8, context.source, next_line_start, '\n') orelse context.source.len;
+                const next_line = std.mem.trim(u8, context.source[next_line_start..next_line_end], " \t");
+
+                if (is_obvious_what_comment(context, comment_text, next_line)) {
+                    violations.append(.{
+                        .line = line_num,
+                        .message = "Comment restates obvious code - explain WHY, not WHAT",
+                        .suggested_fix = "Replace with rationale: why this approach was chosen, performance trade-offs, or constraints",
+                    }) catch {};
+                }
+            }
+        }
+
+        line_start = line_end + 1;
+        line_num += 1;
+    }
+
+    return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+}
+
+/// Check if there's a documentation comment (///) before the given position
+fn has_documentation_comment_before(source: []const u8, line_start: usize) bool {
+    // Look for /// comment in the few lines before this function
+    var check_pos = line_start;
+    var lines_back: u32 = 0;
+
+    while (lines_back < 5 and check_pos > 0) {
+        // Find start of previous line
+        while (check_pos > 0 and source[check_pos - 1] != '\n') {
+            check_pos -= 1;
+        }
+        if (check_pos > 0) check_pos -= 1; // Skip the newline
+
+        // Find start of this line
+        const prev_line_start = blk: {
+            var pos = check_pos;
+            while (pos > 0 and source[pos - 1] != '\n') {
+                pos -= 1;
+            }
+            break :blk pos;
+        };
+
+        const prev_line_end = check_pos + 1;
+        const prev_line = source[prev_line_start..prev_line_end];
+
+        // Check if this line contains /// comment
+        if (std.mem.indexOf(u8, prev_line, "///") != null) {
+            return true;
+        }
+
+        // If we hit a non-comment, non-empty line, stop looking
+        const trimmed = std.mem.trim(u8, prev_line, " \t\n");
+        if (trimmed.len > 0 and !std.mem.startsWith(u8, trimmed, "//")) {
+            break;
+        }
+
+        check_pos = prev_line_start;
+        lines_back += 1;
+    }
+
+    return false;
+}
+
+/// Check if function is a simple getter or setter that doesn't need documentation
+fn is_simple_getter_or_setter(source: []const u8, line_start: usize, func_name: []const u8) bool {
+    // Most getters/setters are trivial wrappers that don't justify documentation overhead
+    if (std.mem.startsWith(u8, func_name, "get") and func_name.len > 3) {
+        return true;
+    }
+    
+    // Setters rarely have complex business logic worth documenting
+    if (std.mem.startsWith(u8, func_name, "set") and func_name.len > 3) {
+        return true;
+    }
+    
+    // Boolean checks are typically self-explanatory from function name
+    if (std.mem.startsWith(u8, func_name, "is") or
+        std.mem.startsWith(u8, func_name, "has") or
+        std.mem.startsWith(u8, func_name, "can")) {
+        return true;
+    }
+    
+    // Find the function body to analyze its complexity
+    const func_pattern = std.fmt.allocPrint(std.heap.page_allocator, "fn {s}(", .{func_name}) catch return false;
+    defer std.heap.page_allocator.free(func_pattern);
+    
+    const func_start = std.mem.indexOf(u8, source[line_start..], func_pattern) orelse return false;
+    const func_body_start = std.mem.indexOf(u8, source[line_start + func_start..], "{") orelse return false;
+    const func_body_end = blk: {
+        var brace_count: i32 = 0;
+        var pos = line_start + func_start + func_body_start;
+        
+        while (pos < source.len) {
+            if (source[pos] == '{') {
+                brace_count += 1;
+            } else if (source[pos] == '}') {
+                brace_count -= 1;
+                if (brace_count == 0) {
+                    break :blk pos;
+                }
+            }
+            pos += 1;
+        }
+        break :blk source.len;
+    };
+    
+    const func_body = source[line_start + func_start + func_body_start..func_body_end];
+    
+    // Count non-trivial lines (exclude braces, returns, simple assignments)
+    var meaningful_lines: u32 = 0;
+    var body_line_it = std.mem.splitSequence(u8, func_body, "\n");
+    while (body_line_it.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t");
+        if (trimmed.len == 0 or 
+            std.mem.eql(u8, trimmed, "{") or 
+            std.mem.eql(u8, trimmed, "}") or
+            std.mem.startsWith(u8, trimmed, "return") or
+            std.mem.indexOf(u8, trimmed, " = ") != null) {
+            continue;
+        }
+        meaningful_lines += 1;
+    }
+    
+    // Simple functions have <= 2 meaningful lines
+    return meaningful_lines <= 2;
+}
+
+/// Intelligent detection of "WHAT" comments that restate obvious code
+fn is_obvious_what_comment(context: *RuleContext, comment_text: []const u8, next_line: []const u8) bool {
+    // Skip very short comments or code lines (not enough data to analyze)
+    if (comment_text.len < 10 or next_line.len < 10) return false;
+    
+    // Context-aware exemptions: Skip files/contexts where descriptive comments are valuable
+    if (is_test_context(context.file_path)) return false;
+    if (is_documentation_context(comment_text)) return false;
+    if (is_why_explanation(comment_text)) return false;
+    
+    // Convert both to lowercase for comparison
+    const lower_comment = std.ascii.allocLowerString(context.allocator, comment_text) catch return false;
+    defer context.allocator.free(lower_comment);
+    
+    const lower_code = std.ascii.allocLowerString(context.allocator, next_line) catch return false;
+    defer context.allocator.free(lower_code);
+    
+    // Extract meaningful words (>3 chars) from comment
+    var comment_words = std.ArrayList([]const u8).init(context.allocator);
+    defer comment_words.deinit();
+    
+    var comment_word_it = std.mem.tokenizeAny(u8, lower_comment, " \t(){}[].,;:");
+    while (comment_word_it.next()) |word| {
+        if (word.len > 3 and !is_common_word(word)) {
+            comment_words.append(word) catch continue;
+        }
+    }
+    
+    if (comment_words.items.len == 0) return false;
+    
+    // Count how many comment words appear in the code line
+    var matching_words: u32 = 0;
+    for (comment_words.items) |word| {
+        if (std.mem.indexOf(u8, lower_code, word) != null) {
+            matching_words += 1;
+        }
+    }
+    
+    // If >60% of meaningful words in comment appear in code, likely a "WHAT" comment
+    const overlap_ratio = (matching_words * 100) / @as(u32, @intCast(comment_words.items.len));
+    return overlap_ratio > 60;
+}
+
+/// Check if word is too common to be meaningful for overlap analysis
+fn is_common_word(word: []const u8) bool {
+    const common_words = [_][]const u8{
+        "the", "and", "for", "with", "this", "that", "from", "into", "over", "than",
+        "when", "will", "have", "been", "they", "were", "what", "some", "time",
+    };
+    
+    for (common_words) |common| {
+        if (std.mem.eql(u8, word, common)) return true;
+    }
+    return false;
+}
+
+/// Context-aware refinement: Check if file is in test context where descriptive comments are valuable
+fn is_test_context(file_path: []const u8) bool {
+    return std.mem.indexOf(u8, file_path, "test") != null or
+           std.mem.indexOf(u8, file_path, "spec") != null or
+           std.mem.endsWith(u8, file_path, "_test.zig") or
+           std.mem.endsWith(u8, file_path, "test.zig");
+}
+
+/// Context-aware refinement: Check if comment is documentation context (examples, API usage)
+fn is_documentation_context(comment_text: []const u8) bool {
+    const doc_indicators = [_][]const u8{
+        "example", "usage", "note:", "important:", "warning:", "todo:",
+        "fixme:", "hack:", "see also", "reference", "spec", "rfc",
+    };
+    
+    const lower_comment = std.ascii.allocLowerString(std.heap.page_allocator, comment_text) catch return false;
+    defer std.heap.page_allocator.free(lower_comment);
+    
+    for (doc_indicators) |indicator| {
+        if (std.mem.indexOf(u8, lower_comment, indicator) != null) return true;
+    }
+    return false;
+}
+
+/// Context-aware refinement: Check if comment explains WHY (rationale, design decisions)
+fn is_why_explanation(comment_text: []const u8) bool {
+    // WHY indicators: words that typically introduce rationale or design reasoning
+    const why_indicators = [_][]const u8{
+        "enables", "allows", "provides", "ensures", "guarantees", "prevents",
+        "avoids", "optimizes", "improves", "reduces", "increases", "maintains",
+        "because", "since", "due to", "in order to", "so that", "to avoid",
+        "for performance", "for safety", "for correctness", "for robustness",
+        "without this", "otherwise", "alternatively", "instead of",
+        "trade-off", "tradeoff", "compromise", "design decision", "rationale",
+        "requirement", "constraint", "limitation", "assumption", "invariant",
+        "protocol", "specification", "standard", "convention", "pattern",
+    };
+    
+    const lower_comment = std.ascii.allocLowerString(std.heap.page_allocator, comment_text) catch return false;
+    defer std.heap.page_allocator.free(lower_comment);
+    
+    for (why_indicators) |indicator| {
+        if (std.mem.indexOf(u8, lower_comment, indicator) != null) return true;
+    }
+    
+    // Additional heuristic: Comments with justification structure ("X because Y", "X to Y")
+    if (std.mem.indexOf(u8, lower_comment, " because ") != null or
+        std.mem.indexOf(u8, lower_comment, " to ") != null or
+        std.mem.indexOf(u8, lower_comment, " for ") != null) {
+        return true;
+    }
+    
+    return false;
 }

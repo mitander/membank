@@ -18,6 +18,7 @@ pub const ViolationType = enum {
     error_handling,
     architecture,
     performance,
+    comment_quality,
 };
 
 pub const Violation = struct {
@@ -172,5 +173,6 @@ fn format_violation_type(violation_type: ViolationType) []const u8 {
         .error_handling => "ERROR",
         .architecture => "ARCH",
         .performance => "PERF",
+        .comment_quality => "COMMENT",
     };
 }

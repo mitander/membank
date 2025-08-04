@@ -28,15 +28,15 @@ log_step() {
 }
 
 log_success() {
-    echo -e "${GREEN}✓ $1${NC}"
+    echo -e "${GREEN}+ $1${NC}"
 }
 
 log_error() {
-    echo -e "${RED}✗ $1${NC}"
+    echo -e "${RED}- $1${NC}"
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠ $1${NC}"
+    echo -e "${YELLOW}! $1${NC}"
 }
 
 # Parse command line arguments
@@ -548,7 +548,7 @@ main() {
     echo -e "${GREEN}║  Total time: ${minutes}m ${seconds}s${NC}$(printf "%*s" $((39 - ${#minutes} - ${#seconds})) '')${GREEN}      ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
-    echo "Ready to push to GitHub! 🚀"
+    echo "Ready to push to GitHub!"
 }
 
 # Error handling
