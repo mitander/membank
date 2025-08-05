@@ -121,7 +121,7 @@ CROSS_COMPILE_SUCCESS=true
     echo "Cross-compilation results:"
     for target in "${TARGETS[@]}"; do
         printf "  %-20s: " "$target"
-        if ./zig/zig build --target "$target" >/dev/null 2>&1; then
+        if ./zig/zig build -Dtarget="$target" >/dev/null 2>&1; then
             echo "+ SUCCESS"
         else
             echo "- FAILED"
@@ -306,7 +306,7 @@ else
     print_status "FAIL" "Pre-push validation failed!"
     echo ""
     echo "- Issues found that will likely cause CI failures:"
-    
+
     if [ "$CROSS_COMPILE_SUCCESS" != true ]; then
         echo "  • Cross-platform compilation issues"
     fi
@@ -319,7 +319,7 @@ else
     if [ "$DEP_SUCCESS" != true ]; then
         echo "  • Dependency/import issues"
     fi
-    
+
     echo ""
     echo "Fix these issues before pushing to avoid CI failures"
     echo ""
