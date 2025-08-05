@@ -6,7 +6,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const kausaldb = @import("kausaldb");
-const assert = @import("../../core/assert.zig").assert;
+const assert = kausaldb.assert;
 
 const storage = kausaldb.storage;
 const context_block = kausaldb.types;
@@ -103,7 +103,13 @@ pub fn run_compaction_benchmark(allocator: std.mem.Allocator, json_output: bool)
 
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_compaction");
     defer storage_engine.deinit();
-    try storage_engine.startup();
+
+    storage_engine.startup() catch |err| {
+        if (!json_output) {
+            std.debug.print("Compaction benchmark startup error: {}\n", .{err});
+        }
+        return err;
+    };
 
     try benchmark_compaction_operations(&storage_engine, allocator, json_output);
 }
@@ -124,8 +130,16 @@ fn benchmark_compaction_operations(
     }
 
     for (0..COMPACTION_ITERATIONS) |i| {
-        try add_compaction_test_data(storage_engine, allocator, i);
+        const base_offset = 10000 + (i * 100);
 
+        // Add test data to memtable
+        for (0..50) |j| {
+            const block = try create_compaction_test_block(allocator, base_offset + j);
+            defer free_compaction_test_block(allocator, block);
+            _ = try storage_engine.put_block(block);
+        }
+
+        // Time the actual compaction operation
         const start_time = std.time.nanoTimestamp();
         try storage_engine.flush_memtable_to_sstable();
         const end_time = std.time.nanoTimestamp();
@@ -175,18 +189,6 @@ fn setup_compaction_test_data(storage_engine: *StorageEngine, allocator: std.mem
             try storage_engine.flush_memtable_to_sstable();
         }
     }
-}
-
-fn add_compaction_test_data(storage_engine: *StorageEngine, allocator: std.mem.Allocator, iteration: usize) !void {
-    const base_offset = 10000 + (iteration * 100);
-
-    for (0..50) |i| {
-        const block = try create_compaction_test_block(allocator, base_offset + i);
-        defer free_compaction_test_block(allocator, block);
-        _ = try storage_engine.put_block(block);
-    }
-
-    try storage_engine.flush_memtable_to_sstable();
 }
 
 fn create_compaction_test_block(allocator: std.mem.Allocator, index: usize) !ContextBlock {

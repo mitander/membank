@@ -264,9 +264,9 @@ fn setup_query_test_data(storage_engine: *StorageEngine) !void {
     }
 
     for (0..50) |i| {
-        const source_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
+        const source_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i + 1});
         defer allocator.free(source_id_hex);
-        const target_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i + 1});
+        const target_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i + 2});
         defer allocator.free(target_id_hex);
 
         const source_id = try BlockId.from_hex(source_id_hex);
@@ -286,7 +286,7 @@ fn create_query_test_block_ids(allocator: std.mem.Allocator) ![]BlockId {
     var block_ids = try allocator.alloc(BlockId, 100);
 
     for (0..100) |i| {
-        const id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
+        const id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i + 1});
         defer allocator.free(id_hex);
         block_ids[i] = try BlockId.from_hex(id_hex);
     }
@@ -295,7 +295,7 @@ fn create_query_test_block_ids(allocator: std.mem.Allocator) ![]BlockId {
 }
 
 fn create_query_test_block(allocator: std.mem.Allocator, index: usize) !ContextBlock {
-    const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{index});
+    const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{index + 1});
     defer allocator.free(block_id_hex);
 
     const block_id = try BlockId.from_hex(block_id_hex);

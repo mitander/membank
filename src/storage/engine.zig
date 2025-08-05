@@ -146,16 +146,14 @@ pub const StorageEngine = struct {
         if (self.initialized) return StorageError.AlreadyInitialized;
 
         if (!self.vfs.exists(self.data_dir)) {
-            self.vfs.mkdir(self.data_dir) catch |err| {
-                error_context.log_storage_error(err, error_context.file_context("create_data_directory", self.data_dir));
-                return err;
+            self.vfs.mkdir(self.data_dir) catch |err| switch (err) {
+                error.FileExists => {}, // Directory already exists, continue
+                else => {
+                    error_context.log_storage_error(err, error_context.file_context("create_data_directory", self.data_dir));
+                    return err;
+                },
             };
         }
-
-        self.sstable_manager.startup() catch |err| {
-            error_context.log_storage_error(err, error_context.file_context("sstable_manager_startup", self.data_dir));
-            return err;
-        };
 
         self.initialized = true;
     }

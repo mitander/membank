@@ -26,6 +26,9 @@ pub const TieredCompactionManager = struct {
     /// Current state of each tier
     tiers: [MAX_TIERS]TierState,
 
+    /// Counter for generating unique compacted SSTable filenames
+    compaction_counter: u32,
+
     const MAX_TIERS = 8; // L0 through L7
 
     /// Configuration for the tiered compaction strategy.
@@ -142,6 +145,7 @@ pub const TieredCompactionManager = struct {
             .compactor = Compactor.init(allocator, filesystem, data_dir),
             .config = CompactionConfig{},
             .tiers = tiers,
+            .compaction_counter = 0,
         };
     }
 
@@ -268,10 +272,12 @@ pub const TieredCompactionManager = struct {
     }
 
     fn execute_l0_compaction(self: *TieredCompactionManager, job: CompactionJob) !void {
+        const compaction_id = self.compaction_counter;
+        self.compaction_counter += 1;
         const output_path = try std.fmt.allocPrint(
             self.allocator,
-            "{s}/sst/l1_{d:0>8}.sst",
-            .{ self.compactor.data_dir, std.time.timestamp() },
+            "{s}/sst/compacted_{:04}.sst",
+            .{ self.compactor.data_dir, compaction_id },
         );
         defer self.allocator.free(output_path);
 
@@ -285,10 +291,12 @@ pub const TieredCompactionManager = struct {
     }
 
     fn execute_tier_compaction(self: *TieredCompactionManager, job: CompactionJob) !void {
+        const compaction_id = self.compaction_counter;
+        self.compaction_counter += 1;
         const output_path = try std.fmt.allocPrint(
             self.allocator,
-            "{s}/sst/l{d}_{d:0>8}.sst",
-            .{ self.compactor.data_dir, job.output_level, std.time.timestamp() },
+            "{s}/sst/compacted_{:04}.sst",
+            .{ self.compactor.data_dir, compaction_id },
         );
         defer self.allocator.free(output_path);
 

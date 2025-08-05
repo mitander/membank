@@ -73,7 +73,7 @@ pub fn main() !void {
 
 fn run_all_benchmarks(allocator: std.mem.Allocator) !void {
     if (!json_output) {
-        std.debug.print("Running all KausalDB benchmarks...\n", .{});
+        std.debug.print("Running KausalDB benchmarks...\n", .{});
     }
 
     try storage_benchmarks.run_all(allocator, json_output);
@@ -90,7 +90,7 @@ fn print_usage() void {
         \\Benchmark Types:
         \\  all            Run all benchmarks
         \\  storage        All storage engine benchmarks
-        \\  query          All query engine benchmarks  
+        \\  query          All query engine benchmarks
         \\  compaction     All compaction benchmarks
         \\  block-write    Single block write operations
         \\  block-read     Single block read operations

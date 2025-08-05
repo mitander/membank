@@ -83,7 +83,10 @@ pub const SSTableManager = struct {
         defer self.backing_allocator.free(sst_dir);
 
         if (!self.vfs.exists(sst_dir)) {
-            try self.vfs.mkdir(sst_dir);
+            self.vfs.mkdir(sst_dir) catch |err| switch (err) {
+                error.FileExists => {}, // Directory already exists, continue
+                else => return err,
+            };
         }
 
         try self.discover_existing_sstables();
@@ -220,7 +223,9 @@ pub const SSTableManager = struct {
         const sst_dir = try std.fmt.allocPrint(self.backing_allocator, "{s}/sst", .{self.data_dir});
         defer self.backing_allocator.free(sst_dir);
 
-        if (!self.vfs.exists(sst_dir)) return;
+        if (!self.vfs.exists(sst_dir)) {
+            return;
+        }
 
         var dir_iter = try self.vfs.iterate_directory(sst_dir, self.backing_allocator);
         defer dir_iter.deinit(self.backing_allocator);

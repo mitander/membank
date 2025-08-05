@@ -17,6 +17,7 @@ const context_block = @import("../core/types.zig");
 const concurrency = @import("../core/concurrency.zig");
 const vfs = @import("../core/vfs.zig");
 
+const SSTableManager = @import("sstable_manager.zig").SSTableManager;
 const BlockIndex = @import("block_index.zig").BlockIndex;
 const GraphEdgeIndex = @import("graph_edge_index.zig").GraphEdgeIndex;
 const wal = @import("wal.zig");
@@ -303,7 +304,7 @@ pub const MemtableManager = struct {
     /// Maintains LSM-tree performance characteristics by ensuring memtable state
     /// remains consistent throughout the flush operation. Prevents partial flushes
     /// that could compromise durability guarantees or create inconsistent views.
-    pub fn flush_to_sstable(self: *MemtableManager, sstable_manager: anytype) !void {
+    pub fn flush_to_sstable(self: *MemtableManager, sstable_manager: *SSTableManager) !void {
         concurrency.assert_main_thread();
 
         if (self.block_count() == 0) return;
