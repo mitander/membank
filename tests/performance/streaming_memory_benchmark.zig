@@ -22,8 +22,6 @@ const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
-const FindBlocksQuery = query.engine.FindBlocksQuery;
-const QueryResult = query.engine.QueryResult;
 const EdgeType = context_block.EdgeType;
 
 // Performance targets from PERFORMANCE.md
@@ -295,13 +293,8 @@ test "query_engine_performance_benchmark" {
         var id_bytes: [16]u8 = [_]u8{0} ** 16;
         std.mem.writeInt(u32, id_bytes[0..4], query_id, .little);
         const block_id = BlockId.from_bytes(id_bytes);
-        const find_query = FindBlocksQuery{
-            .block_ids = &[_]BlockId{block_id},
-        };
-        const result = try query_engine.execute_find_blocks(find_query);
+        _ = try query_engine.find_block(block_id);
         const end = std.time.nanoTimestamp();
-
-        defer result.deinit();
         try single_query_times.append(@intCast(end - start));
     }
 
@@ -328,13 +321,10 @@ test "query_engine_performance_benchmark" {
         }
 
         const start = std.time.nanoTimestamp();
-        const batch_query = FindBlocksQuery{
-            .block_ids = &query_ids,
-        };
-        const result = try query_engine.execute_find_blocks(batch_query);
+        for (query_ids) |block_id| {
+            _ = try query_engine.find_block(block_id);
+        }
         const end = std.time.nanoTimestamp();
-
-        defer result.deinit();
         try batch_query_times.append(@intCast(end - start));
     }
 

@@ -97,33 +97,22 @@ test "streaming query results with large datasets" {
         block_ids[idx] = block.id;
     }
 
-    const find_query = FindBlocksQuery{
-        .block_ids = block_ids,
-    };
-
-    // Measure memory usage during streaming
+    // Measure memory usage during querying
     const initial_memory = storage_engine.memtable_manager.memory_usage();
 
-    var result = try query_engine.execute_find_blocks(find_query);
-    defer result.deinit();
-
-    // Stream through results and verify memory remains bounded
     var found_count: u32 = 0;
     var max_memory_usage: u64 = initial_memory;
 
-    while (try result.next()) |block| {
-        defer result.deinit_block(block);
-        found_count += 1;
+    for (block_ids) |block_id| {
+        if (try query_engine.find_block(block_id)) |block| {
+            found_count += 1;
 
-        const current_memory = storage_engine.memtable_manager.memory_usage();
-        max_memory_usage = @max(max_memory_usage, current_memory);
+            const current_memory = storage_engine.memtable_manager.memory_usage();
+            max_memory_usage = @max(max_memory_usage, current_memory);
 
-        // Verify block content is correct (blocks have IDs starting from 1)
-        const expected_id = found_count; // found_count starts from 1
-        var expected_id_bytes: [16]u8 = undefined;
-        std.mem.writeInt(u128, &expected_id_bytes, expected_id, .little);
-        const expected_block_id = BlockId{ .bytes = expected_id_bytes };
-        try testing.expectEqual(expected_block_id, block.id);
+            // Verify block content is correct
+            try testing.expectEqual(block_id, block.id);
+        }
     }
 
     try testing.expectEqual(dataset_size, found_count);
@@ -175,20 +164,15 @@ test "query optimization strategy selection" {
         small_block_ids[i - 1] = BlockId{ .bytes = id_bytes }; // Array is 0-based but IDs start from 1
     }
 
-    const small_query = FindBlocksQuery{
-        .block_ids = small_block_ids,
-    };
-
-    var small_result = try query_engine.execute_find_blocks(small_query);
-    defer small_result.deinit();
-
-    // Verify small query completes efficiently
-    var small_count: u32 = 0;
-    while (try small_result.next()) |block| {
-        defer small_result.deinit_block(block);
-        small_count += 1;
+    var small_found_count: u32 = 0;
+    for (small_block_ids) |block_id| {
+        if (try query_engine.find_block(block_id)) |_| {
+            small_found_count += 1;
+        }
     }
-    try testing.expectEqual(small_dataset, small_count);
+
+    // Verify small query found all blocks
+    try testing.expectEqual(small_dataset, small_found_count);
 
     // Test medium dataset (should trigger intermediate optimizations)
     i = small_dataset + 1;
@@ -385,10 +369,6 @@ test "query caching behavior and cache hit optimization" {
         block_ids[idx] = block.id;
     }
 
-    const repeated_query = FindBlocksQuery{
-        .block_ids = block_ids,
-    };
-
     // Execute same query multiple times
     const stats_before = query_engine.statistics();
 
@@ -400,14 +380,11 @@ test "query caching behavior and cache hit optimization" {
     while (execution < 5) : (execution += 1) {
         const start_time = std.time.nanoTimestamp();
 
-        var result = try query_engine.execute_find_blocks(repeated_query);
-        defer result.deinit();
-
-        // Consume results to ensure full execution
         var found_count: u32 = 0;
-        while (try result.next()) |block| {
-            defer result.deinit_block(block);
-            found_count += 1;
+        for (block_ids) |block_id| {
+            if (try query_engine.find_block(block_id)) |_| {
+                found_count += 1;
+            }
         }
 
         const end_time = std.time.nanoTimestamp();
@@ -481,26 +458,19 @@ test "batch query operations with memory efficiency" {
             block_ids[idx] = block.id;
         }
 
-        const batch_query = FindBlocksQuery{
-            .block_ids = block_ids,
-        };
-
         const initial_memory = storage_engine.memtable_manager.memory_usage();
         const start_time = std.time.nanoTimestamp();
 
-        var result = try query_engine.execute_find_blocks(batch_query);
-        defer result.deinit();
-
-        // Stream through batch results
         var found_count: u32 = 0;
         var peak_memory: u64 = initial_memory;
 
-        while (try result.next()) |block| {
-            defer result.deinit_block(block);
-            found_count += 1;
+        for (block_ids) |block_id| {
+            if (try query_engine.find_block(block_id)) |_| {
+                found_count += 1;
 
-            const current_memory = storage_engine.memtable_manager.memory_usage();
-            peak_memory = @max(peak_memory, current_memory);
+                const current_memory = storage_engine.memtable_manager.memory_usage();
+                peak_memory = @max(peak_memory, current_memory);
+            }
         }
 
         const end_time = std.time.nanoTimestamp();
@@ -574,43 +544,35 @@ test "query error handling and recovery under streaming" {
         mixed_block_ids[i - 1] = BlockId{ .bytes = id_bytes }; // Array index adjustment
     }
 
-    const mixed_query = FindBlocksQuery{
-        .block_ids = mixed_block_ids,
-    };
-
-    var result = try query_engine.execute_find_blocks(mixed_query);
-    defer result.deinit();
-
-    // Should successfully return only valid blocks
     var found_count: u32 = 0;
-    while (try result.next()) |block| {
-        defer result.deinit_block(block);
-        found_count += 1;
+    for (mixed_block_ids) |block_id| {
+        if (try query_engine.find_block(block_id)) |block| {
+            found_count += 1;
 
-        // All returned blocks should be valid
-        var found_valid = false;
-        for (valid_blocks.items) |valid_block| {
-            if (std.mem.eql(u8, &block.id.bytes, &valid_block.id.bytes)) {
-                found_valid = true;
-                break;
+            // All returned blocks should be valid
+            var found_valid = false;
+            for (valid_blocks.items) |valid_block| {
+                if (std.mem.eql(u8, &block.id.bytes, &valid_block.id.bytes)) {
+                    found_valid = true;
+                    break;
+                }
             }
+            try testing.expect(found_valid);
         }
-        try testing.expect(found_valid);
     }
 
     // Should find exactly the valid blocks
     try testing.expectEqual(valid_count, found_count);
 
-    // Test empty query handling
-    const empty_query = FindBlocksQuery{
-        .block_ids = &[_]BlockId{},
-    };
-
-    var empty_result = try query_engine.execute_find_blocks(empty_query);
-    defer empty_result.deinit();
-
-    const first_empty = try empty_result.next();
-    try testing.expect(first_empty == null);
+    // Test empty query handling - should find no blocks
+    const empty_ids: []const BlockId = &[_]BlockId{};
+    var empty_found_count: u32 = 0;
+    for (empty_ids) |block_id| {
+        if (try query_engine.find_block(block_id)) |_| {
+            empty_found_count += 1;
+        }
+    }
+    try testing.expectEqual(@as(u32, 0), empty_found_count);
 }
 
 test "memory pressure during concurrent streaming queries" {
@@ -652,15 +614,6 @@ test "memory pressure during concurrent streaming queries" {
     }
 
     // Simulate multiple concurrent queries by running several queries sequentially
-    // but keeping their results alive to simulate memory pressure
-    var concurrent_results = std.ArrayList(QueryResult).init(allocator);
-    try concurrent_results.ensureTotalCapacity(10); // Number of concurrent queries
-    defer {
-        for (concurrent_results.items) |result| {
-            result.deinit();
-        }
-        concurrent_results.deinit();
-    }
 
     const query_count = 5;
     const blocks_per_query = dataset_size / query_count;
@@ -678,23 +631,14 @@ test "memory pressure during concurrent streaming queries" {
             query_block_ids[idx] = block.id;
         }
 
-        const pressure_query = FindBlocksQuery{
-            .block_ids = query_block_ids,
-        };
-
         const initial_memory = storage_engine.memtable_manager.memory_usage();
 
-        var result = try query_engine.execute_find_blocks(pressure_query);
-        try concurrent_results.append(result); // tidy:ignore-perf - capacity pre-allocated line 657
-
-        // Partially consume each query to simulate real usage
         var partial_count: u32 = 0;
-        while (partial_count < query_size / 2) {
-            if (try result.next()) |block| {
-                defer result.deinit_block(block);
+        const target_partial = query_size / 2;
+        for (query_block_ids) |block_id| {
+            if (partial_count >= target_partial) break;
+            if (try query_engine.find_block(block_id)) |_| {
                 partial_count += 1;
-            } else {
-                break;
             }
         }
 
@@ -776,19 +720,13 @@ test "query optimization with complex filter combinations" {
             test_block_ids[idx] = block.id;
         }
 
-        const optimization_query = FindBlocksQuery{
-            .block_ids = test_block_ids,
-        };
-
         const start_time = std.time.nanoTimestamp();
 
-        var result = try query_engine.execute_find_blocks(optimization_query);
-        defer result.deinit();
-
         var found_count: u32 = 0;
-        while (try result.next()) |block| {
-            defer result.deinit_block(block);
-            found_count += 1;
+        for (test_block_ids) |block_id| {
+            if (try query_engine.find_block(block_id)) |_| {
+                found_count += 1;
+            }
         }
 
         const end_time = std.time.nanoTimestamp();
@@ -847,43 +785,34 @@ test "streaming iterator memory safety and lifecycle" {
         block_ids[idx] = block.id;
     }
 
-    const safety_query = FindBlocksQuery{
-        .block_ids = block_ids,
-    };
-
-    // Test partial iteration and early termination
-    var result = try query_engine.execute_find_blocks(safety_query);
-    defer result.deinit();
-
     var partial_count: u32 = 0;
+    const target_partial = safety_size / 2;
 
-    // Iterate through half the results
-    while (partial_count < safety_size / 2) {
-        if (try result.next()) |block| {
-            defer result.deinit_block(block);
+    for (block_ids) |block_id| {
+        if (partial_count >= target_partial) break;
+        if (try query_engine.find_block(block_id)) |_| {
             partial_count += 1;
-        } else {
-            break;
         }
     }
 
     try testing.expect(partial_count == safety_size / 2);
 
-    // Iterator should be in valid state for continued iteration
+    // Query remaining blocks to simulate continued iteration
     var remaining_count: u32 = 0;
-    while (try result.next()) |block| {
-        defer result.deinit_block(block);
-        remaining_count += 1;
+    for (block_ids[partial_count..]) |block_id| {
+        if (try query_engine.find_block(block_id)) |_| {
+            remaining_count += 1;
+        }
     }
 
     try testing.expectEqual(safety_size - partial_count, remaining_count);
 
-    // Test reset and re-iteration
-    result.reset();
+    // Test full query execution
     var second_count: u32 = 0;
-    while (try result.next()) |block| {
-        defer result.deinit_block(block);
-        second_count += 1;
+    for (block_ids) |block_id| {
+        if (try query_engine.find_block(block_id)) |_| {
+            second_count += 1;
+        }
     }
 
     try testing.expectEqual(safety_size, second_count);

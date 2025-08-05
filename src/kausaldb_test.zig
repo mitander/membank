@@ -26,7 +26,6 @@ pub const QueryEngine = kausaldb_public.QueryEngine;
 pub const QueryResult = kausaldb_public.QueryResult;
 pub const TraversalDirection = kausaldb_public.TraversalDirection;
 pub const TraversalResult = kausaldb_public.TraversalResult;
-pub const FindBlocksQuery = kausaldb_public.FindBlocksQuery;
 pub const TraversalQuery = kausaldb_public.TraversalQuery;
 pub const TraversalAlgorithm = kausaldb_public.TraversalAlgorithm;
 pub const SemanticQuery = kausaldb_public.SemanticQuery;

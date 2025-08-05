@@ -304,7 +304,7 @@ pub const MemtableManager = struct {
     /// Maintains LSM-tree performance characteristics by ensuring memtable state
     /// remains consistent throughout the flush operation. Prevents partial flushes
     /// that could compromise durability guarantees or create inconsistent views.
-    pub fn flush_to_sstable(self: *MemtableManager, sstable_manager: *SSTableManager) !void {
+    pub fn flush_to_sstable(self: *MemtableManager, sstable_manager: anytype) !void {
         concurrency.assert_main_thread();
 
         if (self.block_count() == 0) return;

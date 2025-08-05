@@ -187,34 +187,40 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("✓ Stored {} blocks\n\n", .{stats.total_blocks_stored});
 
     std.debug.print("Querying single block by ID...\n", .{});
-    var single_result = try query_eng.find_block(block1_id);
-    defer single_result.deinit();
+    const maybe_block = try query_eng.find_block(block1_id);
 
-    if (single_result.total_found > 0) {
-        if (try single_result.next()) |block| {
-            defer single_result.deinit_block(block);
-            std.debug.print("✓ Found block: {s}\n", .{block.source_uri});
-        }
+    if (maybe_block) |block| {
+        std.debug.print("✓ Found block: {s}\n", .{block.source_uri});
     }
 
     std.debug.print("\nQuerying multiple blocks...\n", .{});
-    const query = query_engine.FindBlocksQuery{
-        .block_ids = &[_]BlockId{ block1_id, block2_id },
-    };
+    const block_ids = &[_]BlockId{ block1_id, block2_id };
 
-    var multi_result = try query_eng.execute_find_blocks(query);
-    defer multi_result.deinit();
+    var found_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try found_blocks.ensureTotalCapacity(block_ids.len);
+    defer found_blocks.deinit();
 
-    std.debug.print("✓ Found {} blocks\n\n", .{multi_result.total_found});
+    for (block_ids) |block_id| {
+        if (try query_eng.find_block(block_id)) |block| {
+            try found_blocks.append(block);
+        }
+    }
+
+    std.debug.print("✓ Found {} blocks\n\n", .{found_blocks.items.len});
 
     std.debug.print("Formatting results for LLM consumption:\n", .{});
     std.debug.print("=====================================\n", .{});
 
-    var formatted_output = std.ArrayList(u8).init(allocator);
-    defer formatted_output.deinit();
-    try multi_result.format_for_llm(formatted_output.writer().any());
+    for (found_blocks.items, 0..) |block, i| {
+        std.debug.print("--- BEGIN CONTEXT BLOCK ---\n", .{});
+        std.debug.print("Block {} (ID: {}):\n", .{ i + 1, block.id });
+        std.debug.print("Source: {s}\n", .{block.source_uri});
+        std.debug.print("Version: {}\n", .{block.version});
+        std.debug.print("Metadata: {s}\n", .{block.metadata_json});
+        std.debug.print("Content: {s}\n", .{block.content});
+        std.debug.print("--- END CONTEXT BLOCK ---\n\n", .{});
+    }
 
-    std.debug.print("{s}", .{formatted_output.items});
     std.debug.print("=====================================\n\n", .{});
 
     const metrics = storage_engine.metrics();

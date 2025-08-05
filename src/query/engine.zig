@@ -23,7 +23,6 @@ const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
 pub const QueryError = operations.QueryError;
-pub const FindBlocksQuery = operations.FindBlocksQuery;
 pub const QueryResult = operations.QueryResult;
 
 pub const TraversalQuery = traversal.TraversalQuery;
@@ -666,20 +665,6 @@ pub const QueryEngine = struct {
     }
 };
 
-/// Convenience function to create a FindBlocksQuery for a single block
-pub fn single_block_query(block_id: BlockId) FindBlocksQuery {
-    return FindBlocksQuery{
-        .block_ids = &[_]BlockId{block_id},
-    };
-}
-
-/// Convenience function to create a FindBlocksQuery for multiple blocks
-pub fn multi_block_query(block_ids: []const BlockId) FindBlocksQuery {
-    return FindBlocksQuery{
-        .block_ids = block_ids,
-    };
-}
-
 /// Command types for protocol compatibility
 pub const QueryCommand = enum(u8) {
     find_blocks = 0x01,
@@ -741,9 +726,7 @@ test "query engine statistics tracking" {
     const test_block = create_test_block(test_id, "test content");
     try storage_engine.put_block(test_block);
 
-    const query = FindBlocksQuery{ .block_ids = &[_]BlockId{test_id} };
-    const result = try query_engine.execute_find_blocks(query);
-    defer result.deinit();
+    _ = try query_engine.find_block(test_id);
 
     const updated_stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 1), updated_stats.queries_executed);
@@ -812,12 +795,11 @@ test "query engine find_blocks execution" {
     try storage_engine.put_block(test_block1);
     try storage_engine.put_block(test_block2);
 
-    const query = FindBlocksQuery{ .block_ids = &[_]BlockId{ test_id1, test_id2 } };
-    const result = try query_engine.execute_find_blocks(query);
-    defer result.deinit();
+    var found_count: u32 = 0;
+    if (try query_engine.find_block(test_id1)) |_| found_count += 1;
+    if (try query_engine.find_block(test_id2)) |_| found_count += 1;
 
-    try testing.expectEqual(@as(u32, 2), result.total_found);
-    try testing.expect(!result.is_empty());
+    try testing.expectEqual(@as(u32, 2), found_count);
 }
 
 test "query engine find_block convenience method" {
@@ -876,23 +858,8 @@ test "query engine uninitialized error handling" {
     query_engine.initialized = false;
 
     const test_id = try BlockId.from_hex("6666666666666666666666666666666666666666");
-    const query = FindBlocksQuery{ .block_ids = &[_]BlockId{test_id} };
 
-    try testing.expectError(EngineError.NotInitialized, query_engine.execute_find_blocks(query));
-}
-
-test "convenience query functions" {
-    const test_id = try BlockId.from_hex("7777777777777777777777777777777777777777");
-    const test_ids = [_]BlockId{ test_id, try BlockId.from_hex("8888888888888888888888888888888888888888") };
-
-    const single_query = single_block_query(test_id);
-    try testing.expectEqual(@as(usize, 1), single_query.block_ids.len);
-    try testing.expect(single_query.block_ids[0].eql(test_id));
-
-    const multi_query = multi_block_query(&test_ids);
-    try testing.expectEqual(@as(usize, 2), multi_query.block_ids.len);
-    try testing.expect(multi_query.block_ids[0].eql(test_ids[0]));
-    try testing.expect(multi_query.block_ids[1].eql(test_ids[1]));
+    try testing.expectError(EngineError.NotInitialized, query_engine.find_block(test_id));
 }
 
 test "query command enum parsing" {

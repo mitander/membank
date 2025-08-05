@@ -132,20 +132,12 @@ test "integration: full data lifecycle with compaction" {
         try query_block_ids.append(try BlockId.from_hex(block_id_hex));
     }
 
-    const batch_query = query_engine.FindBlocksQuery{
-        .block_ids = query_block_ids.items,
-    };
-
-    var batch_result = try query_eng.execute_find_blocks(batch_query);
-    defer batch_result.deinit();
-
-    try testing.expectEqual(@as(u32, 100), batch_result.total_found);
-
-    // Consume all results to trigger storage reads (streaming requires iteration)
+    // Query blocks using simplified find_block API
     var consumed_blocks: u32 = 0;
-    while (try batch_result.next()) |block| {
-        defer batch_result.deinit_block(block);
-        consumed_blocks += 1;
+    for (query_block_ids.items) |block_id| {
+        if (try query_eng.find_block(block_id)) |_| {
+            consumed_blocks += 1;
+        }
     }
 
     // Verify query metrics after consumption
@@ -394,14 +386,14 @@ test "integration: concurrent storage and query operations" {
                 try batch_ids.append(try BlockId.from_hex(batch_id_hex));
             }
 
-            const batch_query = query_engine.FindBlocksQuery{
-                .block_ids = batch_ids.items,
-            };
-
-            const batch_result = try query_eng.execute_find_blocks(batch_query);
-            defer batch_result.deinit();
-
-            try testing.expectEqual(@as(u32, 5), batch_result.total_found);
+            // Query blocks using simplified find_block API
+            var found_count: u32 = 0;
+            for (batch_ids.items) |block_id| {
+                if (try query_eng.find_block(block_id)) |_| {
+                    found_count += 1;
+                }
+            }
+            try testing.expectEqual(@as(u32, 5), found_count);
         }
 
         sim.tick_multiple(1);
@@ -537,14 +529,14 @@ test "integration: storage recovery and query consistency" {
             try BlockId.from_hex("cccccccccccccccccccccccccccccccc"),
         };
 
-        const batch_query = query_engine.FindBlocksQuery{
-            .block_ids = &all_ids,
-        };
-
-        var batch_result = try query_eng.execute_find_blocks(batch_query);
-        defer batch_result.deinit();
-
-        try testing.expectEqual(@as(u32, 3), batch_result.total_found);
+        // Query blocks using simplified find_block API
+        var found_count: u32 = 0;
+        for (all_ids) |block_id| {
+            if (try query_eng.find_block(block_id)) |_| {
+                found_count += 1;
+            }
+        }
+        try testing.expectEqual(@as(u32, 3), found_count);
 
         // Test graph relationships survived recovery
         const block1_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1");
@@ -552,14 +544,7 @@ test "integration: storage recovery and query consistency" {
         try testing.expect(outgoing.len > 0);
         try testing.expectEqual(@as(usize, 1), outgoing.len);
 
-        // Test query formatting
-        var formatted_output = std.ArrayList(u8).init(allocator);
-        defer formatted_output.deinit();
-
-        try batch_result.format_for_llm(formatted_output.writer().any());
-        const formatted = formatted_output.items;
-        try testing.expect(std.mem.indexOf(u8, formatted, "BEGIN CONTEXT BLOCK") != null);
-        try testing.expect(std.mem.indexOf(u8, formatted, "END CONTEXT BLOCK") != null);
+        // Query formatting test removed since we now use simplified API
 
         // Verify metrics were reset properly after recovery
         const metrics = storage_engine2.metrics();

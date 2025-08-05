@@ -423,35 +423,38 @@ pub const Server = struct {
             return;
         }
 
-        var block_ids = try allocator.alloc(ctx_block.BlockId, block_count);
+        var found_blocks = std.ArrayList(ctx_block.ContextBlock).init(allocator);
+        defer found_blocks.deinit();
+
         for (0..block_count) |i| {
             const id_start = 4 + (i * 16);
             const id_bytes = payload[id_start .. id_start + 16];
-            block_ids[i] = ctx_block.BlockId{ .bytes = id_bytes[0..16].* };
+            const block_id = ctx_block.BlockId{ .bytes = id_bytes[0..16].* };
+
+            const maybe_block = self.query_engine.find_block(block_id) catch |err| {
+                const ctx = error_context.ServerContext{
+                    .operation = "find_block",
+                    .connection_id = connection.connection_id,
+                    .message_size = block_count,
+                };
+                error_context.log_server_error(err, ctx);
+                const error_msg = try std.fmt.allocPrint(allocator, "Query execution failed: {any}", .{err});
+                connection.send_response(error_msg);
+                self.stats.errors_encountered += 1;
+                return;
+            };
+
+            if (maybe_block) |block| {
+                try found_blocks.append(block);
+            }
         }
 
-        const query = query_engine.FindBlocksQuery{ .block_ids = block_ids };
-        const result = self.query_engine.execute_find_blocks(query) catch |err| {
-            const ctx = error_context.ServerContext{
-                .operation = "execute_find_blocks",
-                .connection_id = connection.connection_id,
-                .message_size = block_count,
-            };
-            error_context.log_server_error(err, ctx);
-            const error_msg = try std.fmt.allocPrint(allocator, "Query execution failed: {any}", .{err});
-            connection.send_response(error_msg);
-            self.stats.errors_encountered += 1;
-            return;
-        };
-        defer result.deinit();
-
-        var mutable_result = result;
-        const response_data = try self.serialize_blocks_response(allocator, &mutable_result);
+        const response_data = try self.serialize_blocks_array(allocator, found_blocks.items);
         connection.send_response(response_data);
         self.stats.bytes_sent += response_data.len + MessageHeader.HEADER_SIZE;
 
         if (self.config.enable_logging) {
-            log.debug("Connection {d}: handled find_blocks request, returned {d} blocks", .{ connection.connection_id, result.total_found });
+            log.debug("Connection {d}: handled find_blocks request, returned {d} blocks", .{ connection.connection_id, found_blocks.items.len });
         }
     }
 
@@ -555,6 +558,53 @@ pub const Server = struct {
         while (try result_ptr.next()) |block| {
             defer result_ptr.deinit_block(block);
 
+            @memcpy(buffer[offset .. offset + 16], &block.id.bytes);
+            offset += 16;
+
+            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.source_uri.len), .little);
+            offset += 4;
+            @memcpy(buffer[offset .. offset + block.source_uri.len], block.source_uri);
+            offset += block.source_uri.len;
+
+            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.metadata_json.len), .little);
+            offset += 4;
+            @memcpy(buffer[offset .. offset + block.metadata_json.len], block.metadata_json);
+            offset += block.metadata_json.len;
+
+            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.content.len), .little);
+            offset += 4;
+            @memcpy(buffer[offset .. offset + block.content.len], block.content);
+            offset += block.content.len;
+        }
+
+        assert(offset == total_size);
+        return buffer;
+    }
+
+    /// Serialize array of blocks into binary format for network transmission
+    fn serialize_blocks_array(
+        self: *Server,
+        allocator: std.mem.Allocator,
+        blocks: []const ctx_block.ContextBlock,
+    ) ![]u8 {
+        _ = self;
+
+        var total_size: usize = 4; // 4 bytes for block count
+
+        for (blocks) |block| {
+            total_size += 16; // Block ID
+            total_size += 4 + block.source_uri.len;
+            total_size += 4 + block.metadata_json.len;
+            total_size += 4 + block.content.len;
+        }
+
+        const buffer = try allocator.alloc(u8, total_size);
+        var offset: usize = 0;
+
+        std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(blocks.len), .little);
+        offset += 4;
+
+        for (blocks) |block| {
             @memcpy(buffer[offset .. offset + 16], &block.id.bytes);
             offset += 16;
 
