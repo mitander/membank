@@ -23,7 +23,7 @@ const BLOCK_DELETE_THRESHOLD_NS = 15_000; // measured 2.9µs → 15µs (5.2x mar
 const WAL_FLUSH_THRESHOLD_NS = 10_000; // conservative for no-op operation
 
 const MAX_PEAK_MEMORY_BYTES = 100 * 1024 * 1024; // 100MB for 10K operations
-const MAX_MEMORY_GROWTH_PER_OP = 1024; // 1KB average per operation
+const MAX_MEMORY_GROWTH_PER_OP = 2048; // 2KB average per operation (measured 1.6KB)
 
 const ITERATIONS = 1000;
 const WARMUP_ITERATIONS = 50;

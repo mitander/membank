@@ -368,89 +368,15 @@ pub const QueryEngine = struct {
         }
     }
 
-    /// Execute a FindBlocks query to retrieve blocks by ID
-    pub fn execute_find_blocks(
-        self: *QueryEngine,
-        query: FindBlocksQuery,
-    ) !QueryResult {
+    /// Find a single block by ID with direct storage access for maximum performance
+    pub fn find_block(self: *QueryEngine, block_id: BlockId) !?ContextBlock {
+        assert(self.initialized);
+        if (!self.initialized) return EngineError.NotInitialized;
+
         const start_time = std.time.nanoTimestamp();
-        defer self.record_find_blocks_query(start_time);
+        defer self.record_direct_query(start_time);
 
-        assert(self.initialized);
-        if (!self.initialized) return EngineError.NotInitialized;
-
-        const query_id = self.generate_query_id();
-        const plan = self.create_query_plan(.find_blocks, @intCast(query.block_ids.len));
-        var context = QueryContext.create(query_id, plan);
-
-        const optimized_query = query;
-        if (plan.optimization_hints.batch_size) |batch_size| {
-            _ = batch_size;
-        }
-
-        const result = if (plan.optimization_hints.prefer_memtable)
-            self.execute_find_blocks_optimized(optimized_query, &context)
-        else
-            operations.execute_find_blocks(
-                self.allocator,
-                self.storage_engine,
-                optimized_query,
-            ) catch |err| {
-                error_context.log_storage_error(err, error_context.StorageContext{
-                    .operation = "execute_find_blocks",
-                    .size = query.block_ids.len,
-                });
-                return err;
-            };
-
-        context.metrics.blocks_scanned = @intCast(query.block_ids.len);
-        context.metrics.optimization_applied = plan.optimization_hints.prefer_memtable or
-            plan.optimization_hints.batch_size != null;
-        self.record_query_execution(&context);
-
-        return result;
-    }
-
-    /// Find a single block by ID - convenience method for single block queries with caching
-    pub fn find_block(self: *QueryEngine, block_id: BlockId) !QueryResult {
-        assert(self.initialized);
-        if (!self.initialized) return EngineError.NotInitialized;
-
-        if (self.caching_enabled) {
-            const cache_key = cache.CacheKey.for_single_block(block_id);
-            if (self.query_cache.get(cache_key, self.allocator)) |cached_value| {
-                switch (cached_value) {
-                    .find_blocks => {
-                        const blocks_array = try self.allocator.alloc(BlockId, 1);
-                        blocks_array[0] = block_id;
-
-                        const result = QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, blocks_array);
-
-                        return result;
-                    },
-                    else => {},
-                }
-            }
-        }
-
-        if (self.storage_engine.find_block(block_id)) |maybe_block| {
-            if (maybe_block) |block| {
-                if (self.caching_enabled) {
-                    const cache_key = cache.CacheKey.for_single_block(block_id);
-                    const cache_value = cache.CacheValue{ .find_blocks = block };
-                    self.query_cache.put(cache_key, cache_value) catch {};
-                }
-
-                const blocks_array = try self.allocator.alloc(BlockId, 1);
-                blocks_array[0] = block_id;
-                return QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, blocks_array);
-            }
-
-            const empty_array = try self.allocator.alloc(BlockId, 0);
-            return QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, empty_array);
-        } else |err| {
-            return err;
-        }
+        return self.storage_engine.find_block(block_id);
     }
 
     /// Check if a block exists without retrieving its content
@@ -594,8 +520,8 @@ pub const QueryEngine = struct {
         self.query_cache.clear();
     }
 
-    /// Record metrics for a find_blocks query execution
-    fn record_find_blocks_query(self: *QueryEngine, start_time: i128) void {
+    /// Record metrics for direct block query execution
+    fn record_direct_query(self: *QueryEngine, start_time: i128) void {
         const duration = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
         self.queries_executed.incr();
         self.find_blocks_queries.incr();
@@ -663,51 +589,6 @@ pub const QueryEngine = struct {
         self.record_query_execution(&context);
 
         return result;
-    }
-
-    /// Optimized find blocks execution for memtable preference
-    fn execute_find_blocks_optimized(
-        self: *QueryEngine,
-        query: FindBlocksQuery,
-        context: *QueryContext,
-    ) !QueryResult {
-        var result_blocks = std.ArrayList(ContextBlock).init(self.allocator);
-        defer result_blocks.deinit();
-
-        try result_blocks.ensureTotalCapacity(@as(u32, @intCast(query.block_ids.len)));
-
-        var blocks_found: u32 = 0;
-        var memtable_hits: u32 = 0;
-        var sstable_reads: u32 = 0;
-
-        const initial_blocks_read = self.storage_engine.storage_metrics.blocks_read.load();
-        const initial_sstable_reads = self.storage_engine.storage_metrics.sstable_reads.load();
-
-        for (query.block_ids) |block_id| {
-            const found_block: ?ContextBlock = self.storage_engine.find_block(block_id) catch continue;
-            if (found_block) |block| {
-                try result_blocks.append(block);
-                blocks_found += 1;
-            }
-        }
-
-        const final_blocks_read = self.storage_engine.storage_metrics.blocks_read.load();
-        const final_sstable_reads = self.storage_engine.storage_metrics.sstable_reads.load();
-
-        sstable_reads = @intCast(final_sstable_reads - initial_sstable_reads);
-        const total_reads = @as(u32, @intCast(final_blocks_read - initial_blocks_read));
-        memtable_hits = total_reads - sstable_reads;
-
-        context.metrics.memtable_hits = memtable_hits;
-        context.metrics.sstable_reads = sstable_reads;
-        context.metrics.optimization_applied = true;
-
-        const block_ids = try self.allocator.alloc(BlockId, result_blocks.items.len);
-        for (result_blocks.items, 0..) |block, i| {
-            block_ids[i] = block.id;
-        }
-
-        return operations.QueryResult.init_with_owned_ids(self.allocator, self.storage_engine, block_ids);
     }
 
     /// Execute semantic query using index optimization

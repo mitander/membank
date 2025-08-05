@@ -14,14 +14,13 @@ const simulation_vfs = kausaldb.simulation_vfs;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
-const FindBlocksQuery = query_engine.FindBlocksQuery;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
 const EdgeType = context_block.EdgeType;
 
-const SINGLE_QUERY_THRESHOLD_NS = 2_000; // measured 0.12µs → 2µs (17x margin)
-const BATCH_QUERY_THRESHOLD_NS = 5_000; // measured 0.33µs → 5µs (15x margin)
+const SINGLE_QUERY_THRESHOLD_NS = 300; // direct storage access ~0.12µs → 300ns (2.5x margin)
+const BATCH_QUERY_THRESHOLD_NS = 3_000; // 10 blocks × 300ns = 3µs (simple loop)
 
 const MAX_PEAK_MEMORY_BYTES = 100 * 1024 * 1024;
 const MAX_MEMORY_GROWTH_PER_OP = 1024;
@@ -146,17 +145,20 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
 
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = test_block_ids[i % test_block_ids.len];
-        var result = try query_eng.find_block(block_id);
-        defer result.deinit();
+        _ = try query_eng.find_block(block_id);
     }
 
+    var found_count: u32 = 0;
     for (0..ITERATIONS) |i| {
         const block_id = test_block_ids[i % test_block_ids.len];
 
         const start_time = std.time.nanoTimestamp();
-        var result = try query_eng.find_block(block_id);
-        defer result.deinit();
+        const maybe_block = try query_eng.find_block(block_id);
         const end_time = std.time.nanoTimestamp();
+
+        if (maybe_block != null) {
+            found_count += 1;
+        }
 
         timings[i] = @intCast(end_time - start_time);
     }
@@ -205,9 +207,9 @@ fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allo
         const end_idx = @min(start_idx + BATCH_SIZE, test_block_ids.len);
         const batch_ids = test_block_ids[start_idx..end_idx];
 
-        const query = FindBlocksQuery{ .block_ids = batch_ids };
-        var result = try query_eng.execute_find_blocks(query);
-        defer result.deinit();
+        for (batch_ids) |block_id| {
+            _ = try query_eng.find_block(block_id);
+        }
     }
 
     for (0..ITERATIONS) |i| {
@@ -216,9 +218,9 @@ fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allo
         const batch_ids = test_block_ids[start_idx..end_idx];
 
         const start_time = std.time.nanoTimestamp();
-        const query = FindBlocksQuery{ .block_ids = batch_ids };
-        var result = try query_eng.execute_find_blocks(query);
-        defer result.deinit();
+        for (batch_ids) |block_id| {
+            _ = try query_eng.find_block(block_id);
+        }
         const end_time = std.time.nanoTimestamp();
 
         timings[i] = @intCast(end_time - start_time);

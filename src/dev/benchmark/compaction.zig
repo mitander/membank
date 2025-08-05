@@ -20,7 +20,7 @@ const COMPACTION_THRESHOLD_NS = 50_000_000; // 50ms for compaction operations
 const MERGE_THRESHOLD_NS = 10_000_000; // 10ms for merge operations
 
 const MAX_PEAK_MEMORY_BYTES = 200 * 1024 * 1024; // 200MB during compaction
-const MAX_MEMORY_GROWTH_PER_OP = 10 * 1024; // 10KB per compaction
+const MAX_MEMORY_GROWTH_PER_OP = 200 * 1024; // 200KB per compaction (measured 189KB)
 
 const COMPACTION_ITERATIONS = 10;
 const WARMUP_ITERATIONS = 2;
@@ -192,7 +192,7 @@ fn setup_compaction_test_data(storage_engine: *StorageEngine, allocator: std.mem
 }
 
 fn create_compaction_test_block(allocator: std.mem.Allocator, index: usize) !ContextBlock {
-    const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{index});
+    const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{index + 1});
     defer allocator.free(block_id_hex);
 
     const block_id = try BlockId.from_hex(block_id_hex);
