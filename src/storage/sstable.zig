@@ -60,6 +60,10 @@ pub const SSTable = struct {
 
         const SERIALIZED_SIZE = 16 + 8 + 4; // BlockId + offset + size
 
+        /// Serialize index entry to binary format for on-disk storage
+        ///
+        /// Writes the block ID, offset, and size to the buffer in little-endian format.
+        /// Buffer must have at least SERIALIZED_SIZE bytes available.
         pub fn serialize(self: IndexEntry, buffer: []u8) !void {
             assert.assert(buffer.len >= SERIALIZED_SIZE);
 
@@ -74,6 +78,10 @@ pub const SSTable = struct {
             std.mem.writeInt(u32, buffer[offset..][0..4], self.size, .little);
         }
 
+        /// Deserialize index entry from binary format stored on disk
+        ///
+        /// Reads the block ID, offset, and size from little-endian format.
+        /// Buffer must contain at least SERIALIZED_SIZE bytes of valid data.
         pub fn deserialize(buffer: []const u8) !IndexEntry {
             assert.assert(buffer.len >= SERIALIZED_SIZE);
             if (buffer.len < SERIALIZED_SIZE) return error.BufferTooSmall;
@@ -118,6 +126,10 @@ pub const SSTable = struct {
                 @sizeOf(u32) + @sizeOf(u64) + @sizeOf(u64) + @sizeOf(u32) + 20 == 64, "SSTable Header field sizes must sum to exactly 64 bytes");
         }
 
+        /// Serialize SSTable header to binary format for on-disk storage
+        ///
+        /// Writes all header fields including magic number, version, counts, and offsets
+        /// to the buffer in little-endian format. Essential for SSTable file format integrity.
         pub fn serialize(self: Header, buffer: []u8) !void {
             assert.assert(buffer.len >= HEADER_SIZE);
 
@@ -153,6 +165,10 @@ pub const SSTable = struct {
             @memset(buffer[offset .. offset + 20], 0);
         }
 
+        /// Deserialize SSTable header from binary format during file loading
+        ///
+        /// Reads and validates the complete header structure from storage buffer.
+        /// Critical for ensuring data integrity when opening existing SSTables.
         pub fn deserialize(buffer: []const u8) !Header {
             assert.assert(buffer.len >= HEADER_SIZE);
             if (buffer.len < HEADER_SIZE) return error.BufferTooSmall;
@@ -208,6 +224,8 @@ pub const SSTable = struct {
         }
     };
 
+    /// Initialize a new SSTable with the given allocator, filesystem, and file path.
+    /// The file path will be owned by the SSTable and freed during deinit.
     pub fn init(allocator: std.mem.Allocator, filesystem: VFS, file_path: []const u8) SSTable {
         assert.assert_not_empty(file_path, "SSTable file_path cannot be empty", .{});
         assert.assert_fmt(file_path.len < 4096, "SSTable file_path too long: {} bytes", .{file_path.len});
@@ -223,6 +241,8 @@ pub const SSTable = struct {
         };
     }
 
+    /// Clean up all allocated resources including the file path and index.
+    /// Safe to call multiple times - subsequent calls are no-ops.
     pub fn deinit(self: *SSTable) void {
         self.allocator.free(self.file_path);
         self.index.deinit();
@@ -425,7 +445,10 @@ pub const SSTable = struct {
         }
     }
 
-    /// Find a block by ID from this SSTable
+    /// Find and return a block by its ID from this SSTable
+    ///
+    /// Uses the bloom filter for fast negative lookups, then performs binary search
+    /// on the index. Returns null if the block is not found in this SSTable.
     pub fn find_block(self: *SSTable, block_id: BlockId) !?ContextBlock {
         if (self.bloom_filter) |*filter| {
             if (!filter.might_contain(block_id)) {
@@ -479,6 +502,8 @@ pub const SSTableIterator = struct {
     current_index: usize,
     file: ?vfs.VFile,
 
+    /// Initialize a new iterator for the given SSTable.
+    /// The SSTable must have a loaded index with at least one entry.
     pub fn init(sstable: *SSTable) SSTableIterator {
         assert.assert_fmt(@intFromPtr(sstable) != 0, "SSTable pointer cannot be null", .{});
         assert.assert_fmt(sstable.index.items.len > 0, "Cannot iterate over SSTable with empty index", .{});
@@ -646,7 +671,6 @@ pub const Compactor = struct {
     }
 };
 
-
 test "SSTable write and read" {
     const allocator = testing.allocator;
 
@@ -728,7 +752,6 @@ test "SSTable iterator" {
 
     try sstable.write_blocks(&blocks);
     try sstable.read_index();
-
 
     var iter = sstable.iterator();
     defer iter.deinit();
@@ -893,12 +916,10 @@ test "SSTable Bloom filter functionality" {
 
     try std.testing.expect(sstable.bloom_filter != null);
 
-
     if (sstable.bloom_filter) |*filter| {
         try std.testing.expect(filter.might_contain(block1.id));
         try std.testing.expect(filter.might_contain(block2.id));
     }
-
 
     const retrieved1 = try sstable.find_block(block1.id);
     try std.testing.expect(retrieved1 != null);
@@ -906,7 +927,6 @@ test "SSTable Bloom filter functionality" {
     if (retrieved1) |block| {
         block.deinit(allocator);
     }
-
 
     const non_existent_id = try BlockId.from_hex("1111111111111111111111111111111");
     const not_found = try sstable.find_block(non_existent_id);
@@ -960,7 +980,6 @@ test "SSTable Bloom filter persistence" {
             try std.testing.expect(filter.might_contain(block2.id));
         }
 
-
         const retrieved = try sstable_read.find_block(block1.id);
         try std.testing.expect(retrieved != null);
         if (retrieved) |block| {
@@ -1012,7 +1031,6 @@ test "SSTable Bloom filter with many blocks" {
         }
     }
 
-
     const retrieved_first = try sstable.find_block(blocks.items[0].id);
     try std.testing.expect(retrieved_first != null);
     if (retrieved_first) |block| {
@@ -1024,7 +1042,6 @@ test "SSTable Bloom filter with many blocks" {
     if (retrieved_last) |block| {
         block.deinit(allocator);
     }
-
 
     var non_existent_bytes: [16]u8 = undefined;
     @memset(&non_existent_bytes, 0xFF);

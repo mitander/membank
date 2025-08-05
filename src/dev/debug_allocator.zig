@@ -1,4 +1,4 @@
-//! Debug allocator for comprehensive allocation tracking and memory safety validation.
+//! Debug allocator for allocation tracking and memory safety validation.
 //!
 //! Provides enhanced debugging capabilities for memory allocation issues:
 //! - Allocation/deallocation tracking with stack traces
@@ -7,7 +7,7 @@
 //! - Buffer overflow/underflow detection with guard pages
 //! - Statistical analysis of allocation patterns
 //!
-//! This allocator wraps any underlying allocator and adds comprehensive debugging.
+//! This allocator wraps any underlying allocator and adds debugging.
 //! All debug features are controlled by compile-time flags and can be disabled
 //! in release builds for zero overhead.
 
@@ -134,6 +134,10 @@ const AllocationHeader = struct {
         return true;
     }
 
+    /// Validate allocation header integrity and guard bytes for corruption detection
+    ///
+    /// Checks header magic numbers and guard patterns to detect buffer overruns and memory corruption.
+    /// Critical for debugging memory safety issues in development builds.
     pub fn validate_guards(self: *const AllocationHeader, user_ptr: [*]u8) !void {
         if (!self.is_valid()) {
             return DebugAllocatorError.CorruptedHeader;
@@ -321,7 +325,7 @@ pub const DebugAllocator = struct {
     }
 
     /// Dump information about all active allocations
-    pub fn dump_allocations( // tidy:ignore-length - debug function with comprehensive allocation reporting
+    pub fn dump_allocations( // tidy:ignore-length - debug function with detailed allocation reporting
         self: *DebugAllocator,
         writer: anytype,
     ) !void {
@@ -405,7 +409,7 @@ pub const DebugAllocator = struct {
         return null;
     }
 
-    fn alloc_internal( // tidy:ignore-length - debug allocation function with comprehensive safety checks
+    fn alloc_internal( // tidy:ignore-length - debug allocation function with safety checks
         self: *DebugAllocator,
         len: usize,
         ptr_align: std.mem.Alignment,

@@ -1,4 +1,4 @@
-//! Comprehensive simulation test cases for network failures and hostile environments.
+//! Simulation test cases for network failures and hostile environments.
 //!
 //! These tests demonstrate deterministic, byte-for-byte reproducible testing
 //! of complex failure scenarios including network partitions, disk corruption,
@@ -77,7 +77,7 @@ test "network partition: write succeeds after partition heals" {
     try testing.expect(node1_vfs_healed.exists("data/block_001.db"));
 }
 
-test "simulation hostile_environment_comprehensive" {
+test "simulation hostile_environment_complete" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();

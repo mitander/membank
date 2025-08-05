@@ -171,7 +171,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
         .source_uri = "git://github.com/example/repo.git/src/utils.zig#L10-20",
         .metadata_json = "{\"type\":\"function\",\"language\":\"zig\",\"name\":\"calculate_hash\"}",
         .content =
-        \\pub fn calculate_hash(data: []const u8) u64 {
+        \\fn calculate_hash(data: []const u8) u64 {
         \\    var hasher = std.hash.Wyhash.init(0);
         \\    hasher.update(data);
         \\    return hasher.final();

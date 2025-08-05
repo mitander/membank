@@ -159,6 +159,10 @@ fn run_all_targets(allocator: std.mem.Allocator, iterations: u64, seed: u64) !vo
     }
 }
 
+/// Check if a shutdown has been requested via signal handler
+///
+/// Thread-safe check of the global shutdown flag set by signal handlers.
+/// Essential for graceful fuzzing termination without data corruption.
 pub fn check_shutdown_request() bool {
     if (global_shutdown_requested.with(
         fn (*const bool, void) bool,

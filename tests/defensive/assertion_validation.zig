@@ -1,9 +1,9 @@
-//! Comprehensive defensive programming validation test suite.
+//! Defensive programming validation test suite.
 //!
 //! Tests the assertion framework and defensive programming checks throughout
 //! KausalDB to ensure they properly catch invalid conditions while not
 //! interfering with normal operation. Follows TigerBeetle-style defensive
-//! programming principles with comprehensive validation.
+//! programming principles with validation.
 
 const std = @import("std");
 const testing = std.testing;

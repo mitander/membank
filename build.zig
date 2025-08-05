@@ -224,7 +224,7 @@ pub fn build(b: *std.Build) void {
         .{
             .name = "bloom_filter_validation",
             .source_file = "tests/storage/bloom_filter_validation.zig",
-            .description = "comprehensive Bloom filter integration and validation tests",
+            .description = "Bloom filter integration and validation tests",
         },
 
         // Advanced query scenarios
@@ -314,8 +314,8 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run fast unit tests (developer default)");
     test_step.dependOn(&test_steps[unit_test_index].step);
 
-    // CI validation: comprehensive coverage with reasonable runtime
-    const test_fast_step = b.step("test-fast", "Run comprehensive tests (fast CI validation)");
+    // CI validation: full coverage with reasonable runtime
+    const test_fast_step = b.step("test-fast", "Run tests (fast CI validation)");
     for (test_steps) |run_test| {
         test_fast_step.dependOn(&run_test.step);
     }
@@ -456,6 +456,6 @@ pub fn build(b: *std.Build) void {
     memory_stress.root_module.addImport("kausaldb", kausaldb_module);
 
     const run_memory_stress = b.addRunArtifact(memory_stress);
-    const memory_stress_step = b.step("test-memory-stress", "Run comprehensive memory safety stress tests");
+    const memory_stress_step = b.step("test-memory-stress", "Run memory safety stress tests");
     memory_stress_step.dependOn(&run_memory_stress.step);
 }

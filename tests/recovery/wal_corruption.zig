@@ -1,6 +1,6 @@
 //! WAL corruption detection and recovery tests.
 //!
-//! Comprehensive test coverage for WAL corruption scenarios including
+//! Test coverage for WAL corruption scenarios including
 //! systematic corruption detection, magic number corruption, checksum
 //! failures, and recovery boundary conditions under hostile environments.
 

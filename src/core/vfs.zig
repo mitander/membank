@@ -3,7 +3,7 @@
 //! Design rationale: The VFS abstraction enables deterministic testing by allowing
 //! identical production code to run against both real filesystems and simulated
 //! in-memory filesystems. This eliminates the need for mocking while providing
-//! comprehensive failure scenario testing capabilities.
+//! failure scenario testing capabilities.
 //!
 //! Directory iteration uses caller-provided arena allocators to avoid manual
 //! cleanup patterns that violate the arena-per-subsystem memory management model.
@@ -286,6 +286,10 @@ pub const VFile = struct {
         end = 0x03,
     };
 
+    /// Read data from the file into the provided buffer
+    ///
+    /// Returns the number of bytes read, or 0 at end-of-file.
+    /// Works with both production filesystem and simulation VFS.
     pub fn read(self: *VFile, buffer: []u8) VFileError!usize {
         return switch (self.impl) {
             .production => |*prod| blk: {
@@ -316,6 +320,10 @@ pub const VFile = struct {
         };
     }
 
+    /// Write data to the file from the provided buffer
+    ///
+    /// Returns the number of bytes written. All bytes are written or an error occurs.
+    /// Works with both production filesystem and simulation VFS for deterministic testing.
     pub fn write(self: *VFile, data: []const u8) VFileError!usize {
         return switch (self.impl) {
             .production => |*prod| blk: {
@@ -411,6 +419,10 @@ pub const VFile = struct {
         };
     }
 
+    /// Write data to a specific offset in the file without changing the current position
+    ///
+    /// Preserves the original file position after the write operation completes.
+    /// Useful for efficient random access writes in storage systems.
     pub fn write_at(self: *VFile, offset: u64, data: []const u8) VFileError!usize {
         return switch (self.impl) {
             .production => |*prod| blk: {
@@ -453,6 +465,10 @@ pub const VFile = struct {
         };
     }
 
+    /// Change the file position to the specified location
+    ///
+    /// Returns the new absolute position in the file.
+    /// Essential for random access file operations in the storage engine.
     pub fn seek(self: *VFile, pos: u64, whence: SeekFrom) VFileError!u64 {
         return switch (self.impl) {
             .production => |*prod| blk: {
@@ -498,6 +514,10 @@ pub const VFile = struct {
         };
     }
 
+    /// Get the current file position
+    ///
+    /// Returns the absolute byte offset from the beginning of the file.
+    /// Useful for tracking position during sequential operations.
     pub fn tell(self: *VFile) VFileError!u64 {
         return switch (self.impl) {
             .production => |*prod| blk: {
@@ -511,6 +531,10 @@ pub const VFile = struct {
         };
     }
 
+    /// Force all buffered writes to be written to the underlying storage
+    ///
+    /// Ensures data durability by synchronizing with the storage device.
+    /// Critical for WAL operations and database consistency.
     pub fn flush(self: *VFile) VFileError!void {
         return switch (self.impl) {
             .production => |*prod| blk: {
@@ -529,6 +553,10 @@ pub const VFile = struct {
         };
     }
 
+    /// Close the file and release associated resources
+    ///
+    /// After calling close(), all other operations on this file will fail.
+    /// Safe to call multiple times - subsequent calls are no-ops.
     pub fn close(self: *VFile) void {
         switch (self.impl) {
             .production => |*prod| {
@@ -543,6 +571,10 @@ pub const VFile = struct {
         }
     }
 
+    /// Get the total size of the file in bytes
+    ///
+    /// Returns the current file size regardless of the current position.
+    /// Works with both production files and simulation VFS.
     pub fn file_size(self: *VFile) VFileError!u64 {
         return switch (self.impl) {
             .production => |*prod| blk: {

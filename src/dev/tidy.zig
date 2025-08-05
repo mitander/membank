@@ -1,6 +1,6 @@
 //! Code quality and style enforcement for KausalDB.
 //!
-//! Modern rule-based checker with comprehensive violation reporting
+//! Rule-based checker with violation reporting
 //! and systematic architectural constraint enforcement.
 
 const tidy_main = @import("tidy/main.zig");

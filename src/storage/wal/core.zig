@@ -434,7 +434,6 @@ pub const WAL = struct {
     }
 };
 
-
 fn create_test_block() ContextBlock {
     return ContextBlock{
         .id = BlockId.from_hex("0123456789abcdef0123456789abcdef") catch unreachable, // Safety: hardcoded valid hex
@@ -627,7 +626,6 @@ test "WAL recovery functionality" {
 
     var recovery_ctx = RecoveryContext{ .entries_recovered = 0 };
 
-
     var wal = try WAL.init(allocator, sim_vfs.vfs(), test_dir);
     defer wal.deinit();
 
@@ -641,7 +639,6 @@ test "WAL error handling - directory creation failure" {
 
     var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
-
 
     try testing.expectError(error.InvalidArgument, WAL.init(allocator, sim_vfs.vfs(), ""));
 }
@@ -667,9 +664,7 @@ test "WAL cleanup old segments" {
         file.close();
     }
 
-
     try wal.cleanup_old_segments(2);
-
 }
 
 test "WAL statistics accuracy" {
@@ -706,7 +701,6 @@ test "WAL filename generation" {
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_filename");
     defer wal.deinit();
-
 
     const filename = try wal.segment_filename();
     defer allocator.free(filename);

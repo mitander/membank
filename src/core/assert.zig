@@ -263,10 +263,10 @@ pub fn expensive_check_enabled() bool {
 test "assert basic functionality" {
     // Simple assert should not panic
     assert(true);
-    
+
     // Rich assert should not panic
     assert_fmt(true, "This should not fail", .{});
-    
+
     // Test with formatting
     const value = 42;
     assert_fmt(value == 42, "Expected 42, got {}", .{value});
@@ -372,7 +372,7 @@ test "assertion behavior matches documentation" {
     // (These should be no-ops in release, active in debug)
     assert(true);
     assert_fmt(true, "Debug assertion with valid condition", .{});
-    
+
     // Test that fatal assertions always work regardless of build mode
     fatal_assert(true, "Fatal assertion should always be active", .{});
     assert_always(true, "Backward compatibility alias works", .{});

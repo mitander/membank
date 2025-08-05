@@ -105,6 +105,10 @@ pub const Server = struct {
         bytes_sent: u64 = 0,
         errors_encountered: u64 = 0,
 
+        /// Format server statistics in human-readable text format
+        ///
+        /// Prints server metrics including connection counts, traffic, and errors.
+        /// Used for server monitoring and debugging.
         pub fn format_human_readable(self: ServerStats, writer: anytype) !void {
             try writer.print("Server Statistics:\n");
             try writer.print("  Connections: {} accepted, {} active\n", .{ self.connections_accepted, self.connections_active });

@@ -411,7 +411,7 @@ jobs:
 
       - name: Run allocator torture test suite (100 iterations)
         run: |
-          echo "-> Running comprehensive allocator torture tests..."
+          echo "-> Running allocator torture tests..."
           for i in {1..100}; do
             echo "Iteration $i/100"
             timeout 60s ./zig/zig build allocator_torture -Doptimize=ReleaseSafe || {
@@ -465,7 +465,7 @@ jobs:
       - name: Generate memory safety report
         if: always()
         run: |
-          echo "-> Generating comprehensive memory safety report..."
+          echo "-> Generating memory safety report..."
           {
             echo "# KausalDB Memory Safety Report"
             echo "Generated: $(date)"
@@ -481,7 +481,7 @@ jobs:
             echo ""
             echo "## Memory Debugging Tools Validated"
             echo "1. **Enhanced PooledAllocator**: Runtime validation of allocation headers, alignment consistency, and double-free detection"
-            echo "2. **Allocator Torture Tester**: Comprehensive stress testing with 1000+ allocations, random alignments, pattern validation"
+            echo "2. **Allocator Torture Tester**: stress testing with 1000+ allocations, random alignments, pattern validation"
             echo "3. **Memory Safety Integration**: Arena-per-subsystem allocation model with robust lifecycle management"
             echo "4. **Buffer Pool Analytics**: Statistical validation of allocation patterns and hit rates"
             echo ""
@@ -522,7 +522,7 @@ jobs:
 
             const comment = `## 🛡️ Memory Safety Report
 
-            Comprehensive memory safety testing completed with enhanced debugging infrastructure:
+            Memory safety testing completed with enhanced debugging infrastructure:
 
             **Tests Executed:**
             - PooledAllocator Enhanced Validation
@@ -535,7 +535,7 @@ jobs:
             - Enhanced PooledAllocator with runtime validation
             - Allocator Torture Tester with pattern verification
             - Arena-per-subsystem memory safety model
-            - Comprehensive buffer overflow/underflow detection
+            - Buffer overflow/underflow detection
 
             **Status:** All memory safety checks passed!
 

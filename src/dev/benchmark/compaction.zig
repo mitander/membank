@@ -93,6 +93,10 @@ pub fn run_all(allocator: std.mem.Allocator, json_output: bool) !void {
     try run_compaction_benchmark(allocator, json_output);
 }
 
+/// Benchmark SSTable compaction performance
+///
+/// Tests how long it takes to merge and clean up SSTables.
+/// Helps understand how compaction affects overall performance.
 pub fn run_compaction_benchmark(allocator: std.mem.Allocator, json_output: bool) !void {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -158,7 +162,6 @@ fn benchmark_compaction_operations(
         result.print_results();
     }
 }
-
 
 fn setup_compaction_test_data(storage_engine: *StorageEngine, allocator: std.mem.Allocator) !void {
     const num_blocks = 1000;

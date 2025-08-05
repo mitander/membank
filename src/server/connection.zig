@@ -56,6 +56,10 @@ pub const MessageHeader = packed struct {
 
     pub const HEADER_SIZE = 8;
 
+    /// Encode message header to binary format for network transmission
+    ///
+    /// Writes header fields to buffer in little-endian format.
+    /// Part of the KausalDB wire protocol.
     pub fn encode(self: MessageHeader, buffer: []u8) void {
         assert(buffer.len >= HEADER_SIZE);
         buffer[0] = @intFromEnum(self.msg_type);

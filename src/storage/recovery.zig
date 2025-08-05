@@ -233,8 +233,6 @@ pub fn create_test_recovery_setup(allocator: std.mem.Allocator) !struct {
     };
 }
 
-
-
 test "recovery context initialization and finalization" {
     var setup = try create_test_recovery_setup(testing.allocator);
     defer setup.deinit();
@@ -261,7 +259,6 @@ test "recovery statistics calculations" {
     try testing.expectEqual(@as(f64, 100.0), stats.entries_per_second());
     try testing.expectEqual(@as(f64, 5.0), stats.corruption_rate());
 
-
     stats.recovery_time_ns = 0;
     try testing.expectEqual(@as(f64, 0.0), stats.entries_per_second());
 
@@ -284,7 +281,6 @@ test "apply wal entry to storage with block operations" {
         .content = "test content",
     };
 
-
     const put_entry = WALEntry{
         .entry_type = .put_block,
         .block = block,
@@ -295,7 +291,6 @@ test "apply wal entry to storage with block operations" {
     try testing.expectEqual(@as(u32, 1), context.stats.blocks_recovered);
     try testing.expectEqual(@as(u32, 1), context.stats.total_entries_processed);
     try testing.expectEqual(@as(u32, 1), setup.block_index.block_count());
-
 
     const delete_entry = WALEntry{
         .entry_type = .delete_block,

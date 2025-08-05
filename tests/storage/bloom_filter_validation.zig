@@ -1,4 +1,4 @@
-//! Comprehensive Bloom filter validation tests for storage integration.
+//! Bloom filter validation tests for storage integration.
 //!
 //! Tests Bloom filter behavior in realistic storage scenarios including
 //! SSTable integration, performance characteristics, memory efficiency,

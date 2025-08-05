@@ -1,4 +1,4 @@
-//! Comprehensive advanced query scenario tests for KausalDB.
+//! Advanced query scenario tests for KausalDB.
 //!
 //! Tests complex graph traversals, query optimization, performance characteristics,
 //! and edge cases across the query engine. Validates query plan generation,

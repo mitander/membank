@@ -1,4 +1,4 @@
-//! Comprehensive advanced query scenario tests for streaming, caching, and optimization.
+//! Advanced query scenario tests for streaming, caching, and optimization.
 //!
 //! Tests advanced query engine capabilities including streaming result iteration,
 //! query optimization strategies, caching behavior, complex graph scenarios,

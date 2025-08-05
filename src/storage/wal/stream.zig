@@ -345,7 +345,6 @@ comptime {
     custom_assert.comptime_assert(PROCESS_BUFFER_SIZE >= READ_BUFFER_SIZE, "Process buffer must be at least as large as read buffer");
 }
 
-
 test "WALEntryStream initialization" {
     const allocator = testing.allocator;
 

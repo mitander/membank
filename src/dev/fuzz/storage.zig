@@ -146,7 +146,6 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
     return common.FuzzResult.success;
 }
 
-/
 fn test_block_insertion(engine: *StorageEngine, allocator: std.mem.Allocator, random: std.Random) !void {
     const block = try common.generate_random_block(allocator, random);
     _ = engine.put_block(block) catch {
@@ -155,7 +154,6 @@ fn test_block_insertion(engine: *StorageEngine, allocator: std.mem.Allocator, ra
     };
 }
 
-/
 fn test_block_lookup(engine: *StorageEngine, random: std.Random) !void {
     const random_id = common.generate_random_block_id(random);
     _ = engine.find_block(random_id) catch {
@@ -164,7 +162,6 @@ fn test_block_lookup(engine: *StorageEngine, random: std.Random) !void {
     };
 }
 
-/
 fn test_block_deletion(engine: *StorageEngine, random: std.Random) !void {
     const random_id = common.generate_random_block_id(random);
     _ = engine.delete_block(random_id) catch {
@@ -173,7 +170,6 @@ fn test_block_deletion(engine: *StorageEngine, random: std.Random) !void {
     };
 }
 
-/
 fn test_memtable_flush(engine: *StorageEngine, allocator: std.mem.Allocator, random: std.Random) !void {
     const block_count = random.intRangeAtMost(u32, 5, 20);
     for (0..block_count) |_| {
@@ -182,7 +178,6 @@ fn test_memtable_flush(engine: *StorageEngine, allocator: std.mem.Allocator, ran
     }
 }
 
-/
 fn test_wal_recovery(engine: *StorageEngine, allocator: std.mem.Allocator, random: std.Random) !void {
     // Insert some blocks
     const block_count = random.intRangeAtMost(u32, 1, 10);
@@ -190,7 +185,6 @@ fn test_wal_recovery(engine: *StorageEngine, allocator: std.mem.Allocator, rando
         const block = common.generate_random_block(allocator, random) catch continue;
         _ = engine.put_block(block) catch continue;
     }
-
 
     // This exercises WAL replay logic
     // Future: Add more sophisticated recovery testing with random corruption

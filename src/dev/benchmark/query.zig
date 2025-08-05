@@ -99,6 +99,10 @@ pub fn run_all(allocator: std.mem.Allocator, json_output: bool) !void {
     try run_batch_queries(allocator, json_output);
 }
 
+/// Benchmark single block query performance with individual lookup timing
+///
+/// Tests the performance of finding individual blocks by ID in the query engine.
+/// Used for understanding single query response characteristics.
 pub fn run_single_queries(allocator: std.mem.Allocator, json_output: bool) !void {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -113,6 +117,10 @@ pub fn run_single_queries(allocator: std.mem.Allocator, json_output: bool) !void
     try benchmark_single_block_queries(&query_eng, allocator, json_output);
 }
 
+/// Benchmark batch query performance with multi-block lookup tracking
+///
+/// Tests the performance of executing multiple queries together as a batch.
+/// Used for understanding batch processing optimization benefits.
 pub fn run_batch_queries(allocator: std.mem.Allocator, json_output: bool) !void {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -245,7 +253,6 @@ fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allo
         result.print_results();
     }
 }
-
 
 fn setup_query_test_data(storage_engine: *StorageEngine) !void {
     const allocator = std.heap.page_allocator; // Temporary for setup

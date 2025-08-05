@@ -520,18 +520,14 @@ test "git source creation and cleanup" {
 }
 
 test "pattern matching" {
-
     try testing.expect(glob_matcher.matches_pattern("file.zig", "file.zig"));
     try testing.expect(!glob_matcher.matches_pattern("other.zig", "file.zig"));
-
 
     try testing.expect(glob_matcher.matches_pattern("*.zig", "src/main.zig"));
     try testing.expect(!glob_matcher.matches_pattern("*.zig", "src/main.rs"));
 
-
     try testing.expect(glob_matcher.matches_pattern(".git/*", ".git/config"));
     try testing.expect(!glob_matcher.matches_pattern(".git/*", "src/.git"));
-
 
     try testing.expect(glob_matcher.matches_pattern("src/**/*.zig", "src/parser/lexer.zig"));
     try testing.expect(glob_matcher.matches_pattern("test[0-9].zig", "test1.zig"));

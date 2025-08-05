@@ -184,7 +184,6 @@ pub const BlockIndex = struct {
     }
 };
 
-
 const testing = std.testing;
 
 test "block index initialization creates empty index" {
@@ -371,7 +370,6 @@ test "block id hash context provides good distribution" {
 
     // Same ID should hash to same value
     try testing.expectEqual(hash1, ctx.hash(id1));
-
 
     try testing.expect(ctx.eql(id1, id1));
     try testing.expect(!ctx.eql(id1, id2));

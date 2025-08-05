@@ -1,7 +1,7 @@
 //! Internal Testing API
 //!
 //! Drop-in replacement for the public API with additional internal components
-//! for comprehensive testing, debugging, and development.
+//! for testing, debugging, and development.
 //!
 //! Import as @import("kausaldb") in test files.
 
@@ -68,7 +68,6 @@ pub const Allocator = kausaldb_public.Allocator;
 pub const version = kausaldb_public.version;
 
 pub const init = kausaldb_public.init;
-
 
 pub const simulation = @import("sim/simulation.zig");
 pub const simulation_vfs = @import("sim/simulation_vfs.zig");

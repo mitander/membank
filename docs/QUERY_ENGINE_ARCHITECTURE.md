@@ -76,5 +76,5 @@ The architecture includes hooks for a query cache, though the implementation is 
 
 1.  **Extensibility**: The framework is designed to accommodate new query types and optimization strategies without requiring modification of the core engine.
 2.  **Performance by Design**: Simple queries must follow a zero-allocation hot path. Large result sets must be handled via streaming execution.
-3.  **Observability**: All query paths are instrumented with comprehensive metrics to enable performance analysis and regression detection.
+3.  **Observability**: All query paths are instrumented with metrics to enable performance analysis and regression detection.
 4.  **Correctness**: Query results must be deterministic and consistent regardless of the optimization path selected by the planner.

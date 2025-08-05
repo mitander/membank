@@ -284,13 +284,11 @@ test "put and find edge operations work correctly" {
 
     try testing.expectEqual(@as(u32, 1), index.edge_count());
 
-
     const outgoing = index.find_outgoing_edges(source_id);
     try testing.expect(outgoing != null);
     try testing.expectEqual(@as(usize, 1), outgoing.?.len);
     try testing.expect(outgoing.?[0].target_id.eql(target_id));
     try testing.expectEqual(EdgeType.calls, outgoing.?[0].edge_type);
-
 
     const incoming = index.find_incoming_edges(target_id);
     try testing.expect(incoming != null);
@@ -447,7 +445,6 @@ test "hash context provides good distribution for block ids" {
     try testing.expect(hash1 != hash2);
 
     try testing.expectEqual(hash1, ctx.hash(id1));
-
 
     try testing.expect(ctx.eql(id1, id1));
     try testing.expect(!ctx.eql(id1, id2));

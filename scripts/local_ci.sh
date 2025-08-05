@@ -171,7 +171,7 @@ test_job() {
 
     log_step "Running tests"
     if ! ./zig/zig build test-fast -Doptimize="$OPTIMIZE"; then
-        log_error "Comprehensive test suite failed"
+        log_error "Test suite failed"
         return 1
     fi
 

@@ -1,6 +1,6 @@
 //! Memory safety tests for KausalDB arena-per-subsystem pattern.
 //!
-//! Validates comprehensive memory safety patterns and debug allocator functionality.
+//! Validates memory safety patterns and debug allocator functionality.
 
 const kausaldb = @import("kausaldb");
 const std = @import("std");

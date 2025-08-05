@@ -55,7 +55,6 @@ pub const Config = struct {
     }
 };
 
-
 const testing = std.testing;
 
 test "config validation accepts default configuration" {
@@ -106,13 +105,10 @@ test "production config is valid and optimized for throughput" {
 }
 
 test "config validation boundary conditions" {
-
-
     {
         const config = Config{ .memtable_max_size = 1024 * 1024 - 1 };
         try testing.expectError(ConfigError.MemtableMaxSizeTooSmall, config.validate());
     }
-
 
     {
         const config = Config{ .memtable_max_size = 1024 * 1024 * 1024 + 1 };

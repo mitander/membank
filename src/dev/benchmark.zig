@@ -1,4 +1,4 @@
-//! Comprehensive performance benchmarking framework for KausalDB.
+//! Performance benchmarking framework for KausalDB.
 //!
 //! Provides automated regression testing with both performance and memory profiling.
 //! Benchmarks core operations with statistical analysis to detect regressions early.
@@ -85,6 +85,10 @@ const BenchmarkResult = struct {
     memory_growth_bytes: u64,
     memory_efficient: bool,
 
+    /// Print formatted benchmark results to stdout
+    ///
+    /// Displays performance metrics including execution time, memory usage,
+    /// and pass/fail status with color-coded output for easy interpretation.
     pub fn print_results(self: BenchmarkResult) void {
         const status = if (self.passed_threshold) "PASS" else "FAIL";
         const status_color = if (self.passed_threshold) "\x1b[32m" else "\x1b[31m";
@@ -118,6 +122,10 @@ const BenchmarkResult = struct {
         std.debug.print("Memory Efficient: {s}[{s}]\x1b[0m\n", .{ memory_color, memory_status });
     }
 
+    /// Print benchmark results in JSON format
+    ///
+    /// Outputs structured JSON data for automated processing and analysis.
+    /// Includes all performance metrics and threshold validation results.
     pub fn print_json(self: BenchmarkResult) void {
         std.debug.print("{{", .{});
         std.debug.print("\"operation_name\":\"{s}\",", .{self.operation_name});
@@ -244,10 +252,18 @@ const StatisticalAnalyzer = struct {
         self.samples.deinit();
     }
 
+    /// Add a timing sample to the statistical analyzer
+    ///
+    /// Records a single operation timing for later statistical analysis.
+    /// Essential for building performance profiles.
     pub fn add_sample(self: *StatisticalAnalyzer, sample_ns: u64) !void {
         try self.samples.append(sample_ns);
     }
 
+    /// Analyze timing data and generate benchmark results
+    ///
+    /// Processes collected timing measurements to compute statistics,
+    /// validate against thresholds, and assess memory efficiency.
     pub fn analyze(
         self: *StatisticalAnalyzer,
         operation_name: []const u8,
@@ -412,7 +428,7 @@ fn store_and_print_result(result: BenchmarkResult) !void {
 
 fn run_all_benchmarks(allocator: std.mem.Allocator) !void {
     if (!json_output) {
-        std.debug.print("Running comprehensive benchmark suite...\n", .{});
+        std.debug.print("Running benchmark suite...\n", .{});
     }
 
     try run_storage_benchmarks(allocator);

@@ -1,6 +1,6 @@
 //! Deserialization Fault Injection Tests
 //!
-//! Comprehensive testing of deserialization robustness under various
+//! Testing of deserialization robustness under various
 //! corruption scenarios. Validates that corrupted data fails gracefully
 //! without memory corruption or crashes.
 

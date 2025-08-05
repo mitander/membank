@@ -1,6 +1,6 @@
 //! Performance impact validation for defensive programming assertions.
 //!
-//! Tests that our comprehensive assertion framework maintains zero-cost
+//! Tests that our assertion framework maintains zero-cost
 //! abstraction in release builds while providing valuable debugging in
 //! debug builds. Follows TigerBeetle-style performance validation with
 //! precise timing measurements and statistical analysis.
@@ -382,7 +382,7 @@ test "defensive programming zero-cost abstraction validation" {
 
         var sum: u64 = 0;
         for (0..config.iterations) |i| {
-            // Add comprehensive assertions around the same computation
+            // Add assertions around the same computation
             assert.assert_fmt(i < config.iterations, "Index in bounds: {} < {}", .{ i, config.iterations });
             assert.assert_counter_bounds(sum, std.math.maxInt(u64), "Sum overflow check: {} <= {}", .{ sum, std.math.maxInt(u64) });
 

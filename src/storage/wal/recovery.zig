@@ -204,7 +204,6 @@ fn list_segment_files(filesystem: VFS, allocator: std.mem.Allocator, directory: 
     return files;
 }
 
-
 fn create_test_wal_entry(entry_type: u8, payload: []const u8, allocator: std.mem.Allocator) ![]u8 {
     var hasher = std.hash.Wyhash.init(0);
     hasher.update(&[_]u8{entry_type});

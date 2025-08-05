@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# KausalDB comprehensive pre-push hook
+# KausalDB pre-push hook
 #
 # This script catches CI failures locally before push by running:
 # - Cross-platform compilation matrix
@@ -10,7 +10,7 @@
 # - Dependency validation
 #
 # Designed to reduce CI failure rate from ~30-40% to <5%
-# Target runtime: 2-3 minutes for comprehensive validation
+# Target runtime: 2-3 minutes for validation
 #
 # To bypass: SKIP_PREPUSH=1 git push (emergency use only)
 

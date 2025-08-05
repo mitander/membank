@@ -78,6 +78,10 @@ pub const FuzzStats = struct {
         return 0.0;
     }
 
+    /// Record a crash if it's unique based on its hash signature
+    ///
+    /// Prevents duplicate crash reporting by tracking unique crash signatures.
+    /// Essential for producing clean fuzzing reports with distinct failure modes.
     pub fn record_unique_crash(self: *FuzzStats, crash_hash: u64) bool {
         // Simple linear search for uniqueness - fine for small crash counts
         for (self.seen_crashes.items) |seen_hash| {

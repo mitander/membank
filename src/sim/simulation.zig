@@ -350,6 +350,10 @@ pub const Network = struct {
         self.latencies.deinit();
     }
 
+    /// Add a node to the network simulation with message queue setup
+    ///
+    /// Sets up message queues and network state for the node.
+    /// Needed to connect the node to the simulated network.
     pub fn add_node(self: *Self, node_id: NodeId) !void {
         try self.nodes.append(node_id);
         try self.message_queues.put(
@@ -358,6 +362,10 @@ pub const Network = struct {
         );
     }
 
+    /// Send a message through the simulated network with failure modeling
+    ///
+    /// Applies network conditions like partitions, packet loss, and latency delays.
+    /// Used for testing how the system behaves when the network is unreliable.
     pub fn send_message(self: *Self, message: Message) !void {
         const pair = NodePair{ .a = message.sender, .b = message.receiver };
 
@@ -422,11 +430,9 @@ test "simulation basic functionality" {
     try std.testing.expect(node1.id == 0);
     try std.testing.expect(node2.id == 1);
 
-
     const initial_tick = sim.ticks();
     sim.tick();
     try std.testing.expect(sim.ticks() == initial_tick + 1);
-
 
     sim.tick_multiple(5);
     try std.testing.expect(sim.ticks() == initial_tick + 6);
@@ -440,7 +446,6 @@ test "simulation node filesystem" {
 
     const node1 = try sim.add_node();
     const node = sim.find_node(node1);
-
 
     var vfs_interface = node.filesystem_interface();
 
@@ -479,13 +484,9 @@ test "simulation network partitions" {
 
     sim.partition_nodes(node1, node2);
 
-
-
     sim.heal_partition(node1, node2);
 
-
     sim.configure_packet_loss(node1, node2, 0.5);
-
 
     sim.configure_latency(node1, node2, 10);
 }

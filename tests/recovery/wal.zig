@@ -1,6 +1,6 @@
 //! WAL Recovery Tests
 //!
-//! Comprehensive tests for Write-Ahead Log recovery functionality.
+//! Tests for Write-Ahead Log recovery functionality.
 //! Tests cover successful recovery, corruption handling, and edge cases
 //! using the deterministic simulation framework.
 

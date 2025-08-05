@@ -270,8 +270,6 @@ pub const SSTableManager = struct {
     }
 };
 
-
-
 test "SSTableManager two-phase initialization" {
     const allocator = testing.allocator;
 

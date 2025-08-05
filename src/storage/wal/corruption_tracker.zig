@@ -125,7 +125,6 @@ pub const CorruptionTracker = struct {
     }
 };
 
-
 const testing = std.testing;
 
 test "CorruptionTracker initialization" {
@@ -151,7 +150,6 @@ test "CorruptionTracker success recording" {
 
 test "CorruptionTracker failure recording within threshold" {
     var tracker = CorruptionTracker.init();
-
 
     for (1..4) |i| {
         tracker.record_failure("test_context");
@@ -338,8 +336,6 @@ test "corruption_tracker_recognizes_valid_patterns_amid_noise" {
 
 test "corruption_tracker_defensive_boundary_validation" {
     var tracker = CorruptionTracker.init();
-
-
 
     // Boundary 1: Maximum valid payload size
     const max_valid = 16 * 1024 * 1024;

@@ -191,6 +191,10 @@ pub const SimulationVFS = struct {
         return init_with_fault_seed(allocator, 0);
     }
 
+    /// Initialize simulation VFS with deterministic fault injection using provided seed
+    ///
+    /// Creates a simulation filesystem with reproducible I/O failures.
+    /// Useful for testing how the system handles file errors.
     pub fn init_with_fault_seed(allocator: std.mem.Allocator, seed: u64) !SimulationVFS {
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
@@ -712,7 +716,6 @@ pub const SimulationVFS = struct {
         if (self.fault_injection.should_fail_operation(.{ .sync = true })) {
             return VFSError.IoError;
         }
-
     }
 
     fn deinit_vfs(ptr: *anyopaque, allocator: std.mem.Allocator) void {
@@ -729,7 +732,6 @@ test "SimulationVFS basic file operations" {
     defer sim_vfs.deinit();
 
     const vfs_interface = sim_vfs.vfs();
-
 
     const test_path = "test_file.txt";
     var file = try vfs_interface.create(test_path);
@@ -764,9 +766,7 @@ test "SimulationVFS directory operations" {
     try vfs_interface.mkdir(test_dir);
     defer vfs_interface.rmdir(test_dir) catch {};
 
-
     try testing.expect(vfs_interface.exists(test_dir));
-
 
     var iter_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer iter_arena.deinit();

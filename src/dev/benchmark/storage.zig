@@ -94,6 +94,10 @@ const BenchmarkResult = struct {
     }
 };
 
+/// Run all storage benchmark tests with performance measurement
+///
+/// Runs benchmarks for writes, reads, updates, deletes, and WAL flush operations.
+/// Tests all main storage engine operations.
 pub fn run_all(allocator: std.mem.Allocator, json_output: bool) !void {
     try run_block_writes(allocator, json_output);
     try run_block_reads(allocator, json_output);
@@ -102,6 +106,10 @@ pub fn run_all(allocator: std.mem.Allocator, json_output: bool) !void {
     try run_wal_flush(allocator, json_output);
 }
 
+/// Benchmark block write operations with performance and memory tracking
+///
+/// Creates test blocks and measures time to write them to storage engine.
+/// Used for understanding ingestion pipeline performance.
 pub fn run_block_writes(allocator: std.mem.Allocator, json_output: bool) !void {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -113,6 +121,10 @@ pub fn run_block_writes(allocator: std.mem.Allocator, json_output: bool) !void {
     try benchmark_block_writes(&storage_engine, allocator, json_output);
 }
 
+/// Benchmark block read operations with lookup performance measurement
+///
+/// Pre-populates storage with test blocks then measures retrieval time.
+/// Used for understanding query response characteristics.
 pub fn run_block_reads(allocator: std.mem.Allocator, json_output: bool) !void {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -124,6 +136,10 @@ pub fn run_block_reads(allocator: std.mem.Allocator, json_output: bool) !void {
     try benchmark_block_reads(&storage_engine, allocator, json_output);
 }
 
+/// Benchmark block update operations with modification performance tracking
+///
+/// Updates existing blocks with new versions and measures performance.
+/// Used for understanding version management overhead.
 pub fn run_block_updates(allocator: std.mem.Allocator, json_output: bool) !void {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -135,6 +151,10 @@ pub fn run_block_updates(allocator: std.mem.Allocator, json_output: bool) !void 
     try benchmark_block_updates(&storage_engine, allocator, json_output);
 }
 
+/// Benchmark block delete operations with removal performance tracking
+///
+/// Creates blocks to delete and measures time to remove them from storage.
+/// Includes tombstone handling and compaction effects.
 pub fn run_block_deletes(allocator: std.mem.Allocator, json_output: bool) !void {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -146,6 +166,10 @@ pub fn run_block_deletes(allocator: std.mem.Allocator, json_output: bool) !void 
     try benchmark_block_deletes(&storage_engine, allocator, json_output);
 }
 
+/// Benchmark WAL flush operations with durability performance tracking
+///
+/// Measures time to flush Write-Ahead Log to persistent storage.
+/// Used for understanding commit latency characteristics.
 pub fn run_wal_flush(allocator: std.mem.Allocator, json_output: bool) !void {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -421,7 +445,6 @@ fn benchmark_wal_flush(storage_engine: *StorageEngine, allocator: std.mem.Alloca
         result.print_results();
     }
 }
-
 
 fn create_test_block(allocator: std.mem.Allocator, index: usize) !ContextBlock {
     const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{index});

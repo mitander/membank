@@ -1,4 +1,4 @@
-//! Comprehensive integration tests for storage+query+compaction systems.
+//! Integration tests for storage+query+compaction systems.
 //!
 //! These tests validate the complete data lifecycle from ingestion through
 //! storage, querying, and compaction with realistic workloads and failure scenarios.

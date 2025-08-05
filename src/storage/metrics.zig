@@ -253,7 +253,6 @@ pub const StorageMetrics = struct {
     }
 };
 
-
 const testing = std.testing;
 
 test "metrics initialization sets all counters to zero" {

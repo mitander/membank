@@ -1,4 +1,4 @@
-//! Comprehensive arena safety validation for KausalDB memory management.
+//! Arena safety validation for KausalDB memory management.
 //!
 //! Tests the arena-per-subsystem pattern under hostile conditions including:
 //! - Error path memory safety

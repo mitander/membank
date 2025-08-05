@@ -89,7 +89,6 @@ pub const WALStats = struct {
     }
 };
 
-
 const testing = @import("std").testing;
 
 test "WALEntryType from_u8 valid values" {
@@ -118,7 +117,6 @@ test "WALStats initialization" {
 test "WALStats field manipulation" {
     var stats = WALStats.init();
 
-
     stats.entries_written = 100;
     stats.entries_recovered = 95;
     stats.segments_rotated = 3;
@@ -133,23 +131,19 @@ test "WALStats field manipulation" {
 }
 
 test "WAL constants validation" {
-
     try testing.expectEqual(@as(u64, 64 * 1024 * 1024), MAX_SEGMENT_SIZE);
     try testing.expectEqual(@as(u32, 16 * 1024 * 1024), MAX_PAYLOAD_SIZE);
     try testing.expectEqual(@as(usize, 4096), MAX_PATH_LENGTH);
 
-
     try testing.expect(std.mem.eql(u8, WAL_FILE_PREFIX, "wal_"));
     try testing.expect(std.mem.eql(u8, WAL_FILE_SUFFIX, ".log"));
     try testing.expectEqual(@as(usize, 4), WAL_FILE_NUMBER_DIGITS);
-
 
     try testing.expect(MAX_PAYLOAD_SIZE <= MAX_SEGMENT_SIZE);
     try testing.expect(MAX_SEGMENT_SIZE & (MAX_SEGMENT_SIZE - 1) == 0); // Power of 2
 }
 
 test "WALEntryType enum values" {
-
     try testing.expectEqual(@as(u8, 0x01), @intFromEnum(WALEntryType.put_block));
     try testing.expectEqual(@as(u8, 0x02), @intFromEnum(WALEntryType.delete_block));
     try testing.expectEqual(@as(u8, 0x03), @intFromEnum(WALEntryType.put_edge));
@@ -171,7 +165,6 @@ test "WALError enum contains expected errors" {
         WALError.IoError,
         WALError.CallbackFailed,
     };
-
 
     for (test_errors) |err| {
         _ = err; // Verify error type exists

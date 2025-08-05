@@ -78,5 +78,5 @@ pub fn find_block(self: *Engine, id: BlockId) StorageError!?ContextBlock {
 
 ## 4. Performance Specification
 
-*   **Debug Build Overhead**: A performance reduction of 10-20% for comprehensive validation is acceptable. Assertions should not be placed in tight, performance-critical loops.
+*   **Debug Build Overhead**: A performance reduction of 10-20% for validation is acceptable. Assertions should not be placed in tight, performance-critical loops.
 *   **Release Build Overhead**: The target performance overhead from assertions is **<1%**. Debug assertions must be no-ops. Fatal assertions are acceptable as they only execute on unrecoverable error paths. Validation is performed by the benchmark regression suite in CI.

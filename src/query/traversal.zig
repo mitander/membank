@@ -2,7 +2,7 @@
 //!
 //! Provides breadth-first and depth-first search algorithms for exploring
 //! relationships between context blocks. Handles cycle detection, path tracking,
-//! and result formatting with comprehensive traversal statistics.
+//! and result formatting with traversal statistics.
 
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
@@ -829,7 +829,6 @@ fn traverse_bidirectional_search(
     while ((queue_forward.items.len > 0 or queue_backward.items.len > 0) and
         result_blocks.items.len < query.max_results)
     {
-
         if (queue_forward.items.len > 0) {
             const current = queue_forward.orderedRemove(0);
             defer allocator.free(current.path);
@@ -1577,7 +1576,6 @@ test "breadth-first vs depth-first traversal ordering" {
         try storage_engine.put_edge(edge);
     }
 
-
     const bfs_query = TraversalQuery{
         .start_block_id = id_a,
         .direction = .outgoing,
@@ -1589,7 +1587,6 @@ test "breadth-first vs depth-first traversal ordering" {
 
     const bfs_result = try execute_traversal(allocator, &storage_engine, bfs_query);
     defer bfs_result.deinit();
-
 
     const dfs_query = TraversalQuery{
         .start_block_id = id_a,
@@ -1629,7 +1626,6 @@ test "traversal error handling" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-
     const missing_id = try BlockId.from_hex("0000000000000000000000000000000000000000");
 
     const query = TraversalQuery.init(missing_id, .outgoing);
@@ -1649,7 +1645,6 @@ test "convenience traversal functions" {
     const start_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
     const test_block = create_test_block(start_id, "convenience test");
     try storage_engine.put_block(test_block);
-
 
     const outgoing_result = try traverse_outgoing(allocator, &storage_engine, start_id, 2);
     defer outgoing_result.deinit();
@@ -1691,7 +1686,6 @@ test "A* search algorithm basic functionality" {
     const edge_bc = create_test_edge(id_b, id_c, .calls);
     try storage_engine.put_edge(edge_ab);
     try storage_engine.put_edge(edge_bc);
-
 
     const query = TraversalQuery{
         .start_block_id = id_a,
@@ -1742,7 +1736,6 @@ test "bidirectional search algorithm" {
     try storage_engine.put_edge(edge_ab);
     try storage_engine.put_edge(edge_bc);
 
-
     const query = TraversalQuery{
         .start_block_id = id_a,
         .direction = .bidirectional,
@@ -1766,7 +1759,6 @@ test "bidirectional search algorithm" {
 }
 
 test "advanced algorithm enum values" {
-
     try testing.expectEqual(TraversalAlgorithm.astar_search, try TraversalAlgorithm.from_u8(0x03));
     try testing.expectEqual(TraversalAlgorithm.bidirectional_search, try TraversalAlgorithm.from_u8(0x04));
     try testing.expectEqual(TraversalAlgorithm.strongly_connected, try TraversalAlgorithm.from_u8(0x05));

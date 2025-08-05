@@ -126,7 +126,7 @@ pub const KAUSALDB_RULES = [_]Rule{
     },
     .{
         .name = "public_function_documentation",
-        .description = "Require all public functions to have comprehensive documentation",
+        .description = "Require all public functions to have documentation",
         .violation_type = .documentation_standard,
         .check_fn = check_public_function_documentation,
     },
@@ -347,7 +347,6 @@ fn is_camel_case(name: []const u8) bool {
 
     return false;
 }
-
 
 /// Rule: Prevent threading primitives in single-threaded architecture
 fn check_single_threaded(context: *RuleContext) []const Rule.RuleViolation {
@@ -794,7 +793,7 @@ fn check_documentation_standards(context: *RuleContext) []const Rule.RuleViolati
 }
 
 /// Rule: Check function length limits using smart pattern matching
-fn check_function_length( // tidy:ignore-length - analysis function may legitimately be long for comprehensiveness
+fn check_function_length( // tidy:ignore-length - analysis function may legitimately be long for completeness
     context: *RuleContext,
 ) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
@@ -1031,7 +1030,7 @@ fn check_function_declaration_length(context: *RuleContext) []const Rule.RuleVio
     return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
 }
 
-/// Rule: Require all public functions to have comprehensive documentation
+/// Rule: Require all public functions to have documentation
 fn check_public_function_documentation(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
 

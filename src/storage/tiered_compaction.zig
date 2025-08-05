@@ -70,6 +70,10 @@ pub const TieredCompactionManager = struct {
             self.sstables.deinit();
         }
 
+        /// Add an SSTable to this tier with size tracking for compaction decisions
+        ///
+        /// Creates a copy of the path and updates total tier size metrics.
+        /// Used for accurate compaction trigger calculations.
         pub fn add_sstable(
             self: *TierState,
             allocator: std.mem.Allocator,
@@ -86,6 +90,10 @@ pub const TieredCompactionManager = struct {
             self.total_size += size;
         }
 
+        /// Remove an SSTable from this tier and update size tracking
+        ///
+        /// Finds the SSTable by path, frees its memory, and adjusts total tier size.
+        /// Maintains accurate tier metrics after compaction.
         pub fn remove_sstable(
             self: *TierState,
             allocator: std.mem.Allocator,
@@ -314,11 +322,9 @@ pub const CompactionJob = struct {
     }
 };
 
-
 test "TieredCompactionManager initialization" {
     const allocator = std.testing.allocator;
     _ = allocator;
-
 }
 
 test "tier size calculation" {
@@ -345,5 +351,4 @@ test "tier size calculation" {
     );
 }
 
-test "compaction thresholds" {
-}
+test "compaction thresholds" {}

@@ -1,6 +1,6 @@
 //! Allocator torture test for systematic memory allocator validation.
 //!
-//! Comprehensive stress testing for memory allocators with:
+//! Stress testing for memory allocators with:
 //! - Random allocation sizes and alignments
 //! - Pattern verification for buffer overflow/underflow detection
 //! - Double-free and use-after-free detection
@@ -165,7 +165,7 @@ const TrackedAllocation = struct {
     }
 };
 
-/// Allocator torture tester with comprehensive validation
+/// Allocator torture tester with validation
 pub const AllocatorTortureTester = struct {
     allocator: std.mem.Allocator,
     config: TortureTestConfig,
@@ -498,9 +498,9 @@ pub fn run_allocator_torture_test(allocator: std.mem.Allocator, config: TortureT
     return tester.stats();
 }
 
-/// Run comprehensive torture test suite with different configurations
+/// Run torture test suite with different configurations
 pub fn run_torture_tests(allocator: std.mem.Allocator) !void {
-    std.debug.print("Starting comprehensive allocator torture tests...\n", .{});
+    std.debug.print("Starting allocator torture tests...\n", .{});
 
     {
         std.debug.print("\n=== Test 1: Basic Stress Test ===\n", .{});
@@ -537,7 +537,7 @@ pub fn run_torture_tests(allocator: std.mem.Allocator) !void {
         stats.print_summary();
     }
 
-    std.debug.print("\nComprehensive torture tests completed!\n", .{});
+    std.debug.print("\nTorture tests completed!\n", .{});
 }
 
 pub fn main() !void {

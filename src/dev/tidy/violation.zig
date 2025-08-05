@@ -1,7 +1,7 @@
 //! Violation tracking and reporting for tidy checks.
 //!
-//! Collects all code quality violations and presents comprehensive
-//! summaries to enable fixing multiple issues efficiently rather
+//! Collects all code quality violations and presents
+//! summaries to enable fixing multiple issues rather
 //! than the traditional stop-at-first-error approach.
 
 const std = @import("std");
@@ -51,6 +51,10 @@ pub const ViolationSummary = struct {
         self.all_violations.deinit();
     }
 
+    /// Add a violation to this summary and update all tracking counters
+    ///
+    /// Updates the total count, violations by type, and violations by file.
+    /// Used for building tidy reports.
     pub fn add_violation(self: *ViolationSummary, violation: Violation) !void {
         try self.all_violations.append(violation);
         self.total_violations += 1;
@@ -62,9 +66,13 @@ pub const ViolationSummary = struct {
         try self.violations_by_file.put(violation.file_path, current_file_count + 1);
     }
 
+    /// Print a formatted summary of all violations to stdout
+    ///
+    /// Displays violation counts by type and by file with clear formatting.
+    /// Provides the main tidy output that developers see.
     pub fn print_summary(self: *const ViolationSummary) void {
         if (self.total_violations == 0) {
-            std.debug.print("No tidy violations found - code quality excellent!\n\n", .{});
+            std.debug.print("No tidy violations found!\n\n", .{});
             return;
         }
 
@@ -118,6 +126,10 @@ pub const ViolationSummary = struct {
         std.debug.print("\n", .{});
     }
 
+    /// Print detailed information about each violation found
+    ///
+    /// Shows specific line numbers, messages, and suggested fixes for each violation.
+    /// Essential for developers to understand and fix code quality issues.
     pub fn print_detailed_violations(self: *const ViolationSummary) void {
         if (self.total_violations == 0) return;
 

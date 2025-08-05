@@ -1,8 +1,8 @@
-//! Modern rule-based tidy checker for KausalDB.
+//! Rule-based tidy checker for KausalDB.
 //!
-//! Systematically enforces architectural principles through composable
-//! rules rather than hardcoded pattern matching. Provides comprehensive
-//! violation summaries for efficient batch fixing.
+//! Enforces architectural principles through composable
+//! rules rather than hardcoded pattern matching. Provides
+//! violation summaries for batch fixing.
 
 const std = @import("std");
 const fs = std.fs;

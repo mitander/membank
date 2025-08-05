@@ -280,8 +280,7 @@ pub const QueryEngine = struct {
                 plan.cache_eligible = true;
             }
 
-            if (plan.cache_eligible) {
-            }
+            if (plan.cache_eligible) {}
         }
 
         return plan;
@@ -354,11 +353,9 @@ pub const QueryEngine = struct {
         const duration_ns = context.execution_duration_ns();
         self.total_query_time_ns.add(duration_ns);
 
-        if (context.plan.optimization_hints.use_index and context.metrics.index_lookups > 0) {
-        }
+        if (context.plan.optimization_hints.use_index and context.metrics.index_lookups > 0) {}
 
-        if (context.plan.optimization_hints.prefer_memtable and context.metrics.memtable_hits > 0) {
-        }
+        if (context.plan.optimization_hints.prefer_memtable and context.metrics.memtable_hits > 0) {}
 
         if (context.plan.cache_eligible) {
             const cache_hit_rate = if (context.metrics.cache_hits + context.metrics.cache_misses > 0)
@@ -369,7 +366,6 @@ pub const QueryEngine = struct {
 
             _ = cache_hit_rate;
         }
-
     }
 
     /// Execute a FindBlocks query to retrieve blocks by ID
@@ -432,8 +428,7 @@ pub const QueryEngine = struct {
 
                         return result;
                     },
-                    else => {
-                    },
+                    else => {},
                 }
             }
         }
@@ -443,8 +438,7 @@ pub const QueryEngine = struct {
                 if (self.caching_enabled) {
                     const cache_key = cache.CacheKey.for_single_block(block_id);
                     const cache_value = cache.CacheValue{ .find_blocks = block };
-                    self.query_cache.put(cache_key, cache_value) catch {
-                    };
+                    self.query_cache.put(cache_key, cache_value) catch {};
                 }
 
                 const blocks_array = try self.allocator.alloc(BlockId, 1);
@@ -489,8 +483,7 @@ pub const QueryEngine = struct {
                     .traversal => |cached_result| {
                         return cached_result;
                     },
-                    else => {
-                    },
+                    else => {},
                 }
             }
         }
@@ -517,8 +510,7 @@ pub const QueryEngine = struct {
                 traversal.edge_filter_to_hash(query.edge_filter),
             );
             const cache_value = cache.CacheValue{ .traversal = result };
-            self.query_cache.put(cache_key, cache_value) catch {
-            };
+            self.query_cache.put(cache_key, cache_value) catch {};
         }
 
         return result;
@@ -888,7 +880,6 @@ test "query engine statistics calculations" {
     var query_engine = QueryEngine.init(allocator, &storage_engine);
     defer query_engine.deinit();
 
-
     const empty_stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 0), empty_stats.average_query_latency_ns());
     try testing.expectEqual(@as(f64, 0.0), empty_stats.queries_per_second());
@@ -1013,11 +1004,9 @@ test "convenience query functions" {
     const test_id = try BlockId.from_hex("7777777777777777777777777777777777777777");
     const test_ids = [_]BlockId{ test_id, try BlockId.from_hex("8888888888888888888888888888888888888888") };
 
-
     const single_query = single_block_query(test_id);
     try testing.expectEqual(@as(usize, 1), single_query.block_ids.len);
     try testing.expect(single_query.block_ids[0].eql(test_id));
-
 
     const multi_query = multi_block_query(&test_ids);
     try testing.expectEqual(@as(usize, 2), multi_query.block_ids.len);
@@ -1046,7 +1035,6 @@ test "query engine traversal integration" {
     const start_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const test_block = create_test_block(start_id, "traversal start");
     try storage_engine.put_block(test_block);
-
 
     const outgoing_result = try query_engine.traverse_outgoing(start_id, 2);
     defer outgoing_result.deinit();

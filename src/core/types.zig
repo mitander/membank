@@ -6,7 +6,7 @@
 //! - GraphEdge: Typed relationship between context blocks
 //! - EdgeType: Types of relationships between blocks
 //!
-//! All types include comprehensive serialization/deserialization support
+//! All types include serialization/deserialization support
 //! and validation methods to ensure data integrity.
 
 const std = @import("std");
@@ -129,6 +129,10 @@ pub const ContextBlock = struct {
                 @sizeOf(u64) + @sizeOf(u32) + @sizeOf(u32) + @sizeOf(u64) + @sizeOf(u32) + 12 == 64, "BlockHeader field sizes must sum to exactly 64 bytes");
         }
 
+        /// Serialize block header to binary format for on-disk storage
+        ///
+        /// Writes the complete header structure to the buffer in little-endian format.
+        /// Essential for maintaining cross-platform compatibility of stored data.
         pub fn serialize(self: BlockHeader, buffer: []u8) !usize {
             if (buffer.len < SIZE) return error.BufferTooSmall;
 
@@ -158,6 +162,10 @@ pub const ContextBlock = struct {
             return offset;
         }
 
+        /// Deserialize block header from binary format during block loading
+        ///
+        /// Reads the complete header structure from buffer and validates magic number and version.
+        /// Critical for ensuring data integrity when loading blocks from storage.
         pub fn deserialize(buffer: []const u8) !BlockHeader {
             if (buffer.len < SIZE) return error.BufferTooSmall;
 

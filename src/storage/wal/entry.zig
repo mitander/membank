@@ -282,7 +282,6 @@ pub const WALEntry = struct {
     }
 };
 
-
 const testing = std.testing;
 
 fn create_test_block() ContextBlock {
@@ -499,7 +498,6 @@ test "WALEntry header size constant" {
 test "WALEntry memory management" {
     const allocator = testing.allocator;
 
-
     const test_block = create_test_block();
     const entry = try WALEntry.create_put_block(test_block, allocator);
 
@@ -511,7 +509,6 @@ test "WALEntry memory management" {
 
 test "WALEntry edge cases" {
     const allocator = testing.allocator;
-
 
     const empty_checksum = WALEntry.calculate_checksum(.put_block, "");
     const empty_entry = WALEntry{

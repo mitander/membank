@@ -174,8 +174,7 @@ const QueryBlockIterator = struct {
         return null;
     }
 
-    fn deinit(_: QueryBlockIterator) void {
-    }
+    fn deinit(_: QueryBlockIterator) void {}
 };
 
 /// Query for semantic search based on natural language
@@ -191,6 +190,10 @@ pub const SemanticQuery = struct {
         return SemanticQuery{ .query_text = query_text };
     }
 
+    /// Validate semantic query parameters for correctness and bounds checking
+    ///
+    /// Checks that query text is non-empty, result limits are reasonable, and similarity thresholds are valid.
+    /// Prevents crashes from invalid query parameters.
     pub fn validate(self: SemanticQuery) QueryError!void {
         if (self.query_text.len == 0) return QueryError.InvalidSemanticQuery;
         if (self.max_results == 0) return QueryError.EmptyQuery;
@@ -542,7 +545,6 @@ test "execute_find_blocks with storage engine" {
     try storage_engine.put_block(block1);
     try storage_engine.put_block(block2);
 
-
     const query = FindBlocksQuery{
         .block_ids = &[_]BlockId{ test_id1, test_id2 },
     };
@@ -552,7 +554,6 @@ test "execute_find_blocks with storage engine" {
 
     try testing.expectEqual(@as(u32, 2), result.total_found);
     try testing.expect(!result.is_empty());
-
 
     const partial_query = FindBlocksQuery{
         .block_ids = &[_]BlockId{ test_id1, missing_id, test_id2 },
@@ -697,7 +698,6 @@ test "semantic query result operations" {
     try testing.expectEqual(@as(u32, 2), semantic_result.total_matches);
     try testing.expectEqual(@as(usize, 2), semantic_result.results.len);
 
-
     const sorted_blocks = try semantic_result.sorted_blocks(allocator);
     defer allocator.free(sorted_blocks);
 
@@ -733,7 +733,6 @@ test "block existence checking" {
     try testing.expect(block_exists(&storage_engine, existing_id));
     try testing.expect(!block_exists(&storage_engine, missing_id));
 
-
     const test_ids = [_]BlockId{ existing_id, missing_id };
     const count = count_existing_blocks(&storage_engine, &test_ids);
     try testing.expectEqual(@as(usize, 1), count);
@@ -758,7 +757,6 @@ test "find_block convenience function" {
         .content = "single block test",
     };
     try storage_engine.put_block(test_block);
-
 
     const result = try find_block(allocator, &storage_engine, test_id);
     defer result.deinit();
@@ -819,12 +817,10 @@ test "large dataset query performance" {
 }
 
 test "query error handling" {
-
     const empty_query = FindBlocksQuery{
         .block_ids = &[_]BlockId{},
     };
     try testing.expectError(QueryError.EmptyQuery, empty_query.validate());
-
 
     var too_many_ids: [1001]BlockId = undefined;
     for (&too_many_ids, 0..) |*id, i| {
@@ -836,7 +832,6 @@ test "query error handling" {
         .block_ids = &too_many_ids,
     };
     try testing.expectError(QueryError.TooManyResults, large_query.validate());
-
 
     var semantic_query = SemanticQuery.init("");
     try testing.expectError(QueryError.InvalidSemanticQuery, semantic_query.validate());
@@ -860,7 +855,6 @@ test "query result formatting edge cases" {
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-
     var empty_result = QueryResult.init(allocator, &storage_engine, &[_]BlockId{});
     defer empty_result.deinit();
 
@@ -872,7 +866,6 @@ test "query result formatting edge cases" {
     try empty_result.format_for_llm(empty_formatted_output.writer().any());
     const empty_formatted = empty_formatted_output.items;
     try testing.expect(std.mem.indexOf(u8, empty_formatted, "Retrieved 0 blocks") != null);
-
 
     const special_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
     const special_block = ContextBlock{

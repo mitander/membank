@@ -21,6 +21,10 @@ pub const StorageContext = struct {
     actual_value: ?u32 = null,
     entry_type: ?u8 = null,
 
+    /// Format StorageContext for debug output with all relevant diagnostic information
+    ///
+    /// Used by Zig's formatting system when printing error contexts.
+    /// Provides detailed context about storage operations that failed.
     pub fn format(
         self: StorageContext,
         comptime fmt: []const u8,
@@ -72,6 +76,10 @@ pub const WALContext = struct {
     checksum_expected: ?u64 = null,
     checksum_actual: ?u64 = null,
 
+    /// Format WALContext for debug output with WAL-specific diagnostic information
+    ///
+    /// Used by Zig's formatting system when printing WAL error contexts.
+    /// Provides detailed context about Write-Ahead Log operations that failed.
     pub fn format(
         self: WALContext,
         comptime fmt: []const u8,
@@ -113,6 +121,10 @@ pub const BufferContext = struct {
     available_size: ?usize = null,
     buffer_type: ?[]const u8 = null,
 
+    /// Format BufferContext for debug output with buffer operation diagnostic information
+    ///
+    /// Used by Zig's formatting system when printing buffer error contexts.
+    /// Provides detailed context about buffer operations that failed.
     pub fn format(
         self: BufferContext,
         comptime fmt: []const u8,
@@ -152,6 +164,10 @@ pub const IngestionContext = struct {
     parsing_stage: ?[]const u8 = null,
     unit_count: ?usize = null,
 
+    /// Format IngestionContext for debug output with ingestion operation diagnostic information
+    ///
+    /// Used by Zig's formatting system when printing ingestion error contexts.
+    /// Provides detailed context about ingestion pipeline failures.
     pub fn format(
         self: IngestionContext,
         comptime fmt: []const u8,
@@ -208,6 +224,10 @@ pub const ServerContext = struct {
     bytes_processed: ?usize = null,
     error_code: ?u32 = null,
 
+    /// Format ServerContext for debug output with server operation diagnostic information
+    ///
+    /// Used by Zig's formatting system when printing server error contexts.
+    /// Provides detailed context about server operations that failed.
     pub fn format(
         self: ServerContext,
         comptime fmt: []const u8,

@@ -1,4 +1,4 @@
-//! Comprehensive tests for query result caching system.
+//! Tests for query result caching system.
 //!
 //! Tests LRU eviction, TTL expiration, cache invalidation, memory management,
 //! and cache statistics across all supported query types. Validates that

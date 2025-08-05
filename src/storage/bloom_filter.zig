@@ -255,7 +255,6 @@ test "Bloom filter serialization" {
 }
 
 test "Bloom filter parameter calculation" {
-
     const small_params = BloomFilter.Params.calculate(1000, 0.01);
     try std.testing.expect(small_params.bit_count > 0);
     try std.testing.expect(small_params.bit_count % 8 == 0);
@@ -288,7 +287,6 @@ test "Bloom filter false positive behavior" {
         try std.testing.expect(filter.might_contain(block_id));
     }
 
-
     filter.clear();
     for (added_blocks.items) |block_id| {
         try std.testing.expect(!filter.might_contain(block_id));
@@ -297,7 +295,6 @@ test "Bloom filter false positive behavior" {
 
 test "Bloom filter edge cases" {
     const allocator = std.testing.allocator;
-
 
     const min_params = BloomFilter.Params{ .bit_count = 64, .hash_count = 1 };
     var filter = try BloomFilter.init(allocator, min_params);
@@ -311,7 +308,6 @@ test "Bloom filter edge cases" {
 
 test "Bloom filter false positive rate validation" {
     const allocator = std.testing.allocator;
-
 
     const test_cases = [_]struct {
         expected_items: u32,
@@ -336,7 +332,6 @@ test "Bloom filter false positive rate validation" {
             filter.add(block_id);
         }
 
-
         var false_positives: u32 = 0;
         i = test_case.expected_items;
         while (i < test_case.expected_items + test_case.test_items) : (i += 1) {
@@ -359,7 +354,6 @@ test "Bloom filter false positive rate validation" {
 test "Bloom filter performance characteristics" {
     const allocator = std.testing.allocator;
 
-
     const params = BloomFilter.Params.calculate(10000, 0.01);
     var filter = try BloomFilter.init(allocator, params);
     defer filter.deinit();
@@ -375,7 +369,6 @@ test "Bloom filter performance characteristics" {
     }
 
     const add_time = std.time.nanoTimestamp();
-
 
     i = 0;
     var found_count: u32 = 0;
@@ -406,7 +399,6 @@ test "Bloom filter performance characteristics" {
 test "Bloom filter hash distribution quality" {
     const allocator = std.testing.allocator;
 
-
     const params = BloomFilter.Params{ .bit_count = 1024, .hash_count = 4 };
     var filter = try BloomFilter.init(allocator, params);
     defer filter.deinit();
@@ -432,7 +424,6 @@ test "Bloom filter hash distribution quality" {
 test "Bloom filter memory usage validation" {
     const allocator = std.testing.allocator;
 
-
     const sizes = [_]u32{ 64, 512, 4096, 32768 };
 
     for (sizes) |bit_count| {
@@ -449,7 +440,6 @@ test "Bloom filter memory usage validation" {
 }
 
 test "Bloom filter parameter optimization" {
-
     const test_cases = [_]struct {
         items: u32,
         fpr: f64,
@@ -475,7 +465,6 @@ test "Bloom filter parameter optimization" {
 test "Bloom filter error handling" {
     const allocator = std.testing.allocator;
 
-
     const invalid_params = [_]BloomFilter.Params{
         .{ .bit_count = 0, .hash_count = 3 }, // Zero bits
         .{ .bit_count = 15, .hash_count = 3 }, // Non-byte-aligned
@@ -486,7 +475,6 @@ test "Bloom filter error handling" {
         const result = BloomFilter.init(allocator, params);
         try std.testing.expectError(BloomFilter.Error.InvalidBitCount, result);
     }
-
 
     var filter = try BloomFilter.init(allocator, BloomFilter.Params.small);
     defer filter.deinit();
@@ -521,7 +509,6 @@ test "Bloom filter SSTable integration scenarios" {
     for (sstable_blocks.items) |block_id| {
         try std.testing.expect(filter.might_contain(block_id));
     }
-
 
     var false_positives: u32 = 0;
     i = 0;

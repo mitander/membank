@@ -36,6 +36,10 @@ pub const ZigUnitType = enum {
     test_block,
     type_alias,
 
+    /// Convert a ZigUnitType enum to its string representation
+    ///
+    /// Returns the canonical string name for each unit type, used for
+    /// metadata and debugging output in the ingestion pipeline.
     pub fn to_string(self: ZigUnitType) []const u8 {
         return switch (self) {
             .function => "function",
@@ -653,7 +657,6 @@ pub const ZigParser = struct {
     }
 };
 
-
 fn contains_keyword(line: []const u8, keyword: []const u8) bool {
     return std.mem.indexOf(u8, line, keyword) != null;
 }
@@ -722,7 +725,6 @@ fn extract_variable_name(line: []const u8) ?[]const u8 {
 }
 
 fn extract_struct_name(line: []const u8) ?[]const u8 {
-
     if (std.mem.indexOf(u8, line, "const ")) |const_pos| {
         const after_const = line[const_pos + 6 ..];
 

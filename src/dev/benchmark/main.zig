@@ -104,7 +104,7 @@ fn print_usage() void {
         \\  --json         Output results in JSON format
         \\
         \\Examples:
-        \\  benchmark all                  Run comprehensive benchmark suite
+        \\  benchmark all                  Run benchmark suite
         \\  benchmark storage --json       Run storage benchmarks with JSON output
         \\  benchmark block-write          Benchmark block write performance
         \\

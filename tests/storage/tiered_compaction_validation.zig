@@ -1,4 +1,4 @@
-//! Comprehensive validation tests for tiered compaction strategies.
+//! Validation tests for tiered compaction strategies.
 //!
 //! Tests the TieredCompactionManager implementation including L0 compaction,
 //! size-tiered compaction, tier state management, and performance characteristics.

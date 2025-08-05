@@ -105,7 +105,6 @@ test "WAL basic write and recovery" {
     try testing.expect(stats.entries_written == 1);
     try testing.expect(stats.bytes_written > 0);
 
-
     const RecoveryContext = struct {
         entries_recovered: u32 = 0,
         allocator: std.mem.Allocator,
@@ -170,10 +169,8 @@ test "WAL segment rotation" {
 test "WAL corruption resilience" {
     const allocator = testing.allocator;
 
-
     try testing.expectError(WALError.InvalidEntryType, WALEntryType.from_u8(0));
     try testing.expectError(WALError.InvalidEntryType, WALEntryType.from_u8(255));
-
 
     const oversized_payload = try allocator.alloc(u8, MAX_PAYLOAD_SIZE + 1);
     defer allocator.free(oversized_payload);

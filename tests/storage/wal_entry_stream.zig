@@ -1,4 +1,4 @@
-//! Comprehensive tests for WALEntryStream buffered I/O abstraction
+//! Tests for WALEntryStream buffered I/O abstraction
 //!
 //! These tests validate the streaming WAL reader's ability to handle various
 //! real-world scenarios including buffer boundaries, large entries, corruption,

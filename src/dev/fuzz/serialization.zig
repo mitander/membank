@@ -111,7 +111,6 @@ pub fn run(
 
 /// Execute a single fuzzing iteration against serialization system
 fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !common.FuzzResult {
-
     const original_block = try common.generate_random_block(allocator, random);
 
     const buffer_size = original_block.serialized_size();
@@ -121,7 +120,6 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
     _ = original_block.serialize(buffer) catch {
         return common.FuzzResult.expected_error;
     };
-
 
     const corruption_type = random.intRangeAtMost(u32, 0, 3);
     switch (corruption_type) {
@@ -135,7 +133,6 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
     return common.FuzzResult.success;
 }
 
-/
 fn test_random_corruption(allocator: std.mem.Allocator, buffer: []const u8, random: std.Random) !void {
     var corrupted = try allocator.dupe(u8, buffer);
     defer allocator.free(corrupted);
@@ -151,7 +148,6 @@ fn test_random_corruption(allocator: std.mem.Allocator, buffer: []const u8, rand
     };
 }
 
-/
 fn test_truncation(allocator: std.mem.Allocator, buffer: []const u8, random: std.Random) !void {
     if (buffer.len == 0) return;
 
@@ -163,7 +159,6 @@ fn test_truncation(allocator: std.mem.Allocator, buffer: []const u8, random: std
     };
 }
 
-/
 fn test_header_corruption(allocator: std.mem.Allocator, buffer: []const u8, random: std.Random) !void {
     var corrupted = try allocator.dupe(u8, buffer);
     defer allocator.free(corrupted);
@@ -180,7 +175,6 @@ fn test_header_corruption(allocator: std.mem.Allocator, buffer: []const u8, rand
     };
 }
 
-/
 fn test_boundary_corruption(allocator: std.mem.Allocator, buffer: []const u8, random: std.Random) !void {
     var corrupted = try allocator.dupe(u8, buffer);
     defer allocator.free(corrupted);

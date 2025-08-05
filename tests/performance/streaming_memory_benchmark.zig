@@ -1,4 +1,4 @@
-//! Comprehensive performance and memory efficiency tests for KausalDB operations.
+//! Performance and memory efficiency tests for KausalDB operations.
 //!
 //! Tests streaming query formatting, storage engine throughput, memory management
 //! efficiency, and performance regression detection across all major subsystems.

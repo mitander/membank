@@ -351,7 +351,6 @@ pub const MemtableManager = struct {
     }
 };
 
-
 const testing = std.testing;
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const SimulationVFS = simulation_vfs.SimulationVFS;

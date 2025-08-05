@@ -10,7 +10,7 @@
 //! - Orchestrate reads from BlockIndex -> SSTables with proper precedence
 //! - Manage background compaction to maintain read performance
 //! - Enforce arena-per-subsystem memory management patterns
-//! - Provide comprehensive metrics and error handling
+//! - Provide metrics and error handling
 
 const std = @import("std");
 const assert = @import("../core/assert.zig");
@@ -433,8 +433,7 @@ pub const StorageEngine = struct {
             return null;
         }
 
-        pub fn deinit(_: *BlockIterator) void {
-        }
+        pub fn deinit(_: *BlockIterator) void {}
     };
 
     /// Create iterator to scan blocks in memtable only.
@@ -472,7 +471,6 @@ pub const StorageEngine = struct {
     pub fn flush_memtable_to_sstable(self: *StorageEngine) !void {
         try self.flush_memtable();
     }
-
 
     /// Coordinate memtable flush operation without containing business logic.
     /// Pure delegation to subsystems for flush orchestration.
@@ -527,7 +525,6 @@ pub const StorageEngine = struct {
     }
 };
 
-
 test "storage engine initialization and cleanup" {
     const allocator = testing.allocator;
 
@@ -552,7 +549,6 @@ test "storage engine startup and basic operations" {
 
     try engine.startup();
     try testing.expect(engine.initialized);
-
 
     const block_id = BlockId.generate();
     const block = ContextBlock{
@@ -716,7 +712,6 @@ test "block iterator with empty storage" {
     var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "/test/data");
     defer engine.deinit();
     try engine.startup();
-
 
     var iterator = engine.iterate_all_blocks();
     defer iterator.deinit();
@@ -925,7 +920,6 @@ test "error context logging for storage operations" {
 
     var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "/test/data");
     defer engine.deinit();
-
 
     const test_block = ContextBlock{
         .id = BlockId.generate(),
