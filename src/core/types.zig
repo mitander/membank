@@ -356,23 +356,15 @@ pub const ContextBlock = struct {
             return error.ContentNullPointer;
         }
 
-        // JSON format validation - metadata must be parseable
-        // Use builtin.mode check to avoid Zig JSON parser bug in ReleaseSafe mode
-        if (builtin.mode == .Debug) {
-            var parsed = std.json.parseFromSlice(
-                std.json.Value,
-                allocator,
-                self.metadata_json,
-                .{},
-            ) catch {
-                return error.InvalidMetadataJson;
-            };
-            defer parsed.deinit();
-        } else {
-            if (!is_valid_json_syntax(self.metadata_json)) {
-                return error.InvalidMetadataJson;
-            }
-        }
+        var parsed = std.json.parseFromSlice(
+            std.json.Value,
+            allocator,
+            self.metadata_json,
+            .{},
+        ) catch {
+            return error.InvalidMetadataJson;
+        };
+        defer parsed.deinit();
 
         if (!std.unicode.utf8ValidateSlice(self.source_uri)) {
             return error.InvalidSourceUriEncoding;
@@ -405,23 +397,15 @@ pub const ContextBlock = struct {
             return error.EmptyContent;
         }
 
-        // JSON format validation - metadata must be parseable
-        // Use builtin.mode check to avoid Zig JSON parser bug in ReleaseSafe mode
-        if (builtin.mode == .Debug) {
-            var parsed = std.json.parseFromSlice(
-                std.json.Value,
-                allocator,
-                self.metadata_json,
-                .{},
-            ) catch {
-                return error.InvalidMetadataJson;
-            };
-            defer parsed.deinit();
-        } else {
-            if (!is_valid_json_syntax(self.metadata_json)) {
-                return error.InvalidMetadataJson;
-            }
-        }
+        var parsed = std.json.parseFromSlice(
+            std.json.Value,
+            allocator,
+            self.metadata_json,
+            .{},
+        ) catch {
+            return error.InvalidMetadataJson;
+        };
+        defer parsed.deinit();
     }
 };
 
