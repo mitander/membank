@@ -312,13 +312,12 @@ test "simulation performance_regression_detection" {
     const node = try sim.add_node();
     sim.tick_multiple(5);
 
-    // Baseline performance measurement
-    const baseline_start = std.time.nanoTimestamp();
-
     const node_ptr = sim.find_node(node);
     var node_vfs = node_ptr.filesystem_interface();
-
     try node_vfs.mkdir_all("perf_test");
+
+    // Baseline performance measurement (excluding setup)
+    const baseline_start = std.time.nanoTimestamp();
 
     // Baseline: Normal operation performance
     for (0..50) |i| {

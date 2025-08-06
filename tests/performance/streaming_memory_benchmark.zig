@@ -363,9 +363,7 @@ test "query_engine_performance_benchmark" {
 }
 
 test "memory_management_efficiency_benchmark" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = testing.allocator;
 
     // Phase 1: Arena allocation performance
     var arena_times = std.ArrayList(i64).init(allocator);
