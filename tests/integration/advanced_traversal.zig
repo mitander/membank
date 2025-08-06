@@ -61,7 +61,7 @@ test "A* search integration with storage engine" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_astar_integration");
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "./test_astar_integration");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -146,12 +146,12 @@ test "bidirectional search integration and performance" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_bidirectional_integration");
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "./test_bidirectional_integration");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
     // Create a larger graph where bidirectional search should be more efficient
-    var block_count: u32 = 20;
+    const block_count: u32 = 20;
     var i: u32 = 1;
     while (i <= block_count) : (i += 1) {
         const content = try std.fmt.allocPrint(allocator, "Block {} - content for testing bidirectional search", .{i});
@@ -220,7 +220,7 @@ test "algorithm comparison - BFS vs DFS vs A* vs Bidirectional" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_algorithm_comparison");
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "./test_algorithm_comparison");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -263,7 +263,7 @@ test "algorithm comparison - BFS vs DFS vs A* vs Bidirectional" {
     const algorithm_names = [_][]const u8{ "BFS", "DFS", "A*", "Bidirectional" };
 
     for (algorithms, algorithm_names) |algorithm, name| {
-        const query = TraversalQuery{
+        const traversal_query = TraversalQuery{
             .start_block_id = start_id,
             .direction = .outgoing,
             .algorithm = algorithm,
@@ -273,7 +273,7 @@ test "algorithm comparison - BFS vs DFS vs A* vs Bidirectional" {
         };
 
         const start_time = std.time.nanoTimestamp();
-        const result = try query.traversal.execute_traversal(allocator, &storage_engine, query);
+        const result = try query.execute_traversal(allocator, &storage_engine, traversal_query);
         defer result.deinit();
         const end_time = std.time.nanoTimestamp();
 
@@ -296,7 +296,7 @@ test "large graph traversal with new algorithms" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_large_graph");
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "./test_large_graph");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -373,7 +373,7 @@ test "edge type filtering integration" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_edge_filtering");
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "./test_edge_filtering");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -451,7 +451,7 @@ test "memory safety under stress with new algorithms" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_memory_safety");
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "./test_memory_safety");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -494,7 +494,7 @@ test "memory safety under stress with new algorithms" {
             std.mem.writeInt(u32, start_bytes[12..16], (round % 10) + 1, .little);
             const start_id = BlockId{ .bytes = start_bytes };
 
-            const query = TraversalQuery{
+            const traversal_query = TraversalQuery{
                 .start_block_id = start_id,
                 .direction = .outgoing,
                 .algorithm = algorithm,
@@ -503,7 +503,7 @@ test "memory safety under stress with new algorithms" {
                 .edge_filter = .all_types,
             };
 
-            const result = try query.traversal.execute_traversal(allocator, &storage_engine, query);
+            const result = try query.execute_traversal(allocator, &storage_engine, traversal_query);
             defer result.deinit();
 
             // Verify results are valid

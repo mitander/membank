@@ -1,5 +1,90 @@
 const std = @import("std");
 
+// Test discovery and configuration
+const TestConfig = struct {
+    name: []const u8,
+    source_file: []const u8,
+    description: []const u8,
+};
+
+// Dynamic test discovery function
+fn discover_test_files(allocator: std.mem.Allocator, tests_dir_path: []const u8) !std.ArrayList(TestConfig) {
+    var discovered_tests = std.ArrayList(TestConfig).init(allocator);
+
+    // Add the unit test (special case - embedded in src/main.zig)
+    try discovered_tests.append(.{
+        .name = "unit",
+        .source_file = "src/main.zig",
+        .description = "core component unit tests",
+    });
+
+    var tests_dir = std.fs.cwd().openDir(tests_dir_path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return discovered_tests, // No tests directory, return unit tests only
+        else => return err,
+    };
+    defer tests_dir.close();
+
+    var walker = try tests_dir.walk(allocator);
+    defer walker.deinit();
+
+    while (try walker.next()) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
+
+        // Skip helper files that aren't test files
+        if (std.mem.endsWith(u8, entry.path, "_helper.zig") or
+            std.mem.endsWith(u8, entry.path, "helper.zig")) continue;
+
+        // Generate step name from path: tests/category/file.zig -> category_file
+        const step_name = blk: {
+            var name_buf: [256]u8 = undefined;
+            var name_len: usize = 0;
+
+            // Split path and build name
+            var path_parts = std.mem.splitSequence(u8, entry.path, "/");
+            var is_first = true;
+            while (path_parts.next()) |part| {
+                if (std.mem.endsWith(u8, part, ".zig")) {
+                    // Remove .zig extension
+                    const basename = part[0 .. part.len - 4];
+                    if (!is_first) {
+                        name_buf[name_len] = '_';
+                        name_len += 1;
+                    }
+                    @memcpy(name_buf[name_len .. name_len + basename.len], basename);
+                    name_len += basename.len;
+                } else {
+                    if (!is_first) {
+                        name_buf[name_len] = '_';
+                        name_len += 1;
+                    }
+                    @memcpy(name_buf[name_len .. name_len + part.len], part);
+                    name_len += part.len;
+                }
+                is_first = false;
+            }
+
+            break :blk try allocator.dupe(u8, name_buf[0..name_len]);
+        };
+
+        // Generate description from category and filename
+        const description = blk: {
+            const category = std.fs.path.dirname(entry.path) orelse "general";
+            const basename = std.fs.path.stem(entry.path);
+            break :blk try std.fmt.allocPrint(allocator, "{s} {s} tests", .{ category, basename });
+        };
+
+        const full_path = try std.fmt.allocPrint(allocator, "tests/{s}", .{entry.path});
+
+        try discovered_tests.append(.{
+            .name = step_name,
+            .source_file = full_path,
+            .description = description,
+        });
+    }
+
+    return discovered_tests;
+}
+
 pub fn build(b: *std.Build) void {
     // Build configuration options
     const enable_statistics = b.option(bool, "enable-stats", "Enable runtime statistics collection (debug builds only)") orelse false;
@@ -54,233 +139,22 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run KausalDB");
     run_step.dependOn(&run_cmd.step);
 
-    // Test configuration
-    const TestConfig = struct {
-        name: []const u8,
-        source_file: []const u8,
-        description: []const u8,
+    // Discover test files dynamically
+    var arena = std.heap.ArenaAllocator.init(b.allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    const test_configs = discover_test_files(arena_allocator, "tests") catch |err| {
+        std.debug.print("Failed to discover test files: {}\n", .{err});
+        // Fallback to minimal unit test only
+        return;
     };
 
-    const test_configs = [_]TestConfig{
-        // Core unit tests - run tests embedded in implementation files
-        .{ .name = "unit", .source_file = "src/main.zig", .description = "core component unit tests" },
-
-        // Integration tests - cross-component behavior validation
-        .{
-            .name = "integration_lifecycle",
-            .source_file = "tests/integration/lifecycle.zig",
-            .description = "storage engine lifecycle integration tests",
-        },
-        .{
-            .name = "integration_ingestion",
-            .source_file = "tests/integration/ingestion.zig",
-            .description = "ingestion pipeline integration tests",
-        },
-        .{
-            .name = "integration_server",
-            .source_file = "tests/integration/server_lifecycle.zig",
-            .description = "server startup and lifecycle integration tests",
-        },
-
-        // Simulation tests - deterministic failure scenario validation
-        .{
-            .name = "simulation_network",
-            .source_file = "tests/simulation/network.zig",
-            .description = "network partition simulation tests",
-        },
-
-        // Stress tests - high-load and resource exhaustion validation
-        .{
-            .name = "stress_storage",
-            .source_file = "tests/stress/storage.zig",
-            .description = "storage engine stress tests",
-        },
-        .{
-            .name = "stress_memory",
-            .source_file = "tests/stress/memory.zig",
-            .description = "memory allocation stress tests",
-        },
-
-        // Recovery tests - WAL recovery and corruption handling
-        .{
-            .name = "recovery_wal",
-            .source_file = "tests/recovery/wal.zig",
-            .description = "WAL recovery tests",
-        },
-        .{
-            .name = "recovery_streaming_wal",
-            .source_file = "tests/recovery/streaming_wal_recovery.zig",
-            .description = "streaming WAL recovery tests",
-        },
-        .{
-            .name = "recovery_wal_segmentation",
-            .source_file = "tests/recovery/wal_segmentation.zig",
-            .description = "WAL segmentation tests",
-        },
-        .{
-            .name = "recovery_wal_memory_safety",
-            .source_file = "tests/recovery/wal_memory_safety.zig",
-            .description = "WAL memory safety tests",
-        },
-        .{
-            .name = "recovery_wal_corruption",
-            .source_file = "tests/recovery/wal_corruption.zig",
-            .description = "WAL corruption detection and recovery tests",
-        },
-        .{
-            .name = "recovery_wal_corruption_fatal",
-            .source_file = "tests/recovery/wal_corruption_fatal.zig",
-            .description = "WAL corruption fatal assertion tests",
-        },
-
-        // Safety tests - memory corruption and safety validation
-        .{
-            .name = "safety_memory_corruption",
-            .source_file = "tests/safety/memory_corruption.zig",
-            .description = "memory safety and corruption detection tests",
-        },
-        .{
-            .name = "safety_memory_fatal",
-            .source_file = "tests/safety/memory_safety_fatal.zig",
-            .description = "memory safety fatal assertion tests",
-        },
-
-        // Fault injection tests - targeted failure injection validation
-        .{
-            .name = "fault_injection_storage",
-            .source_file = "tests/fault_injection/storage_faults.zig",
-            .description = "storage fault injection tests",
-        },
-        .{
-            .name = "fault_injection_wal_cleanup",
-            .source_file = "tests/fault_injection/wal_cleanup_faults.zig",
-            .description = "WAL cleanup fault injection tests",
-        },
-        .{
-            .name = "fault_injection_wal_durability",
-            .source_file = "tests/fault_injection/wal_durability_faults.zig",
-            .description = "WAL durability fault injection tests",
-        },
-        .{
-            .name = "fault_injection_ingestion",
-            .source_file = "tests/fault_injection/ingestion_faults.zig",
-            .description = "ingestion pipeline fault injection tests",
-        },
-        .{
-            .name = "fault_injection_query",
-            .source_file = "tests/fault_injection/query_faults.zig",
-            .description = "query engine fault injection tests",
-        },
-        .{
-            .name = "fault_injection_network",
-            .source_file = "tests/fault_injection/network_faults.zig",
-            .description = "network layer fault injection tests",
-        },
-        .{
-            .name = "fault_injection_traversal",
-            .source_file = "tests/fault_injection/traversal_faults.zig",
-            .description = "graph traversal fault injection tests",
-        },
-        .{
-            .name = "fault_injection_server",
-            .source_file = "tests/fault_injection/server_faults.zig",
-            .description = "server connection management fault injection tests",
-        },
-
-        // Performance tests - regression detection and benchmarking
-        .{
-            .name = "performance_streaming",
-            .source_file = "tests/performance/streaming_memory_benchmark.zig",
-            .description = "streaming memory efficiency benchmarks",
-        },
-
-        // Defensive programming tests - assertion and safety validation
-        .{
-            .name = "defensive_assertions",
-            .source_file = "tests/defensive/assertion_validation.zig",
-            .description = "defensive assertion validation tests",
-        },
-        .{
-            .name = "defensive_corruption",
-            .source_file = "tests/defensive/corruption_injection.zig",
-            .description = "corruption detection validation tests",
-        },
-        .{
-            .name = "defensive_performance",
-            .source_file = "tests/defensive/performance_impact.zig",
-            .description = "defensive programming performance impact tests",
-        },
-
-        // Network protocol and API validation
-        .{
-            .name = "server_protocol",
-            .source_file = "tests/server/protocol.zig",
-            .description = "TCP server protocol tests",
-        },
-        .{
-            .name = "server_coordinator",
-            .source_file = "tests/integration/server_coordinator.zig",
-            .description = "server coordinator pattern tests",
-        },
-
-        // CLI interface and command validation
-        .{
-            .name = "cli_interface",
-            .source_file = "tests/cli/command_interface.zig",
-            .description = "CLI command interface and argument validation tests",
-        },
-
-        // Bloom filter validation
-        .{
-            .name = "bloom_filter_validation",
-            .source_file = "tests/storage/bloom_filter_validation.zig",
-            .description = "Bloom filter integration and validation tests",
-        },
-
-        // Advanced query scenarios
-        .{
-            .name = "streaming_and_optimization",
-            .source_file = "tests/query/streaming_and_optimization.zig",
-            .description = "streaming query results and optimization strategy tests",
-        },
-        .{
-            .name = "advanced_algorithms_edge_cases",
-            .source_file = "tests/query/advanced_algorithms_edge_cases.zig",
-            .description = "advanced graph traversal algorithm edge case and robustness tests",
-        },
-        .{
-            .name = "query_cache_test",
-            .source_file = "tests/query/cache_test.zig",
-            .description = "query result caching system LRU eviction, TTL expiration, and invalidation tests",
-        },
-
-        // Compaction strategies
-        .{
-            .name = "enhanced_compaction_strategies",
-            .source_file = "tests/storage/enhanced_compaction_strategies.zig",
-            .description = "enhanced tiered compaction strategy and edge case tests",
-        },
-
-        // Ingestion Pipeline Backpressure - Integration tests
-        .{
-            .name = "backpressure_integration",
-            .source_file = "tests/ingestion/backpressure_integration.zig",
-            .description = "ingestion pipeline backpressure control and memory pressure adaptation tests",
-        },
-
-        // Memory profiling validation tests
-        .{
-            .name = "memory_profiling_validation",
-            .source_file = "tests/memory/memory_profiling_validation.zig",
-            .description = "memory profiler RSS measurement accuracy and performance overhead validation tests",
-        },
-    };
-
-    var test_steps: [test_configs.len]*std.Build.Step.Run = undefined;
-    var test_install_steps: [test_configs.len]*std.Build.Step.InstallArtifact = undefined;
+    var test_steps = std.ArrayList(*std.Build.Step.Run).init(arena_allocator);
+    var test_install_steps = std.ArrayList(*std.Build.Step.InstallArtifact).init(arena_allocator);
 
     // Create all test executables
-    for (test_configs, 0..) |config, i| {
+    for (test_configs.items) |config| {
         const test_exe = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path(config.source_file),
@@ -291,15 +165,17 @@ pub fn build(b: *std.Build) void {
         // Provide both public API and internal testing APIs
         test_exe.root_module.addImport("kausaldb", kausaldb_test_module);
 
-        test_install_steps[i] = b.addInstallArtifact(test_exe, .{});
+        const install_step = b.addInstallArtifact(test_exe, .{});
+        test_install_steps.append(install_step) catch @panic("Failed to append test install step");
 
-        test_steps[i] = b.addRunArtifact(test_exe);
+        const test_run_step = b.addRunArtifact(test_exe);
+        test_steps.append(test_run_step) catch @panic("Failed to append test run step");
     }
 
-    for (test_configs, test_steps) |config, run_test| {
+    for (test_configs.items, test_steps.items) |config, test_run| {
         const step_name = if (std.mem.eql(u8, config.name, "unit")) "unit-test" else config.name;
         const individual_step = b.step(step_name, b.fmt("Run {s}", .{config.description}));
-        individual_step.dependOn(&run_test.step);
+        individual_step.dependOn(&test_run.step);
     }
 
     // Tidy tests for code quality
@@ -315,28 +191,28 @@ pub fn build(b: *std.Build) void {
     const run_tidy_tests = b.addRunArtifact(tidy_tests);
 
     // Fast developer workflow: core functionality validation only
-    const unit_test_index = blk: {
-        for (test_configs, 0..) |config, i| {
-            if (std.mem.eql(u8, config.name, "unit")) break :blk i;
+    const unit_test_run_step = blk: {
+        for (test_configs.items, test_steps.items) |config, test_run| {
+            if (std.mem.eql(u8, config.name, "unit")) break :blk test_run;
         }
         @panic("unit test config not found");
     };
     const test_step = b.step("test", "Run fast unit tests (developer default)");
-    test_step.dependOn(&test_steps[unit_test_index].step);
+    test_step.dependOn(&unit_test_run_step.step);
 
     // CI validation: full coverage with reasonable runtime
     const test_fast_step = b.step("test-fast", "Run tests (fast CI validation)");
-    for (test_steps) |run_test| {
-        test_fast_step.dependOn(&run_test.step);
+    for (test_steps.items) |test_run| {
+        test_fast_step.dependOn(&test_run.step);
     }
 
     // Complete validation: includes memory stress and edge cases
     const test_all_step = b.step("test-all", "Run all tests including problematic ones");
-    for (test_steps) |run_test| {
-        test_all_step.dependOn(&run_test.step);
+    for (test_steps.items) |test_run| {
+        test_all_step.dependOn(&test_run.step);
     }
     // Enable memory debugging with external tools like Valgrind
-    for (test_install_steps) |install_step| {
+    for (test_install_steps.items) |install_step| {
         test_all_step.dependOn(&install_step.step);
     }
 

@@ -48,7 +48,7 @@ test "tiered compaction manager initialization and cleanup" {
     defer manager.deinit();
 
     // Initial state should have empty tiers
-    try testing.expect(!manager.check_compaction_needed().is_some);
+    try testing.expect((try manager.check_compaction_needed()) == null);
 }
 
 test "L0 compaction threshold triggers" {
@@ -74,7 +74,7 @@ test "L0 compaction threshold triggers" {
     }
 
     // Should not trigger compaction yet
-    try testing.expect(!manager.check_compaction_needed().is_some);
+    try testing.expect((try manager.check_compaction_needed()) == null);
 
     // Add one more to trigger threshold
     const trigger_path = try std.fmt.allocPrint(allocator, "sstable_trigger.sst", .{});
@@ -214,7 +214,7 @@ test "compaction configuration validation" {
     }
 
     // Should not trigger yet
-    try testing.expect(!manager.check_compaction_needed().is_some);
+    try testing.expect((try manager.check_compaction_needed()) == null);
 
     // Add one more to hit threshold
     const trigger_path = try std.fmt.allocPrint(allocator, "config_trigger.sst", .{});
@@ -222,7 +222,7 @@ test "compaction configuration validation" {
     try manager.add_sstable(trigger_path, 1024 * 1024, 0);
 
     // Should now trigger
-    try testing.expect(manager.check_compaction_needed().is_some);
+    try testing.expect((try manager.check_compaction_needed()) != null);
 }
 
 test "multi-level compaction scenarios" {
@@ -257,8 +257,8 @@ test "multi-level compaction scenarios" {
     }
 
     // Should prioritize L0 compaction first
-    const first_job = manager.check_compaction_needed();
-    try testing.expect(first_job.is_some);
+    const first_job = try manager.check_compaction_needed();
+    try testing.expect(first_job != null);
     try testing.expectEqual(@as(u8, 0), first_job.value.source_level);
 }
 
@@ -286,9 +286,7 @@ test "compaction with large SSTables" {
     }
 
     // Should handle large sizes without issues
-    const compaction_job = manager.check_compaction_needed();
-    if (compaction_job.is_some) {
-        const job = compaction_job.value;
+    if (try manager.check_compaction_needed()) |job| {
         try testing.expectEqual(@as(u8, 2), job.source_level);
         try testing.expectEqual(@as(u8, 3), job.target_level);
     }
@@ -317,7 +315,7 @@ test "compaction edge cases and error conditions" {
     try manager.add_sstable(max_level_path, 1024 * 1024, 7); // L7 is max
 
     // Should not crash when checking compaction on max level
-    _ = manager.check_compaction_needed();
+    _ = try manager.check_compaction_needed();
 
     // Test zero-size SSTable
     const zero_size_path = try std.fmt.allocPrint(allocator, "zero_size.sst", .{});
@@ -355,7 +353,7 @@ test "compaction performance characteristics" {
     // Check compaction decisions (should be fast)
     var compaction_checks: u32 = 0;
     while (compaction_checks < 100) : (compaction_checks += 1) {
-        _ = manager.check_compaction_needed();
+        _ = try manager.check_compaction_needed();
     }
 
     const check_time = std.time.nanoTimestamp();
@@ -399,9 +397,8 @@ test "tier state consistency under operations" {
     }
 
     // Phase 2: Trigger compaction and simulate completion
-    const initial_job = manager.check_compaction_needed();
-    if (initial_job.is_some) {
-        const job = initial_job.value;
+    const initial_job = try manager.check_compaction_needed();
+    if (initial_job) |job| {
 
         // Simulate compaction execution by removing input SSTables
         for (job.input_sstables) |input_path| {
@@ -425,7 +422,7 @@ test "tier state consistency under operations" {
     }
 
     // Should still function correctly
-    _ = manager.check_compaction_needed();
+    _ = try manager.check_compaction_needed();
 }
 
 test "compaction strategies across tier sizes" {
@@ -450,13 +447,12 @@ test "compaction strategies across tier sizes" {
         try manager.add_sstable(path, 1024 * 1024, 0);
     }
 
-    const l0_job = manager.check_compaction_needed();
-    try testing.expect(l0_job.is_some);
-    try testing.expectEqual(@as(u8, 0), l0_job.value.source_level);
+    const l0_job = try manager.check_compaction_needed();
+    try testing.expect(l0_job != null);
+    try testing.expectEqual(@as(u8, 0), l0_job.?.source_level);
 
     // Simulate L0 compaction completion
-    if (l0_job.is_some) {
-        const job = l0_job.value;
+    if (l0_job) |job| {
         for (job.input_sstables) |input_path| {
             manager.remove_sstable(input_path, 0);
         }
@@ -473,7 +469,7 @@ test "compaction strategies across tier sizes" {
         try manager.add_sstable(path, 10 * 1024 * 1024, 1);
     }
 
-    const l1_job = manager.check_compaction_needed();
-    try testing.expect(l1_job.is_some);
-    try testing.expectEqual(@as(u8, 1), l1_job.value.source_level);
+    const l1_job = try manager.check_compaction_needed();
+    try testing.expect(l1_job != null);
+    try testing.expectEqual(@as(u8, 1), l1_job.?.source_level);
 }

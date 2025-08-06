@@ -146,7 +146,7 @@ test "memory fault injection: I/O errors during memory operations" {
     try sim.vfs.inject_fault(.write_failure, "test_data/wal/wal_0000.log");
     try sim.vfs.inject_fault(.read_failure, "test_data/sst/sstable_0000.sst");
 
-    var storage = StorageEngine.init(allocator, sim.vfs, "test_data") catch |err| {
+    var storage = StorageEngine.init_default(allocator, sim.vfs, "test_data") catch |err| {
         // Expected failure during initialization
         try testing.expect(err == error.AccessDenied or err == error.FileNotFound);
         return;
@@ -251,7 +251,7 @@ test "memory fault injection: error path cleanup validation" {
     for (failure_scenarios, 0..) |scenario, scenario_idx| {
         try sim.vfs.inject_fault(scenario.fault_type, scenario.file_pattern);
 
-        var storage = StorageEngine.init(allocator, sim.vfs, "error_test") catch |err| {
+        var storage = StorageEngine.init_default(allocator, sim.vfs, "error_test") catch |err| {
             // Expected initialization failure
             try testing.expect(err == error.AccessDenied or err == error.FileNotFound);
             continue;
@@ -373,7 +373,7 @@ test "memory fault injection: graph edge operations under stress" {
     var sim = try Simulation.init(allocator, 0x5000000);
     defer sim.deinit();
 
-    var storage = try StorageEngine.init(allocator, sim.vfs, "graph_stress_data");
+    var storage = try StorageEngine.init_default(allocator, sim.vfs, "graph_stress_data");
     defer storage.deinit();
     try storage.startup();
 

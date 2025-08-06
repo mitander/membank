@@ -83,7 +83,7 @@ test "streaming recovery basic functionality" {
     const test_dir = "streaming_test_dir";
     try vfs_interface.mkdir(test_dir);
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
 
     try storage_engine.startup();
@@ -108,11 +108,8 @@ test "streaming recovery basic functionality" {
     // Delete one block
     try storage_engine.delete_block(test_block3.id);
 
-    // Set up recovery context
-    var recovery_context = RecoveryContext.init(allocator);
-
     // Test recovery using automatic approach
-    var fresh_storage = try StorageEngine.init(allocator, vfs_interface, test_dir);
+    var fresh_storage = try StorageEngine.init_default(allocator, vfs_interface, test_dir);
     defer fresh_storage.deinit();
 
     try fresh_storage.startup();
@@ -140,7 +137,7 @@ test "streaming recovery with large entries" {
     const test_dir = "large_entries_test_dir";
     try vfs_interface.mkdir(test_dir);
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
 
     try storage_engine.startup();
@@ -164,9 +161,8 @@ test "streaming recovery with large entries" {
     try storage_engine.put_block(normal_block2);
 
     // Recovery should handle large entries correctly
-    var recovery_context = RecoveryContext.init(allocator);
 
-    var fresh_storage = try StorageEngine.init(allocator, vfs_interface, test_dir);
+    var fresh_storage = try StorageEngine.init_default(allocator, vfs_interface, test_dir);
     defer fresh_storage.deinit();
 
     try fresh_storage.startup();
@@ -184,7 +180,7 @@ test "streaming recovery memory efficiency" {
     const test_dir = "memory_efficiency_test_dir";
     try vfs_interface.mkdir(test_dir);
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
 
     try storage_engine.startup();
@@ -197,9 +193,8 @@ test "streaming recovery memory efficiency" {
     }
 
     // Recovery should process all entries without excessive memory usage
-    var recovery_context = RecoveryContext.init(allocator);
 
-    var fresh_storage = try StorageEngine.init(allocator, vfs_interface, test_dir);
+    var fresh_storage = try StorageEngine.init_default(allocator, vfs_interface, test_dir);
     defer fresh_storage.deinit();
 
     try fresh_storage.startup();
@@ -217,14 +212,12 @@ test "streaming recovery empty WAL" {
     const test_dir = "empty_wal_test_dir";
     try vfs_interface.mkdir(test_dir);
 
-    var storage_engine = try StorageEngine.init(allocator, vfs_interface, test_dir);
+    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, test_dir);
     defer storage_engine.deinit();
 
     try storage_engine.startup();
 
     // Don't write any data - WAL should be empty
-
-    var recovery_context = RecoveryContext.init(allocator);
 
     // Recovery from empty WAL should complete without errors
     try storage_engine.startup();
