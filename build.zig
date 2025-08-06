@@ -361,7 +361,7 @@ pub fn build(b: *std.Build) void {
     const benchmark = b.addExecutable(.{
         .name = "benchmark",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/dev/benchmark/main.zig"),
+            .root_source_file = b.path("src/dev/benchmark.zig"),
             .target = target,
             .optimize = .ReleaseFast,
         }),

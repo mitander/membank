@@ -21,7 +21,15 @@ echo "Building benchmark binary..."
 
 # Run benchmarks and capture JSON output
 echo "Running performance benchmarks..."
-./zig-out/bin/benchmark all --json 2>&1 | sed '/^info(/d' > "$CURRENT_FILE"
+BENCHMARK_RESULTS=$(./zig-out/bin/benchmark all --json 2>&1 | sed '/^info(/d')
+
+# Wrap benchmark results in expected CI structure
+echo "Formatting results for CI processing..."
+{
+    echo '{"benchmark_suite":"KausalDB Performance","timestamp":'$(date +%s)',"results":'
+    echo "$BENCHMARK_RESULTS"
+    echo '}'
+} > "$CURRENT_FILE"
 
 if [[ ! -s "$CURRENT_FILE" ]]; then
     echo "Error: Benchmark execution failed or produced no output"
@@ -46,9 +54,9 @@ REGRESSION_COUNT=0
 IMPROVEMENT_COUNT=0
 
 echo "Checking for performance regressions..."
-for OPERATION in $(jq -r '.results[].operation_name' "$CURRENT_FILE"); do
-    CURRENT_MEAN=$(jq -r --arg op "$OPERATION" '.results[] | select(.operation_name == $op) | .mean_ns' "$CURRENT_FILE" || echo "0")
-    BASELINE_MEAN=$(jq -r --arg op "$OPERATION" '.results[] | select(.operation_name == $op) | .mean_ns' "$BASELINE_FILE" 2>/dev/null || echo "0")
+for OPERATION in $(jq -r '.results[].operation' "$CURRENT_FILE"); do
+    CURRENT_MEAN=$(jq -r --arg op "$OPERATION" '.results[] | select(.operation == $op) | .mean_ns' "$CURRENT_FILE" || echo "0")
+    BASELINE_MEAN=$(jq -r --arg op "$OPERATION" '.results[] | select(.operation == $op) | .mean_ns' "$BASELINE_FILE" 2>/dev/null || echo "0")
 
     # Ensure values are numeric and non-empty
     if [[ -z "$CURRENT_MEAN" || "$CURRENT_MEAN" == "null" ]]; then

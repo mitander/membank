@@ -482,7 +482,7 @@ run_parallel_jobs() {
 main() {
     echo -e "${BLUE}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                    KausalDB Local CI Runner                   ║"
+    echo "║                    KausalDB Local CI Runner                  ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 

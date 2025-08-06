@@ -6,6 +6,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const kausaldb = @import("kausaldb");
+const coordinator = @import("../benchmark.zig");
 
 const storage = kausaldb.storage;
 const query_engine = kausaldb.query_engine;
@@ -29,80 +30,20 @@ const ITERATIONS = 1000;
 const WARMUP_ITERATIONS = 50;
 const BATCH_SIZE = 10;
 
-const BenchmarkResult = struct {
-    operation_name: []const u8,
-    iterations: u64,
-    total_time_ns: u64,
-    min_ns: u64,
-    max_ns: u64,
-    mean_ns: u64,
-    median_ns: u64,
-    stddev_ns: u64,
-    throughput_ops_per_sec: f64,
-    passed_threshold: bool,
-    threshold_ns: u64,
-    peak_memory_bytes: u64,
-    memory_growth_bytes: u64,
-    memory_efficient: bool,
+const BenchmarkResult = coordinator.BenchmarkResult;
 
-    fn print_results(self: BenchmarkResult) void {
-        const status = if (self.passed_threshold) "PASS" else "FAIL";
-        const status_color = if (self.passed_threshold) "\x1b[32m" else "\x1b[31m";
-        const memory_status = if (self.memory_efficient) "PASS" else "FAIL";
-        const memory_color = if (self.memory_efficient) "\x1b[32m" else "\x1b[31m";
-
-        std.debug.print("\n=== {s} Benchmark ===\n", .{self.operation_name});
-        std.debug.print("Iterations: {}\n", .{self.iterations});
-
-        const total_time_ms = @as(f64, @floatFromInt(self.total_time_ns)) / 1_000_000.0;
-        std.debug.print("Total time: {d:.2}ms\n", .{total_time_ms});
-
-        const mean_us = @as(f64, @floatFromInt(self.mean_ns)) / 1_000.0;
-        const threshold_us = @as(f64, @floatFromInt(self.threshold_ns)) / 1_000.0;
-        std.debug.print("Mean time: {d:.2}µs (threshold: {d:.0}µs)\n", .{ mean_us, threshold_us });
-
-        const min_us = @as(f64, @floatFromInt(self.min_ns)) / 1_000.0;
-        const max_us = @as(f64, @floatFromInt(self.max_ns)) / 1_000.0;
-        std.debug.print("Range: {d:.2}µs - {d:.2}µs\n", .{ min_us, max_us });
-
-        std.debug.print("Throughput: {d:.0} ops/sec\n", .{self.throughput_ops_per_sec});
-        std.debug.print("Performance: {s}{s}\x1b[0m\n", .{ status_color, status });
-
-        const peak_mb = @as(f64, @floatFromInt(self.peak_memory_bytes)) / (1024.0 * 1024.0);
-        const growth_kb = @as(f64, @floatFromInt(self.memory_growth_bytes)) / 1024.0;
-        std.debug.print("Peak memory: {d:.1}MB, Growth: {d:.1}KB\n", .{ peak_mb, growth_kb });
-        std.debug.print("Memory efficiency: {s}{s}\x1b[0m\n", .{ memory_color, memory_status });
-    }
-
-    fn print_json(self: BenchmarkResult) void {
-        std.debug.print("{{\n", .{});
-        std.debug.print("\"operation\":\"{s}\",", .{self.operation_name});
-        std.debug.print("\"iterations\":{},", .{self.iterations});
-        std.debug.print("\"total_time_ns\":{},", .{self.total_time_ns});
-        std.debug.print("\"mean_ns\":{},", .{self.mean_ns});
-        std.debug.print("\"min_ns\":{},", .{self.min_ns});
-        std.debug.print("\"max_ns\":{},", .{self.max_ns});
-        std.debug.print("\"stddev_ns\":{},", .{self.stddev_ns});
-        std.debug.print("\"throughput_ops_per_sec\":{d:.2},", .{self.throughput_ops_per_sec});
-        std.debug.print("\"passed_threshold\":{},", .{self.passed_threshold});
-        std.debug.print("\"threshold_ns\":{},", .{self.threshold_ns});
-        std.debug.print("\"peak_memory_bytes\":{},", .{self.peak_memory_bytes});
-        std.debug.print("\"memory_growth_bytes\":{},", .{self.memory_growth_bytes});
-        std.debug.print("\"memory_efficient\":{}", .{self.memory_efficient});
-        std.debug.print("}}\n", .{});
-    }
-};
-
-pub fn run_all(allocator: std.mem.Allocator, json_output: bool) !void {
-    try run_single_queries(allocator, json_output);
-    try run_batch_queries(allocator, json_output);
+pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
+    var results = std.ArrayList(BenchmarkResult).init(allocator);
+    try results.append(try run_single_queries(allocator));
+    try results.append(try run_batch_queries(allocator));
+    return results;
 }
 
 /// Benchmark single block query performance with individual lookup timing
 ///
 /// Tests the performance of finding individual blocks by ID in the query engine.
 /// Used for understanding single query response characteristics.
-pub fn run_single_queries(allocator: std.mem.Allocator, json_output: bool) !void {
+pub fn run_single_queries(allocator: std.mem.Allocator) !BenchmarkResult {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -113,14 +54,14 @@ pub fn run_single_queries(allocator: std.mem.Allocator, json_output: bool) !void
     var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();
 
-    try benchmark_single_block_queries(&query_eng, allocator, json_output);
+    return benchmark_single_block_queries(&query_eng, allocator);
 }
 
 /// Benchmark batch query performance with multi-block lookup tracking
 ///
 /// Tests the performance of executing multiple queries together as a batch.
 /// Used for understanding batch processing optimization benefits.
-pub fn run_batch_queries(allocator: std.mem.Allocator, json_output: bool) !void {
+pub fn run_batch_queries(allocator: std.mem.Allocator) !BenchmarkResult {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -131,10 +72,10 @@ pub fn run_batch_queries(allocator: std.mem.Allocator, json_output: bool) !void 
     var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();
 
-    try benchmark_batch_queries_impl(&query_eng, allocator, json_output);
+    return benchmark_batch_queries_impl(&query_eng, allocator);
 }
 
-fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator, json_output: bool) !void {
+fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Allocator) !BenchmarkResult {
     try setup_query_test_data(query_eng.storage_engine);
     const test_block_ids = try create_query_test_block_ids(allocator);
     defer allocator.free(test_block_ids);
@@ -186,14 +127,10 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
         .memory_efficient = peak_memory <= MAX_PEAK_MEMORY_BYTES and memory_growth <= (MAX_MEMORY_GROWTH_PER_OP * ITERATIONS),
     };
 
-    if (json_output) {
-        result.print_json();
-    } else {
-        result.print_results();
-    }
+    return result;
 }
 
-fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allocator, json_output: bool) !void {
+fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allocator) !BenchmarkResult {
     try setup_query_test_data(query_eng.storage_engine);
     const test_block_ids = try create_query_test_block_ids(allocator);
     defer allocator.free(test_block_ids);
@@ -249,11 +186,7 @@ fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allo
         .memory_efficient = peak_memory <= MAX_PEAK_MEMORY_BYTES and memory_growth <= (MAX_MEMORY_GROWTH_PER_OP * ITERATIONS),
     };
 
-    if (json_output) {
-        result.print_json();
-    } else {
-        result.print_results();
-    }
+    return result;
 }
 
 fn setup_query_test_data(storage_engine: *StorageEngine) !void {
