@@ -108,5 +108,6 @@ pub const query = struct {
 };
 
 pub const debug_allocator = @import("dev/debug_allocator.zig");
+pub const profiler = @import("dev/profiler.zig");
 
 pub const main = @import("main.zig");

@@ -7,6 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const kausaldb = @import("kausaldb");
 const coordinator = @import("../benchmark.zig");
+const profiler = @import("../profiler.zig");
 const assert = kausaldb.assert;
 
 const storage = kausaldb.storage;
@@ -56,7 +57,7 @@ fn benchmark_compaction_operations(
 ) !BenchmarkResult {
     try setup_compaction_test_data(storage_engine, allocator);
 
-    const initial_memory = query_current_rss_memory();
+    const initial_memory = profiler.query_current_rss_memory();
     var timings = try allocator.alloc(u64, COMPACTION_ITERATIONS);
     defer allocator.free(timings);
 
@@ -82,7 +83,7 @@ fn benchmark_compaction_operations(
         timings[i] = @intCast(end_time - start_time);
     }
 
-    const peak_memory = query_current_rss_memory();
+    const peak_memory = profiler.query_current_rss_memory();
     const memory_growth = peak_memory - initial_memory;
 
     const stats = analyze_timings(timings);
@@ -157,87 +158,6 @@ fn free_compaction_test_block(allocator: std.mem.Allocator, block: ContextBlock)
     allocator.free(block.source_uri);
     allocator.free(block.metadata_json);
     allocator.free(block.content);
-}
-
-fn query_current_rss_memory() u64 {
-    return switch (builtin.os.tag) {
-        .linux => query_rss_linux() catch 0,
-        .macos => query_rss_macos() catch 0,
-        .windows => query_rss_windows() catch 0,
-        else => 0,
-    };
-}
-
-fn query_rss_linux() !u64 {
-    const file = std.fs.cwd().openFile("/proc/self/status", .{}) catch return error.FileNotFound;
-    defer file.close();
-
-    var buf: [4096]u8 = undefined;
-    const bytes_read = try file.readAll(&buf);
-    const content = buf[0..bytes_read];
-
-    if (std.mem.indexOf(u8, content, "VmRSS:")) |start| {
-        const line_start = start;
-        const line_end = std.mem.indexOfScalarPos(u8, content, line_start, '\n') orelse content.len;
-        const line = content[line_start..line_end];
-
-        if (std.mem.indexOf(u8, line, "\t")) |tab_pos| {
-            if (std.mem.indexOf(u8, line, " kB")) |kb_pos| {
-                const value_str = std.mem.trim(u8, line[tab_pos + 1 .. kb_pos], " \t");
-                const kb_value = std.fmt.parseInt(u64, value_str, 10) catch return error.ParseError;
-                return kb_value * 1024;
-            }
-        }
-    }
-    return error.ParseError;
-}
-
-fn query_rss_macos() !u64 {
-    const c = @cImport({
-        @cInclude("mach/mach.h");
-        @cInclude("mach/task.h");
-        @cInclude("mach/mach_init.h");
-    });
-
-    var info: c.mach_task_basic_info_data_t = undefined;
-    var count: c.mach_msg_type_number_t = c.MACH_TASK_BASIC_INFO_COUNT;
-
-    const kr = c.task_info(c.mach_task_self(), c.MACH_TASK_BASIC_INFO, @as(c.task_info_t, @ptrCast(&info)), &count);
-
-    if (kr != c.KERN_SUCCESS) return error.TaskInfoFailed;
-    return info.resident_size;
-}
-
-fn query_rss_windows() !u64 {
-    const windows = std.os.windows;
-    const PROCESS_MEMORY_COUNTERS = extern struct {
-        cb: windows.DWORD,
-        PageFaultCount: windows.DWORD,
-        PeakWorkingSetSize: windows.SIZE_T,
-        WorkingSetSize: windows.SIZE_T,
-        QuotaPeakPagedPoolUsage: windows.SIZE_T,
-        QuotaPagedPoolUsage: windows.SIZE_T,
-        QuotaPeakNonPagedPoolUsage: windows.SIZE_T,
-        QuotaNonPagedPoolUsage: windows.SIZE_T,
-        PagefileUsage: windows.SIZE_T,
-        PeakPagefileUsage: windows.SIZE_T,
-    };
-
-    const psapi = struct {
-        extern "psapi" fn GetProcessMemoryInfo(
-            hProcess: windows.HANDLE,
-            ppsmemCounters: *PROCESS_MEMORY_COUNTERS,
-            cb: windows.DWORD,
-        ) callconv(windows.WINAPI) windows.BOOL;
-    };
-
-    var pmc: PROCESS_MEMORY_COUNTERS = undefined;
-    pmc.cb = @sizeOf(PROCESS_MEMORY_COUNTERS);
-
-    const success = psapi.GetProcessMemoryInfo(windows.kernel32.GetCurrentProcess(), &pmc, @sizeOf(PROCESS_MEMORY_COUNTERS));
-
-    if (success == 0) return error.GetProcessMemoryInfoFailed;
-    return pmc.WorkingSetSize;
 }
 
 fn analyze_timings(timings: []u64) struct {
