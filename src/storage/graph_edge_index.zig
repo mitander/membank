@@ -76,21 +76,15 @@ pub const GraphEdgeIndex = struct {
         };
     }
 
-    /// Clean up all resources including HashMaps, ArrayLists, and arena.
-    /// ArrayLists must be cleaned up before HashMap deallocation to prevent
-    /// use-after-free of arena-allocated list storage.
+    /// Clean up all resources including HashMaps and arena.
+    /// ArrayLists use arena allocator so they don't need individual deinit() calls.
+    /// The arena cleanup handles all ArrayList memory automatically.
     pub fn deinit(self: *GraphEdgeIndex) void {
-        var outgoing_iter = self.outgoing_edges.iterator();
-        while (outgoing_iter.next()) |entry| {
-            entry.value_ptr.deinit();
-        }
-        var incoming_iter = self.incoming_edges.iterator();
-        while (incoming_iter.next()) |entry| {
-            entry.value_ptr.deinit();
-        }
-
+        // HashMaps use backing allocator, so they need explicit cleanup
         self.outgoing_edges.deinit();
         self.incoming_edges.deinit();
+
+        // Arena cleanup handles all ArrayList memory automatically
         self.arena.deinit();
     }
 
@@ -175,14 +169,11 @@ pub const GraphEdgeIndex = struct {
     /// Cleans up both outgoing and incoming edge lists to maintain consistency.
     /// Note: This removes only direct edges; graph traversal cleanup for
     /// indirect references requires separate handling.
+    /// ArrayLists use arena allocator so individual deinit() not needed.
     pub fn remove_block_edges(self: *GraphEdgeIndex, block_id: BlockId) void {
-        if (self.outgoing_edges.fetchRemove(block_id)) |kv| {
-            kv.value.deinit();
-        }
-
-        if (self.incoming_edges.fetchRemove(block_id)) |kv| {
-            kv.value.deinit();
-        }
+        // Remove from HashMaps - arena will handle ArrayList memory
+        _ = self.outgoing_edges.remove(block_id);
+        _ = self.incoming_edges.remove(block_id);
     }
 
     /// Remove a specific edge between two blocks.
@@ -242,17 +233,11 @@ pub const GraphEdgeIndex = struct {
     /// Clear all edges and reset arena for O(1) bulk deallocation.
     /// Retains HashMap capacity for efficient reuse after clearing.
     pub fn clear(self: *GraphEdgeIndex) void {
-        var outgoing_iter = self.outgoing_edges.iterator();
-        while (outgoing_iter.next()) |entry| {
-            entry.value_ptr.deinit();
-        }
-        var incoming_iter = self.incoming_edges.iterator();
-        while (incoming_iter.next()) |entry| {
-            entry.value_ptr.deinit();
-        }
-
+        // Clear HashMaps but retain capacity for reuse
         self.outgoing_edges.clearRetainingCapacity();
         self.incoming_edges.clearRetainingCapacity();
+
+        // Arena reset handles all ArrayList memory automatically
         _ = self.arena.reset(.retain_capacity);
     }
 };
