@@ -183,10 +183,9 @@ pub const WAL = struct {
     /// Write buffer to file with immediate verification
     fn write_and_verify(self: *WAL, entry: WALEntry, write_buffer: []const u8) WALError!usize {
         const written = self.active_file.?.write(write_buffer) catch return WALError.IoError;
-        assert(written == write_buffer.len);
 
         if (written != write_buffer.len) {
-            log.err("WAL write incomplete: expected {}, got {}", .{ write_buffer.len, written });
+            log.warn("WAL write incomplete: expected {}, got {}", .{ write_buffer.len, written });
             return WALError.IoError;
         }
 
@@ -258,7 +257,7 @@ pub const WAL = struct {
     }
 
     /// List all WAL segment files in the directory, sorted in chronological order
-    fn list_segment_files(self: *WAL) WALError![][]const u8 {
+    pub fn list_segment_files(self: *WAL) WALError![][]const u8 {
         var file_list = std.ArrayList([]const u8).init(self.allocator);
         defer file_list.deinit();
 

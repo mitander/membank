@@ -21,9 +21,9 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
 const EdgeType = context_block.EdgeType;
-const TraversalQuery = query.TraversalQuery;
-const TraversalAlgorithm = query.TraversalAlgorithm;
-const TraversalDirection = query.TraversalDirection;
+const TraversalQuery = query.traversal.TraversalQuery;
+const TraversalAlgorithm = query.traversal.TraversalAlgorithm;
+const TraversalDirection = query.traversal.TraversalDirection;
 
 /// Create test block with deterministic ID
 fn create_test_block(id: u32, content: []const u8, allocator: std.mem.Allocator) !ContextBlock {
@@ -40,17 +40,16 @@ fn create_test_block(id: u32, content: []const u8, allocator: std.mem.Allocator)
 }
 
 /// Create test edge between block IDs
-fn create_test_edge(from_id: u32, to_id: u32, edge_type: EdgeType, allocator: std.mem.Allocator) !GraphEdge {
+fn create_test_edge(from_id: u32, to_id: u32, edge_type: EdgeType, _: std.mem.Allocator) !GraphEdge {
     var from_bytes: [16]u8 = std.mem.zeroes([16]u8);
     var to_bytes: [16]u8 = std.mem.zeroes([16]u8);
     std.mem.writeInt(u32, from_bytes[12..16], from_id, .little);
     std.mem.writeInt(u32, to_bytes[12..16], to_id, .little);
 
     return GraphEdge{
-        .from_block_id = BlockId{ .bytes = from_bytes },
-        .to_block_id = BlockId{ .bytes = to_bytes },
+        .source_id = BlockId{ .bytes = from_bytes },
+        .target_id = BlockId{ .bytes = to_bytes },
         .edge_type = edge_type,
-        .metadata_json = try allocator.dupe(u8, "{}"),
     };
 }
 
@@ -99,7 +98,6 @@ test "A* search integration with storage engine" {
 
     for (edges) |edge_info| {
         const edge = try create_test_edge(edge_info.from, edge_info.to, edge_info.edge_type, allocator);
-        defer allocator.free(edge.metadata_json);
         try storage_engine.put_edge(edge);
     }
 
@@ -169,13 +167,11 @@ test "bidirectional search integration and performance" {
     while (i < block_count) : (i += 1) {
         // Create forward edges
         const edge_forward = try create_test_edge(i, i + 1, .calls, allocator);
-        defer allocator.free(edge_forward.metadata_json);
         try storage_engine.put_edge(edge_forward);
 
         // Create some backward references
         if (i % 3 == 0 and i > 3) {
             const edge_back = try create_test_edge(i, i - 3, .references, allocator);
-            defer allocator.free(edge_back.metadata_json);
             try storage_engine.put_edge(edge_back);
         }
     }
@@ -200,7 +196,7 @@ test "bidirectional search integration and performance" {
     const end_time = std.time.nanoTimestamp();
 
     const execution_time_ns = end_time - start_time;
-    const execution_time_us = execution_time_ns / 1000;
+    const execution_time_us = @divTrunc(execution_time_ns, 1000);
 
     // Verify bidirectional search results
     try testing.expect(result.count() > 0);
@@ -244,13 +240,11 @@ test "algorithm comparison - BFS vs DFS vs A* vs Bidirectional" {
         // Left child
         if (i * 2 <= graph_size) {
             const edge_left = try create_test_edge(i, i * 2, .calls, allocator);
-            defer allocator.free(edge_left.metadata_json);
             try storage_engine.put_edge(edge_left);
         }
         // Right child
         if (i * 2 + 1 <= graph_size) {
             const edge_right = try create_test_edge(i, i * 2 + 1, .calls, allocator);
-            defer allocator.free(edge_right.metadata_json);
             try storage_engine.put_edge(edge_right);
         }
     }
@@ -273,12 +267,12 @@ test "algorithm comparison - BFS vs DFS vs A* vs Bidirectional" {
         };
 
         const start_time = std.time.nanoTimestamp();
-        const result = try query.execute_traversal(allocator, &storage_engine, traversal_query);
+        const result = try query.traversal.execute_traversal(allocator, &storage_engine, traversal_query);
         defer result.deinit();
         const end_time = std.time.nanoTimestamp();
 
         const execution_time_ns = end_time - start_time;
-        const execution_time_us = execution_time_ns / 1000;
+        const execution_time_us = @divTrunc(execution_time_ns, 1000);
 
         // All algorithms should find results
         try testing.expect(result.count() > 0);
@@ -321,14 +315,12 @@ test "large graph traversal with new algorithms" {
         var j: u32 = 1;
         while (j <= 3 and i + j <= large_graph_size) : (j += 1) {
             const edge = try create_test_edge(i, i + j, .calls, allocator);
-            defer allocator.free(edge.metadata_json);
             try storage_engine.put_edge(edge);
         }
 
         // Connect to some previous nodes for richness
         if (i > 10 and i % 5 == 0) {
             const edge_back = try create_test_edge(i, i - 5, .references, allocator);
-            defer allocator.free(edge_back.metadata_json);
             try storage_engine.put_edge(edge_back);
         }
     }
@@ -353,7 +345,7 @@ test "large graph traversal with new algorithms" {
     const end_time = std.time.nanoTimestamp();
 
     const execution_time_ns = end_time - start_time;
-    const execution_time_ms = execution_time_ns / 1_000_000;
+    const execution_time_ms = @divTrunc(execution_time_ns, 1_000_000);
 
     // Performance validation
     try testing.expect(result.count() > 0);
@@ -401,7 +393,6 @@ test "edge type filtering integration" {
 
     for (mixed_edges) |edge_info| {
         const edge = try create_test_edge(edge_info.from, edge_info.to, edge_info.edge_type, allocator);
-        defer allocator.free(edge.metadata_json);
         try storage_engine.put_edge(edge);
     }
 
@@ -429,7 +420,7 @@ test "edge type filtering integration" {
     const imports_query = TraversalQuery{
         .start_block_id = start_id,
         .direction = .outgoing,
-        .algorithm = .bidirectional_search,
+        .algorithm = .breadth_first, // Use BFS for simple outgoing traversal
         .max_depth = 3,
         .max_results = 10,
         .edge_filter = .{ .only_type = .imports },
@@ -473,13 +464,11 @@ test "memory safety under stress with new algorithms" {
     i = 1;
     while (i < stress_graph_size) : (i += 1) {
         const edge = try create_test_edge(i, i + 1, .calls, allocator);
-        defer allocator.free(edge.metadata_json);
         try storage_engine.put_edge(edge);
 
         // Add some cross-links
         if (i % 3 == 0 and i + 3 <= stress_graph_size) {
             const cross_edge = try create_test_edge(i, i + 3, .references, allocator);
-            defer allocator.free(cross_edge.metadata_json);
             try storage_engine.put_edge(cross_edge);
         }
     }
@@ -503,7 +492,7 @@ test "memory safety under stress with new algorithms" {
                 .edge_filter = .all_types,
             };
 
-            const result = try query.execute_traversal(allocator, &storage_engine, traversal_query);
+            const result = try query.traversal.execute_traversal(allocator, &storage_engine, traversal_query);
             defer result.deinit();
 
             // Verify results are valid

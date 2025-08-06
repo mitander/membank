@@ -12,22 +12,18 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const custom_assert = @import("assert.zig");
-const assert = custom_assert.assert;
 const assert_fmt = custom_assert.assert_fmt;
-const assert_not_null = custom_assert.assert_not_null;
-const assert_not_empty = custom_assert.assert_not_empty;
-const assert_range = custom_assert.assert_range;
-const assert_buffer_bounds = custom_assert.assert_buffer_bounds;
 const comptime_assert = custom_assert.comptime_assert;
-const comptime_no_padding = custom_assert.comptime_no_padding;
 
 /// Unique identifier for a Context Block.
 /// Uses 128-bit UUID to ensure global uniqueness across distributed systems.
 pub const BlockId = struct {
     bytes: [16]u8,
 
+    const SIZE = 16;
+
     comptime {
-        comptime_assert(@sizeOf(BlockId) == 16, "BlockId must be 16 bytes");
+        comptime_assert(@sizeOf(BlockId) == SIZE, "BlockId must be 16 bytes");
     }
 
     /// Create BlockId from raw bytes.
@@ -702,37 +698,4 @@ test "ContextBlock size computation from buffer" {
 
     const computed_size = try ContextBlock.compute_serialized_size_from_buffer(buffer);
     try std.testing.expectEqual(expected_size, computed_size);
-}
-
-/// Basic JSON syntax validation without full parsing
-/// This is a workaround for Zig JSON parser issues in ReleaseSafe mode
-fn is_valid_json_syntax(json: []const u8) bool {
-    if (json.len == 0) return false;
-
-    // Must start and end with proper delimiters
-    const first = json[0];
-    const last = json[json.len - 1];
-
-    // Support objects and arrays
-    if (first == '{' and last == '}') return true;
-    if (first == '[' and last == ']') return true;
-
-    // Support simple string values
-    if (first == '"' and last == '"' and json.len >= 2) return true;
-
-    // Support simple literals
-    if (std.mem.eql(u8, json, "null")) return true;
-    if (std.mem.eql(u8, json, "true")) return true;
-    if (std.mem.eql(u8, json, "false")) return true;
-
-    // Support simple numbers
-    if (std.fmt.parseFloat(f64, json)) |_| {
-        return true;
-    } else |_| {}
-
-    if (std.fmt.parseInt(i64, json, 10)) |_| {
-        return true;
-    } else |_| {}
-
-    return false;
 }

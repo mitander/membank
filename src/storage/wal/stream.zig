@@ -63,7 +63,6 @@ pub const WALEntryStream = struct {
     file: *VFile,
 
     // Buffering state - encapsulated to avoid external coupling
-    read_buffer: [READ_BUFFER_SIZE]u8,
     process_buffer: [PROCESS_BUFFER_SIZE]u8,
     remaining_buffer: [PROCESS_BUFFER_SIZE]u8,
     remaining_len: usize,
@@ -87,7 +86,6 @@ pub const WALEntryStream = struct {
         return WALEntryStream{
             .allocator = allocator,
             .file = file,
-            .read_buffer = std.mem.zeroes([READ_BUFFER_SIZE]u8),
             .process_buffer = std.mem.zeroes([PROCESS_BUFFER_SIZE]u8),
             .remaining_buffer = std.mem.zeroes([PROCESS_BUFFER_SIZE]u8),
             .remaining_len = 0,
@@ -173,30 +171,22 @@ pub const WALEntryStream = struct {
     /// Fill the process buffer with data, handling remaining data from previous reads
     fn fill_process_buffer(self: *WALEntryStream) StreamError!usize {
         const position_before_read = self.file.tell() catch return StreamError.IoError;
-
         if (self.remaining_len == 0) {
             self.buffer_start_file_pos = position_before_read;
         }
 
-        const bytes_read = self.file.read(&self.read_buffer) catch return StreamError.IoError;
-
-        @memset(&self.process_buffer, 0);
-
-        const available = self.remaining_len + bytes_read;
-        const copy_size = @min(available, self.process_buffer.len);
-
-        // Copy remaining data first, then append new data up to buffer limit
         if (self.remaining_len > 0) {
+            // copy remaining data to start of process_buffer
             @memcpy(self.process_buffer[0..self.remaining_len], self.remaining_buffer[0..self.remaining_len]);
         }
 
-        const new_bytes_to_copy = copy_size - self.remaining_len;
-        if (new_bytes_to_copy > 0) {
-            @memcpy(self.process_buffer[self.remaining_len..copy_size], self.read_buffer[0..new_bytes_to_copy]);
-        }
+        const read_target = self.process_buffer[self.remaining_len..];
+        const bytes_read = self.file.read(read_target) catch return StreamError.IoError;
 
-        // Return the actual data available, let caller handle EOF detection
-        return copy_size;
+        const available = self.remaining_len + bytes_read;
+        self.remaining_len = 0; // it's all in process_buffer now
+
+        return available;
     }
 
     /// Attempt to read a complete entry from the process buffer
@@ -214,8 +204,8 @@ pub const WALEntryStream = struct {
 
         // Validate entry structure before allocation
         if (payload_size > MAX_PAYLOAD_SIZE) {
-            log.err("WAL stream corruption: payload_size {} exceeds MAX_PAYLOAD_SIZE {} at buffer position {}", .{ payload_size, MAX_PAYLOAD_SIZE, self.buffer_start_file_pos });
-            log.err("Entry header bytes: checksum=0x{X} type={} payload_size={}", .{ checksum, entry_type, payload_size });
+            log.warn("WAL stream corruption: payload_size {} exceeds MAX_PAYLOAD_SIZE {} at buffer position {}", .{ payload_size, MAX_PAYLOAD_SIZE, self.buffer_start_file_pos });
+            log.warn("Entry header bytes: checksum=0x{X} type={} payload_size={}", .{ checksum, entry_type, payload_size });
 
             // Advance past corrupted header to prevent infinite loop
             const skip_size = @min(WAL_HEADER_SIZE, available);
@@ -232,9 +222,9 @@ pub const WALEntryStream = struct {
                 return null;
             }
 
-            log.err("WAL stream corruption: invalid entry_type {} at buffer position {}", .{ entry_type, self.buffer_start_file_pos });
-            log.err("Entry header bytes: checksum=0x{X} type={} payload_size={}", .{ checksum, entry_type, payload_size });
-            log.err("Raw header bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ self.process_buffer[0], self.process_buffer[1], self.process_buffer[2], self.process_buffer[3], self.process_buffer[4], self.process_buffer[5], self.process_buffer[6], self.process_buffer[7], self.process_buffer[8], self.process_buffer[9], self.process_buffer[10], self.process_buffer[11], self.process_buffer[12] });
+            log.warn("WAL stream corruption: invalid entry_type {} at buffer position {}", .{ entry_type, self.buffer_start_file_pos });
+            log.warn("Entry header bytes: checksum=0x{X} type={} payload_size={}", .{ checksum, entry_type, payload_size });
+            log.warn("Raw header bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ self.process_buffer[0], self.process_buffer[1], self.process_buffer[2], self.process_buffer[3], self.process_buffer[4], self.process_buffer[5], self.process_buffer[6], self.process_buffer[7], self.process_buffer[8], self.process_buffer[9], self.process_buffer[10], self.process_buffer[11], self.process_buffer[12] });
 
             // Advance past corrupted header to prevent infinite loop
             const skip_size = @min(WAL_HEADER_SIZE, available);

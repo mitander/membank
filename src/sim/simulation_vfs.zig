@@ -364,6 +364,12 @@ pub const SimulationVFS = struct {
         }
         self.files.deinit();
 
+        // Clean up file storage contents before arena cleanup
+        for (self.file_storage.items) |*storage| {
+            storage.data.content.deinit();
+        }
+        // Note: file_storage itself uses arena allocator, so don't deinit it explicitly
+
         self.arena.deinit();
     }
 

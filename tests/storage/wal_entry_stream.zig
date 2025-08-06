@@ -9,52 +9,48 @@ const std = @import("std");
 const testing = std.testing;
 const assert = kausaldb.assert.assert;
 
-const kausaldb = @import("kausaldb");
-const wal_entry_stream = @import("../../src/storage/wal_entry_stream.zig");
-const WALEntryStream = wal_entry_stream.WALEntryStream;
-const StreamEntry = wal_entry_stream.StreamEntry;
-const StreamError = wal_entry_stream.StreamError;
-const kausaldb = @import("kausaldb");
-const vfs = @import("../../src/core/vfs.zig");
-const kausaldb = @import("kausaldb");
-const simulation_vfs = @import("../../src/sim/simulation_vfs.zig");
+const WALEntryStream = kausaldb.wal.stream.WALEntryStream;
+const StreamEntry = kausaldb.wal.stream.StreamEntry;
+const StreamError = kausaldb.wal.stream.StreamError;
+const vfs = kausaldb.vfs;
+const simulation_vfs = kausaldb.simulation_vfs;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
-/// Helper to create a valid WAL entry header + payload
-fn create_wal_entry(writer: anytype, entry_type: u8, payload: []const u8) !void {
-    // Calculate checksum over type + size + payload (simplified for testing)
-    var hasher = std.hash.Crc64.init();
+/// Helper to create a valid WAL entry header + payload using VFile directly
+fn create_wal_entry(file: *kausaldb.vfs.VFile, entry_type: u8, payload: []const u8) !void {
+    // Calculate checksum over type + payload (matching WAL implementation)
+    var hasher = std.hash.Wyhash.init(0);
     hasher.update(&[_]u8{entry_type});
-    const size_bytes = std.mem.toBytes(@as(u32, @intCast(payload.len)));
-    hasher.update(&size_bytes);
     hasher.update(payload);
     const checksum = hasher.final();
 
     // Write WAL entry: 8 bytes checksum + 1 byte type + 4 bytes size + payload
-    try writer.writeInt(u64, checksum, .little);
-    try writer.writeByte(entry_type);
-    try writer.writeInt(u32, @intCast(payload.len), .little);
-    try writer.writeAll(payload);
+    const checksum_bytes = std.mem.toBytes(checksum);
+    _ = try file.write(&checksum_bytes);
+    _ = try file.write(&[_]u8{entry_type});
+    const size_bytes = std.mem.toBytes(@as(u32, @intCast(payload.len)));
+    _ = try file.write(&size_bytes);
+    _ = try file.write(payload);
 }
 
 test "stream basic entry reading" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
     var vfs_interface = sim_vfs.vfs();
 
     const test_file = "test_wal.log";
     var file = try vfs_interface.create(test_file);
     defer file.close();
 
-    var writer = file.writer();
-    try create_wal_entry(writer, 1, "first entry");
-    try create_wal_entry(writer, 2, "second entry with more data");
-    try create_wal_entry(writer, 1, "third");
+    try create_wal_entry(&file, 1, "first entry");
+    try create_wal_entry(&file, 2, "second entry with more data");
+    try create_wal_entry(&file, 1, "third");
 
     // Reset file for reading
-    try file.seek(0, .start);
+    _ = try file.seek(0, .start);
 
     var stream = try WALEntryStream.init(allocator, &file);
 
@@ -86,10 +82,12 @@ test "stream large entry exceeding buffer" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
     var vfs_interface = sim_vfs.vfs();
 
     const large_payload_size = 32 * 1024; // 32KB payload
     const large_payload = try allocator.alloc(u8, large_payload_size);
+    defer allocator.free(large_payload);
     // Fill with recognizable pattern for validation
     for (large_payload, 0..) |*byte, i| {
         byte.* = @intCast(i % 256);
@@ -99,12 +97,11 @@ test "stream large entry exceeding buffer" {
     var file = try vfs_interface.create(test_file);
     defer file.close();
 
-    var writer = file.writer();
-    try create_wal_entry(writer, 1, "small before");
-    try create_wal_entry(writer, 2, large_payload);
-    try create_wal_entry(writer, 1, "small after");
+    try create_wal_entry(&file, 1, "small before");
+    try create_wal_entry(&file, 2, large_payload);
+    try create_wal_entry(&file, 1, "small after");
 
-    try file.seek(0, .start);
+    _ = try file.seek(0, .start);
 
     var stream = try WALEntryStream.init(allocator, &file);
 
@@ -138,25 +135,26 @@ test "stream entry spanning buffer boundary" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
     var vfs_interface = sim_vfs.vfs();
 
     // Use size that fills most of initial buffer
     const boundary_payload = try allocator.alloc(u8, 8000); // Close to 8KB buffer
+    defer allocator.free(boundary_payload);
     @memset(boundary_payload, 'B');
 
     const test_file = "boundary_wal.log";
     var file = try vfs_interface.create(test_file);
     defer file.close();
 
-    var writer = file.writer();
     // Small entry to partially fill first buffer
-    try create_wal_entry(writer, 1, "start");
+    try create_wal_entry(&file, 1, "start");
     // Large entry that will span buffer boundary
-    try create_wal_entry(writer, 2, boundary_payload);
+    try create_wal_entry(&file, 2, boundary_payload);
     // Another entry after boundary
-    try create_wal_entry(writer, 1, "end");
+    try create_wal_entry(&file, 1, "end");
 
-    try file.seek(0, .start);
+    _ = try file.seek(0, .start);
 
     var stream = try WALEntryStream.init(allocator, &file);
 
@@ -179,22 +177,24 @@ test "stream corruption detection" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
     var vfs_interface = sim_vfs.vfs();
 
     const test_file = "corrupted_wal.log";
     var file = try vfs_interface.create(test_file);
     defer file.close();
 
-    var writer = file.writer();
+    try create_wal_entry(&file, 1, "valid entry");
 
-    try create_wal_entry(writer, 1, "valid entry");
+    // Write corrupted entry manually
+    const checksum_bytes = std.mem.toBytes(@as(u64, 0x1234567890ABCDEF));
+    _ = try file.write(&checksum_bytes);
+    _ = try file.write(&[_]u8{1}); // valid type
+    const size_bytes = std.mem.toBytes(@as(u32, std.math.maxInt(u32)));
+    _ = try file.write(&size_bytes); // invalid huge size
+    _ = try file.write("garbage");
 
-    try writer.writeInt(u64, 0x1234567890ABCDEF, .little); // checksum
-    try writer.writeByte(1); // valid type
-    try writer.writeInt(u32, std.math.maxInt(u32), .little); // invalid huge size
-    try writer.writeAll("garbage");
-
-    try file.seek(0, .start);
+    _ = try file.seek(0, .start);
 
     var stream = try WALEntryStream.init(allocator, &file);
 
@@ -212,20 +212,22 @@ test "stream invalid entry type detection" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
     var vfs_interface = sim_vfs.vfs();
 
     const test_file = "invalid_type_wal.log";
     var file = try vfs_interface.create(test_file);
     defer file.close();
 
-    var writer = file.writer();
+    // Write invalid entry manually
+    const checksum_bytes = std.mem.toBytes(@as(u64, 0x1234567890ABCDEF));
+    _ = try file.write(&checksum_bytes);
+    _ = try file.write(&[_]u8{0}); // invalid type
+    const size_bytes = std.mem.toBytes(@as(u32, 4));
+    _ = try file.write(&size_bytes); // reasonable size
+    _ = try file.write("test");
 
-    try writer.writeInt(u64, 0x1234567890ABCDEF, .little); // checksum
-    try writer.writeByte(0); // invalid type
-    try writer.writeInt(u32, 4, .little); // reasonable size
-    try writer.writeAll("test");
-
-    try file.seek(0, .start);
+    _ = try file.seek(0, .start);
 
     var stream = try WALEntryStream.init(allocator, &file);
 
@@ -238,6 +240,7 @@ test "stream empty file handling" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
     var vfs_interface = sim_vfs.vfs();
 
     const test_file = "empty_wal.log";
@@ -260,21 +263,22 @@ test "stream truncated entry handling" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
     var vfs_interface = sim_vfs.vfs();
 
     const test_file = "truncated_wal.log";
     var file = try vfs_interface.create(test_file);
     defer file.close();
 
-    var writer = file.writer();
+    try create_wal_entry(&file, 1, "complete");
 
-    try create_wal_entry(writer, 1, "complete");
-
-    try writer.writeInt(u64, 0x1234567890ABCDEF, .little);
-    try writer.writeByte(1);
+    // Write partial entry manually
+    const checksum_bytes = std.mem.toBytes(@as(u64, 0x1234567890ABCDEF));
+    _ = try file.write(&checksum_bytes);
+    _ = try file.write(&[_]u8{1});
     // Missing size and payload - file ends here
 
-    try file.seek(0, .start);
+    _ = try file.seek(0, .start);
 
     var stream = try WALEntryStream.init(allocator, &file);
 
@@ -292,26 +296,27 @@ test "stream memory management" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
     var vfs_interface = sim_vfs.vfs();
 
     const test_file = "memory_test_wal.log";
     var file = try vfs_interface.create(test_file);
     defer file.close();
 
-    var writer = file.writer();
-
     // Create entries with different payload sizes
+    const large_payload = try allocator.dupe(u8, "x" ** 1000); // 1KB payload
+    defer allocator.free(large_payload);
     const payloads = [_][]const u8{
         "small",
         "medium sized payload for testing",
-        try allocator.dupe(u8, "x" ** 1000), // 1KB payload
+        large_payload,
     };
 
     for (payloads, 0..) |payload, i| {
-        try create_wal_entry(writer, @intCast(i + 1), payload);
+        try create_wal_entry(&file, @intCast(i + 1), payload);
     }
 
-    try file.seek(0, .start);
+    _ = try file.seek(0, .start);
 
     var stream = try WALEntryStream.init(allocator, &file);
 
@@ -333,17 +338,17 @@ test "stream position tracking" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
     var vfs_interface = sim_vfs.vfs();
 
     const test_file = "position_wal.log";
     var file = try vfs_interface.create(test_file);
     defer file.close();
 
-    var writer = file.writer();
-    try create_wal_entry(writer, 1, "first");
-    try create_wal_entry(writer, 2, "second");
+    try create_wal_entry(&file, 1, "first");
+    try create_wal_entry(&file, 2, "second");
 
-    try file.seek(0, .start);
+    _ = try file.seek(0, .start);
 
     var stream = try WALEntryStream.init(allocator, &file);
 

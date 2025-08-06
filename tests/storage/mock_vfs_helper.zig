@@ -55,7 +55,7 @@ pub const MockVFS = struct {
     }
 
     /// Create a pre-populated filesystem for testing
-    pub fn setup_test_filesystem(self: *MockVFS, allocator: std.mem.Allocator) !void {
+    pub fn setup_test_filesystem(self: *MockVFS) !void {
         // Create standard directory structure
         try self.vfs().mkdir("/test");
         try self.vfs().mkdir("/test/data");

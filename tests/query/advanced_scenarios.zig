@@ -15,22 +15,27 @@ const context_block = kausaldb.types;
 const concurrency = kausaldb.concurrency;
 
 const StorageEngine = storage.StorageEngine;
-const QueryEngine = query.QueryEngine;
+const QueryEngine = query.engine.QueryEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
 const EdgeType = context_block.EdgeType;
 const FindBlocksQuery = query.operations.FindBlocksQuery;
-const TraversalQuery = query.operations.TraversalQuery;
+const TraversalQuery = query.traversal.TraversalQuery;
 const QueryResult = query.operations.QueryResult;
 
-fn create_test_block(id: u32, content: []const u8, allocator: std.mem.Allocator) !ContextBlock {
+fn create_test_block_id(id: u32) BlockId {
+    // Ensure we never create zero BlockIds - make all IDs 1-based
+    const safe_id = id + 1;
     var id_bytes: [16]u8 = undefined;
-    std.mem.writeInt(u128, &id_bytes, id, .little);
+    std.mem.writeInt(u128, &id_bytes, safe_id, .little);
+    return BlockId{ .bytes = id_bytes };
+}
 
+fn create_test_block(id: u32, content: []const u8, allocator: std.mem.Allocator) !ContextBlock {
     return ContextBlock{
-        .id = BlockId{ .bytes = id_bytes },
+        .id = create_test_block_id(id),
         .version = 1,
         .source_uri = try allocator.dupe(u8, "test://advanced_scenarios"),
         .metadata_json = try std.fmt.allocPrint(allocator, "{{\"id\": {}, \"type\": \"test\"}}", .{id}),
@@ -39,16 +44,10 @@ fn create_test_block(id: u32, content: []const u8, allocator: std.mem.Allocator)
 }
 
 fn create_test_edge(from_id: u32, to_id: u32, edge_type: EdgeType) GraphEdge {
-    var from_bytes: [16]u8 = undefined;
-    var to_bytes: [16]u8 = undefined;
-    std.mem.writeInt(u128, &from_bytes, from_id, .little);
-    std.mem.writeInt(u128, &to_bytes, to_id, .little);
-
     return GraphEdge{
-        .from_block_id = BlockId{ .bytes = from_bytes },
-        .to_block_id = BlockId{ .bytes = to_bytes },
+        .source_id = create_test_block_id(from_id),
+        .target_id = create_test_block_id(to_id),
         .edge_type = edge_type,
-        .metadata_json = "{}",
     };
 }
 
@@ -117,25 +116,24 @@ test "complex graph traversal scenarios" {
 
     // Test multi-hop traversal
     const traversal_query = TraversalQuery{
-        .start_block_ids = &[_]BlockId{main_func.id},
-        .edge_types = &[_]EdgeType{EdgeType.calls},
+        .start_block_id = main_func.id,
+        .edge_filter = .{ .include_types = &[_]EdgeType{EdgeType.calls} },
         .direction = .outgoing,
+        .algorithm = .breadth_first,
         .max_depth = 3,
         .max_results = 100,
     };
 
-    var result = try query_engine.execute_traversal(traversal_query, allocator);
-    defer result.deinit(allocator);
+    var result = try query_engine.execute_traversal(traversal_query);
+    defer result.deinit();
 
     // Should find all reachable functions within 3 hops
     var found_blocks = std.ArrayList(BlockId).init(allocator);
     try found_blocks.ensureTotalCapacity(10); // Expected number of matching blocks
     defer found_blocks.deinit();
 
-    var iterator = result.iterator();
-    while (try iterator.next(allocator)) |block| {
-        defer block.deinit(allocator);
-        try found_blocks.append(block.id); // tidy:ignore-perf Unknown result count from query
+    for (result.blocks) |block| {
+        try found_blocks.append(block.id);
     }
 
     try testing.expect(found_blocks.items.len >= 5); // Should find most functions
@@ -170,14 +168,13 @@ test "query optimization strategy validation" {
     // Test small query (should use direct strategy)
     const small_query = FindBlocksQuery{
         .block_ids = &[_]BlockId{
-            (try create_test_block(1, "", allocator)).id,
-            (try create_test_block(2, "", allocator)).id,
+            create_test_block_id(0),
+            create_test_block_id(1),
         },
-        .max_results = 10,
     };
 
-    var small_result = try query_engine.execute_find_blocks(small_query, allocator);
-    defer small_result.deinit(allocator);
+    var small_result = try query.operations.execute_find_blocks(allocator, &storage_engine, small_query);
+    defer small_result.deinit();
 
     // Test large query (should use optimized strategy)
     var large_block_ids = std.ArrayList(BlockId).init(allocator);
@@ -185,16 +182,15 @@ test "query optimization strategy validation" {
     defer large_block_ids.deinit();
     i = 0;
     while (i < 100) : (i += 1) {
-        try large_block_ids.append((try create_test_block(i, "", allocator)).id);
+        try large_block_ids.append(create_test_block_id(i));
     }
 
     const large_query = FindBlocksQuery{
         .block_ids = large_block_ids.items,
-        .max_results = 1000,
     };
 
-    var large_result = try query_engine.execute_find_blocks(large_query, allocator);
-    defer large_result.deinit(allocator);
+    var large_result = try query.operations.execute_find_blocks(allocator, &storage_engine, large_query);
+    defer large_result.deinit();
 
     // Both should complete successfully with appropriate results
     try testing.expect(true); // If we get here, optimization worked
@@ -245,21 +241,18 @@ test "query performance under memory pressure" {
         // Query random subset
         i = query_round * 20;
         while (i < (query_round + 1) * 20) : (i += 1) {
-            try query_block_ids.append((try create_test_block(i, "", allocator)).id);
+            try query_block_ids.append(create_test_block_id(i));
         }
 
-        const query = FindBlocksQuery{
+        const find_query = FindBlocksQuery{
             .block_ids = query_block_ids.items,
-            .max_results = 50,
         };
 
-        var result = try query_engine.execute_find_blocks(query, allocator);
-        defer result.deinit(allocator);
+        var result = try query.operations.execute_find_blocks(allocator, &storage_engine, find_query);
+        defer result.deinit();
 
         // Consume results to test memory handling
-        var iterator = result.iterator();
-        while (try iterator.next(allocator)) |block| {
-            defer block.deinit(allocator);
+        while (try result.next()) |block| {
             // Verify block is valid
             try testing.expect(block.content.len > 0);
         }
@@ -307,21 +300,18 @@ test "complex filtering and search scenarios" {
 
     var i: u32 = 0;
     while (i < content_patterns.len) : (i += 1) {
-        try all_block_ids.append((try create_test_block(i, "", allocator)).id);
+        try all_block_ids.append(create_test_block_id(i));
     }
 
     const find_query = FindBlocksQuery{
         .block_ids = all_block_ids.items,
-        .max_results = 10,
     };
 
-    var result = try query_engine.execute_find_blocks(find_query, allocator);
-    defer result.deinit(allocator);
+    var result = try query.operations.execute_find_blocks(allocator, &storage_engine, find_query);
+    defer result.deinit();
 
     var found_count: u32 = 0;
-    var iterator = result.iterator();
-    while (try iterator.next(allocator)) |block| {
-        defer block.deinit(allocator);
+    while (try result.next()) |block| {
         found_count += 1;
         try testing.expect(block.content.len > 0);
     }
@@ -369,25 +359,24 @@ test "graph traversal with cycle detection" {
 
     // Traversal should handle cycle gracefully
     const traversal_query = TraversalQuery{
-        .start_block_ids = &[_]BlockId{block_a.id},
-        .edge_types = &[_]EdgeType{EdgeType.calls},
+        .start_block_id = block_a.id,
+        .edge_filter = .{ .include_types = &[_]EdgeType{EdgeType.calls} },
         .direction = .outgoing,
+        .algorithm = .breadth_first,
         .max_depth = 10, // Deep enough to detect cycle
         .max_results = 100,
     };
 
-    var result = try query_engine.execute_traversal(traversal_query, allocator);
-    defer result.deinit(allocator);
+    var result = try query_engine.execute_traversal(traversal_query);
+    defer result.deinit();
 
     // Should find all blocks but not infinite loop
     var found_blocks = std.ArrayList(BlockId).init(allocator);
     try found_blocks.ensureTotalCapacity(10); // Expected number of matching blocks
     defer found_blocks.deinit();
 
-    var iterator = result.iterator();
-    while (try iterator.next(allocator)) |block| {
-        defer block.deinit(allocator);
-        try found_blocks.append(block.id); // tidy:ignore-perf Unknown result count from query
+    for (result.blocks) |block| {
+        try found_blocks.append(block.id);
     }
 
     // Should find all 3 blocks exactly once
@@ -432,22 +421,19 @@ test "batch query operations and efficiency" {
         // Create batch of 10 block IDs
         i = batch_round * 10;
         while (i < (batch_round + 1) * 10) : (i += 1) {
-            try batch_block_ids.append((try create_test_block(i, "", allocator)).id);
+            try batch_block_ids.append(create_test_block_id(i));
         }
 
         const batch_query = FindBlocksQuery{
             .block_ids = batch_block_ids.items,
-            .max_results = 20,
         };
 
-        var result = try query_engine.execute_find_blocks(batch_query, allocator);
-        defer result.deinit(allocator);
+        var result = try query.operations.execute_find_blocks(allocator, &storage_engine, batch_query);
+        defer result.deinit();
 
         // Verify batch results
         var batch_count: u32 = 0;
-        var iterator = result.iterator();
-        while (try iterator.next(allocator)) |block| {
-            defer block.deinit(allocator);
+        while (try result.next()) |_| {
             batch_count += 1;
         }
 
@@ -483,22 +469,19 @@ test "query error handling and recovery" {
 
     var i: u32 = 9000; // IDs that don't exist
     while (i < 9010) : (i += 1) {
-        try nonexistent_ids.append((try create_test_block(i, "", allocator)).id);
+        try nonexistent_ids.append(create_test_block_id(i));
     }
 
     const missing_query = FindBlocksQuery{
         .block_ids = nonexistent_ids.items,
-        .max_results = 20,
     };
 
-    var result = try query_engine.execute_find_blocks(missing_query, allocator);
-    defer result.deinit(allocator);
+    var result = try query.operations.execute_find_blocks(allocator, &storage_engine, missing_query);
+    defer result.deinit();
 
     // Should handle missing blocks gracefully (return empty results)
     var found_count: u32 = 0;
-    var iterator = result.iterator();
-    while (try iterator.next(allocator)) |block| {
-        defer block.deinit(allocator);
+    while (try result.next()) |_| {
         found_count += 1;
     }
 
@@ -506,21 +489,20 @@ test "query error handling and recovery" {
 
     // Test traversal with invalid start points
     const invalid_traversal = TraversalQuery{
-        .start_block_ids = nonexistent_ids.items,
-        .edge_types = &[_]EdgeType{EdgeType.calls},
+        .start_block_id = nonexistent_ids.items[0], // Use first nonexistent ID
+        .edge_filter = .{ .include_types = &[_]EdgeType{EdgeType.calls} },
         .direction = .outgoing,
+        .algorithm = .breadth_first,
         .max_depth = 5,
         .max_results = 50,
     };
 
-    var traversal_result = try query_engine.execute_traversal(invalid_traversal, allocator);
-    defer traversal_result.deinit(allocator);
+    var traversal_result = try query_engine.execute_traversal(invalid_traversal);
+    defer traversal_result.deinit();
 
     // Should handle gracefully
     found_count = 0;
-    var traversal_iterator = traversal_result.iterator();
-    while (try traversal_iterator.next(allocator)) |block| {
-        defer block.deinit(allocator);
+    for (traversal_result.blocks) |_| {
         found_count += 1;
     }
 
@@ -562,14 +544,13 @@ test "mixed query workload simulation" {
     var workload_round: u32 = 0;
     while (workload_round < 5) : (workload_round += 1) {
         // Single block lookup
-        const single_id = (try create_test_block(workload_round, "", allocator)).id;
+        const single_id = create_test_block_id(workload_round);
         const single_query = FindBlocksQuery{
             .block_ids = &[_]BlockId{single_id},
-            .max_results = 1,
         };
 
-        var single_result = try query_engine.execute_find_blocks(single_query, allocator);
-        defer single_result.deinit(allocator);
+        var single_result = try query.operations.execute_find_blocks(allocator, &storage_engine, single_query);
+        defer single_result.deinit();
 
         // Batch lookup
         var batch_ids = std.ArrayList(BlockId).init(allocator);
@@ -577,45 +558,36 @@ test "mixed query workload simulation" {
         defer batch_ids.deinit();
         i = workload_round * 5;
         while (i < (workload_round + 1) * 5) : (i += 1) {
-            try batch_ids.append((try create_test_block(i, "", allocator)).id);
+            try batch_ids.append(create_test_block_id(i));
         }
 
         const batch_query = FindBlocksQuery{
             .block_ids = batch_ids.items,
-            .max_results = 10,
         };
 
-        var batch_result = try query_engine.execute_find_blocks(batch_query, allocator);
-        defer batch_result.deinit(allocator);
+        var batch_result = try query.operations.execute_find_blocks(allocator, &storage_engine, batch_query);
+        defer batch_result.deinit();
 
         // Graph traversal
-        const traversal_start = (try create_test_block(workload_round * 5, "", allocator)).id;
+        const traversal_start = create_test_block_id(workload_round * 5);
         const traversal_query = TraversalQuery{
-            .start_block_ids = &[_]BlockId{traversal_start},
-            .edge_types = &[_]EdgeType{EdgeType.calls},
+            .start_block_id = traversal_start,
+            .edge_filter = .{ .include_types = &[_]EdgeType{EdgeType.calls} },
             .direction = .outgoing,
+            .algorithm = .breadth_first,
             .max_depth = 3,
-            .max_results = 20,
+            .max_results = 100,
         };
 
-        var traversal_result = try query_engine.execute_traversal(traversal_query, allocator);
-        defer traversal_result.deinit(allocator);
+        var traversal_result = try query_engine.execute_traversal(traversal_query);
+        defer traversal_result.deinit();
 
         // Consume all results to test memory handling
-        var single_iterator = single_result.iterator();
-        while (try single_iterator.next(allocator)) |block| {
-            defer block.deinit(allocator);
-        }
+        while (try single_result.next()) |_| {}
 
-        var batch_iterator = batch_result.iterator();
-        while (try batch_iterator.next(allocator)) |block| {
-            defer block.deinit(allocator);
-        }
+        while (try batch_result.next()) |_| {}
 
-        var traversal_iterator = traversal_result.iterator();
-        while (try traversal_iterator.next(allocator)) |block| {
-            defer block.deinit(allocator);
-        }
+        for (traversal_result.blocks) |_| {}
     }
 
     // Workload should complete successfully

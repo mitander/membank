@@ -6,9 +6,12 @@ const testing = std.testing;
 
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
+const types = kausaldb.types;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const MemtableManager = storage.MemtableManager;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 
 test "SimulationVFS file operations" {
     const allocator = testing.allocator;
@@ -23,8 +26,8 @@ test "SimulationVFS file operations" {
     defer test_file.close();
 
     const test_data = "VFS verification data";
-    try test_file.write_all(test_data);
-    try test_file.sync();
+    _ = try test_file.write(test_data);
+    try vfs.sync();
 }
 
 test "MemtableManager basic operations" {
@@ -40,7 +43,7 @@ test "MemtableManager basic operations" {
 
     // Verify manager can store and retrieve a block
     const test_block = ContextBlock{
-        .id = BlockId.from_bytes([_]u8{1} ** 16),
+        .id = BlockId{ .bytes = [_]u8{1} ** 16 },
         .version = 1,
         .source_uri = "test://memtable",
         .metadata_json = "{}",
@@ -48,7 +51,7 @@ test "MemtableManager basic operations" {
     };
 
     try manager.put_block(test_block);
-    const retrieved = manager.find_block(test_block.id);
+    const retrieved = manager.find_block_in_memtable(test_block.id);
     try testing.expect(retrieved != null);
     try testing.expectEqualStrings(test_block.content, retrieved.?.content);
 }

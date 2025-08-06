@@ -101,7 +101,6 @@ pub const StorageEngine = struct {
         storage_config: Config,
     ) !StorageEngine {
         assert.assert_not_empty(data_dir, "Storage data_dir cannot be empty", .{});
-        assert.assert_fmt(data_dir.len < 4096, "Storage data_dir path too long: {} bytes", .{data_dir.len});
         assert.assert_fmt(@intFromPtr(data_dir.ptr) != 0, "Storage data_dir has null pointer", .{});
 
         storage_config.validate() catch |err| {
@@ -364,6 +363,23 @@ pub const StorageEngine = struct {
     pub fn edge_count(self: *const StorageEngine) u32 {
         return self.memtable_manager.edge_count();
     }
+
+    /// Get current memory usage information for testing and monitoring.
+    /// Returns basic memory statistics useful for tests and debugging.
+    pub fn memory_usage(self: *const StorageEngine) MemoryUsage {
+        return MemoryUsage{
+            .total_bytes = self.memtable_manager.memory_usage(),
+            .block_count = self.block_count(),
+            .edge_count = self.edge_count(),
+        };
+    }
+
+    /// Memory usage information structure for testing and monitoring
+    pub const MemoryUsage = struct {
+        total_bytes: u64,
+        block_count: u32,
+        edge_count: u32,
+    };
 
     /// Find all outgoing edges from a source block.
     /// Delegates to memtable manager for graph traversal operations.

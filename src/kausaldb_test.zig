@@ -89,10 +89,15 @@ pub const sstable = @import("storage/sstable.zig");
 pub const tiered_compaction = @import("storage/tiered_compaction.zig");
 
 pub const wal = struct {
+    pub const WAL = @import("storage/wal/core.zig").WAL;
+    pub const WALEntry = @import("storage/wal/entry.zig").WALEntry;
+    pub const WALError = @import("storage/wal/types.zig").WALError;
+    pub const WALEntryType = @import("storage/wal/types.zig").WALEntryType;
     pub const corruption_tracker = @import("storage/wal/corruption_tracker.zig");
     pub const entry = @import("storage/wal/entry.zig");
     pub const recovery = @import("storage/wal/recovery.zig");
     pub const types = @import("storage/wal/types.zig");
+    pub const stream = @import("storage/wal/stream.zig");
 };
 
 pub const query_operations = @import("query/operations.zig");

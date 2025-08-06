@@ -13,6 +13,7 @@ const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
 const context_block = kausaldb.types;
 const concurrency = kausaldb.concurrency;
+const stdx = kausaldb.stdx;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
@@ -25,7 +26,9 @@ fn deterministic_block_id(seed: u32) BlockId {
     var i: usize = 0;
     while (i < 16) : (i += 4) {
         const value = seed + @as(u32, @intCast(i));
-        std.mem.writeInt(u32, bytes[i .. i + 4], value, .little);
+        var slice: [4]u8 = undefined;
+        std.mem.writeInt(u32, &slice, value, .little);
+        stdx.copy_left(u8, bytes[i .. i + 4], &slice);
     }
     return BlockId.from_bytes(bytes);
 }
@@ -65,7 +68,7 @@ test "compaction crash - recovery from partial sstable write" {
 
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init_with_fault_seed(allocator, 12345);
+    var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 12345);
     defer sim_vfs.deinit();
 
     const vfs_interface = sim_vfs.vfs();
@@ -78,7 +81,7 @@ test "compaction crash - recovery from partial sstable write" {
     try populate_storage_for_compaction(allocator, &storage_engine, 50);
 
     // Force flush to create initial SSTables
-    try storage_engine.flush_memtable();
+    try storage_engine.flush_memtable_to_sstable();
 
     // Add more data to trigger compaction
     try populate_storage_for_compaction(allocator, &storage_engine, 30);
@@ -115,11 +118,13 @@ test "compaction crash - recovery from partial sstable write" {
     // All originally stored blocks should be accessible
     for (0..50) |i| {
         const id = deterministic_block_id(@intCast(i));
-        const result = recovered_engine.find_block_by_id(id);
+        const result = recovered_engine.find_block(id);
 
-        if (result) |found_block| {
-            try testing.expect(found_block.id.eql(id));
-            try testing.expect(found_block.version == 1);
+        if (result) |maybe_found_block| {
+            if (maybe_found_block) |found_block| {
+                try testing.expect(found_block.id.eql(id));
+                try testing.expect(found_block.version == 1);
+            }
         } else |err| {
             // Some blocks might be lost due to crash, but we should not get corruption errors
             const acceptable_errors = [_]anyerror{
@@ -147,7 +152,8 @@ test "compaction crash - recovery from partial sstable write" {
     };
 
     try recovered_engine.put_block(new_block);
-    const retrieved = try recovered_engine.find_block_by_id(new_block.id);
+    const maybe_retrieved = try recovered_engine.find_block(new_block.id);
+    const retrieved = maybe_retrieved.?; // Should not be null for just-written block
     try testing.expect(retrieved.id.eql(new_block.id));
 }
 
@@ -156,7 +162,7 @@ test "compaction crash - recovery with orphaned files" {
 
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init_with_fault_seed(allocator, 54321);
+    var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 54321);
     defer sim_vfs.deinit();
 
     const vfs_interface = sim_vfs.vfs();
@@ -166,18 +172,18 @@ test "compaction crash - recovery with orphaned files" {
 
     try storage_engine.startup();
     try populate_storage_for_compaction(allocator, &storage_engine, 40);
-    try storage_engine.flush_memtable();
+    try storage_engine.flush_memtable_to_sstable();
 
     // Create a scenario where compaction creates new files but crashes before cleanup
     // This tests the cleanup of orphaned SSTable files during recovery
 
     // Add more data and force another flush to create multiple SSTables
     try populate_storage_for_compaction(allocator, &storage_engine, 40);
-    try storage_engine.flush_memtable();
+    try storage_engine.flush_memtable_to_sstable();
 
     // Check that we have multiple SSTable files before attempting compaction
     const initial_metrics = storage_engine.metrics();
-    const initial_sstables = initial_metrics.sstables_count.load();
+    const initial_sstables = initial_metrics.sstable_writes.load();
     try testing.expect(initial_sstables >= 2);
 
     // Simulate crash during file operations (remove phase of compaction)
@@ -200,7 +206,7 @@ test "compaction crash - recovery with orphaned files" {
     // Verify storage is consistent after recovery
     // System should have cleaned up any orphaned files and be operational
     const post_recovery_metrics = recovered_engine.metrics();
-    const post_recovery_sstables = post_recovery_metrics.sstables_count.load();
+    const post_recovery_sstables = post_recovery_metrics.sstable_writes.load();
 
     // Should have reasonable number of SSTables (not excessive due to orphaned files)
     try testing.expect(post_recovery_sstables < initial_sstables + 10);
@@ -209,7 +215,7 @@ test "compaction crash - recovery with orphaned files" {
     for (0..20) |i| {
         const id = deterministic_block_id(@intCast(i));
         // Not all blocks are guaranteed to survive crash, but lookups should not fail with corruption
-        _ = recovered_engine.find_block_by_id(id) catch |err| {
+        _ = recovered_engine.find_block(id) catch |err| {
             try testing.expect(err == error.BlockNotFound);
         };
     }
@@ -224,7 +230,8 @@ test "compaction crash - recovery with orphaned files" {
     };
 
     try recovered_engine.put_block(post_crash_block);
-    const retrieved = try recovered_engine.find_block_by_id(post_crash_block.id);
+    const maybe_retrieved = try recovered_engine.find_block(post_crash_block.id);
+    const retrieved = maybe_retrieved.?; // Should not be null for just-written block
     try testing.expect(retrieved.id.eql(post_crash_block.id));
 }
 
@@ -233,7 +240,7 @@ test "compaction crash - multiple sequential crash recovery" {
 
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init_with_fault_seed(allocator, 99999);
+    var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 99999);
     defer sim_vfs.deinit();
 
     const vfs_interface = sim_vfs.vfs();
@@ -250,7 +257,7 @@ test "compaction crash - multiple sequential crash recovery" {
 
         // Add data that may trigger compaction
         try populate_storage_for_compaction(allocator, &storage_engine, 25);
-        try storage_engine.flush_memtable();
+        try storage_engine.flush_memtable_to_sstable();
 
         // Configure different types of I/O failures for each crash iteration
         switch (crash_count) {
@@ -285,7 +292,8 @@ test "compaction crash - multiple sequential crash recovery" {
     };
 
     try final_engine.put_block(final_block);
-    const retrieved = try final_engine.find_block_by_id(final_block.id);
+    const maybe_retrieved = try final_engine.find_block(final_block.id);
+    const retrieved = maybe_retrieved.?; // Should not be null for just-written block
     try testing.expect(retrieved.id.eql(final_block.id));
     try testing.expectEqualStrings("test://multi_crash_survivor", retrieved.source_uri);
 
@@ -300,7 +308,7 @@ test "compaction crash - torn write recovery" {
 
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init_with_fault_seed(allocator, 11111);
+    var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 11111);
     defer sim_vfs.deinit();
 
     const vfs_interface = sim_vfs.vfs();
@@ -315,14 +323,14 @@ test "compaction crash - torn write recovery" {
     sim_vfs.enable_torn_writes(800, 1, 70); // 80% probability, 70% completion max
 
     // Force compaction with torn writes
-    try storage_engine.flush_memtable();
+    try storage_engine.flush_memtable_to_sstable();
 
     for (0..20) |_| {
         _ = populate_storage_for_compaction(allocator, &storage_engine, 5) catch {};
     }
 
     // Disable torn writes for recovery
-    sim_vfs.enable_torn_writes(0, 0, 0);
+    sim_vfs.fault_injection.torn_write_config.enabled = false;
 
     // Recovery test
     var recovered_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_db");
@@ -335,8 +343,10 @@ test "compaction crash - torn write recovery" {
     var accessible_blocks: u32 = 0;
     for (0..30) |i| {
         const id = deterministic_block_id(@intCast(i));
-        if (recovered_engine.find_block_by_id(id)) |_| {
-            accessible_blocks += 1;
+        if (recovered_engine.find_block(id)) |maybe_block| {
+            if (maybe_block != null) {
+                accessible_blocks += 1;
+            }
         } else |err| {
             try testing.expect(err == error.BlockNotFound);
         }
@@ -355,6 +365,7 @@ test "compaction crash - torn write recovery" {
     };
 
     try recovered_engine.put_block(recovery_block);
-    const retrieved = try recovered_engine.find_block_by_id(recovery_block.id);
+    const maybe_retrieved = try recovered_engine.find_block(recovery_block.id);
+    const retrieved = maybe_retrieved.?; // Should not be null for just-written block
     try testing.expect(retrieved.id.eql(recovery_block.id));
 }

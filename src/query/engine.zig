@@ -375,7 +375,10 @@ pub const QueryEngine = struct {
         const start_time = std.time.nanoTimestamp();
         defer self.record_direct_query(start_time);
 
-        return self.storage_engine.find_block(block_id);
+        return self.storage_engine.find_block(block_id) catch |err| {
+            error_context.log_storage_error(err, error_context.block_context("query_find_block", block_id));
+            return err;
+        };
     }
 
     /// Check if a block exists without retrieving its content
