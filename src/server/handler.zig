@@ -22,10 +22,12 @@ const ctx_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
 
 const conn = @import("connection.zig");
+const connection_manager = @import("connection_manager.zig");
 pub const ClientConnection = conn.ClientConnection;
 pub const MessageType = conn.MessageType;
 pub const MessageHeader = conn.MessageHeader;
 pub const ConnectionState = conn.ConnectionState;
+pub const ConnectionManager = connection_manager.ConnectionManager;
 
 const StorageEngine = storage.StorageEngine;
 const QueryResult = query_engine.QueryResult;
@@ -78,23 +80,24 @@ pub const ServerError = error{
     EndOfStream,
 } || std.mem.Allocator.Error || std.net.Stream.ReadError || std.net.Stream.WriteError;
 
-/// Main TCP server
+/// Main TCP server coordinator.
+/// Delegates connection management to ConnectionManager and focuses on
+/// request processing coordination. Follows pure coordinator pattern:
+/// owns no state, orchestrates operations between managers.
 pub const Server = struct {
     /// Base allocator for server infrastructure
     allocator: std.mem.Allocator,
     /// Server configuration
     config: ServerConfig,
-    /// Storage engine reference
+    /// Storage engine reference for request processing
     storage_engine: *StorageEngine,
-    /// Query engine reference
+    /// Query engine reference for request processing
     query_engine: *QueryEngine,
-    /// TCP listener
+    /// TCP listener socket
     listener: ?std.net.Server = null,
-    /// Active client connections
-    connections: std.ArrayList(*ClientConnection),
-    /// Next connection ID
-    next_connection_id: u32,
-    /// Server statistics
+    /// Connection state manager
+    connection_manager: ConnectionManager,
+    /// Server-level statistics (aggregated from managers)
     stats: ServerStats,
 
     pub const ServerStats = struct {
@@ -118,38 +121,44 @@ pub const Server = struct {
         }
     };
 
-    /// Initialize server with storage and query engines
+    /// Phase 1 initialization: Memory-only setup following coordinator pattern.
+    /// Initializes ConnectionManager and sets up coordination structures.
     pub fn init(
         allocator: std.mem.Allocator,
         config: ServerConfig,
         storage_engine: *StorageEngine,
         query_eng: *QueryEngine,
     ) Server {
+        const conn_config = connection_manager.ConnectionManagerConfig{
+            .max_connections = config.max_connections,
+            .connection_timeout_sec = config.connection_timeout_sec,
+            .poll_timeout_ms = 1000, // Standard poll timeout
+        };
+
         return Server{
             .allocator = allocator,
             .config = config,
             .storage_engine = storage_engine,
             .query_engine = query_eng,
-            .connections = std.ArrayList(*ClientConnection).init(allocator),
-            .next_connection_id = 1,
+            .listener = null,
+            .connection_manager = ConnectionManager.init(allocator, conn_config),
             .stats = ServerStats{},
         };
     }
 
-    /// Clean up server resources
+    /// Clean up all server resources including managers
     pub fn deinit(self: *Server) void {
         self.stop();
 
-        for (self.connections.items) |connection| {
-            connection.deinit();
-            self.allocator.destroy(connection);
-        }
-        self.connections.deinit();
+        self.connection_manager.deinit();
     }
 
-    /// Phase 2 initialization: Start the server and listen for connections.
-    /// Performs I/O operations including socket binding and network setup.
+    /// Phase 2 initialization: Start managers and bind listener socket.
+    /// Delegates to ConnectionManager startup and performs network binding.
     pub fn startup(self: *Server) !void {
+        // Manager must be started before binding to allocate poll_fds
+        try self.connection_manager.startup();
+
         try self.bind();
         try self.run();
     }
@@ -177,140 +186,49 @@ pub const Server = struct {
         return self.config.port;
     }
 
-    /// Run the blocking event loop
+    /// Run the coordination loop delegating to ConnectionManager for I/O.
+    /// Pure coordinator: polls for ready connections, processes requests.
     pub fn run(self: *Server) !void {
         concurrency.assert_main_thread();
-        try self.run_event_loop();
+        try self.run_coordination_loop();
     }
 
-    /// Main async event loop - polls all sockets and processes I/O events
-    fn run_event_loop(self: *Server) !void {
-        var poll_fds = try self.allocator.alloc(std.posix.pollfd, self.config.max_connections + 1);
-        defer self.allocator.free(poll_fds);
+    /// Main coordination loop: delegate I/O to ConnectionManager, handle requests.
+    /// Demonstrates coordinator pattern - no direct I/O, only orchestration.
+    fn run_coordination_loop(self: *Server) !void {
+        const listener = &self.listener.?;
 
         while (true) {
-            poll_fds[0] = std.posix.pollfd{
-                .fd = self.listener.?.stream.handle,
-                .events = std.posix.POLL.IN,
-                .revents = 0,
-            };
-
-            var poll_count: usize = 1;
-
-            for (self.connections.items) |connection| {
-                if (poll_count >= poll_fds.len) break; // Safety check
-
-                var events: i16 = 0;
-
-                switch (connection.state) {
-                    .reading_header, .reading_payload => events |= std.posix.POLL.IN,
-                    .writing_response => events |= std.posix.POLL.OUT,
-                    .processing => {},
-                    .closing, .closed => continue,
-                }
-
-                if (events != 0) {
-                    poll_fds[poll_count] = std.posix.pollfd{
-                        .fd = connection.stream.handle,
-                        .events = events,
-                        .revents = 0,
-                    };
-                    poll_count += 1;
-                }
-            }
-
-            const ready_count = std.posix.poll(poll_fds[0..poll_count], 1000) catch |err| switch (err) {
-                error.Unexpected => continue, // Interrupted by signal, retry
-                else => return err,
-            };
-
-            if (ready_count == 0) {
-                try self.cleanup_timed_out_connections();
-                continue;
-            }
-
-            try self.process_poll_events(poll_fds[0..poll_count]);
-        }
-    }
-
-    /// Process events from poll() results
-    fn process_poll_events(self: *Server, poll_fds: []std.posix.pollfd) !void {
-        if (poll_fds[0].revents & std.posix.POLL.IN != 0) {
-            try self.accept_new_connections();
-        }
-
-        var i: usize = 1;
-        var conn_index: usize = 0;
-
-        while (i < poll_fds.len and conn_index < self.connections.items.len) {
-            const poll_fd = poll_fds[i];
-            const connection = self.connections.items[conn_index];
-
-            if (poll_fd.fd != connection.stream.handle) {
-                conn_index += 1;
-                continue;
-            }
-
-            if (poll_fd.revents & (std.posix.POLL.ERR | std.posix.POLL.HUP | std.posix.POLL.NVAL) != 0) {
-                log.info("Connection {d}: socket error, closing", .{connection.connection_id});
-                self.close_connection(conn_index);
-                i += 1;
-                continue;
-            }
-
-            const keep_alive = connection.process_io(self.config.to_connection_config()) catch |err| blk: {
-                const ctx = error_context.connection_context("process_io", connection.connection_id);
+            const ready_connections = self.connection_manager.poll_for_ready_connections(listener) catch |err| {
+                const ctx = error_context.ServerContext{ .operation = "poll_connections" };
                 error_context.log_server_error(err, ctx);
-                log.err("Connection {d}: I/O error: {any}", .{ connection.connection_id, err });
-                break :blk false;
+                continue; // Server must remain available despite I/O errors
             };
 
-            if (!keep_alive) {
-                self.close_connection(conn_index);
-            } else {
-                if (connection.has_complete_request()) {
-                    try self.process_connection_request(connection);
-                }
-                conn_index += 1;
+            for (ready_connections) |connection| {
+                const keep_alive = self.connection_manager.process_connection_io(connection, self.config.to_connection_config()) catch |err| {
+                    const ctx = error_context.connection_context("process_io", connection.connection_id);
+                    error_context.log_server_error(err, ctx);
+                    continue; // Individual connection errors don't stop server
+                };
+                _ = keep_alive;
             }
 
-            i += 1;
+            while (self.connection_manager.find_connection_with_ready_request()) |connection| {
+                try self.process_connection_request(connection);
+            }
+
+            self.update_aggregated_statistics();
         }
     }
 
-    /// Accept new connections non-blockingly
-    fn accept_new_connections(self: *Server) !void {
-        while (true) {
-            const tcp_connection = self.listener.?.accept() catch |err| switch (err) {
-                error.WouldBlock => break, // No more connections to accept
-                error.ConnectionAborted => continue, // Client canceled, try next
-                else => {
-                    const ctx = error_context.ServerContext{ .operation = "accept_connection" };
-                    error_context.log_server_error(err, ctx);
-                    return err;
-                },
-            };
+    /// Update server statistics by aggregating from ConnectionManager.
+    /// Server owns no connection state, delegates to manager for statistics.
+    pub fn update_aggregated_statistics(self: *Server) void {
+        const conn_stats = self.connection_manager.statistics();
 
-            if (self.connections.items.len >= self.config.max_connections) {
-                tcp_connection.stream.close();
-                self.stats.errors_encountered += 1;
-                log.warn("Connection rejected: max connections ({d}) exceeded", .{self.config.max_connections});
-                continue;
-            }
-
-            const connection = try self.allocator.create(ClientConnection);
-            connection.* = ClientConnection.init(self.allocator, tcp_connection.stream, self.next_connection_id);
-            const conn_flags = try std.posix.fcntl(connection.stream.handle, std.posix.F.GETFL, 0);
-            const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
-            _ = try std.posix.fcntl(connection.stream.handle, std.posix.F.SETFL, conn_flags | nonblock_flag);
-            self.next_connection_id += 1;
-
-            try self.connections.append(connection);
-            self.stats.connections_accepted += 1;
-            self.stats.connections_active += 1;
-
-            log.info("New connection {d} from {any}", .{ connection.connection_id, tcp_connection.address });
-        }
+        self.stats.connections_accepted = conn_stats.connections_accepted;
+        self.stats.connections_active = conn_stats.connections_active;
     }
 
     /// Process a complete request from a connection
@@ -350,38 +268,6 @@ pub const Server = struct {
 
         self.stats.requests_processed += 1;
         self.stats.bytes_received += payload.len + MessageHeader.HEADER_SIZE;
-    }
-
-    /// Close a connection and remove it from the connections list
-    fn close_connection(self: *Server, index: usize) void {
-        assert(index < self.connections.items.len);
-
-        const connection = self.connections.items[index];
-        log.info("Connection {d} closed", .{connection.connection_id});
-
-        connection.deinit();
-        self.allocator.destroy(connection);
-        _ = self.connections.swapRemove(index);
-        self.stats.connections_active -= 1;
-    }
-
-    /// Clean up connections that have timed out
-    fn cleanup_timed_out_connections(self: *Server) !void {
-        const current_time = std.time.timestamp();
-        const timeout_seconds: i64 = @intCast(self.config.connection_timeout_sec);
-
-        var i: usize = 0;
-        while (i < self.connections.items.len) {
-            const connection = self.connections.items[i];
-            const connection_age = current_time - connection.established_time;
-
-            if (connection_age > timeout_seconds) {
-                log.info("Connection {d}: timeout after {d}s", .{ connection.connection_id, connection_age });
-                self.close_connection(i);
-            } else {
-                i += 1;
-            }
-        }
     }
 
     /// Stop the server

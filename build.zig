@@ -181,6 +181,11 @@ pub fn build(b: *std.Build) void {
             .source_file = "tests/fault_injection/traversal_faults.zig",
             .description = "graph traversal fault injection tests",
         },
+        .{
+            .name = "fault_injection_server",
+            .source_file = "tests/fault_injection/server_faults.zig",
+            .description = "server connection management fault injection tests",
+        },
 
         // Performance tests - regression detection and benchmarking
         .{
@@ -211,6 +216,11 @@ pub fn build(b: *std.Build) void {
             .name = "server_protocol",
             .source_file = "tests/server/protocol.zig",
             .description = "TCP server protocol tests",
+        },
+        .{
+            .name = "server_coordinator",
+            .source_file = "tests/integration/server_coordinator.zig",
+            .description = "server coordinator pattern tests",
         },
 
         // CLI interface and command validation

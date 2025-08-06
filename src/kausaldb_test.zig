@@ -61,6 +61,7 @@ pub const SemanticChunkerConfig = kausaldb_public.SemanticChunkerConfig;
 
 pub const handler = kausaldb_public.handler;
 pub const Server = kausaldb_public.Server;
+pub const connection_manager = @import("server/connection_manager.zig");
 
 pub const Allocator = kausaldb_public.Allocator;
 
