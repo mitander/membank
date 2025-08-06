@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This document specifies the performance characteristics and architectural principles that enable the Kausal system's low-latency operation. Performance is a direct result of deliberate architectural choices, not post-hoc optimization.
+This document specifies the performance characteristics and architectural principles that enable the KausalDB system's low-latency operation. Performance is a direct result of deliberate architectural choices, not post-hoc optimization.
 
 ## 2. Performance Metrics
 

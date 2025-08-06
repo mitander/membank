@@ -1,57 +1,94 @@
-# Kausal: Development & Testing
+# Development Guide
 
-This document provides the necessary protocols for building, testing, and debugging the Kausal system.
+This guide covers the philosophy, workflow, and tools for contributing to KausalDB. We prioritize correctness, performance, and a streamlined developer experience.
 
-## 1. Initial Setup
+## 1. Core Philosophy: Simulation-First Testing
 
-These commands must be run once after cloning the repository. They establish the correct toolchain and local quality gates.
+Our testing philosophy is the foundation of KausalDB's reliability. We do not mock. We run the **exact same production code** inside a deterministic simulation harness that models hostile conditions.
+
+-   **Virtual File System (VFS):** All storage operations are written against a VFS abstraction (`src/core/vfs.zig`). In production, this VFS uses the real filesystem. In tests, it uses an in-memory, deterministic `SimulationVFS` (`src/sim/simulation_vfs.zig`).
+-   **Deterministic Simulation:** The simulation framework (`src/sim/simulation.zig`) controls time, I/O, and networking. Our test suites (`tests/fault_injection/`) use this to validate behavior against disk corruption, I/O failures, network partitions, and power loss in a byte-for-byte reproducible manner.
+
+When you add a new feature, your first thought should be: *How do I test this under hostile conditions in the simulation?*
+
+## 2. Initial Setup
+
+First, clone the repository. Then, install the project-specific Zig toolchain and set up the Git hooks. The hooks are **not optional**—they are a critical part of the workflow.
 
 ```bash
-# Install the project-specific Zig version
+# Install the exact Zig version required by the project
 ./scripts/install_zig.sh
 
-# Install pre-commit and commit-msg git hooks
+# Install pre-commit and pre-push hooks
 ./scripts/setup_hooks.sh
 ```
 
-## 2. Core Build Commands
+## 3. Development Workflow
 
-The build system provides several targets for different phases of development.
+### Code Quality and Validation
 
-*   **Fast Iteration Cycle:** Runs fast unit tests. Use this during active development.
+The Git hooks automate our quality gates.
+
+1.  **`pre-commit`**: Before every commit, this hook runs:
+    *   **Formatter:** `zig fmt`
+    *   **Tidy Check:** `zig build tidy` (checks for architectural and style violations)
+    *   **Fast Tests:** `zig build test` (runs essential unit and integration tests)
+2.  **`pre-push`**: Before you push, this hook runs a comprehensive local CI pipeline (`scripts/local_ci.sh`) that mirrors the GitHub Actions workflow. It performs cross-platform compilation checks, runs critical integration tests, and checks for performance regressions. This prevents most CI failures.
+
+### Build & Test Commands
+
+The `build.zig` file defines several targets for testing and validation.
+
+-   **Fast Developer Loop:** For day-to-day development. Runs in seconds.
     ```bash
     ./zig/zig build test
     ```
-*   **Full Validation Suite:** Runs the complete test suite, including stress and simulation tests. This mirrors the CI environment.
+-   **Full CI Check:** Runs the complete test suite, including stress and fault-injection tests. Use this before pushing.
     ```bash
-    ./zig/zig build test-all
+    ./zig/zig build ci
+    # Or run the script directly for more options
+    ./scripts/local_ci.sh
     ```
-*   **Execute the Server:** Builds and runs the main server binary.
+-   **Performance Benchmarking:** Runs benchmarks and compares them against the committed baseline (`.github/performance-baseline.json`).
     ```bash
-    ./zig/zig build run
+    ./scripts/benchmark.sh
     ```
-
-## 3. Debugging Protocol
-
-Follow this tiered protocol to diagnose failures. Do not deviate.
-
-*   **Tier 1: Isolate Corruption Source.** In the failing test, replace `std.testing.allocator` with `std.heap.GeneralPurposeAllocator(.{.safety = true})`. This is the fastest method to identify the origin of memory corruption (e.g., use-after-free, buffer overflow).
-*   **Tier 2: Detailed Analysis.** If the origin is unclear, run the tests with the LLVM AddressSanitizer. This provides a detailed report of the memory error with full stack traces.
+-   **Fuzz Testing:** Runs the fuzzer to find bugs with random inputs. Several profiles are available.
     ```bash
-    ./zig/zig build test -fsanitize-address
+    # Quick 5-minute fuzz for local validation
+    ./scripts/fuzz.sh quick storage
+
+    # Run continuously until stopped
+    ./scripts/fuzz.sh continuous all
     ```
-*   **Tier 3: Interactive Inspection.** Only if the failure is logical and not memory-related, use LLDB to set breakpoints and inspect the program state.
 
-## 4. Toolchain
+## 4. Debugging Workflow
 
-The project uses several tools to automate quality enforcement.
+We follow a tiered approach to debugging, starting with the fastest and simplest tools.
 
-*   **Git Hooks:**
-    *   `pre-commit`: Runs `zig fmt`, `zig build tidy`, and fast unit tests. Rejects commits that fail quality checks.
-    *   `commit-msg`: Enforces the Conventional Commits format for all commit messages.
-*   **CI/CD (`.github/workflows/ci.yml`):** The CI pipeline automates validation. Key jobs include:
-    *   `test`: Runs the full test suite.
-    *   `build-matrix`: Compiles the project on Ubuntu and macOS.
-    - `performance`: Detects performance regressions against a committed baseline.
-    - `memory-safety`: Runs the test suite under Valgrind to detect memory leaks and errors.
-*   **Fuzz Testing (`scripts/fuzz.sh`):** A fuzz testing harness is used to discover bugs by feeding random and malformed data to the system. It supports several profiles (`quick`, `ci`, `deep`, `continuous`).
+**Tier 1: Find the Source with GPA Safety**
+
+The fastest way to find the origin of memory corruption is to enable the safety features of `std.heap.GeneralPurposeAllocator`. In the failing test, swap `std.testing.allocator` with a safety-enabled GPA:
+
+```zig
+// In your test file
+var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+defer _ = gpa.deinit();
+const allocator = gpa.allocator();
+```
+
+This will often pinpoint the exact location of a buffer overflow or use-after-free error.
+
+**Tier 2: Deeper Analysis with Sanitizers**
+
+If the GPA doesn't reveal the issue, use LLVM's sanitizers for a more detailed report. Our `test-sanitizer` build target has this pre-configured.
+
+```bash
+./zig/zig build test-sanitizer
+```
+
+This will provide detailed stack traces for memory errors.
+
+**Tier 3: Interactive Inspection**
+
+If the "what" is still unclear, use a debugger like LLDB or GDB to set breakpoints and inspect the program state interactively.

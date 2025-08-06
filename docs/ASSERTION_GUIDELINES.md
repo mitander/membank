@@ -2,7 +2,7 @@
 
 ## 1. Protocol Overview
 
-This document specifies the two-tier assertion framework for Kausal. Its purpose is to enforce system integrity by providing robust error detection during development while maintaining explicit fail-fast behavior for unrecoverable conditions in production.
+This document specifies the two-tier assertion framework. Its purpose is to enforce system integrity by providing robust error detection during development while maintaining explicit fail-fast behavior for unrecoverable conditions in production.
 
 ## 2. Assertion Directives
 
