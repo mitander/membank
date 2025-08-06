@@ -418,14 +418,11 @@ pub const Server = struct {
     }
 
     /// Serialize query results into binary format for network transmission using streaming
-    fn serialize_blocks_response(self: *Server, allocator: std.mem.Allocator, result_ptr: *QueryResult) ![]u8 {
-        _ = self; // Suppress unused parameter warning
-
+    fn serialize_blocks_response(_: *Server, allocator: std.mem.Allocator, result_ptr: *QueryResult) ![]u8 {
         var total_size: usize = 4; // 4 bytes for block count
         var block_count: u32 = 0;
 
         while (try result_ptr.next()) |block| {
-            defer result_ptr.deinit_block(block);
             block_count += 1;
             total_size += 16;
             total_size += 4 + block.source_uri.len;
@@ -442,8 +439,6 @@ pub const Server = struct {
         result_ptr.reset();
 
         while (try result_ptr.next()) |block| {
-            defer result_ptr.deinit_block(block);
-
             @memcpy(buffer[offset .. offset + 16], &block.id.bytes);
             offset += 16;
 
@@ -469,12 +464,10 @@ pub const Server = struct {
 
     /// Serialize array of blocks into binary format for network transmission
     fn serialize_blocks_array(
-        self: *Server,
+        _: *Server,
         allocator: std.mem.Allocator,
         blocks: []const ctx_block.ContextBlock,
     ) ![]u8 {
-        _ = self;
-
         var total_size: usize = 4; // 4 bytes for block count
 
         for (blocks) |block| {

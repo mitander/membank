@@ -821,7 +821,6 @@ test "query engine find_block convenience method" {
     try testing.expectEqual(@as(u32, 1), result.total_found);
 
     const found_block = (try result.next()).?;
-    defer result.deinit_block(found_block);
     try testing.expect(found_block.id.eql(test_id));
 }
 
