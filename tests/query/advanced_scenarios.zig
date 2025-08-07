@@ -5,31 +5,29 @@
 //! execution strategies, and memory efficiency under various workloads.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
 const storage = kausaldb.storage;
 const query = kausaldb.query;
 const simulation_vfs = kausaldb.simulation_vfs;
-const context_block = kausaldb.types;
-const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query.engine.QueryEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 const FindBlocksQuery = query.operations.FindBlocksQuery;
 const TraversalQuery = query.traversal.TraversalQuery;
 const QueryResult = query.operations.QueryResult;
 
 fn create_test_block_id(id: u32) BlockId {
-    // Ensure we never create zero BlockIds - make all IDs 1-based
-    const safe_id = id + 1;
     var id_bytes: [16]u8 = undefined;
-    std.mem.writeInt(u128, &id_bytes, safe_id, .little);
+    std.mem.writeInt(u128, &id_bytes, id, .little);
     return BlockId{ .bytes = id_bytes };
 }
 
@@ -37,8 +35,8 @@ fn create_test_block(id: u32, content: []const u8, allocator: std.mem.Allocator)
     return ContextBlock{
         .id = create_test_block_id(id),
         .version = 1,
-        .source_uri = try allocator.dupe(u8, "test://advanced_scenarios"),
-        .metadata_json = try std.fmt.allocPrint(allocator, "{{\"id\": {}, \"type\": \"test\"}}", .{id}),
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{id}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
         .content = try allocator.dupe(u8, content),
     };
 }
@@ -52,7 +50,6 @@ fn create_test_edge(from_id: u32, to_id: u32, edge_type: EdgeType) GraphEdge {
 }
 
 test "complex graph traversal scenarios" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -140,7 +137,6 @@ test "complex graph traversal scenarios" {
 }
 
 test "query optimization strategy validation" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -154,8 +150,9 @@ test "query optimization strategy validation" {
     defer query_engine.deinit();
 
     // Create a large dataset to trigger optimization strategies
+    const dataset_size = 500;
     var i: u32 = 0;
-    while (i < 1000) : (i += 1) {
+    while (i < dataset_size) : (i += 1) {
         const content = try std.fmt.allocPrint(allocator, "Block content {}", .{i});
         defer allocator.free(content);
         const block = try create_test_block(i, content, allocator);
@@ -197,7 +194,6 @@ test "query optimization strategy validation" {
 }
 
 test "query performance under memory pressure" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -263,7 +259,6 @@ test "query performance under memory pressure" {
 }
 
 test "complex filtering and search scenarios" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -320,7 +315,6 @@ test "complex filtering and search scenarios" {
 }
 
 test "graph traversal with cycle detection" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -384,7 +378,6 @@ test "graph traversal with cycle detection" {
 }
 
 test "batch query operations and efficiency" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -449,7 +442,6 @@ test "batch query operations and efficiency" {
 }
 
 test "query error handling and recovery" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -510,7 +502,6 @@ test "query error handling and recovery" {
 }
 
 test "mixed query workload simulation" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);

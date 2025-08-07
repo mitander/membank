@@ -8,35 +8,22 @@ const std = @import("std");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
-const cache = kausaldb.query.cache;
-const operations = kausaldb.query.operations;
-const traversal = kausaldb.query.traversal;
-const storage = kausaldb.storage;
 const simulation_vfs = kausaldb.simulation_vfs;
-const context_block = kausaldb.types;
+const storage = kausaldb.storage;
+const types = kausaldb.types;
+const cache = kausaldb.query.cache;
+const query_operations = kausaldb.query.operations;
+const query_traversal = kausaldb.query.traversal;
 
-const QueryCache = cache.QueryCache;
+const BlockId = types.BlockId;
+const ContextBlock = types.ContextBlock;
+const GraphEdge = types.GraphEdge;
 const CacheKey = cache.CacheKey;
 const CacheStatistics = cache.CacheStatistics;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const StorageEngine = storage.StorageEngine;
+const QueryCache = cache.QueryCache;
+const TraversalResult = query_traversal.TraversalResult;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const TraversalResult = traversal.TraversalResult;
-
-fn create_test_block(id_int: u32, content: []const u8, allocator: std.mem.Allocator) !ContextBlock {
-    var id_bytes: [16]u8 = [_]u8{0} ** 16;
-    std.mem.writeInt(u32, id_bytes[0..4], id_int, .little);
-
-    return ContextBlock{
-        .id = BlockId.from_bytes(id_bytes),
-        .version = 1,
-        .source_uri = try allocator.dupe(u8, "test://cache_test.zig"),
-        .metadata_json = try allocator.dupe(u8, "{}"),
-        .content = try allocator.dupe(u8, content),
-    };
-}
+const StorageEngine = storage.StorageEngine;
 
 test "cache key generation and equality" {
     const allocator = testing.allocator;
@@ -94,7 +81,15 @@ test "single block caching and retrieval" {
     var query_cache = QueryCache.init(allocator, 10, 30);
     defer query_cache.deinit();
 
-    const test_block = try create_test_block(1, "test content", allocator);
+    var id_bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &id_bytes, 1, .little);
+    const test_block = ContextBlock{
+        .id = BlockId{ .bytes = id_bytes },
+        .version = 1,
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{1}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try allocator.dupe(u8, "test content"),
+    };
     defer {
         allocator.free(test_block.source_uri);
         allocator.free(test_block.metadata_json);
@@ -138,8 +133,27 @@ test "traversal result caching" {
     const test_blocks = try allocator.alloc(ContextBlock, 2);
     defer allocator.free(test_blocks);
 
-    test_blocks[0] = try create_test_block(1, "first block", allocator);
-    test_blocks[1] = try create_test_block(2, "second block", allocator);
+    // Create first block
+    var id_bytes1: [16]u8 = undefined;
+    std.mem.writeInt(u128, &id_bytes1, 1, .little);
+    test_blocks[0] = ContextBlock{
+        .id = BlockId{ .bytes = id_bytes1 },
+        .version = 1,
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_1.zig", .{}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try allocator.dupe(u8, "first block"),
+    };
+
+    // Create second block
+    var id_bytes2: [16]u8 = undefined;
+    std.mem.writeInt(u128, &id_bytes2, 2, .little);
+    test_blocks[1] = ContextBlock{
+        .id = BlockId{ .bytes = id_bytes2 },
+        .version = 1,
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_2.zig", .{}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try allocator.dupe(u8, "second block"),
+    };
 
     defer for (test_blocks) |block| {
         allocator.free(block.source_uri);
@@ -204,7 +218,15 @@ test "cache TTL expiration" {
     query_cache.ttl_ns = 1; // 1 nanosecond = immediate expiration
     defer query_cache.deinit();
 
-    const test_block = try create_test_block(1, "expiring content", allocator);
+    var id_bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &id_bytes, 1, .little);
+    const test_block = ContextBlock{
+        .id = BlockId{ .bytes = id_bytes },
+        .version = 1,
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{1}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try allocator.dupe(u8, "expiring content"),
+    };
     defer {
         allocator.free(test_block.source_uri);
         allocator.free(test_block.metadata_json);
@@ -242,7 +264,15 @@ test "cache LRU eviction" {
     for (&test_blocks, 0..) |*block, i| {
         const content = try std.fmt.allocPrint(allocator, "content {}", .{i});
         defer allocator.free(content);
-        block.* = try create_test_block(@intCast(i + 1), content, allocator);
+        var id_bytes: [16]u8 = undefined;
+        std.mem.writeInt(u128, &id_bytes, @intCast(i + 1), .little);
+        block.* = ContextBlock{
+            .id = BlockId{ .bytes = id_bytes },
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{i + 1}),
+            .metadata_json = try allocator.dupe(u8, "{}"),
+            .content = try allocator.dupe(u8, content),
+        };
     }
 
     // Fill cache to capacity
@@ -300,7 +330,15 @@ test "cache invalidation" {
     var query_cache = QueryCache.init(allocator, 10, 30);
     defer query_cache.deinit();
 
-    const test_block = try create_test_block(1, "invalidation test", allocator);
+    var id_bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &id_bytes, 1, .little);
+    const test_block = ContextBlock{
+        .id = BlockId{ .bytes = id_bytes },
+        .version = 1,
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{1}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try allocator.dupe(u8, "invalidation test"),
+    };
     defer {
         allocator.free(test_block.source_uri);
         allocator.free(test_block.metadata_json);
@@ -342,7 +380,15 @@ test "cache statistics and monitoring" {
     var query_cache = QueryCache.init(allocator, 5, 30);
     defer query_cache.deinit();
 
-    const test_block = try create_test_block(1, "stats test", allocator);
+    var id_bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &id_bytes, 1, .little);
+    const test_block = ContextBlock{
+        .id = BlockId{ .bytes = id_bytes },
+        .version = 1,
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{1}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try allocator.dupe(u8, "stats test"),
+    };
     defer {
         allocator.free(test_block.source_uri);
         allocator.free(test_block.metadata_json);
@@ -399,7 +445,15 @@ test "cache clear and reset" {
         const content = try std.fmt.allocPrint(allocator, "clear test {}", .{i});
         defer allocator.free(content);
 
-        const test_block = try create_test_block(@intCast(i), content, allocator);
+        var id_bytes: [16]u8 = undefined;
+        std.mem.writeInt(u128, &id_bytes, @intCast(i), .little);
+        const test_block = ContextBlock{
+            .id = BlockId{ .bytes = id_bytes },
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{@as(u32, @intCast(i))}),
+            .metadata_json = try allocator.dupe(u8, "{}"),
+            .content = try allocator.dupe(u8, content),
+        };
         defer {
             allocator.free(test_block.source_uri);
             allocator.free(test_block.metadata_json);
@@ -431,7 +485,15 @@ test "global traversal invalidation" {
     defer query_cache.deinit();
 
     // Add both block and traversal cache entries
-    const test_block = try create_test_block(1, "traversal invalidation test", allocator);
+    var id_bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &id_bytes, 1, .little);
+    const test_block = ContextBlock{
+        .id = BlockId{ .bytes = id_bytes },
+        .version = 1,
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{1}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try allocator.dupe(u8, "traversal invalidation test"),
+    };
     defer {
         allocator.free(test_block.source_uri);
         allocator.free(test_block.metadata_json);
@@ -489,7 +551,15 @@ test "cache memory management with arena allocator" {
         const content = try std.fmt.allocPrint(allocator, "arena test content {}", .{i});
         defer allocator.free(content);
 
-        const test_block = try create_test_block(@intCast(i), content, allocator);
+        var id_bytes: [16]u8 = undefined;
+        std.mem.writeInt(u128, &id_bytes, @intCast(i), .little);
+        const test_block = ContextBlock{
+            .id = BlockId{ .bytes = id_bytes },
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{@as(u32, @intCast(i))}),
+            .metadata_json = try allocator.dupe(u8, "{}"),
+            .content = try allocator.dupe(u8, content),
+        };
         defer {
             allocator.free(test_block.source_uri);
             allocator.free(test_block.metadata_json);

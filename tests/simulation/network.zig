@@ -11,7 +11,7 @@ const testing = std.testing;
 const simulation = kausaldb.simulation;
 const vfs = kausaldb.vfs;
 const storage = kausaldb.storage;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const assert = kausaldb.assert.assert;
 const fatal_assert = kausaldb.assert.fatal_assert;
 
@@ -19,15 +19,15 @@ const Simulation = simulation.Simulation;
 const NodeId = simulation.NodeId;
 const MessageType = simulation.MessageType;
 const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 
 // Defensive limits for hostile environment testing
 const MAX_TEST_DURATION_MS = 10000;
 const MAX_NETWORK_OPERATIONS = 1000;
 const PARTITION_HEAL_TIMEOUT_MS = 2000;
 
-test "network partition: write succeeds after partition heals" {
+test "write succeeds after partition heals" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -77,7 +77,7 @@ test "network partition: write succeeds after partition heals" {
     try testing.expect(node1_vfs_healed.exists("data/block_001.db"));
 }
 
-test "simulation hostile_environment_complete" {
+test "hostile environment complete" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -168,7 +168,7 @@ test "simulation hostile_environment_complete" {
     try testing.expect(total_time < MAX_TEST_DURATION_MS);
 }
 
-test "simulation systematic_failure_cascade" {
+test "systematic failure cascade" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -233,7 +233,7 @@ test "simulation systematic_failure_cascade" {
     try testing.expect(backup_available);
 }
 
-test "simulation memory_safety_under_pressure" {
+test "memory safety under pressure" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -301,7 +301,7 @@ test "simulation memory_safety_under_pressure" {
     try testing.expect(blocks_allocated > 10); // Some allocations succeeded
 }
 
-test "simulation performance_regression_detection" {
+test "performance regression detection" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -383,7 +383,7 @@ test "simulation performance_regression_detection" {
     try testing.expect(recovery_time < baseline_per_op * 5);
 }
 
-test "packet loss scenario: writes eventually succeed" {
+test "writes eventually succeed under packet loss" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -438,7 +438,7 @@ test "packet loss scenario: writes eventually succeed" {
     _ = try final_file.write("Final test after clearing packet loss");
 }
 
-test "deterministic replay: same seed produces identical results" {
+test "same seed produces identical results" {
     const allocator = std.testing.allocator;
 
     const REPLAY_SEED = 0xDE7E411E;

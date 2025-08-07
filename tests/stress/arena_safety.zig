@@ -8,6 +8,7 @@
 //! - O(1) cleanup validation
 
 const std = @import("std");
+const builtin = @import("builtin");
 const kausaldb = @import("kausaldb");
 const testing = std.testing;
 const assert = kausaldb.assert.assert;
@@ -20,7 +21,7 @@ const BlockId = kausaldb.types.BlockId;
 
 const log = std.log.scoped(.arena_safety);
 
-test "arena safety: memtable manager lifecycle" {
+test "memtable manager lifecycle safety" {
     // Use GPA with safety checks to detect any memory corruption
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
@@ -42,7 +43,8 @@ test "arena safety: memtable manager lifecycle" {
     try memtable2.startup();
 
     // Add blocks to both memtables to stress arena allocations
-    const block_count = 1000;
+    // Scale down for debug builds to prevent CI timeouts
+    const block_count = if (builtin.mode == .Debug) 250 else 1000;
     var i: u32 = 0;
     while (i < block_count) : (i += 1) {
         var id_bytes1: [16]u8 = undefined;
@@ -89,7 +91,7 @@ test "arena safety: memtable manager lifecycle" {
     try testing.expectEqual(@as(u64, 0), memtable2.memory_usage());
 }
 
-test "arena safety: error path memory cleanup" {
+test "error path memory cleanup" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
@@ -133,7 +135,7 @@ test "arena safety: error path memory cleanup" {
     try testing.expectEqual(@as(u64, 0), post_clear_memory);
 }
 
-test "arena safety: memory fragmentation stress" {
+test "memory fragmentation stress" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
@@ -149,7 +151,11 @@ test "arena safety: memory fragmentation stress" {
     try memtable.startup();
 
     // Create varied-size allocations to test fragmentation handling
-    const sizes = [_]usize{ 10, 100, 1000, 10000, 100000 };
+    // Scale down largest allocations for debug builds
+    const sizes = if (builtin.mode == .Debug)
+        [_]usize{ 10, 100, 1000, 5000 }
+    else
+        [_]usize{ 10, 100, 1000, 10000, 100000 };
 
     for (sizes) |size| {
         var cycle: u32 = 0;
@@ -187,7 +193,7 @@ test "arena safety: memory fragmentation stress" {
     try testing.expectEqual(@as(u64, 0), memtable.memory_usage());
 }
 
-test "arena safety: concurrent arena operations" {
+test "concurrent arena operations" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
@@ -258,7 +264,7 @@ test "arena safety: concurrent arena operations" {
     }
 }
 
-test "arena safety: large allocation stress" {
+test "large allocation stress" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
@@ -315,7 +321,7 @@ test "arena safety: large allocation stress" {
     try testing.expectEqual(@as(u64, 0), memtable.memory_usage());
 }
 
-test "arena safety: cross-allocator corruption detection" {
+test "cross allocator corruption detection" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
@@ -379,7 +385,7 @@ test "arena safety: cross-allocator corruption detection" {
     try testing.expectEqual(@as(u64, 0), memtable.memory_usage());
 }
 
-test "arena safety: sustained operations memory stability" {
+test "sustained operations memory stability" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();

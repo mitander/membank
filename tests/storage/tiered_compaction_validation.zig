@@ -1,40 +1,23 @@
-//! Validation tests for tiered compaction strategies.
+//! TieredCompactionManager unit tests
 //!
-//! Tests the TieredCompactionManager implementation including L0 compaction,
-//! size-tiered compaction, tier state management, and performance characteristics.
-//! Validates compaction decisions, job creation, and execution under various
-//! scenarios including edge cases and hostile conditions.
+//! Tests individual TieredCompactionManager functionality in isolation.
+//! Focus: compaction threshold logic, job creation, tier management.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
 const storage = kausaldb.storage;
 const simulation_vfs = kausaldb.simulation_vfs;
-const context_block = kausaldb.types;
-const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
 
 const TieredCompactionManager = storage.TieredCompactionManager;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 
-fn create_test_block(id: u32, allocator: std.mem.Allocator) !ContextBlock {
-    var id_bytes: [16]u8 = undefined;
-    std.mem.writeInt(u128, &id_bytes, id, .little);
-
-    const content = try std.fmt.allocPrint(allocator, "test content for block {}", .{id});
-    return ContextBlock{
-        .id = BlockId{ .bytes = id_bytes },
-        .version = 1,
-        .source_uri = try allocator.dupe(u8, "test://source"),
-        .metadata_json = try allocator.dupe(u8, "{{\"test\": true}}"),
-        .content = content,
-    };
-}
-
-test "tiered compaction manager initialization and cleanup" {
-    concurrency.init();
+test "init cleanup" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -51,8 +34,7 @@ test "tiered compaction manager initialization and cleanup" {
     try testing.expect((try manager.check_compaction_needed()) == null);
 }
 
-test "L0 compaction threshold triggers" {
-    concurrency.init();
+test "L0 threshold trigger" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -89,8 +71,7 @@ test "L0 compaction threshold triggers" {
     try testing.expectEqual(@as(u8, 1), compaction_job.?.output_level);
 }
 
-test "size-tiered compaction for higher levels" {
-    concurrency.init();
+test "size based higher levels" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -123,7 +104,6 @@ test "size-tiered compaction for higher levels" {
 }
 
 test "tier state management and tracking" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -159,7 +139,6 @@ test "tier state management and tracking" {
 }
 
 test "compaction job creation and validation" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -191,7 +170,6 @@ test "compaction job creation and validation" {
 }
 
 test "compaction configuration validation" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -232,8 +210,7 @@ test "compaction configuration validation" {
     defer if (final_job) |*job| job.deinit();
 }
 
-test "multi-level compaction scenarios" {
-    concurrency.init();
+test "multi level compaction scenarios" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -271,7 +248,6 @@ test "multi-level compaction scenarios" {
 }
 
 test "compaction with large SSTables" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -304,7 +280,6 @@ test "compaction with large SSTables" {
 }
 
 test "compaction edge cases and error conditions" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -338,7 +313,6 @@ test "compaction edge cases and error conditions" {
 }
 
 test "compaction performance characteristics" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -354,8 +328,10 @@ test "compaction performance characteristics" {
     const start_time = std.time.nanoTimestamp();
 
     // Add many SSTables to test performance
+    // Scale down for debug builds to prevent CI timeouts
+    const sstable_count = if (builtin.mode == .Debug) 250 else 1000;
     var i: u32 = 0;
-    while (i < 1000) : (i += 1) {
+    while (i < sstable_count) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "perf_test_{}.sst", .{i});
         defer allocator.free(path);
         const level: u8 = @intCast(i % 4); // Distribute across levels
@@ -388,7 +364,6 @@ test "compaction performance characteristics" {
 }
 
 test "tier state consistency under operations" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -447,7 +422,6 @@ test "tier state consistency under operations" {
 }
 
 test "compaction strategies across tier sizes" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);

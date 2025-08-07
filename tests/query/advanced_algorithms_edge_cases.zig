@@ -10,16 +10,15 @@ const kausaldb = @import("kausaldb");
 
 const storage = kausaldb.storage;
 const query_engine = kausaldb.query_engine;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const simulation_vfs = kausaldb.simulation_vfs;
-const concurrency = kausaldb.concurrency;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 const TraversalQuery = query_engine.TraversalQuery;
 
 // Test harness for creating isolated graph scenarios
@@ -174,8 +173,7 @@ const GraphTestHarness = struct {
 };
 
 // Test A* search with disconnected components
-test "A* search - disconnected component edge cases" {
-    concurrency.init();
+test "A* search disconnected component edge cases" {
     const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
@@ -250,8 +248,7 @@ test "A* search - disconnected component edge cases" {
 }
 
 // Test bidirectional search on disconnected components
-test "Bidirectional search - disconnected component scenarios" {
-    concurrency.init();
+test "bidirectional search disconnected component scenarios" {
     const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
@@ -307,8 +304,7 @@ test "Bidirectional search - disconnected component scenarios" {
 }
 
 // Test topological sort with cycle detection
-test "Topological sort - cycle detection edge cases" {
-    concurrency.init();
+test "topological sort cycle detection edge cases" {
     const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
@@ -364,8 +360,7 @@ test "Topological sort - cycle detection edge cases" {
 }
 
 // Test strongly connected components with self-loops
-test "SCC detection - self-loop edge cases" {
-    concurrency.init();
+test "SCC detection self loop edge cases" {
     const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
@@ -424,8 +419,7 @@ test "SCC detection - self-loop edge cases" {
 }
 
 // Test algorithm robustness with malformed inputs
-test "Algorithm robustness - malformed input edge cases" {
-    concurrency.init();
+test "algorithm robustness malformed input edge cases" {
     const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
@@ -515,8 +509,7 @@ test "Algorithm robustness - malformed input edge cases" {
 }
 
 // Performance regression test for algorithm efficiency
-test "Algorithm performance - edge case timing validation" {
-    concurrency.init();
+test "algorithm performance edge case timing validation" {
     const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);

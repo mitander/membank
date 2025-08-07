@@ -10,11 +10,10 @@ const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const concurrency = kausaldb.concurrency;
 const simulation = kausaldb.simulation;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const ingestion = kausaldb.pipeline;
 const git_source = kausaldb.git_source;
 const zig_parser = kausaldb.zig_parser;
@@ -23,8 +22,8 @@ const stdx = kausaldb.stdx;
 
 const Simulation = simulation.Simulation;
 const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 const IngestionPipeline = ingestion.IngestionPipeline;
 const PipelineConfig = ingestion.PipelineConfig;
 const GitSource = git_source.GitSource;
@@ -34,9 +33,8 @@ const ZigParserConfig = zig_parser.ZigParserConfig;
 const SemanticChunker = semantic_chunker.SemanticChunker;
 const SemanticChunkerConfig = semantic_chunker.SemanticChunkerConfig;
 
-test "complete ingestion pipeline - git to storage" {
+test "complete pipeline git to storage" {
     // Initialize concurrency module
-    concurrency.init();
 
     const allocator = testing.allocator;
 
@@ -151,7 +149,6 @@ test "complete ingestion pipeline - git to storage" {
 
 test "zig parser extracts semantic units correctly" {
     // Initialize concurrency module with clean state
-    concurrency.init();
 
     const allocator = testing.allocator;
 
@@ -269,7 +266,6 @@ test "zig parser extracts semantic units correctly" {
 
 test "semantic chunker preserves metadata" {
     // Initialize concurrency module with clean state
-    concurrency.init();
 
     const allocator = testing.allocator;
 
@@ -339,7 +335,6 @@ test "semantic chunker preserves metadata" {
 
 test "git source handles missing repository gracefully" {
     // Initialize concurrency module with clean state
-    concurrency.init();
 
     const allocator = testing.allocator;
 
@@ -361,7 +356,6 @@ test "git source handles missing repository gracefully" {
 
 test "pipeline handles parsing errors gracefully" {
     // Initialize concurrency module with clean state
-    concurrency.init();
 
     const allocator = testing.allocator;
 
@@ -414,11 +408,10 @@ test "pipeline handles parsing errors gracefully" {
     try testing.expectEqual(@as(u32, 1), stats.sources_processed);
 }
 
-test "per-file arena memory optimization preserves correctness" {
+test "per file arena memory optimization preserves correctness" {
     // This test validates that the per-file arena optimization correctly
     // copies blocks from temporary arenas to the main arena without corruption.
     // Initialize concurrency module with clean state
-    concurrency.init();
 
     const allocator = testing.allocator;
 
@@ -529,11 +522,10 @@ test "per-file arena memory optimization preserves correctness" {
     try testing.expectEqual(blocks.len, stats.blocks_generated);
 }
 
-test "per-file arena optimization handles large files efficiently" {
+test "per file arena optimization handles large files efficiently" {
     // This test validates that the per-file arena optimization can handle
     // multiple large files without unbounded memory growth. Each file is
     // processed in its own temporary arena, keeping peak memory bounded.
-    concurrency.init();
 
     const allocator = testing.allocator;
 

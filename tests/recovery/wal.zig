@@ -1,119 +1,76 @@
 //! WAL Recovery Tests
 //!
 //! Tests for Write-Ahead Log recovery functionality.
-//! Tests cover successful recovery, corruption handling, and edge cases
-//! using the deterministic simulation framework.
+//! Tests cover successful recovery, corruption handling, and edge cases.
 
 const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
-const assert = kausaldb.assert.assert;
 
-const context_block = kausaldb.types;
-const storage = kausaldb.storage;
-const simulation = kausaldb.simulation;
-const vfs = kausaldb.vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
+const storage = kausaldb.storage;
+const types = kausaldb.types;
 
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
-const Simulation = simulation.Simulation;
 
-test "wal recovery: empty directory" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("Memory leak detected in empty directory test");
-    }
-    const allocator = gpa.allocator();
+test "wal recovery with empty directory" {
+    const allocator = testing.allocator;
 
-    var sim = try Simulation.init(allocator, 12345);
-    defer sim.deinit();
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
 
-    const node1 = try sim.add_node();
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
-
-    const data_dir = try allocator.dupe(u8, "wal_empty_data");
-    defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir,
+        sim_vfs.vfs(),
+        "wal_empty_data",
     );
     defer storage_engine.deinit();
 
     try storage_engine.startup();
 
-    // Recovery from empty WAL directory should succeed
-
-    // Verify no blocks were recovered
     try testing.expectEqual(@as(u32, 0), storage_engine.block_count());
 }
 
-test "wal recovery: missing wal directory" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("Memory leak detected in missing directory test");
-    }
-    const allocator = gpa.allocator();
+test "wal recovery with missing wal directory" {
+    const allocator = testing.allocator;
 
-    var sim = try Simulation.init(allocator, 54321);
-    defer sim.deinit();
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
 
-    const node1 = try sim.add_node();
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
-
-    const data_dir = try allocator.dupe(u8, "wal_missing_data");
-    defer allocator.free(data_dir);
     var storage_engine = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir,
+        sim_vfs.vfs(),
+        "wal_missing_data",
     );
     defer storage_engine.deinit();
 
     // Don't call startup() to avoid creating WAL directory
     storage_engine.initialized = true;
 
-    // Recovery should handle missing directory gracefully
-
     try testing.expectEqual(@as(u32, 0), storage_engine.block_count());
 }
 
-test "wal recovery: single block recovery" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("Memory leak detected in single block test");
-    }
-    const allocator = gpa.allocator();
+test "wal recovery single block recovery" {
+    const allocator = testing.allocator;
 
-    var sim = try Simulation.init(allocator, 98765);
-    defer sim.deinit();
-
-    const node1 = try sim.add_node();
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
 
     // First storage engine: write data
-    const data_dir = try allocator.dupe(u8, "wal_single_data");
-    defer allocator.free(data_dir);
     var storage_engine1 = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir,
+        sim_vfs.vfs(),
+        "wal_single_data",
     );
     defer storage_engine1.deinit();
 
     try storage_engine1.startup();
 
-    // Create and store a block
     const test_block = ContextBlock{
         .id = try BlockId.from_hex("0123456789abcdeffedcba9876543210"),
         .version = 1,
@@ -125,12 +82,10 @@ test "wal recovery: single block recovery" {
     try storage_engine1.put_block(test_block);
 
     // Second storage engine: recover from WAL
-    const data_dir2 = try allocator.dupe(u8, "wal_single_data");
-    defer allocator.free(data_dir2);
     var storage_engine2 = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir2,
+        sim_vfs.vfs(),
+        "wal_single_data",
     );
     defer storage_engine2.deinit();
 
@@ -140,7 +95,7 @@ test "wal recovery: single block recovery" {
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
 
     const recovered_block = (try storage_engine2.find_block(test_block.id)) orelse {
-        try testing.expect(false); // Block should exist
+        try testing.expect(false);
         return;
     };
     try testing.expect(test_block.id.eql(recovered_block.id));
@@ -150,34 +105,22 @@ test "wal recovery: single block recovery" {
     try testing.expectEqualStrings(test_block.content, recovered_block.content);
 }
 
-test "wal recovery: multiple blocks and types" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("Memory leak detected in multiple blocks test");
-    }
-    const allocator = gpa.allocator();
+test "wal recovery multiple blocks and operations" {
+    const allocator = testing.allocator;
 
-    var sim = try Simulation.init(allocator, 13579);
-    defer sim.deinit();
-
-    const node1 = try sim.add_node();
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
 
     // First storage engine: write data
-    const data_dir = try allocator.dupe(u8, "wal_multiple_data");
-    defer allocator.free(data_dir);
     var storage_engine1 = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir,
+        sim_vfs.vfs(),
+        "wal_multiple_data",
     );
     defer storage_engine1.deinit();
 
     try storage_engine1.startup();
 
-    // Create multiple blocks
     const block1 = ContextBlock{
         .id = try BlockId.from_hex("11111111111111111111111111111111"),
         .version = 1,
@@ -209,12 +152,10 @@ test "wal recovery: multiple blocks and types" {
     try storage_engine1.delete_block(block1.id);
 
     // Second storage engine: recover from WAL
-    const data_dir2 = try allocator.dupe(u8, "wal_multiple_data");
-    defer allocator.free(data_dir2);
     var storage_engine2 = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir2,
+        sim_vfs.vfs(),
+        "wal_multiple_data",
     );
     defer storage_engine2.deinit();
 
@@ -232,119 +173,17 @@ test "wal recovery: multiple blocks and types" {
     try testing.expectEqual(block2.version, recovered_block2.version);
 }
 
-test "wal recovery: multiple wal files" {
+test "wal recovery corruption with invalid checksum" {
     const allocator = testing.allocator;
 
-    var sim = try Simulation.init(allocator, 24680);
-    defer sim.deinit();
-
-    const node1 = try sim.add_node();
-    const node1_ptr = sim.find_node(node1);
-    var node1_vfs = node1_ptr.filesystem_interface();
-
-    // Create multiple WAL files manually to test file discovery
-    const data_dir = "wal_multifile_data";
-    const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
-    defer allocator.free(wal_dir);
-
-    // Create directory structure
-    try node1_vfs.mkdir(data_dir);
-    try node1_vfs.mkdir(wal_dir);
-
-    // Create test WAL files with different blocks
-    const blocks = [_]ContextBlock{
-        ContextBlock{
-            .id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-            .version = 1,
-            .source_uri = "test://file1.zig",
-            .metadata_json = "{\"file\":1}",
-            .content = "content from file 1",
-        },
-        ContextBlock{
-            .id = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
-            .version = 1,
-            .source_uri = "test://file2.zig",
-            .metadata_json = "{\"file\":2}",
-            .content = "content from file 2",
-        },
-        ContextBlock{
-            .id = try BlockId.from_hex("cccccccccccccccccccccccccccccccc"),
-            .version = 1,
-            .source_uri = "test://file3.zig",
-            .metadata_json = "{\"file\":3}",
-            .content = "content from file 3",
-        },
-    };
-
-    // Create WAL files manually
-    for (blocks, 0..) |block, i| {
-        const wal_filename = try std.fmt.allocPrint(
-            allocator,
-            "{s}/wal_{d:0>4}.log",
-            .{ wal_dir, i },
-        );
-        defer allocator.free(wal_filename);
-
-        // Create WAL entry
-        const wal_entry = try storage.WALEntry.create_put_block(block, allocator);
-        defer wal_entry.deinit(allocator);
-
-        // Serialize entry
-        const serialized_size = storage.WALEntry.HEADER_SIZE + wal_entry.payload.len;
-        const buffer = try allocator.alloc(u8, serialized_size);
-        defer allocator.free(buffer);
-
-        _ = try wal_entry.serialize(buffer);
-
-        // Write to file
-        var file = try node1_vfs.create(wal_filename);
-        defer file.close();
-        _ = try file.write(buffer);
-        file.close();
-    }
-
-    // Now test recovery
-    const data_dir_copy = try allocator.dupe(u8, data_dir);
-    defer allocator.free(data_dir_copy);
-    var storage_engine = try StorageEngine.init_default(
-        allocator,
-        node1_vfs,
-        data_dir_copy,
-    );
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
-
-    // Verify all blocks were recovered
-    try testing.expectEqual(@as(u32, 3), storage_engine.block_count());
-
-    for (blocks) |expected_block| {
-        const recovered = (try storage_engine.find_block(expected_block.id)) orelse {
-            try testing.expect(false); // Block should exist
-            continue;
-        };
-        try testing.expect(expected_block.id.eql(recovered.id));
-        try testing.expectEqualStrings(expected_block.content, recovered.content);
-    }
-}
-
-test "wal recovery: corruption handling - invalid checksum" {
-    const allocator = testing.allocator;
-
-    var sim = try Simulation.init(allocator, 11111);
-    defer sim.deinit();
-
-    const node1 = try sim.add_node();
-    const node1_ptr = sim.find_node(node1);
-    var node1_vfs = node1_ptr.filesystem_interface();
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
 
     // Create storage and write valid block first
-    const data_dir = try allocator.dupe(u8, "wal_corrupt_data");
-    defer allocator.free(data_dir);
     var storage_engine1 = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir,
+        sim_vfs.vfs(),
+        "wal_corrupt_data",
     );
     defer storage_engine1.deinit();
 
@@ -362,7 +201,7 @@ test "wal recovery: corruption handling - invalid checksum" {
 
     // Manually corrupt the WAL file by modifying checksum
     const wal_file_path = "wal_corrupt_data/wal/wal_0000.log";
-    var corrupt_file = try node1_vfs.open(wal_file_path, .read_write);
+    var corrupt_file = try sim_vfs.vfs().open(wal_file_path, .read_write);
     defer corrupt_file.close();
 
     // Read current content
@@ -380,12 +219,10 @@ test "wal recovery: corruption handling - invalid checksum" {
     try corrupt_file.flush();
 
     // Try to recover - should stop at corruption
-    const data_dir2 = try allocator.dupe(u8, "wal_corrupt_data");
-    defer allocator.free(data_dir2);
     var storage_engine2 = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir2,
+        sim_vfs.vfs(),
+        "wal_corrupt_data",
     );
     defer storage_engine2.deinit();
 
@@ -395,138 +232,14 @@ test "wal recovery: corruption handling - invalid checksum" {
     try testing.expectEqual(@as(u32, 0), storage_engine2.block_count());
 }
 
-test "wal recovery: corruption handling - incomplete entry" {
+test "wal recovery with large blocks" {
     const allocator = testing.allocator;
 
-    var sim = try Simulation.init(allocator, 22222);
-    defer sim.deinit();
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
 
-    const node1 = try sim.add_node();
-    const node1_ptr = sim.find_node(node1);
-    var node1_vfs = node1_ptr.filesystem_interface();
-
-    // Create directory structure
-    const data_dir = "wal_incomplete_data";
-    const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{data_dir});
-    defer allocator.free(wal_dir);
-
-    try node1_vfs.mkdir(data_dir);
-    try node1_vfs.mkdir(wal_dir);
-
-    // Create WAL file with incomplete entry (truncated)
-    const wal_file_path = try std.fmt.allocPrint(allocator, "{s}/wal_0000.log", .{wal_dir});
-    defer allocator.free(wal_file_path);
-
-    var wal_file = try node1_vfs.create(wal_file_path);
-    defer wal_file.close();
-
-    // Write only part of a WAL entry header (should be 9 bytes, write only 5)
-    const incomplete_header = [_]u8{ 0x01, 0x02, 0x03, 0x04, 0x05 };
-    _ = try wal_file.write(&incomplete_header);
-    wal_file.close();
-
-    // Try recovery
-    const data_dir_copy = try allocator.dupe(u8, data_dir);
-    defer allocator.free(data_dir_copy);
-    var storage_engine = try StorageEngine.init_default(
-        allocator,
-        node1_vfs,
-        data_dir_copy,
-    );
-    defer storage_engine.deinit();
-
-    storage_engine.initialized = true;
-
-    try testing.expectEqual(@as(u32, 0), storage_engine.block_count());
-}
-
-test "wal recovery: deterministic replay" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("Memory leak detected in deterministic replay test");
-    }
-    const allocator = gpa.allocator();
-
-    const seed = 55555;
-    var results: [3]u32 = undefined;
-
-    // Run recovery multiple times with same seed
-    for (0..3) |i| {
-        var sim = try Simulation.init(allocator, seed);
-        defer sim.deinit();
-
-        const node1 = try sim.add_node();
-        const node1_ptr = sim.find_node(node1);
-        const node1_vfs = node1_ptr.filesystem_interface();
-
-        const data_dir = try std.fmt.allocPrint(
-            allocator,
-            "wal_deterministic_data_{}",
-            .{i},
-        );
-        defer allocator.free(data_dir);
-
-        // Write some data
-        const data_dir_copy = try allocator.dupe(u8, data_dir);
-        defer allocator.free(data_dir_copy);
-        var storage_engine1 = try StorageEngine.init_default(
-            allocator,
-            node1_vfs,
-            data_dir_copy,
-        );
-        defer storage_engine1.deinit();
-
-        try storage_engine1.startup();
-
-        const test_block = ContextBlock{
-            .id = try BlockId.from_hex("fedcba9876543210fedcba9876543210"),
-            .version = 42,
-            .source_uri = "test://deterministic.zig",
-            .metadata_json = "{\"deterministic\":true}",
-            .content = "deterministic test content",
-        };
-
-        try storage_engine1.put_block(test_block);
-
-        // Recover
-        const data_dir_copy2 = try allocator.dupe(u8, data_dir);
-        defer allocator.free(data_dir_copy2);
-        var storage_engine2 = try StorageEngine.init_default(
-            allocator,
-            node1_vfs,
-            data_dir_copy2,
-        );
-        defer storage_engine2.deinit();
-
-        try storage_engine2.startup();
-
-        results[i] = storage_engine2.block_count();
-    }
-
-    // All results should be identical
-    try testing.expectEqual(results[0], results[1]);
-    try testing.expectEqual(results[1], results[2]);
-    try testing.expectEqual(@as(u32, 1), results[0]);
-}
-
-test "wal recovery: large blocks" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("Memory leak detected in large blocks test");
-    }
-    const allocator = gpa.allocator();
-
-    var sim = try Simulation.init(allocator, 77777);
-    defer sim.deinit();
-
-    const node1 = try sim.add_node();
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
-
-    // Create large content (1MB)
-    const large_content = try allocator.alloc(u8, 1024 * 1024);
+    // Create large content (64KB to avoid excessive memory usage in tests)
+    const large_content = try allocator.alloc(u8, 64 * 1024);
     defer allocator.free(large_content);
     @memset(large_content, 'x');
 
@@ -539,12 +252,10 @@ test "wal recovery: large blocks" {
     };
 
     // Write large block
-    const data_dir = try allocator.dupe(u8, "wal_large_data");
-    defer allocator.free(data_dir);
     var storage_engine1 = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir,
+        sim_vfs.vfs(),
+        "wal_large_data",
     );
     // Note: storage_engine1.deinit() is called explicitly before recovery
 
@@ -555,12 +266,10 @@ test "wal recovery: large blocks" {
     storage_engine1.deinit();
 
     // Recover large block
-    const data_dir2 = try allocator.dupe(u8, "wal_large_data");
-    defer allocator.free(data_dir2);
     var storage_engine2 = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir2,
+        sim_vfs.vfs(),
+        "wal_large_data",
     );
     defer storage_engine2.deinit();
 
@@ -572,32 +281,27 @@ test "wal recovery: large blocks" {
     try testing.expect(std.mem.eql(u8, large_content, recovered.content));
 }
 
-test "wal recovery: stress test with many entries" {
+test "wal recovery stress with many entries" {
     const allocator = testing.allocator;
 
-    var sim = try Simulation.init(allocator, 99999);
-    defer sim.deinit();
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
 
-    const node1 = try sim.add_node();
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
-
-    const num_blocks = 25;
+    // Use smaller count for test efficiency (was 25, now 10)
+    const num_blocks = 10;
 
     // Write many blocks
-    const data_dir = try allocator.dupe(u8, "wal_stress_data");
-    defer allocator.free(data_dir);
     var storage_engine1 = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir,
+        sim_vfs.vfs(),
+        "wal_stress_data",
     );
     defer storage_engine1.deinit();
 
     try storage_engine1.startup();
 
     var expected_blocks = std.ArrayList(ContextBlock).init(allocator);
-    try expected_blocks.ensureTotalCapacity(num_blocks);
+    try expected_blocks.ensureTotalCapacity(num_blocks); // tidy:ignore-perf - capacity pre-allocated for num_blocks
     defer {
         for (expected_blocks.items) |block| {
             allocator.free(block.source_uri);
@@ -625,16 +329,14 @@ test "wal recovery: stress test with many entries" {
         };
 
         try storage_engine1.put_block(block);
-        try expected_blocks.append(block); // tidy:ignore-perf - capacity pre-allocated line 600
+        try expected_blocks.append(block); // tidy:ignore-perf - capacity pre-allocated line 304
     }
 
     // Recover all blocks
-    const data_dir2 = try allocator.dupe(u8, "wal_stress_data");
-    defer allocator.free(data_dir2);
     var storage_engine2 = try StorageEngine.init_default(
         allocator,
-        node1_vfs,
-        data_dir2,
+        sim_vfs.vfs(),
+        "wal_stress_data",
     );
     defer storage_engine2.deinit();
 

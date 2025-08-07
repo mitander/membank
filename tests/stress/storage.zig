@@ -9,19 +9,19 @@ const testing = std.testing;
 const simulation = kausaldb.simulation;
 const vfs = kausaldb.vfs;
 const assert = kausaldb.assert;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const storage = kausaldb.storage;
 const simulation_vfs = kausaldb.simulation_vfs;
 
 const Simulation = simulation.Simulation;
 const NodeId = simulation.NodeId;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 const StorageEngine = storage.StorageEngine;
 
-test "storage stress: high volume writes during network partition" {
+test "high volume writes during network partition" {
     const allocator = std.testing.allocator;
 
     var sim = try Simulation.init(allocator, 0x57E55501);
@@ -96,7 +96,7 @@ test "storage stress: high volume writes during network partition" {
     }
 }
 
-test "storage recovery: WAL corruption simulation" {
+test "recovery from WAL corruption simulation" {
     const allocator = std.testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xCA1C2FD7);
@@ -172,7 +172,7 @@ test "storage recovery: WAL corruption simulation" {
     }
 }
 
-test "storage limits: large block handling" {
+test "large block handling limits" {
     const allocator = std.testing.allocator;
 
     var sim = try Simulation.init(allocator, 0x1A26EB1C);
@@ -223,7 +223,7 @@ test "storage limits: large block handling" {
     try std.testing.expectEqualSlices(u8, large_content, retrieved.content);
 }
 
-test "storage concurrency: rapid block updates" {
+test "rapid block updates concurrency" {
     const allocator = std.testing.allocator;
 
     var sim = try Simulation.init(allocator, 0x2A91DFDD);
@@ -278,7 +278,7 @@ test "storage concurrency: rapid block updates" {
     try std.testing.expect(std.mem.indexOf(u8, final_block.content, "Version 50") != null);
 }
 
-test "storage integrity: duplicate block handling" {
+test "duplicate block handling integrity" {
     const allocator = std.testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xDFD11CA7);
@@ -333,7 +333,7 @@ test "storage integrity: duplicate block handling" {
     try std.testing.expectEqualStrings("dup://test/updated", retrieved.source_uri);
 }
 
-test "storage edges: graph relationship persistence" {
+test "graph relationship persistence" {
     const allocator = std.testing.allocator;
 
     var sim = try Simulation.init(allocator, 0x62A9DE1);
@@ -418,7 +418,7 @@ test "storage edges: graph relationship persistence" {
     try std.testing.expect(std.mem.indexOf(u8, retrieved_main.content, "utils.helper()") != null);
 }
 
-test "storage performance: batch operations under load" {
+test "batch operations under load" {
     const allocator = std.testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xBA7C410D);
@@ -501,7 +501,7 @@ test "storage performance: batch operations under load" {
     try std.testing.expect(std.mem.indexOf(u8, last_block.content, "Batch 4 item 19") != null);
 }
 
-test "storage robustness: invalid data handling" {
+test "invalid data handling robustness" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();

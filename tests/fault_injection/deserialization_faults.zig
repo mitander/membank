@@ -8,13 +8,13 @@ const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const simulation_vfs = kausaldb.simulation_vfs;
 
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
 // Helper to create valid serialized ContextBlock for corruption testing
@@ -46,7 +46,7 @@ fn create_valid_serialized_edge() ![GraphEdge.SERIALIZED_SIZE]u8 {
     return buffer;
 }
 
-test "fault injection - contextblock header magic corruption" {
+test "contextblock header magic corruption" {
     const allocator = testing.allocator;
 
     const buffer = try create_valid_serialized_block(allocator);
@@ -63,7 +63,7 @@ test "fault injection - contextblock header magic corruption" {
     try testing.expectError(error.InvalidMagic, result);
 }
 
-test "fault injection - contextblock version corruption" {
+test "contextblock version corruption" {
     const allocator = testing.allocator;
 
     const buffer = try create_valid_serialized_block(allocator);
@@ -79,7 +79,7 @@ test "fault injection - contextblock version corruption" {
     try testing.expectError(error.UnsupportedVersion, result);
 }
 
-test "fault injection - contextblock length field overflow" {
+test "contextblock length field overflow" {
     const allocator = testing.allocator;
 
     const buffer = try create_valid_serialized_block(allocator);
@@ -102,7 +102,7 @@ test "fault injection - contextblock length field overflow" {
     }
 }
 
-test "fault injection - contextblock checksum validation" {
+test "contextblock checksum validation" {
     const allocator = testing.allocator;
 
     const buffer = try create_valid_serialized_block(allocator);
@@ -125,7 +125,7 @@ test "fault injection - contextblock checksum validation" {
     }
 }
 
-test "fault injection - contextblock truncated buffer" {
+test "contextblock truncated buffer" {
     const allocator = testing.allocator;
 
     const buffer = try create_valid_serialized_block(allocator);
@@ -149,7 +149,7 @@ test "fault injection - contextblock truncated buffer" {
     }
 }
 
-test "fault injection - graphedge corrupted data" {
+test "graphedge corrupted data" {
     var buffer = try create_valid_serialized_edge();
 
     // Corrupt source_id bytes
@@ -163,7 +163,7 @@ test "fault injection - graphedge corrupted data" {
     try testing.expectError(error.InvalidEdgeType, result);
 }
 
-test "fault injection - graphedge truncated buffer" {
+test "graphedge truncated buffer" {
     const buffer = try create_valid_serialized_edge();
 
     // Test truncated buffers at various points
@@ -176,7 +176,7 @@ test "fault injection - graphedge truncated buffer" {
     }
 }
 
-test "fault injection - random bit flips in contextblock" {
+test "random bit flips in contextblock" {
     const allocator = testing.allocator;
 
     const buffer = try create_valid_serialized_block(allocator);
@@ -239,7 +239,7 @@ test "fault injection - random bit flips in contextblock" {
     try testing.expect(successful_corruptions > 0);
 }
 
-test "fault injection - extreme length values" {
+test "extreme length values" {
     const allocator = testing.allocator;
 
     // Create minimal valid header with extreme length values
@@ -275,7 +275,7 @@ test "fault injection - extreme length values" {
     }
 }
 
-test "fault injection - concurrent corruption scenarios" {
+test "concurrent corruption scenarios" {
     const allocator = testing.allocator;
 
     const buffer = try create_valid_serialized_block(allocator);

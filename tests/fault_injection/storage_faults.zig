@@ -10,25 +10,16 @@ const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
-const vfs = kausaldb.vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
-const context_block = kausaldb.types;
-const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
 
-const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const StorageEngine = storage.StorageEngine;
 
-// Helper function to generate random BlockId for testing
-fn random_block_id() BlockId {
-    var bytes: [16]u8 = undefined;
-    std.crypto.random.bytes(&bytes);
-    return BlockId.from_bytes(bytes);
-}
-
-test "fault injection - simulation vfs infrastructure" {
+test "fault injection simulation vfs infrastructure" {
     // Test basic fault injection infrastructure without full storage engine
     const allocator = testing.allocator;
 
@@ -63,9 +54,7 @@ test "fault injection - simulation vfs infrastructure" {
     try testing.expectError(error.NoSpaceLeft, result);
 }
 
-test "fault injection - disk full during compaction" {
-    concurrency.init();
-
+test "fault injection disk full during compaction" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -89,7 +78,7 @@ test "fault injection - disk full during compaction" {
         defer allocator.free(content);
 
         const block = ContextBlock{
-            .id = random_block_id(),
+            .id = BlockId{ .bytes = [_]u8{@intCast(i)} ** 16 },
             .version = 1,
             .source_uri = source_uri,
             .metadata_json = metadata_json,
@@ -116,9 +105,7 @@ test "fault injection - disk full during compaction" {
     try testing.expect(stored_blocks >= 50); // At least the first 50 blocks should be stored
 }
 
-test "fault injection - read corruption during query" {
-    concurrency.init();
-
+test "fault injection read corruption during query" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 0xDEADBEEF);

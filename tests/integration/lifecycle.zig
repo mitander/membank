@@ -9,7 +9,7 @@ const testing = std.testing;
 const assert = kausaldb.assert.assert;
 const log = std.log.scoped(.integration_lifecycle);
 
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const storage = kausaldb.storage;
 const query_engine = kausaldb.query_engine;
 const simulation = kausaldb.simulation;
@@ -18,13 +18,13 @@ const simulation_vfs = kausaldb.simulation_vfs;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 const Simulation = simulation.Simulation;
 
-test "integration: full data lifecycle with compaction" {
+test "full data lifecycle with compaction" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0x5EC7E571);
@@ -284,7 +284,7 @@ test "integration: full data lifecycle with compaction" {
     );
 }
 
-test "integration: concurrent storage and query operations" {
+test "concurrent storage and query operations" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xC0FFEE42);
@@ -419,7 +419,7 @@ test "integration: concurrent storage and query operations" {
     );
 }
 
-test "integration: storage recovery and query consistency" {
+test "storage recovery and query consistency" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xBADC0FFE);
@@ -555,7 +555,7 @@ test "integration: storage recovery and query consistency" {
     log.info("Recovery consistency test completed successfully", .{});
 }
 
-test "integration: large scale performance characteristics" {
+test "large scale performance characteristics" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xDEADBEEF);

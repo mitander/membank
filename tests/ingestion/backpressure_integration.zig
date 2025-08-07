@@ -11,8 +11,7 @@ const kausaldb = @import("kausaldb");
 const storage = kausaldb.storage;
 const pipeline_mod = kausaldb.pipeline;
 const simulation_vfs = kausaldb.simulation_vfs;
-const context_block = kausaldb.types;
-const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
 
 const StorageEngine = storage.StorageEngine;
 const IngestionPipeline = pipeline_mod.IngestionPipeline;
@@ -20,13 +19,12 @@ const PipelineConfig = pipeline_mod.PipelineConfig;
 const BackpressureConfig = pipeline_mod.BackpressureConfig;
 const BackpressureStats = pipeline_mod.BackpressureStats;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 
 // Test ingestion pipeline backpressure under normal memory conditions.
 // Validates that ingestion proceeds with default batch sizes when storage pressure is low.
 test "ingestion backpressure under normal memory conditions" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -75,7 +73,6 @@ test "ingestion backpressure under normal memory conditions" {
 // Test ingestion pipeline backpressure under high memory pressure.
 // Validates that batch sizes are reduced when storage engine reports high memory usage.
 test "ingestion backpressure under high memory pressure" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -129,7 +126,6 @@ test "ingestion backpressure under high memory pressure" {
 // Test backpressure statistics tracking accuracy.
 // Ensures all backpressure metrics are properly tracked during ingestion.
 test "backpressure statistics tracking" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -346,17 +342,17 @@ fn create_test_chunker() pipeline_mod.Chunker {
             ptr: *anyopaque,
             allocator: std.mem.Allocator,
             units: []const pipeline_mod.ParsedUnit,
-        ) pipeline_mod.IngestionError![]context_block.ContextBlock {
+        ) pipeline_mod.IngestionError![]types.ContextBlock {
             _ = ptr;
 
-            var blocks = try allocator.alloc(context_block.ContextBlock, units.len);
+            var blocks = try allocator.alloc(types.ContextBlock, units.len);
             for (units, 0..) |unit, i| {
                 var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
                 std.mem.writeInt(u64, id_bytes[0..8], @intCast(i), .little);
                 std.mem.writeInt(u64, id_bytes[8..16], @intCast(std.time.nanoTimestamp()), .little);
 
-                blocks[i] = context_block.ContextBlock{
-                    .id = context_block.BlockId.from_bytes(id_bytes),
+                blocks[i] = types.ContextBlock{
+                    .id = types.BlockId.from_bytes(id_bytes),
                     .version = 1,
                     .source_uri = try std.fmt.allocPrint(allocator, "test://{}_{s}", .{ i, unit.id }),
                     .metadata_json = try allocator.dupe(u8, "{}"),

@@ -9,7 +9,6 @@ const testing = std.testing;
 const kausaldb = @import("kausaldb");
 const builtin = @import("builtin");
 
-const concurrency = kausaldb.concurrency;
 const assert = kausaldb.assert.assert;
 
 const MemoryProfiler = kausaldb.profiler.MemoryProfiler;
@@ -17,8 +16,6 @@ const query_current_rss_memory = kausaldb.profiler.query_current_rss_memory;
 
 // Test RSS measurement accuracy
 test "Memory profiler RSS measurement accuracy" {
-    concurrency.init();
-
     var memory_profiler = MemoryProfiler.init();
     memory_profiler.start_profiling();
 
@@ -42,7 +39,6 @@ test "Memory profiler RSS measurement accuracy" {
 
 // Test memory growth detection with controlled allocation
 test "Memory profiler detects allocation patterns" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var memory_profiler = MemoryProfiler.init();
@@ -74,8 +70,6 @@ test "Memory profiler detects allocation patterns" {
 
 // Test performance overhead of memory profiling
 test "Memory profiler performance overhead" {
-    concurrency.init();
-
     const NUM_SAMPLES = 10000;
     var memory_profiler = MemoryProfiler.init();
 
@@ -105,8 +99,6 @@ test "Memory profiler performance overhead" {
 
 // Test memory efficiency calculation
 test "Memory profiler efficiency calculation" {
-    concurrency.init();
-
     var memory_profiler = MemoryProfiler.init();
     memory_profiler.initial_rss_bytes = 50 * 1024 * 1024; // 50MB baseline
     memory_profiler.peak_rss_bytes = 60 * 1024 * 1024; // 60MB peak (10MB growth)
@@ -129,8 +121,7 @@ test "Memory profiler efficiency calculation" {
 }
 
 // Test cross-platform RSS query functionality
-test "Memory profiler cross-platform RSS query" {
-    concurrency.init();
+test "memory profiler cross platform RSS query" {
 
     // Skip in CI environments - memory profiling is a development tool
     const is_ci = std.posix.getenv("CI") != null or
@@ -166,7 +157,6 @@ test "Memory profiler cross-platform RSS query" {
 
 // Test memory profiler stability over multiple cycles
 test "Memory profiler stability over multiple measurement cycles" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var memory_profiler = MemoryProfiler.init();
@@ -213,7 +203,6 @@ test "Memory profiler stability over multiple measurement cycles" {
 
 // Test memory profiler with simulated production workload
 test "Memory profiler production workload simulation" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var memory_profiler = MemoryProfiler.init();

@@ -11,7 +11,6 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
-const concurrency = kausaldb.concurrency;
 const vfs = kausaldb.vfs;
 const production_vfs = kausaldb.production_vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
@@ -96,7 +95,6 @@ test "server startup and shutdown with ProductionVFS" {
         return;
     }
 
-    concurrency.init();
     const allocator = testing.allocator;
 
     var prod_vfs = ProductionVFS.init(allocator);
@@ -141,7 +139,6 @@ test "server startup and shutdown with ProductionVFS" {
 
 // Server startup with SimulationVFS demonstrates VFS abstraction
 test "server startup with SimulationVFS integration" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 12345);
@@ -174,7 +171,6 @@ test "server resource cleanup and lifecycle management" {
         return;
     }
 
-    concurrency.init();
     const allocator = testing.allocator;
 
     var prod_vfs = ProductionVFS.init(allocator);
@@ -219,7 +215,6 @@ test "server resource cleanup and lifecycle management" {
 
 // Server initialization with proper error handling patterns
 test "server initialization error handling patterns" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 98765);
@@ -255,7 +250,6 @@ test "multiple server instances with ephemeral ports" {
         return;
     }
 
-    concurrency.init();
     const allocator = testing.allocator;
 
     var prod_vfs = ProductionVFS.init(allocator);

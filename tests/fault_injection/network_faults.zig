@@ -20,7 +20,6 @@ const testing = std.testing;
 const storage = kausaldb.storage;
 const simulation_vfs = kausaldb.simulation_vfs;
 const types = kausaldb.types;
-const concurrency = kausaldb.concurrency;
 const server_handler = kausaldb.handler;
 
 const StorageEngine = storage.StorageEngine;
@@ -34,7 +33,7 @@ const ClientConnection = server_handler.ClientConnection;
 const MessageHeader = server_handler.MessageHeader;
 const MessageType = server_handler.MessageType;
 
-test "network_fault_injection - message header parsing corruption" {
+test "message header parsing corruption" {
     // Test various forms of header corruption
     const corruption_tests = [_]struct {
         name: []const u8,
@@ -58,7 +57,7 @@ test "network_fault_injection - message header parsing corruption" {
     }
 }
 
-test "network_fault_injection - protocol boundary conditions" {
+test "protocol boundary conditions" {
     // Test boundary conditions in message header
     const boundary_tests = [_]struct {
         name: []const u8,
@@ -92,7 +91,7 @@ test "network_fault_injection - protocol boundary conditions" {
     }
 }
 
-test "network_fault_injection - server config validation" {
+test "server config validation" {
     const allocator = testing.allocator;
 
     // Test various server configurations under stress
@@ -107,7 +106,6 @@ test "network_fault_injection - server config validation" {
     };
 
     // Setup minimal storage infrastructure for server initialization
-    concurrency.init();
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -131,7 +129,7 @@ test "network_fault_injection - server config validation" {
     }
 }
 
-test "network_fault_injection - arena memory pattern validation" {
+test "arena memory pattern validation" {
     const allocator = testing.allocator;
 
     // Test arena-per-subsystem memory management pattern
@@ -151,7 +149,7 @@ test "network_fault_injection - arena memory pattern validation" {
     // Real connections would use similar arena allocator patterns
 }
 
-test "network_fault_injection - deterministic server stress" {
+test "deterministic server stress" {
     const allocator = testing.allocator;
 
     // Deterministic stress test using seeded scenarios
@@ -163,7 +161,6 @@ test "network_fault_injection - deterministic server stress" {
         const random = prng.random();
 
         // Setup isolated storage for each stress test
-        concurrency.init();
         var sim_vfs = try SimulationVFS.init(allocator);
         defer sim_vfs.deinit();
 
@@ -192,7 +189,7 @@ test "network_fault_injection - deterministic server stress" {
     }
 }
 
-test "network_fault_injection - message type validation" {
+test "message type validation" {
     // Test all valid message types parse correctly
     const valid_types = [_]MessageType{ .ping, .find_blocks, .filtered_query, .traversal_query, .pong, .blocks_response, .filtered_response, .traversal_response, .error_response };
 
@@ -224,11 +221,10 @@ test "network_fault_injection - message type validation" {
     }
 }
 
-test "network_fault_injection - concurrent server configuration" {
+test "concurrent server configuration" {
     const allocator = testing.allocator;
 
     // Test server configuration under concurrent stress scenarios
-    concurrency.init();
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 

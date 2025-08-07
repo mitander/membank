@@ -10,14 +10,13 @@ const kausaldb = @import("kausaldb");
 
 const storage = kausaldb.storage;
 const simulation_vfs = kausaldb.simulation_vfs;
-const context_block = kausaldb.types;
-const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
 
 const TieredCompactionManager = storage.TieredCompactionManager;
 const StorageEngine = storage.StorageEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 
 // Helper function to check compaction without leaking memory
 fn check_compaction_and_cleanup(manager: *TieredCompactionManager) bool {
@@ -50,8 +49,7 @@ fn create_test_block(id: u32, size_multiplier: u32, allocator: std.mem.Allocator
     };
 }
 
-test "cross-level compaction with realistic SSTable sizes" {
-    concurrency.init();
+test "cross level compaction with realistic SSTable sizes" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -119,7 +117,6 @@ test "cross-level compaction with realistic SSTable sizes" {
 }
 
 test "compaction memory efficiency under large datasets" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -174,7 +171,6 @@ test "compaction memory efficiency under large datasets" {
 }
 
 test "compaction strategy adaptability to workload patterns" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -244,7 +240,6 @@ test "compaction strategy adaptability to workload patterns" {
 }
 
 test "compaction robustness under concurrent modifications" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -303,8 +298,7 @@ test "compaction robustness under concurrent modifications" {
     _ = check_compaction_and_cleanup(&manager); // Should not crash
 }
 
-test "large-scale compaction validation with realistic data distribution" {
-    concurrency.init();
+test "large scale compaction validation with realistic data distribution" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -401,7 +395,6 @@ test "large-scale compaction validation with realistic data distribution" {
 }
 
 test "compaction edge cases and error resilience" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -479,7 +472,6 @@ test "compaction edge cases and error resilience" {
 }
 
 test "compaction performance under stress conditions" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);

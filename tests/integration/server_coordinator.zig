@@ -119,7 +119,7 @@ test "server coordinator delegates to connection manager" {
     try testing.expectEqual(manager_stats.connections_active, server_stats.connections_active);
 }
 
-test "arena-per-subsystem memory isolation" {
+test "arena per subsystem memory isolation" {
     // Test that ConnectionManager's arena doesn't interfere with other components
     var manager1 = ConnectionManager.init(testing.allocator, .{});
     defer manager1.deinit();
@@ -139,7 +139,7 @@ test "arena-per-subsystem memory isolation" {
     try testing.expectEqual(manager1.poll_fds.len, manager2.poll_fds.len);
 }
 
-test "two-phase initialization enforced correctly" {
+test "two phase initialization enforced correctly" {
     var manager = ConnectionManager.init(testing.allocator, .{});
     defer manager.deinit();
 

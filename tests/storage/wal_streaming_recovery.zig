@@ -12,14 +12,14 @@ const assert = kausaldb.assert.assert;
 
 const vfs = kausaldb.vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const wal = kausaldb.wal;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 const WAL = wal.WAL;
 const WALEntry = wal.WALEntry;
 

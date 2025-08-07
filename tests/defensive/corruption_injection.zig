@@ -55,7 +55,7 @@ fn create_test_block(allocator: std.mem.Allocator, id_suffix: u64) !ContextBlock
 // Phase 1: Memory Safety Fatal Assertion Tests
 // ============================================================================
 
-test "memory safety - arena allocator corruption detection" {
+test "arena allocator corruption detection" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, CORRUPTION_TEST_SEED);
@@ -86,7 +86,7 @@ test "memory safety - arena allocator corruption detection" {
     // The arena corruption detection validates pointer aliasing in block cloning
 }
 
-test "memory safety - memory accounting validation" {
+test "memory accounting validation" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, CORRUPTION_TEST_SEED);
@@ -114,7 +114,7 @@ test "memory safety - memory accounting validation" {
     // which would indicate heap corruption
 }
 
-test "memory safety - VFS handle integrity validation" {
+test "VFS handle integrity validation" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, CORRUPTION_TEST_SEED);
@@ -149,7 +149,7 @@ test "memory safety - VFS handle integrity validation" {
 // Phase 2: WAL Integrity Fatal Assertion Tests
 // ============================================================================
 
-test "WAL integrity - systematic corruption detection thresholds" {
+test "systematic corruption detection thresholds" {
 
     // Test the corruption tracker behavior without triggering fatal assertions
     var tracker = CorruptionTracker.init();
@@ -182,7 +182,7 @@ test "WAL integrity - systematic corruption detection thresholds" {
     // This validates the threshold logic without actually panicking
 }
 
-test "WAL integrity - magic number validation" {
+test "WAL magic number validation" {
     var tracker = CorruptionTracker.init();
 
     // Valid magic numbers should work
@@ -201,7 +201,7 @@ test "WAL integrity - magic number validation" {
     try testing.expectEqual(@as(u32, 0x57454E54), ENTRY_MAGIC); // "TNEW" reversed
 }
 
-test "WAL integrity - large file processing robustness" {
+test "large file processing robustness" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, CORRUPTION_TEST_SEED);
@@ -251,7 +251,7 @@ test "WAL integrity - large file processing robustness" {
 // Edge Cases and Recovery Scenarios
 // ============================================================================
 
-test "edge cases - EOF handling in WAL streams" {
+test "EOF handling in WAL streams" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, CORRUPTION_TEST_SEED);
@@ -283,7 +283,7 @@ test "edge cases - EOF handling in WAL streams" {
     try testing.expectEqualStrings(block.content, recovered.?.content);
 }
 
-test "edge cases - empty WAL file recovery" {
+test "empty WAL file recovery" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, CORRUPTION_TEST_SEED);
@@ -314,7 +314,7 @@ test "edge cases - empty WAL file recovery" {
     try testing.expect(result == null);
 }
 
-test "edge cases - mixed corruption and valid data" {
+test "mixed corruption and valid data" {
     var tracker = CorruptionTracker.init();
 
     // Simulate a pattern of mixed corruption and valid data
@@ -343,7 +343,7 @@ test "edge cases - mixed corruption and valid data" {
 // Performance Impact Measurement
 // ============================================================================
 
-test "performance impact - assertion overhead measurement" {
+test "assertion overhead measurement" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, CORRUPTION_TEST_SEED);
@@ -389,7 +389,7 @@ test "performance impact - assertion overhead measurement" {
     }
 }
 
-test "performance impact - corruption detection overhead" {
+test "corruption detection overhead" {
     var tracker = CorruptionTracker.init();
 
     const iterations = 10000;
@@ -418,7 +418,7 @@ test "performance impact - corruption detection overhead" {
 // Production Behavior Validation
 // ============================================================================
 
-test "production behavior - graceful vs fail-fast classification" {
+test "graceful vs fail fast classification" {
     // This test documents and validates the classification of errors
     // into graceful degradation vs fail-fast categories
 
@@ -467,7 +467,7 @@ test "production behavior - graceful vs fail-fast classification" {
     try testing.expect(retrieved != null);
 }
 
-test "production behavior - diagnostic information quality" {
+test "diagnostic information quality" {
     var tracker = CorruptionTracker.init();
 
     // Build up failure history
@@ -492,7 +492,7 @@ test "production behavior - diagnostic information quality" {
 // Integration with Existing Test Suite
 // ============================================================================
 
-test "integration - compatibility with existing assertion framework" {
+test "compatibility with existing assertion framework" {
 
     // Verify that our new fatal assertions work alongside existing assertions
 
@@ -511,7 +511,7 @@ test "integration - compatibility with existing assertion framework" {
     try testing.expectEqual(@as(u32, 0), tracker.consecutive_failures);
 }
 
-test "integration - simulation framework compatibility" {
+test "simulation framework compatibility" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, CORRUPTION_TEST_SEED);

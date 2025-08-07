@@ -110,7 +110,7 @@ test "buffer boundary safety with debug allocator" {
     try testing.expectEqual(@as(u64, 0), stats.buffer_overflows);
 }
 
-test "cross_allocator_isolation" {
+test "cross allocator isolation" {
     const allocator = testing.allocator;
 
     var arena1 = std.heap.ArenaAllocator.init(allocator);

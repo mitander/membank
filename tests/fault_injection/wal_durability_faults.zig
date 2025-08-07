@@ -19,39 +19,42 @@ const testing = std.testing;
 const vfs = kausaldb.vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
-const context_block = kausaldb.types;
-const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
 
 const StorageEngine = storage.StorageEngine;
 const WAL = storage.WAL;
 const WALEntry = storage.WALEntry;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
 /// Create deterministic test block with specific content size for fault injection
-fn create_test_block_with_size(index: u32, content_size: u32) ContextBlock {
-    var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
-    std.mem.writeInt(u32, id_bytes[12..16], index, .little);
+fn create_test_block_with_size(index: u32, content_size: u32, allocator: std.mem.Allocator) !ContextBlock {
+    var id_bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &id_bytes, index, .little);
 
-    // Generate predictable content of specified size
-    const content = testing.allocator.alloc(u8, content_size) catch @panic("OOM in test");
-    for (content, 0..) |*byte, i| {
-        byte.* = @as(u8, @intCast((index + i) % 256));
-    }
+    const content = try allocator.alloc(u8, content_size);
+    @memset(content, @as(u8, @intCast('A' + (index % 26))));
 
     return ContextBlock{
         .id = BlockId{ .bytes = id_bytes },
         .version = 1,
-        .source_uri = "test://wal_durability_fault.zig",
-        .metadata_json = "{}",
+        .source_uri = try std.fmt.allocPrint(allocator, "test://fault_block_{}.zig", .{index}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
         .content = content,
     };
 }
 
 /// Create standard test block for basic operations
-fn create_test_block(index: u32) ContextBlock {
-    return create_test_block_with_size(index, 128); // Standard 128-byte content
+fn create_test_block(index: u32, allocator: std.mem.Allocator) !ContextBlock {
+    return create_test_block_with_size(index, 128, allocator); // Standard 128-byte content
+}
+
+/// Clean up all allocations from test block helper functions
+fn cleanup_test_block(block: ContextBlock, allocator: std.mem.Allocator) void {
+    allocator.free(block.source_uri);
+    allocator.free(block.metadata_json);
+    allocator.free(block.content);
 }
 
 /// Generate random BlockId for testing purposes
@@ -83,7 +86,7 @@ const RecoveryValidator = struct {
     }
 };
 
-test "WAL durability - recovery after system restart with partial data" {
+test "recovery after system restart with partial data" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 12345);
@@ -98,8 +101,16 @@ test "WAL durability - recovery after system restart with partial data" {
         try wal.startup();
 
         for (0..5) |i| {
-            const block = create_test_block(@intCast(i));
-            defer allocator.free(block.content);
+            var id_bytes: [16]u8 = undefined;
+            std.mem.writeInt(u128, &id_bytes, @intCast(i), .little);
+
+            const block = ContextBlock{
+                .id = BlockId{ .bytes = id_bytes },
+                .version = 1,
+                .source_uri = "test://wal_fault.zig",
+                .metadata_json = "{}",
+                .content = "test content for WAL durability",
+            };
 
             var entry = try WALEntry.create_put_block(block, allocator);
             defer entry.deinit(allocator);
@@ -125,8 +136,8 @@ test "WAL durability - recovery after system restart with partial data" {
         try testing.expectEqual(@as(u32, 0), validator.corrupted_entries);
 
         // Verify system can continue normal operation after recovery
-        const new_block = create_test_block(999);
-        defer allocator.free(new_block.content);
+        const new_block = try create_test_block(999, allocator);
+        defer cleanup_test_block(new_block, allocator);
 
         var new_entry = try WALEntry.create_put_block(new_block, allocator);
         defer new_entry.deinit(allocator);
@@ -143,7 +154,7 @@ test "WAL durability - recovery after system restart with partial data" {
     }
 }
 
-test "WAL durability - I/O failure during flush operations" {
+test "I/O failure during flush operations" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 54321);
@@ -155,8 +166,8 @@ test "WAL durability - I/O failure during flush operations" {
 
     // Write some entries successfully first
     for (0..5) |i| {
-        const block = create_test_block(@intCast(i));
-        defer allocator.free(block.content);
+        const block = try create_test_block(@intCast(i), allocator);
+        defer cleanup_test_block(block, allocator);
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -172,8 +183,8 @@ test "WAL durability - I/O failure during flush operations" {
     var failed_writes: u32 = 0;
 
     for (5..15) |i| {
-        const block = create_test_block(@intCast(i));
-        defer allocator.free(block.content);
+        const block = try create_test_block(@intCast(i), allocator);
+        defer cleanup_test_block(block, allocator);
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -198,8 +209,8 @@ test "WAL durability - I/O failure during flush operations" {
     sim_vfs.enable_io_failures(0, .{});
 
     // Should be able to write normally after I/O issues resolved
-    const recovery_block = create_test_block(999);
-    defer allocator.free(recovery_block.content);
+    const recovery_block = try create_test_block(999, allocator);
+    defer cleanup_test_block(recovery_block, allocator);
 
     var recovery_entry = try WALEntry.create_put_block(recovery_block, allocator);
     defer recovery_entry.deinit(allocator);
@@ -218,7 +229,7 @@ test "WAL durability - I/O failure during flush operations" {
     std.debug.print("Post-failure recovery: {} entries recovered (flexible range)\n", .{validator.entries_recovered});
 }
 
-test "WAL durability - disk space exhaustion handling" {
+test "disk space exhaustion handling" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 98765);
@@ -239,8 +250,8 @@ test "WAL durability - disk space exhaustion handling" {
 
     // Write until disk space is exhausted
     for (0..20) |i| { // Upper bound to prevent infinite loop
-        const block = create_test_block_with_size(@intCast(i), large_content_size);
-        defer allocator.free(block.content);
+        const block = try create_test_block_with_size(@intCast(i), large_content_size, allocator);
+        defer cleanup_test_block(block, allocator);
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -263,8 +274,8 @@ test "WAL durability - disk space exhaustion handling" {
     // Increase disk space and verify normal operation resumes
     sim_vfs.configure_disk_space_limit(1024 * 1024); // 1MB
 
-    const recovery_block = create_test_block(888);
-    defer allocator.free(recovery_block.content);
+    const recovery_block = try create_test_block(888, allocator);
+    defer cleanup_test_block(recovery_block, allocator);
 
     var recovery_entry = try WALEntry.create_put_block(recovery_block, allocator);
     defer recovery_entry.deinit(allocator);
@@ -280,7 +291,7 @@ test "WAL durability - disk space exhaustion handling" {
     std.debug.print("Post-exhaustion recovery: {} entries recovered successfully\n", .{validator.entries_recovered});
 }
 
-test "WAL durability - power loss simulation during segment rotation" {
+test "power loss simulation during segment rotation" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 11111);
@@ -328,8 +339,8 @@ test "WAL durability - power loss simulation during segment rotation" {
     sim_vfs.enable_io_failures(1000, .{ .write = true, .sync = true }); // Guaranteed failure on writes
 
     // Attempt to write another entry - should fail due to "power loss"
-    const power_loss_block = create_test_block(777);
-    defer allocator.free(power_loss_block.content);
+    const power_loss_block = try create_test_block(777, allocator);
+    defer cleanup_test_block(power_loss_block, allocator);
 
     var power_loss_entry = try WALEntry.create_put_block(power_loss_block, allocator);
     defer power_loss_entry.deinit(allocator);
@@ -349,8 +360,8 @@ test "WAL durability - power loss simulation during segment rotation" {
     sim_vfs.enable_io_failures(0, .{});
 
     // Verify system can recover and continue normal operation
-    const post_recovery_block = create_test_block(777);
-    defer allocator.free(post_recovery_block.content);
+    const post_recovery_block = try create_test_block(777, allocator);
+    defer cleanup_test_block(post_recovery_block, allocator);
 
     var post_recovery_entry = try WALEntry.create_put_block(post_recovery_block, allocator);
     defer post_recovery_entry.deinit(allocator);
@@ -369,7 +380,7 @@ test "WAL durability - power loss simulation during segment rotation" {
     std.debug.print("Power loss recovery: {} entries recovered, system consistent\n", .{validator.entries_recovered});
 }
 
-test "WAL durability - recovery robustness with simulated disk errors" {
+test "recovery robustness with simulated disk errors" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 33333);
@@ -381,8 +392,8 @@ test "WAL durability - recovery robustness with simulated disk errors" {
 
     // Write some valid entries first to establish baseline
     for (0..5) |i| {
-        const block = create_test_block(@intCast(i));
-        defer allocator.free(block.content);
+        const block = try create_test_block(@intCast(i), allocator);
+        defer cleanup_test_block(block, allocator);
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -399,8 +410,8 @@ test "WAL durability - recovery robustness with simulated disk errors" {
     var io_errors: u32 = 0;
 
     for (5..15) |i| {
-        const block = create_test_block(@intCast(i));
-        defer allocator.free(block.content);
+        const block = try create_test_block(@intCast(i), allocator);
+        defer cleanup_test_block(block, allocator);
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -428,8 +439,8 @@ test "WAL durability - recovery robustness with simulated disk errors" {
     // Clear fault injection and verify normal operation
     sim_vfs.enable_io_failures(0, .{});
 
-    const recovery_block = create_test_block(999);
-    defer allocator.free(recovery_block.content);
+    const recovery_block = try create_test_block(999, allocator);
+    defer cleanup_test_block(recovery_block, allocator);
 
     var recovery_entry = try WALEntry.create_put_block(recovery_block, allocator);
     defer recovery_entry.deinit(allocator);
@@ -448,7 +459,7 @@ test "WAL durability - recovery robustness with simulated disk errors" {
     std.debug.print("Disk error recovery: {} entries recovered cleanly\n", .{validator.entries_recovered});
 }
 
-test "WAL durability - concurrent failure modes stress test" {
+test "concurrent failure modes stress test" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 55555);
@@ -460,8 +471,8 @@ test "WAL durability - concurrent failure modes stress test" {
 
     // Write baseline entries
     for (0..5) |i| {
-        const block = create_test_block(@intCast(i));
-        defer allocator.free(block.content);
+        const block = try create_test_block(@intCast(i), allocator);
+        defer cleanup_test_block(block, allocator);
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -483,8 +494,8 @@ test "WAL durability - concurrent failure modes stress test" {
     var other_failures: u32 = 0;
 
     for (5..50) |i| {
-        const block = create_test_block_with_size(@intCast(i), 512); // 512-byte blocks
-        defer allocator.free(block.content);
+        const block = try create_test_block_with_size(@intCast(i), 512, allocator); // 512-byte blocks
+        defer cleanup_test_block(block, allocator);
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -513,8 +524,8 @@ test "WAL durability - concurrent failure modes stress test" {
     sim_vfs.configure_disk_space_limit(1024 * 1024); // 1MB
 
     // Verify system remains functional
-    const recovery_block = create_test_block(888);
-    defer allocator.free(recovery_block.content);
+    const recovery_block = try create_test_block(888, allocator);
+    defer cleanup_test_block(recovery_block, allocator);
 
     var recovery_entry = try WALEntry.create_put_block(recovery_block, allocator);
     defer recovery_entry.deinit(allocator);

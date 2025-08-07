@@ -75,7 +75,7 @@ const FailingAllocator = struct {
     }
 };
 
-test "memory fault injection: allocation failure during memtable operations" {
+test "allocation failure during memtable operations" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
@@ -134,7 +134,7 @@ test "memory fault injection: allocation failure during memtable operations" {
     }
 }
 
-test "memory fault injection: I/O errors during memory operations" {
+test "I/O errors during memory operations" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
@@ -190,7 +190,7 @@ test "memory fault injection: I/O errors during memory operations" {
     try testing.expect(memory_usage.total_bytes >= 0); // Basic sanity check
 }
 
-test "memory fault injection: arena corruption detection" {
+test "arena corruption detection" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
@@ -242,7 +242,7 @@ test "memory fault injection: arena corruption detection" {
     try testing.expect(memtable.memory_usage() > 0); // Should have some memory usage
 }
 
-test "memory fault injection: error path cleanup validation" {
+test "error path cleanup validation" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
@@ -318,7 +318,7 @@ test "memory fault injection: error path cleanup validation" {
     }
 }
 
-test "memory fault injection: sustained operations under memory pressure" {
+test "sustained operations under memory pressure" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
@@ -398,7 +398,7 @@ test "memory fault injection: sustained operations under memory pressure" {
     try testing.expect(failing_alloc.failure_count > 0); // Should have triggered failures
 }
 
-test "memory fault injection: graph edge operations under stress" {
+test "graph edge operations under stress" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();

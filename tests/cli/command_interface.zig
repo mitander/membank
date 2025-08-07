@@ -7,8 +7,6 @@ const std = @import("std");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
-const concurrency = kausaldb.concurrency;
-
 // Test result structure for CLI command testing
 const CLITestResult = struct {
     exit_code: u8,
@@ -131,8 +129,7 @@ const CLITestHarness = struct {
     }
 };
 
-test "CLI command parsing - basic commands" {
-    concurrency.init();
+test "command parsing basic commands" {
     const allocator = testing.allocator;
 
     var harness = CLITestHarness.init(allocator);
@@ -170,8 +167,7 @@ test "CLI command parsing - basic commands" {
     }
 }
 
-test "CLI error handling - invalid commands" {
-    concurrency.init();
+test "error handling invalid commands" {
     const allocator = testing.allocator;
 
     var harness = CLITestHarness.init(allocator);
@@ -207,7 +203,6 @@ test "CLI error handling - invalid commands" {
 }
 
 test "CLI command argument validation" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var harness = CLITestHarness.init(allocator);
@@ -233,8 +228,7 @@ test "CLI command argument validation" {
 }
 
 // Test command line argument edge cases
-test "CLI argument parsing - edge cases" {
-    concurrency.init();
+test "argument parsing edge cases" {
     const allocator = testing.allocator;
 
     var harness = CLITestHarness.init(allocator);
@@ -271,7 +265,6 @@ test "CLI argument parsing - edge cases" {
 
 // Test usage message formatting and completeness
 test "CLI usage message validation" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var harness = CLITestHarness.init(allocator);
@@ -297,8 +290,7 @@ test "CLI usage message validation" {
 }
 
 // Performance test for CLI argument parsing
-test "CLI performance - argument parsing overhead" {
-    concurrency.init();
+test "argument parsing overhead performance" {
     const allocator = testing.allocator;
 
     var harness = CLITestHarness.init(allocator);

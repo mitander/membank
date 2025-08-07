@@ -10,15 +10,15 @@ const testing = std.testing;
 const log = std.log.scoped(.stress_memory);
 
 const storage = kausaldb.storage;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const simulation = kausaldb.simulation;
 
 const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 const Simulation = simulation.Simulation;
 
-test "memory isolation: single test with 5 storage cycles" {
+test "memory isolation with 5 storage cycles" {
     var cycle: u32 = 0;
     while (cycle < 5) : (cycle += 1) {
         // Use testing allocator for faster compilation and execution
@@ -79,7 +79,7 @@ test "memory isolation: single test with 5 storage cycles" {
     log.info("Completed all 5 storage cycles without corruption", .{});
 }
 
-test "memory isolation: HashMap operations under stress" {
+test "hashmap operations under stress" {
     // Use testing allocator for faster execution
     const allocator = testing.allocator;
 

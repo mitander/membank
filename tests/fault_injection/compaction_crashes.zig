@@ -11,13 +11,12 @@ const testing = std.testing;
 const vfs = kausaldb.vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
-const context_block = kausaldb.types;
-const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
 const stdx = kausaldb.stdx;
 
 const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
 // Helper function to generate deterministic BlockId for testing
@@ -63,9 +62,7 @@ fn populate_storage_for_compaction(
     }
 }
 
-test "compaction crash - recovery from partial sstable write" {
-    concurrency.init();
-
+test "recovery from partial sstable write" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 12345);
@@ -157,9 +154,7 @@ test "compaction crash - recovery from partial sstable write" {
     try testing.expect(retrieved.id.eql(new_block.id));
 }
 
-test "compaction crash - recovery with orphaned files" {
-    concurrency.init();
-
+test "recovery with orphaned files" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 54321);
@@ -235,9 +230,7 @@ test "compaction crash - recovery with orphaned files" {
     try testing.expect(retrieved.id.eql(post_crash_block.id));
 }
 
-test "compaction crash - multiple sequential crash recovery" {
-    concurrency.init();
-
+test "multiple sequential crash recovery" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 99999);
@@ -303,9 +296,7 @@ test "compaction crash - multiple sequential crash recovery" {
     try testing.expect(final_blocks >= 1); // At least our final test block
 }
 
-test "compaction crash - torn write recovery" {
-    concurrency.init();
-
+test "torn write recovery" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 11111);

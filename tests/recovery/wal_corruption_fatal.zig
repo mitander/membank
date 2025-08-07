@@ -13,7 +13,7 @@ const CorruptionTracker = corruption_tracker_mod.CorruptionTracker;
 const WAL_MAGIC_NUMBER = corruption_tracker_mod.WAL_MAGIC_NUMBER;
 const WAL_ENTRY_MAGIC = corruption_tracker_mod.WAL_ENTRY_MAGIC;
 
-test "CorruptionTracker normal operation - no fatal assertions" {
+test "normal operation no fatal assertions" {
     var tracker = CorruptionTracker.init();
 
     // Normal success/failure patterns should not trigger fatal assertions
@@ -30,7 +30,7 @@ test "CorruptionTracker normal operation - no fatal assertions" {
     try testing.expectEqual(@as(u32, 6), tracker.total_operations);
 }
 
-test "CorruptionTracker at systematic corruption threshold" {
+test "at systematic corruption threshold" {
     var tracker = CorruptionTracker.init();
 
     // Record exactly 3 consecutive failures (at threshold)
@@ -43,7 +43,7 @@ test "CorruptionTracker at systematic corruption threshold" {
     try testing.expectEqual(@as(u32, 3), tracker.total_failures);
 }
 
-test "CorruptionTracker systematic corruption detection expects panic" {
+test "systematic corruption detection expects panic" {
     // This test expects the 4th consecutive failure to trigger fatal_assert
     // In a real scenario, this would terminate the process
 
@@ -64,7 +64,7 @@ test "CorruptionTracker systematic corruption detection expects panic" {
     try testing.expectEqual(@as(u32, 3), tracker.consecutive_failures);
 }
 
-test "CorruptionTracker success resets consecutive failures" {
+test "success resets consecutive failures" {
     var tracker = CorruptionTracker.init();
 
     // Build up consecutive failures
@@ -84,7 +84,7 @@ test "CorruptionTracker success resets consecutive failures" {
     try testing.expectEqual(@as(u32, 2), tracker.consecutive_failures);
 }
 
-test "CorruptionTracker failure rate calculation accuracy" {
+test "failure rate calculation accuracy" {
     var tracker = CorruptionTracker.init();
 
     // Test various failure rates
@@ -111,7 +111,7 @@ test "CorruptionTracker failure rate calculation accuracy" {
     try testing.expectApproxEqRel(@as(f64, 1.0), tracker.failure_rate(), 0.001);
 }
 
-test "CorruptionTracker elevated corruption detection" {
+test "elevated corruption detection" {
     var tracker = CorruptionTracker.init_testing();
 
     // Below minimum operations threshold - not elevated
@@ -131,7 +131,7 @@ test "CorruptionTracker elevated corruption detection" {
     try testing.expect(tracker.is_corruption_elevated());
 }
 
-test "CorruptionTracker WAL magic validation success" {
+test "WAL magic validation success" {
     var tracker = CorruptionTracker.init();
 
     // Valid magic numbers should record success
@@ -144,7 +144,7 @@ test "CorruptionTracker WAL magic validation success" {
     try testing.expectEqual(@as(u32, 2), tracker.total_operations);
 }
 
-test "CorruptionTracker reset functionality" {
+test "reset functionality" {
     var tracker = CorruptionTracker.init();
 
     // Build up some state
@@ -165,7 +165,7 @@ test "CorruptionTracker reset functionality" {
     try testing.expectEqual(@as(f64, 0.0), tracker.failure_rate());
 }
 
-test "CorruptionTracker different failure contexts" {
+test "different failure contexts" {
     var tracker = CorruptionTracker.init();
 
     // Different failure contexts should all count toward systematic corruption
@@ -181,7 +181,7 @@ test "CorruptionTracker different failure contexts" {
     // tracker.record_failure("any_context"); // <- This would panic
 }
 
-test "CorruptionTracker magic number constants validation" {
+test "magic number constants validation" {
     // Verify magic numbers are properly defined and distinct
     try testing.expect(WAL_MAGIC_NUMBER != 0);
     try testing.expect(WAL_ENTRY_MAGIC != 0);
@@ -192,7 +192,7 @@ test "CorruptionTracker magic number constants validation" {
     try testing.expectEqual(@as(u32, 0x57454E54), WAL_ENTRY_MAGIC); // "TNEW" reversed
 }
 
-test "CorruptionTracker boundary condition - exactly at threshold then success" {
+test "boundary condition exactly at threshold then success" {
     var tracker = CorruptionTracker.init();
 
     // Record exactly threshold failures

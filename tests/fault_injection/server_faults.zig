@@ -152,7 +152,7 @@ test "server coordination delegates properly to connection manager" {
     try testing.expectEqual(initial_manager_stats.connections_active, initial_server_stats.connections_active);
 }
 
-test "arena-per-subsystem memory isolation under stress" {
+test "arena per subsystem memory isolation under stress" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -199,7 +199,7 @@ test "arena-per-subsystem memory isolation under stress" {
     }
 }
 
-test "two-phase initialization enforced across server hierarchy" {
+test "two phase initialization enforced across server hierarchy" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -224,7 +224,7 @@ test "two-phase initialization enforced across server hierarchy" {
     try testing.expect(manager.poll_fds.len > 0);
 }
 
-test "fault injection: connection manager handles I/O failures gracefully" {
+test "connection manager handles I/O failures gracefully" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -257,7 +257,7 @@ test "fault injection: connection manager handles I/O failures gracefully" {
     try testing.expectEqual(stats.connections_active, post_cleanup_stats.connections_active);
 }
 
-test "performance characteristics: connection manager overhead" {
+test "connection manager overhead characteristics" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();

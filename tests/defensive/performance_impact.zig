@@ -450,7 +450,7 @@ test "memory allocation performance with defensive programming" {
     try testing.expect(allocation_result.mean_ns <= 2_000_000_000); // Less than 2 seconds per allocation iteration
 }
 
-test "defensive programming zero-cost abstraction validation" {
+test "defensive programming zero cost abstraction validation" {
     // This test validates that assertions compile to no-ops in release builds
     const config = BenchmarkConfig{ .iterations = 10000 };
 

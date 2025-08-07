@@ -10,7 +10,7 @@ const testing = std.testing;
 
 const storage = kausaldb.storage;
 const simulation_vfs = kausaldb.simulation_vfs;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const assert = kausaldb.assert.assert;
 const fatal_assert = kausaldb.assert.fatal_assert;
 
@@ -18,10 +18,10 @@ const WAL = storage.WAL;
 const WALEntry = storage.WALEntry;
 const WALEntryType = storage.WALEntryType;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 
 // Defensive limits to prevent runaway tests
 const MAX_TEST_DURATION_MS = 5000;
@@ -53,7 +53,7 @@ fn create_test_block(id: BlockId, content: []const u8) ContextBlock {
     };
 }
 
-test "wal_corruption_magic_number_detection" {
+test "magic number detection" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -108,7 +108,7 @@ test "wal_corruption_magic_number_detection" {
     }
 }
 
-test "wal_corruption_systematic_checksum_failures" {
+test "systematic checksum failures" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -173,7 +173,7 @@ test "wal_corruption_systematic_checksum_failures" {
     }
 }
 
-test "wal_corruption_boundary_conditions" {
+test "boundary conditions" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -212,7 +212,7 @@ test "wal_corruption_boundary_conditions" {
     // Note: WAL entry count verification removed - method not available
 }
 
-test "wal_corruption_recovery_partial_success" {
+test "recovery partial success" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -298,7 +298,7 @@ test "wal_corruption_recovery_partial_success" {
     }
 }
 
-test "wal_corruption_large_entry_handling" {
+test "large entry handling" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -364,7 +364,7 @@ test "wal_corruption_large_entry_handling" {
     try recovery_wal.write_entry(recovery_test_entry);
 }
 
-test "wal_corruption_defensive_timeout_recovery" {
+test "defensive timeout recovery" {
     const allocator = testing.allocator;
 
     const start_time = std.time.milliTimestamp();
@@ -437,7 +437,7 @@ test "wal_corruption_defensive_timeout_recovery" {
     try testing.expect(total_time < MAX_TEST_DURATION_MS);
 }
 
-test "wal_corruption_edge_case_patterns" {
+test "edge case patterns" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -524,7 +524,7 @@ test "wal_corruption_edge_case_patterns" {
     try recovery_wal.write_entry(verify_entry);
 }
 
-test "wal_corruption_memory_safety_during_recovery" {
+test "memory safety during recovery" {
     const allocator = testing.allocator;
 
     // Use arena for recovery to test memory management under corruption

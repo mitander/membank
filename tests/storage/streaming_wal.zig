@@ -10,14 +10,14 @@ const assert = kausaldb.assert.assert;
 
 const vfs = kausaldb.vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const storage = kausaldb.storage;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 const StorageEngine = storage.StorageEngine;
 
 /// Test recovery context to capture recovered entries
@@ -58,22 +58,19 @@ const RecoveryContext = struct {
 
 /// Create test block with predictable content
 fn create_test_block(allocator: std.mem.Allocator, id_suffix: u8) !ContextBlock {
-    var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
-    id_bytes[15] = id_suffix;
-
-    const content = try std.fmt.allocPrint(allocator, "test content {d}", .{id_suffix});
-    const metadata = try std.fmt.allocPrint(allocator, "{{\"type\": \"test\", \"id\": {d}}}", .{id_suffix});
+    var id_bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &id_bytes, id_suffix, .little);
 
     return ContextBlock{
-        .id = BlockId.from_bytes(id_bytes),
+        .id = BlockId{ .bytes = id_bytes },
         .version = 1,
-        .source_uri = try allocator.dupe(u8, "test://source"),
-        .metadata_json = metadata,
-        .content = content,
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{id_suffix}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try std.fmt.allocPrint(allocator, "Test block {} content", .{id_suffix}),
     };
 }
 
-test "streaming recovery basic functionality" {
+test "streaming recovery basic" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -140,7 +137,7 @@ test "streaming recovery basic functionality" {
     try testing.expect(recovered_block3 == null); // This block was deleted
 }
 
-test "streaming recovery with large entries" {
+test "streaming recovery large entries" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);

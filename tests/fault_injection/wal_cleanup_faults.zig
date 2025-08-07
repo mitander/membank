@@ -17,23 +17,34 @@ const testing = std.testing;
 const vfs = kausaldb.vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
-const context_block = kausaldb.types;
-const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
+const stdx = kausaldb.stdx;
 
 const StorageEngine = storage.StorageEngine;
 const MemtableManager = storage.MemtableManager;
 const WAL = storage.WAL;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+
+/// Generate deterministic BlockId for testing (prevents zero-value anti-pattern)
+fn create_deterministic_block_id(seed: u32) BlockId {
+    const safe_seed = if (seed == 0) 1 else seed;
+    var bytes: [16]u8 = undefined;
+    var i: usize = 0;
+    while (i < 16) : (i += 4) {
+        const value = safe_seed + @as(u32, @intCast(i));
+        var slice: [4]u8 = undefined;
+        std.mem.writeInt(u32, &slice, value, .little);
+        stdx.copy_left(u8, bytes[i .. i + 4], &slice);
+    }
+    return BlockId.from_bytes(bytes);
+}
 
 /// Generate deterministic test block for consistent fault injection scenarios
 fn create_test_block(index: u32) ContextBlock {
-    var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
-    std.mem.writeInt(u32, id_bytes[12..16], index, .little);
-
     return ContextBlock{
-        .id = BlockId{ .bytes = id_bytes },
+        .id = create_deterministic_block_id(index),
         .version = 1,
         .source_uri = "test://wal_cleanup_fault.zig",
         .metadata_json = "{}",
@@ -116,7 +127,7 @@ test "WAL cleanup partial failure recovery" {
     std.debug.print("WAL cleanup fault injection test completed successfully\n", .{});
 }
 
-test "WAL cleanup cascading failure during post-flush compaction" {
+test "cascading failure during post flush compaction" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 123);

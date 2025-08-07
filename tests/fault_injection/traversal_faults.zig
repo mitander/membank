@@ -19,16 +19,16 @@ const assert = kausaldb.assert;
 
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const query_engine = kausaldb.query_engine;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 const TraversalQuery = query_engine.TraversalQuery;
 const TraversalAlgorithm = query_engine.TraversalAlgorithm;
 const TraversalDirection = query_engine.TraversalDirection;

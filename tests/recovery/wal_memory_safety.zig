@@ -9,16 +9,16 @@ const std = @import("std");
 const testing = std.testing;
 
 const simulation = kausaldb.simulation;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const storage = kausaldb.storage;
 
 const Simulation = simulation.Simulation;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 const StorageEngine = storage.StorageEngine;
 
 // Test WAL recovery robustness under memory pressure scenarios
-test "wal memory safety: sequential recovery cycles" {
+test "sequential recovery cycles" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xDEADBEEF);
@@ -106,7 +106,7 @@ test "wal memory safety: sequential recovery cycles" {
 }
 
 // Test WAL recovery with different allocator patterns
-test "wal memory safety: allocator stress testing" {
+test "allocator stress testing" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xFEEDFACE);
@@ -196,7 +196,7 @@ test "wal memory safety: allocator stress testing" {
 }
 
 // Test WAL recovery robustness with rapid allocation/deallocation cycles
-test "wal memory safety: rapid cycle stress test" {
+test "rapid cycle stress test" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xCAFEBABE);
@@ -241,7 +241,7 @@ test "wal memory safety: rapid cycle stress test" {
 }
 
 // Test edge cases that might expose memory corruption vulnerabilities
-test "wal memory safety: edge case robustness" {
+test "edge case robustness" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xBEEFFEED);
@@ -333,7 +333,7 @@ test "wal memory safety: edge case robustness" {
 }
 
 // Test memory safety during concurrent-like operations (sequential but rapid)
-test "wal memory safety: rapid sequential operations" {
+test "rapid sequential operations" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 0xABCDEF01);

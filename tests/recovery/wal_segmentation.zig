@@ -9,19 +9,19 @@ const std = @import("std");
 const testing = std.testing;
 const assert = kausaldb.assert.assert;
 
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const storage = kausaldb.storage;
 const simulation = kausaldb.simulation;
 const vfs = kausaldb.vfs;
 
 const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 const Simulation = simulation.Simulation;
 
-test "wal segmentation: rotation at size limit" {
+test "rotation at size limit" {
     // Arena allocator eliminates manual memory management and prevents leaks
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -96,7 +96,7 @@ test "wal segmentation: rotation at size limit" {
     try testing.expectEqual(blocks_written, engine2.block_count());
 }
 
-test "wal segmentation: cleanup after sstable flush" {
+test "cleanup after sstable flush" {
     // Arena allocator eliminates manual memory management and prevents leaks
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -210,7 +210,7 @@ test "wal segmentation: cleanup after sstable flush" {
     };
 }
 
-test "wal segmentation: recovery from mixed segments and sstables" {
+test "recovery from mixed segments and sstables" {
     // Arena allocator eliminates manual memory management and prevents leaks
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -291,7 +291,7 @@ test "wal segmentation: recovery from mixed segments and sstables" {
     try testing.expectEqualStrings("phase 2 content", phase2_block.content);
 }
 
-test "wal segmentation: segment number persistence" {
+test "segment number persistence" {
     // Arena allocator eliminates manual memory management and prevents leaks
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -376,7 +376,7 @@ test "wal segmentation: segment number persistence" {
     }
 }
 
-test "wal segmentation: empty segment handling" {
+test "empty segment handling" {
     // Arena allocator eliminates manual memory management and prevents leaks
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

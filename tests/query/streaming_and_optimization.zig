@@ -5,22 +5,22 @@
 //! and performance characteristics under various conditions.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
 const storage = kausaldb.storage;
 const query = kausaldb.query;
 const simulation_vfs = kausaldb.simulation_vfs;
-const context_block = kausaldb.types;
-const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query.engine.QueryEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 const FindBlocksQuery = query.operations.FindBlocksQuery;
 const TraversalQuery = query.traversal.TraversalQuery;
 const QueryResult = query.operations.QueryResult;
@@ -32,8 +32,8 @@ fn create_test_block(id: u32, content: []const u8, allocator: std.mem.Allocator)
     return ContextBlock{
         .id = BlockId{ .bytes = id_bytes },
         .version = 1,
-        .source_uri = try allocator.dupe(u8, "test://streaming_optimization"),
-        .metadata_json = try allocator.dupe(u8, "{\"test\": \"advanced_query\"}"),
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{id}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
         .content = try allocator.dupe(u8, content),
     };
 }
@@ -52,7 +52,6 @@ fn create_test_edge(from_id: u32, to_id: u32, edge_type: EdgeType) GraphEdge {
 }
 
 test "streaming query results with large datasets" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -68,7 +67,8 @@ test "streaming query results with large datasets" {
     // Create large dataset to test streaming behavior
     const dataset_size = 500;
     var stored_blocks = std.ArrayList(ContextBlock).init(allocator);
-    try stored_blocks.ensureTotalCapacity(1000); // Pre-allocate for large dataset
+    const capacity = if (builtin.mode == .Debug) 100 else 1000;
+    try stored_blocks.ensureTotalCapacity(capacity); // Pre-allocate for large dataset
     defer {
         for (stored_blocks.items) |block| {
             allocator.free(block.content);
@@ -124,7 +124,6 @@ test "streaming query results with large datasets" {
 }
 
 test "query optimization strategy selection" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -138,8 +137,9 @@ test "query optimization strategy selection" {
     defer query_engine.deinit();
 
     // Create different sized datasets to trigger different optimization strategies
+    // Scale down for debug builds to prevent CI timeouts
     const small_dataset = 10;
-    const medium_dataset = 1000;
+    const medium_dataset = if (builtin.mode == .Debug) 100 else 1000;
 
     // Test small dataset optimization (should use direct storage)
     var i: u32 = 1;
@@ -210,7 +210,6 @@ test "query optimization strategy selection" {
 }
 
 test "complex graph traversal with streaming optimization" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -325,7 +324,6 @@ test "complex graph traversal with streaming optimization" {
 }
 
 test "query caching behavior and cache hit optimization" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -409,7 +407,6 @@ test "query caching behavior and cache hit optimization" {
 }
 
 test "batch query operations with memory efficiency" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -491,7 +488,6 @@ test "batch query operations with memory efficiency" {
 }
 
 test "query error handling and recovery under streaming" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -576,7 +572,6 @@ test "query error handling and recovery under streaming" {
 }
 
 test "memory pressure during concurrent streaming queries" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -656,7 +651,6 @@ test "memory pressure during concurrent streaming queries" {
 }
 
 test "query optimization with complex filter combinations" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -742,7 +736,6 @@ test "query optimization with complex filter combinations" {
 }
 
 test "streaming iterator memory safety and lifecycle" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);

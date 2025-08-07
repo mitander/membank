@@ -34,7 +34,7 @@ fn create_wal_entry(file: *kausaldb.vfs.VFile, entry_type: u8, payload: []const 
     _ = try file.write(payload);
 }
 
-test "stream basic entry reading" {
+test "basic entry reading" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -78,7 +78,7 @@ test "stream basic entry reading" {
     try testing.expectEqual(@as(?StreamEntry, null), entry4);
 }
 
-test "stream large entry exceeding buffer" {
+test "large entry exceeding buffer" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -131,7 +131,7 @@ test "stream large entry exceeding buffer" {
     try testing.expectEqual(@as(u32, 3), stream_stats.entries_read);
 }
 
-test "stream entry spanning buffer boundary" {
+test "entry spanning buffer boundary" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -173,7 +173,7 @@ test "stream entry spanning buffer boundary" {
     try testing.expectEqualStrings("end", entry3.payload);
 }
 
-test "stream corruption detection" {
+test "corruption detection" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -208,7 +208,7 @@ test "stream corruption detection" {
     try testing.expectError(StreamError.CorruptedEntry, result);
 }
 
-test "stream invalid entry type detection" {
+test "invalid entry type detection" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -236,7 +236,7 @@ test "stream invalid entry type detection" {
     try testing.expectError(StreamError.CorruptedEntry, result);
 }
 
-test "stream empty file handling" {
+test "empty file handling" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -259,7 +259,7 @@ test "stream empty file handling" {
     try testing.expectEqual(@as(u32, 0), stream_stats.entries_read);
 }
 
-test "stream truncated entry handling" {
+test "truncated entry handling" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -292,7 +292,7 @@ test "stream truncated entry handling" {
     try testing.expectEqual(@as(?StreamEntry, null), entry2);
 }
 
-test "stream memory management" {
+test "memory management" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -334,7 +334,7 @@ test "stream memory management" {
     try testing.expectEqual(@as(?StreamEntry, null), final_entry);
 }
 
-test "stream position tracking" {
+test "position tracking" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);

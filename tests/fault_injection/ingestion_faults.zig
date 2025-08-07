@@ -15,13 +15,13 @@ const testing = std.testing;
 
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const vfs = kausaldb.vfs;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 
 // Helper function to create test BlockId from integer
 fn test_block_id(id: u32) BlockId {

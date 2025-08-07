@@ -11,16 +11,15 @@ const kausaldb = @import("kausaldb");
 const storage = kausaldb.storage;
 const query = kausaldb.query;
 const simulation_vfs = kausaldb.simulation_vfs;
-const context_block = kausaldb.types;
-const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query.QueryEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 const TraversalQuery = query.traversal.TraversalQuery;
 const TraversalAlgorithm = query.traversal.TraversalAlgorithm;
 const TraversalDirection = query.traversal.TraversalDirection;
@@ -54,7 +53,6 @@ fn create_test_edge(from_id: u32, to_id: u32, edge_type: EdgeType, _: std.mem.Al
 }
 
 test "A* search integration with storage engine" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -138,7 +136,6 @@ test "A* search integration with storage engine" {
 }
 
 test "bidirectional search integration and performance" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -209,8 +206,7 @@ test "bidirectional search integration and performance" {
     std.debug.print("Bidirectional search: {} blocks found, {} traversed, {}μs execution time\n", .{ result.count(), result.blocks_traversed, execution_time_us });
 }
 
-test "algorithm comparison - BFS vs DFS vs A* vs Bidirectional" {
-    concurrency.init();
+test "algorithm comparison BFS vs DFS vs A* vs Bidirectional" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -284,7 +280,6 @@ test "algorithm comparison - BFS vs DFS vs A* vs Bidirectional" {
 }
 
 test "large graph traversal with new algorithms" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -359,7 +354,6 @@ test "large graph traversal with new algorithms" {
 }
 
 test "edge type filtering integration" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -436,7 +430,6 @@ test "edge type filtering integration" {
 }
 
 test "memory safety under stress with new algorithms" {
-    concurrency.init();
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);

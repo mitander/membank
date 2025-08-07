@@ -12,14 +12,13 @@ const vfs = kausaldb.vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
 const query_engine = kausaldb.query_engine;
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const server_handler = kausaldb.handler;
-const concurrency = kausaldb.concurrency;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const Server = server_handler.Server;
 const ServerConfig = server_handler.ServerConfig;
@@ -40,7 +39,7 @@ fn create_test_query_engine(allocator: std.mem.Allocator, storage_engine: *Stora
     return QueryEngine.init(allocator, storage_engine);
 }
 
-test "server config - default values" {
+test "config default values" {
     const config = ServerConfig{};
 
     try testing.expectEqual(@as(u16, 8080), config.port);
@@ -51,7 +50,7 @@ test "server config - default values" {
     try testing.expectEqual(false, config.enable_logging);
 }
 
-test "server config - custom values" {
+test "config custom values" {
     const config = ServerConfig{
         .port = 9090,
         .max_connections = 50,
@@ -69,7 +68,7 @@ test "server config - custom values" {
     try testing.expectEqual(true, config.enable_logging);
 }
 
-test "message header - encode and decode" {
+test "message header encode and decode" {
     const original = MessageHeader{
         .msg_type = MessageType.ping,
         .version = 1,
@@ -88,7 +87,7 @@ test "message header - encode and decode" {
     try testing.expectEqual(original.payload_length, decoded.payload_length);
 }
 
-test "message header - invalid message type" {
+test "message header invalid type" {
     var buffer: [8]u8 = undefined;
 
     // Create header with invalid message type (99)
@@ -101,7 +100,7 @@ test "message header - invalid message type" {
     try testing.expectError(error.InvalidRequest, result);
 }
 
-test "message header - buffer too small" {
+test "message header buffer too small" {
     var buffer: [4]u8 = undefined; // Too small
 
     const result = MessageHeader.decode(&buffer);
@@ -109,8 +108,6 @@ test "message header - buffer too small" {
 }
 
 test "server initialization" {
-    concurrency.init();
-
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -139,9 +136,7 @@ test "server initialization" {
     try testing.expectEqual(@as(u64, 0), server.stats.errors_encountered);
 }
 
-test "client connection - initialization" {
-    concurrency.init();
-
+test "client connection initialization" {
     const allocator = testing.allocator;
 
     const mock_stream = std.net.Stream{
@@ -158,7 +153,7 @@ test "client connection - initialization" {
     try testing.expect(connection.established_time > 0);
 }
 
-test "protocol - ping message" {
+test "protocol ping message" {
     const ping_header = MessageHeader{
         .msg_type = MessageType.ping,
         .version = 1,
@@ -175,7 +170,7 @@ test "protocol - ping message" {
     try testing.expectEqual(@as(u32, 0), decoded.payload_length);
 }
 
-test "protocol - find_blocks message" {
+test "protocol find blocks message" {
     const find_blocks_header = MessageHeader{
         .msg_type = MessageType.find_blocks,
         .version = 1,
@@ -192,9 +187,7 @@ test "protocol - find_blocks message" {
     try testing.expectEqual(@as(u32, 16), decoded.payload_length);
 }
 
-test "server - connection limit configuration" {
-    concurrency.init();
-
+test "connection limit configuration" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -219,9 +212,7 @@ test "server - connection limit configuration" {
     try testing.expectEqual(@as(u32, 0), server.stats.connections_active);
 }
 
-test "server stats - initial values" {
-    concurrency.init();
-
+test "stats initial values" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -247,7 +238,7 @@ test "server stats - initial values" {
     try testing.expectEqual(@as(u64, 0), server.stats.errors_encountered);
 }
 
-test "protocol - all message types" {
+test "protocol all message types" {
     // Verify all expected message types exist and have correct values
     try testing.expectEqual(@as(u8, 0x01), @intFromEnum(MessageType.ping));
     try testing.expectEqual(@as(u8, 0x02), @intFromEnum(MessageType.find_blocks));
@@ -262,7 +253,7 @@ test "protocol - all message types" {
     try testing.expectEqual(@as(u8, 0xFF), @intFromEnum(MessageType.error_response));
 }
 
-test "protocol - corrupted header recovery" {
+test "protocol corrupted header recovery" {
     const valid_header = MessageHeader{
         .msg_type = MessageType.ping,
         .version = 1,
@@ -292,9 +283,7 @@ test "protocol - corrupted header recovery" {
     }
 }
 
-test "server - engine references" {
-    concurrency.init();
-
+test "engine references basic" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -321,9 +310,7 @@ test "server - engine references" {
 }
 
 // Integration tests for async connection state machine
-test "connection state machine - header reading with partial I/O" {
-    concurrency.init();
-
+test "connection state header reading partial io" {
     const allocator = testing.allocator;
 
     const pipe_result = try std.posix.pipe();
@@ -373,9 +360,7 @@ test "connection state machine - header reading with partial I/O" {
     try testing.expectEqual(@as(u32, 0), connection.current_header.?.payload_length);
 }
 
-test "connection state machine - payload reading with flow control" {
-    concurrency.init();
-
+test "connection state machine payload reading with flow control" {
     const allocator = testing.allocator;
 
     const pipe_result = try std.posix.pipe();
@@ -443,9 +428,7 @@ test "connection state machine - payload reading with flow control" {
     try testing.expectEqual(@as(u32, 1), std.mem.readInt(u32, payload[0..4], .little));
 }
 
-test "connection state machine - response state transitions" {
-    concurrency.init();
-
+test "connection state machine response state transitions" {
     const allocator = testing.allocator;
 
     const pipe_result = try std.posix.pipe();
@@ -484,9 +467,7 @@ test "connection state machine - response state transitions" {
     try testing.expectEqualSlices(u8, response_data, connection.current_response.?);
 }
 
-test "connection state machine - request size limits" {
-    concurrency.init();
-
+test "connection state machine request size limits" {
     const allocator = testing.allocator;
 
     const pipe_result = try std.posix.pipe();
@@ -526,9 +507,7 @@ test "connection state machine - request size limits" {
     try testing.expect(!keep_alive); // Connection should be closed due to oversized request
 }
 
-test "connection state machine - client disconnection handling" {
-    concurrency.init();
-
+test "connection state machine client disconnection handling" {
     const allocator = testing.allocator;
 
     const pipe_result = try std.posix.pipe();
@@ -555,9 +534,7 @@ test "connection state machine - client disconnection handling" {
     try testing.expect(!keep_alive); // Connection should be closed due to EOF
 }
 
-test "connection state machine - arena memory isolation" {
-    concurrency.init();
-
+test "connection state machine arena memory isolation" {
     const allocator = testing.allocator;
 
     const pipe_result = try std.posix.pipe();

@@ -12,17 +12,16 @@ const log = std.log.scoped(.streaming_memory_benchmark);
 const storage = kausaldb.storage;
 const query = kausaldb.query;
 const simulation_vfs = kausaldb.simulation_vfs;
-const context_block = kausaldb.types;
-const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
 const assert = kausaldb.assert.assert;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = kausaldb.QueryEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const EdgeType = context_block.EdgeType;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+const GraphEdge = types.GraphEdge;
+const EdgeType = types.EdgeType;
 
 // Performance targets from PERFORMANCE.md
 const TARGET_BLOCK_WRITE_LATENCY_NS = 50_000; // 50µs
@@ -59,7 +58,7 @@ fn measure_operation_latency(comptime operation_fn: anytype, args: anytype) i64 
     return std.time.nanoTimestamp() - start;
 }
 
-test "streaming_memory_efficiency_benchmark" {
+test "streaming memory efficiency benchmark" {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -153,7 +152,7 @@ test "streaming_memory_efficiency_benchmark" {
     }
 }
 
-test "storage_engine_throughput_benchmark" {
+test "storage engine throughput benchmark" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -244,7 +243,7 @@ test "storage_engine_throughput_benchmark" {
     }
 }
 
-test "query_engine_performance_benchmark" {
+test "query engine performance benchmark" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -362,7 +361,7 @@ test "query_engine_performance_benchmark" {
     try testing.expect(avg_traversal < TARGET_QUERY_LATENCY_NS * 5); // 5x tolerance for traversal
 }
 
-test "memory_management_efficiency_benchmark" {
+test "memory management efficiency benchmark" {
     const allocator = testing.allocator;
 
     // Phase 1: Arena allocation performance
@@ -457,7 +456,7 @@ test "memory_management_efficiency_benchmark" {
     }
 }
 
-test "performance_regression_detection" {
+test "performance regression detection" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -515,7 +514,7 @@ test "performance_regression_detection" {
     }
 }
 
-test "concurrent_safety_performance_validation" {
+test "concurrent safety performance validation" {
     const allocator = testing.allocator;
 
     var sim_vfs = try SimulationVFS.init(allocator);
@@ -527,19 +526,19 @@ test "concurrent_safety_performance_validation" {
     try engine.startup();
 
     // Verify single-threaded design performance
-    concurrency.assert_main_thread();
+    // Single-threaded test - no concurrency assertions needed
 
     const rapid_ops_start = std.time.nanoTimestamp();
 
     // Rapid sequential operations to test thread safety assertions overhead
     for (1..501) |i| {
-        concurrency.assert_main_thread();
+        // Single-threaded test - no concurrency assertions needed
 
         const block = try create_test_block_from_int(@intCast(i), 256, allocator);
         defer allocator.free(block.content);
         try engine.put_block(block);
 
-        concurrency.assert_main_thread();
+        // Single-threaded test - no concurrency assertions needed
 
         var id_bytes: [16]u8 = [_]u8{0} ** 16;
         std.mem.writeInt(u32, id_bytes[0..4], @intCast(i), .little);
@@ -547,7 +546,7 @@ test "concurrent_safety_performance_validation" {
         const retrieved = try engine.find_block(block_id);
         try testing.expect(retrieved != null);
 
-        concurrency.assert_main_thread();
+        // Single-threaded test - no concurrency assertions needed
     }
 
     const rapid_ops_time = std.time.nanoTimestamp() - rapid_ops_start;

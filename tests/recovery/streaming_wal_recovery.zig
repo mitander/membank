@@ -10,13 +10,13 @@ const testing = std.testing;
 
 const log = std.log.scoped(.streaming_wal_recovery);
 
-const context_block = kausaldb.types;
+const types = kausaldb.types;
 const storage = kausaldb.storage;
 const simulation = kausaldb.simulation;
 
 const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
 const Simulation = simulation.Simulation;
 
 // Helper to create test blocks with specific ID
@@ -37,7 +37,7 @@ fn create_test_block(allocator: std.mem.Allocator, id_suffix: u8) !ContextBlock 
     return create_test_block_with_id(allocator, id_bytes, id_suffix);
 }
 
-test "streaming WAL recovery - basic correctness" {
+test "streaming WAL recovery basic correctness" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 12345);
@@ -90,7 +90,7 @@ test "streaming WAL recovery - basic correctness" {
     }
 }
 
-test "streaming WAL recovery - large WAL file efficiency" {
+test "streaming WAL recovery large file efficiency" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 54321);
@@ -152,7 +152,7 @@ test "streaming WAL recovery - large WAL file efficiency" {
     try testing.expect(recovered_count > 0);
 }
 
-test "streaming WAL recovery - empty WAL file handling" {
+test "streaming WAL recovery empty file handling" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 98765);
@@ -181,7 +181,7 @@ test "streaming WAL recovery - empty WAL file handling" {
     try testing.expectEqualSlices(u8, test_block.content, retrieved_block.content);
 }
 
-test "streaming WAL recovery - arena memory reset validation" {
+test "streaming WAL recovery arena memory reset validation" {
     const allocator = testing.allocator;
 
     var sim = try Simulation.init(allocator, 13579);
