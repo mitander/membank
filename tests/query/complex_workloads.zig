@@ -27,7 +27,8 @@ const QueryResult = query.operations.QueryResult;
 
 fn create_test_block_id(id: u32) BlockId {
     var id_bytes: [16]u8 = undefined;
-    std.mem.writeInt(u128, &id_bytes, id, .little);
+    // Ensure ID is never zero by adding 1
+    std.mem.writeInt(u128, &id_bytes, id + 1, .little);
     return BlockId{ .bytes = id_bytes };
 }
 
@@ -165,8 +166,8 @@ test "query optimization strategy validation" {
     // Test small query (should use direct strategy)
     const small_query = FindBlocksQuery{
         .block_ids = &[_]BlockId{
-            create_test_block_id(0),
             create_test_block_id(1),
+            create_test_block_id(2),
         },
     };
 
@@ -526,6 +527,7 @@ test "mixed query workload simulation" {
         try storage_engine.put_block(block);
 
         // Add some edges for traversal testing
+        // Skip creating edge for first block (i==0) to avoid negative index
         if (i > 0 and i % 5 != 0) {
             try storage_engine.put_edge(create_test_edge(i - 1, i, EdgeType.calls));
         }
