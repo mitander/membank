@@ -190,6 +190,24 @@ pub const KAUSALDB_RULES = [_]Rule{
         .violation_type = .function_length,
         .check_fn = check_function_declaration_length,
     },
+    .{
+        .name = "two_phase_initialization",
+        .description = "Enforce two-phase initialization pattern (init + startup)",
+        .violation_type = .architecture,
+        .check_fn = check_two_phase_initialization,
+    },
+    .{
+        .name = "lifecycle_naming",
+        .description = "Enforce precise lifecycle naming (startup vs start)",
+        .violation_type = .naming_convention,
+        .check_fn = check_lifecycle_naming,
+    },
+    .{
+        .name = "simulation_first_testing",
+        .description = "Enforce simulation-first testing via VFS abstraction", 
+        .violation_type = .architecture,
+        .check_fn = check_simulation_first_testing,
+    },
 };
 
 /// Rule: Enforce KausalDB naming conventions
@@ -1417,4 +1435,144 @@ fn is_why_explanation(comment_text: []const u8) bool {
     }
 
     return false;
+}
+
+/// Rule: Enforce two-phase initialization pattern (init + startup)
+/// Major services should separate cold initialization from hot I/O operations
+fn check_two_phase_initialization(context: *RuleContext) []const Rule.RuleViolation {
+    var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    
+    // Only apply to major service components
+    if (!context.is_in_layer("storage") and 
+        !context.is_in_layer("server") and 
+        !context.is_in_layer("ingestion")) {
+        return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+    }
+    
+    // Look for init functions that perform I/O operations
+    for (context.functions) |func| {
+        if (std.mem.eql(u8, func.name, "init") or std.mem.startsWith(u8, func.name, "init_")) {
+            const func_start = context.find_function_start(func.name) orelse continue;
+            const func_end = context.find_function_end(func_start);
+            const func_body = context.source[func_start..func_end];
+            
+            // Check for I/O operations in init functions
+            const io_patterns = [_][]const u8{
+                "fs.openFile",
+                "std.fs.cwd().openFile", 
+                "createFile",
+                "mkdir",
+                "writeFile",
+                "readFile",
+                "listen(",
+                "bind(",
+                "connect(",
+            };
+            
+            for (io_patterns) |pattern| {
+                if (std.mem.indexOf(u8, func_body, pattern) != null) {
+                    violations.append(.{
+                        .line = func.line,
+                        .message = "init() function performs I/O - violates two-phase initialization pattern",
+                        .context = std.fmt.allocPrint(context.allocator, 
+                            "Found I/O operation: {s}", .{pattern}) catch null,
+                        .suggested_fix = "Move I/O operations to startup() function, keep init() memory-only",
+                    }) catch continue;
+                }
+            }
+        }
+    }
+    
+    return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+}
+
+/// Rule: Enforce precise lifecycle naming (startup vs start)
+/// startup() is for the second initialization phase, start() is deprecated
+fn check_lifecycle_naming(context: *RuleContext) []const Rule.RuleViolation {
+    var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    
+    // Check for deprecated lifecycle method names
+    const deprecated_names = [_][]const u8{
+        "start",
+        "initialize_storage", 
+        "initialize_server",
+        "init_storage",
+        "init_server", 
+    };
+    
+    for (context.functions) |func| {
+        for (deprecated_names) |deprecated| {
+            if (std.mem.eql(u8, func.name, deprecated)) {
+                const replacement = if (std.mem.eql(u8, deprecated, "start"))
+                    "startup" 
+                else if (std.mem.startsWith(u8, deprecated, "initialize_"))
+                    std.fmt.allocPrint(context.allocator, "{s}_startup", 
+                        .{deprecated["initialize_".len..]}) catch "startup"
+                else if (std.mem.startsWith(u8, deprecated, "init_"))
+                    std.fmt.allocPrint(context.allocator, "{s}_startup",
+                        .{deprecated["init_".len..]}) catch "startup"
+                else 
+                    "startup";
+                    
+                violations.append(.{
+                    .line = func.line,
+                    .message = std.fmt.allocPrint(context.allocator,
+                        "Function '{s}' uses deprecated lifecycle naming", .{deprecated}) catch
+                        "Deprecated lifecycle naming",
+                    .context = "KausalDB uses precise lifecycle verbs for clarity",
+                    .suggested_fix = std.fmt.allocPrint(context.allocator, 
+                        "Rename to '{s}'", .{replacement}) catch "Use startup()",
+                }) catch continue;
+            }
+        }
+    }
+    
+    return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+}
+
+/// Rule: Enforce simulation-first testing via VFS abstraction
+/// Tests should use SimulationVFS instead of direct file system access
+fn check_simulation_first_testing(context: *RuleContext) []const Rule.RuleViolation {
+    var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    
+    // Only apply to test files
+    if (!std.mem.endsWith(u8, context.file_path, "_test.zig") and 
+        std.mem.indexOf(u8, context.file_path, "tests/") == null) {
+        return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+    }
+    
+    // Check for direct file system usage in tests
+    const direct_fs_patterns = [_][]const u8{
+        "std.fs.cwd()",
+        "fs.cwd()",
+        "std.fs.openFileAbsolute",
+        "std.fs.createFileAbsolute",
+        "std.testing.tmpDir",
+    };
+    
+    var line_start: usize = 0;
+    while (std.mem.indexOfScalarPos(u8, context.source, line_start, '\n')) |line_end| {
+        const line = context.source[line_start..line_end];
+        const line_num = find_line_with_pos(context.source, line_start) orelse 1;
+        
+        for (direct_fs_patterns) |pattern| {
+            if (std.mem.indexOf(u8, line, pattern) != null) {
+                // Allow if there's an explicit suppression comment
+                if (std.mem.indexOf(u8, line, "// tidy:ignore-simulation") == null) {
+                    violations.append(.{
+                        .line = line_num,
+                        .message = "Test uses direct file system access instead of SimulationVFS",
+                        .context = std.fmt.allocPrint(context.allocator,
+                            "Found pattern: {s}", .{pattern}) catch null,
+                        .suggested_fix = "Use SimulationVFS for deterministic, simulation-first testing",
+                    }) catch continue;
+                }
+            }
+        }
+        
+        line_start = line_end + 1;
+        if (line_start >= context.source.len) break;
+    }
+    
+    return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
 }
