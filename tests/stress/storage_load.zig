@@ -24,62 +24,39 @@ const StorageEngine = storage.StorageEngine;
 test "high volume writes during network partition" {
     const allocator = std.testing.allocator;
 
-    var sim = try Simulation.init(allocator, 0x57E55501);
-    defer sim.deinit();
+    // Use SimulationHarness for coordinated setup
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x57E55501, "storage_data");
+    defer harness.deinit();
 
-    const node1 = try sim.add_node();
-    const node2 = try sim.add_node();
-    const node3 = try sim.add_node();
+    // Add additional nodes for partition testing
+    const node2 = try harness.simulation().add_node();
+    const node3 = try harness.simulation().add_node();
 
-    sim.tick_multiple(10);
+    harness.tick(10);
 
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
-
-    var storage_engine = try StorageEngine.init_default(
-        allocator,
-        node1_vfs,
-        "storage_data",
-    );
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
-
-    sim.partition_nodes(node1, node2);
-    sim.partition_nodes(node1, node3);
+    // Create network partition isolating primary node
+    harness.simulation().partition_nodes(harness.node_id(), node2);
+    harness.simulation().partition_nodes(harness.node_id(), node3);
 
     var i: u32 = 1;
     while (i < 101) : (i += 1) {
-        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{i});
-        defer allocator.free(block_id_hex);
+        // Use standardized test data creation
+        const block = try kausaldb.TestData.create_test_block(allocator, i);
+        defer kausaldb.TestData.cleanup_test_block(allocator, block);
 
-        const block_id = try BlockId.from_hex(block_id_hex);
-        const content = try std.fmt.allocPrint(allocator, "Block content #{}", .{i});
-        defer allocator.free(content);
+        try harness.storage_engine.put_block(block);
 
-        const block = ContextBlock{
-            .id = block_id,
-            .version = 1,
-            .source_uri = "stress://test",
-            .metadata_json = "{\"stress_test\":true}",
-            .content = content,
-        };
-
-        try storage_engine.put_block(block);
-
-        // Advance simulation occasionally during writes
         if (i % 10 == 0) {
-            sim.tick_multiple(2);
+            harness.tick(1);
         }
     }
 
     // Verify all blocks were stored
-    try std.testing.expectEqual(@as(u32, 100), storage_engine.block_count());
+    try std.testing.expectEqual(@as(u32, 100), harness.storage_engine.block_count());
 
-    // Heal partition and verify data integrity
-    sim.heal_partition(node1, node2);
-    sim.heal_partition(node1, node3);
-    sim.tick_multiple(20);
+    harness.simulation().heal_partition(harness.node_id(), node2);
+    harness.simulation().heal_partition(harness.node_id(), node3);
+    harness.tick(20);
 
     // Verify we can retrieve all blocks
     i = 1;
@@ -99,66 +76,37 @@ test "high volume writes during network partition" {
 test "recovery from WAL corruption simulation" {
     const allocator = std.testing.allocator;
 
-    var sim = try Simulation.init(allocator, 0xCA1C2FD7);
-    defer sim.deinit();
+    // Use SimulationHarness for WAL corruption testing
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x4AF7E5D1, "wal_data");
+    defer harness.deinit();
 
-    const node1 = try sim.add_node();
-    sim.tick_multiple(5);
+    harness.tick(5);
 
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
+    // Create test blocks using standardized data
+    for (1..11) |index| {
+        const block = try kausaldb.TestData.create_test_block(allocator, @intCast(index));
+        defer kausaldb.TestData.cleanup_test_block(allocator, block);
 
-    var storage_engine = try StorageEngine.init_default(
-        allocator,
-        node1_vfs,
-        "recovery_data",
-    );
-
-    try storage_engine.startup();
-
-    var index: u32 = 1;
-    while (index <= 10) : (index += 1) {
-        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{index});
-        defer allocator.free(block_id_hex);
-        const block_id = try BlockId.from_hex(block_id_hex);
-        const content = try std.fmt.allocPrint(allocator, "Recovery test block #{}", .{index});
-        defer allocator.free(content);
-
-        const block = ContextBlock{
-            .id = block_id,
-            .version = 1,
-            .source_uri = "recovery://test",
-            .metadata_json = "{\"recovery_test\":true}",
-            .content = content,
-        };
-
-        try storage_engine.put_block(block);
+        try harness.storage_engine.put_block(block);
     }
 
-    try std.testing.expectEqual(@as(u32, 10), storage_engine.block_count());
+    try std.testing.expectEqual(@as(u32, 10), harness.storage_engine.block_count());
 
-    // Properly close first storage engine before restart simulation
-    storage_engine.deinit();
+    // Simulate system restart - harness handles proper cleanup and restart
+    const initial_node_id = harness.node_id();
+    harness.deinit();
 
-    // Simulate system restart by creating new storage engine instance with same directory
-    var storage_engine2 = try StorageEngine.init_default(
-        allocator,
-        node1_vfs,
-        "recovery_data",
-    );
-    defer storage_engine2.deinit();
-
-    try storage_engine2.startup();
+    // Create new harness simulating restart with same data directory
+    var recovery_harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x4AF7E5D1, "wal_data");
+    defer recovery_harness.deinit();
 
     // Verify blocks were recovered from WAL
-    try std.testing.expectEqual(@as(u32, 10), storage_engine2.block_count());
+    try std.testing.expectEqual(@as(u32, 10), recovery_harness.storage_engine.block_count());
 
-    // Verify we can retrieve the recovered blocks (start from 1, matching write loop)
+    // Verify we can retrieve the recovered blocks
     for (1..11) |j| {
-        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{j});
-        defer allocator.free(block_id_hex);
-        const block_id = try BlockId.from_hex(block_id_hex);
-        const recovered_block = (try storage_engine2.find_block(block_id)) orelse {
+        const block_id = kausaldb.TestData.deterministic_block_id(@intCast(j));
+        const recovered_block = (try recovery_harness.storage_engine.find_block(block_id)) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
@@ -175,23 +123,11 @@ test "recovery from WAL corruption simulation" {
 test "large block handling limits" {
     const allocator = std.testing.allocator;
 
-    var sim = try Simulation.init(allocator, 0x1A26EB1C);
-    defer sim.deinit();
+    // Use SimulationHarness for large block testing
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x1A26EB1C, "large_data");
+    defer harness.deinit();
 
-    const node1 = try sim.add_node();
-    sim.tick_multiple(5);
-
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
-
-    var storage_engine = try StorageEngine.init_default(
-        allocator,
-        node1_vfs,
-        "large_data",
-    );
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
+    harness.tick(5);
 
     const large_content = try allocator.alloc(u8, 1024 * 1024);
     defer allocator.free(large_content);
@@ -211,11 +147,11 @@ test "large block handling limits" {
     };
 
     // Test storing large block
-    try storage_engine.put_block(large_block);
-    try std.testing.expectEqual(@as(u32, 1), storage_engine.block_count());
+    try harness.storage_engine.put_block(large_block);
+    try std.testing.expectEqual(@as(u32, 1), harness.storage_engine.block_count());
 
     // Test retrieving large block
-    const retrieved = (try storage_engine.find_block(block_id)) orelse {
+    const retrieved = (try harness.storage_engine.find_block(block_id)) orelse {
         try testing.expect(false); // Block should exist
         return;
     };
@@ -226,54 +162,41 @@ test "large block handling limits" {
 test "rapid block updates concurrency" {
     const allocator = std.testing.allocator;
 
-    var sim = try Simulation.init(allocator, 0x2A91DFDD);
-    defer sim.deinit();
+    // Use SimulationHarness for rapid update testing
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x2A91DFDD, "rapid_data");
+    defer harness.deinit();
 
-    const node1 = try sim.add_node();
-    sim.tick_multiple(5);
-
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
-
-    var storage_engine = try StorageEngine.init_default(
-        allocator,
-        node1_vfs,
-        "rapid_data",
-    );
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
+    harness.tick(5);
 
     const block_id = try BlockId.from_hex("11111111111111112222222222222222");
 
     // Rapidly update the same block multiple times
-    var version: u64 = 1;
-    while (version <= 50) : (version += 1) {
-        const content = try std.fmt.allocPrint(allocator, "Version {} content", .{version});
+    for (1..51) |version| {
+        const content = try std.fmt.allocPrint(allocator, "Version {}", .{version});
         defer allocator.free(content);
 
-        const block = ContextBlock{
+        const updated_block = ContextBlock{
             .id = block_id,
             .version = version,
-            .source_uri = "rapid://updates",
+            .source_uri = "rapid://test/updates",
             .metadata_json = "{\"rapid_update\":true}",
             .content = content,
         };
 
-        try storage_engine.put_block(block);
+        try harness.storage_engine.put_block(updated_block);
 
-        // Verify the latest version is stored
-        const retrieved = (try storage_engine.find_block(block_id)) orelse {
+        // Verify update took effect
+        const retrieved = (try harness.storage_engine.find_block(block_id)) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
         try std.testing.expectEqual(version, retrieved.version);
 
-        sim.tick_multiple(1);
+        harness.tick(1);
     }
 
     // Final verification
-    const final_block = (try storage_engine.find_block(block_id)).?;
+    const final_block = (try harness.storage_engine.find_block(block_id)).?;
     try std.testing.expectEqual(@as(u64, 50), final_block.version);
     try std.testing.expect(std.mem.indexOf(u8, final_block.content, "Version 50") != null);
 }
@@ -281,23 +204,11 @@ test "rapid block updates concurrency" {
 test "duplicate block handling integrity" {
     const allocator = std.testing.allocator;
 
-    var sim = try Simulation.init(allocator, 0xDFD11CA7);
-    defer sim.deinit();
+    // Use SimulationHarness for duplicate handling testing
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xDFD11CA7, "dup_data");
+    defer harness.deinit();
 
-    const node1 = try sim.add_node();
-    sim.tick_multiple(5);
-
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
-
-    var storage_engine = try StorageEngine.init_default(
-        allocator,
-        node1_vfs,
-        "dup_data",
-    );
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
+    harness.tick(5);
 
     const block_id = try BlockId.from_hex("deadbeefcafebabe1337133713371337");
     const original_block = ContextBlock{
@@ -308,8 +219,8 @@ test "duplicate block handling integrity" {
         .content = "Original content",
     };
 
-    try storage_engine.put_block(original_block);
-    try std.testing.expectEqual(@as(u32, 1), storage_engine.block_count());
+    try harness.storage_engine.put_block(original_block);
+    try std.testing.expectEqual(@as(u32, 1), harness.storage_engine.block_count());
 
     // Try to store duplicate (should overwrite)
     const duplicate_block = ContextBlock{
@@ -320,11 +231,11 @@ test "duplicate block handling integrity" {
         .content = "Updated content",
     };
 
-    try storage_engine.put_block(duplicate_block);
-    try std.testing.expectEqual(@as(u32, 1), storage_engine.block_count());
+    try harness.storage_engine.put_block(duplicate_block);
+    try std.testing.expectEqual(@as(u32, 1), harness.storage_engine.block_count());
 
     // Verify the updated version is stored
-    const retrieved = (try storage_engine.find_block(block_id)) orelse {
+    const retrieved = (try harness.storage_engine.find_block(block_id)) orelse {
         try testing.expect(false); // Block should exist
         return;
     };
@@ -336,23 +247,11 @@ test "duplicate block handling integrity" {
 test "graph relationship persistence" {
     const allocator = std.testing.allocator;
 
-    var sim = try Simulation.init(allocator, 0x62A9DE1);
-    defer sim.deinit();
+    // Use SimulationHarness for graph relationship testing
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x62A9DE1, "graph_data");
+    defer harness.deinit();
 
-    const node1 = try sim.add_node();
-    sim.tick_multiple(5);
-
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
-
-    var storage_engine = try StorageEngine.init_default(
-        allocator,
-        node1_vfs,
-        "graph_data",
-    );
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
+    harness.tick(5);
 
     const main_id = try BlockId.from_hex("11111111111111111111111111111111");
     const util_id = try BlockId.from_hex("22222222222222222222222222222222");
@@ -382,9 +281,9 @@ test "graph relationship persistence" {
         .content = "test \"main\" { main(); }",
     };
 
-    try storage_engine.put_block(main_block);
-    try storage_engine.put_block(util_block);
-    try storage_engine.put_block(test_block);
+    try harness.storage_engine.put_block(main_block);
+    try harness.storage_engine.put_block(util_block);
+    try harness.storage_engine.put_block(test_block);
 
     const import_edge = GraphEdge{
         .source_id = main_id,
@@ -404,14 +303,13 @@ test "graph relationship persistence" {
         .edge_type = EdgeType.calls,
     };
 
-    try storage_engine.put_edge(import_edge);
-    try storage_engine.put_edge(calls_edge);
-    try storage_engine.put_edge(test_edge);
+    try harness.storage_engine.put_edge(import_edge);
+    try harness.storage_engine.put_edge(calls_edge);
+    try harness.storage_engine.put_edge(test_edge);
 
-    // Verify blocks are still accessible
-    try std.testing.expectEqual(@as(u32, 3), storage_engine.block_count());
+    try std.testing.expectEqual(@as(u32, 3), harness.storage_engine.block_count());
 
-    const retrieved_main = (try storage_engine.find_block(main_id)) orelse {
+    const retrieved_main = (try harness.storage_engine.find_block(main_id)) orelse {
         try testing.expect(false); // Block should exist
         return;
     };
@@ -421,29 +319,18 @@ test "graph relationship persistence" {
 test "batch operations under load" {
     const allocator = std.testing.allocator;
 
-    var sim = try Simulation.init(allocator, 0xBA7C410D);
-    defer sim.deinit();
+    // Use SimulationHarness for batch operations testing
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xBA7C410D, "batch_data");
+    defer harness.deinit();
 
-    const node1 = try sim.add_node();
-    const node2 = try sim.add_node();
+    // Add additional node for network simulation
+    const node2 = try harness.simulation().add_node();
 
     // High latency and packet loss
-    sim.configure_latency(node1, node2, 15);
-    sim.configure_packet_loss(node1, node2, 0.3);
+    harness.simulation().configure_latency(harness.node_id(), node2, 15);
+    harness.simulation().configure_packet_loss(harness.node_id(), node2, 0.3);
 
-    sim.tick_multiple(10);
-
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
-
-    var storage_engine = try StorageEngine.init_default(
-        allocator,
-        node1_vfs,
-        "batch_data",
-    );
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
+    harness.tick(10);
 
     // Perform batch writes in chunks (start from 1, all-zero BlockID invalid)
     const batch_size = 20;
@@ -473,28 +360,28 @@ test "batch operations under load" {
                 .content = content,
             };
 
-            try storage_engine.put_block(block);
+            try harness.storage_engine.put_block(block);
         }
 
         // Advance simulation after each batch
-        sim.tick_multiple(10);
+        harness.tick(10);
     }
 
     // Verify all blocks were stored
     const expected_count = batch_size * total_batches;
-    try std.testing.expectEqual(@as(u32, expected_count), storage_engine.block_count());
+    try std.testing.expectEqual(@as(u32, expected_count), harness.storage_engine.block_count());
 
     // Spot check some blocks (adjusted for 1-based indexing)
     const first_block_id = try BlockId.from_hex("00000000000000000000000000000001"); // First block is now 1
     const last_block_id = try BlockId.from_hex("00000000000000000000000000000064"); // 100 in hex
 
-    const first_block = (try storage_engine.find_block(first_block_id)) orelse {
+    const first_block = (try harness.storage_engine.find_block(first_block_id)) orelse {
         try testing.expect(false); // Block should exist
         return;
     };
     try std.testing.expect(std.mem.indexOf(u8, first_block.content, "Batch 0 item 0") != null);
 
-    const last_block = (try storage_engine.find_block(last_block_id)) orelse {
+    const last_block = (try harness.storage_engine.find_block(last_block_id)) orelse {
         try testing.expect(false); // Block should exist
         return;
     };
@@ -502,27 +389,13 @@ test "batch operations under load" {
 }
 
 test "invalid data handling robustness" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = std.testing.allocator;
 
-    var sim = try Simulation.init(allocator, 0x1FADA7);
-    defer sim.deinit();
+    // Use SimulationHarness for invalid data testing
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x1FADA7, "invalid_data");
+    defer harness.deinit();
 
-    const node1 = try sim.add_node();
-    sim.tick_multiple(5);
-
-    const node1_ptr = sim.find_node(node1);
-    const node1_vfs = node1_ptr.filesystem_interface();
-
-    var storage_engine = try StorageEngine.init_default(
-        std.testing.allocator,
-        node1_vfs,
-        "invalid_data",
-    );
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
+    harness.tick(5);
 
     // Test invalid JSON metadata
     const block_id = try BlockId.from_hex("deadbeefdeadbeefdeadbeefdeadbeef");
@@ -535,10 +408,10 @@ test "invalid data handling robustness" {
     };
 
     // Should fail validation
-    try std.testing.expectError(error.InvalidMetadataJson, storage_engine.put_block(invalid_block));
+    try std.testing.expectError(error.InvalidMetadataJson, harness.storage_engine.put_block(invalid_block));
 
     // Verify no blocks were stored
-    try std.testing.expectEqual(@as(u32, 0), storage_engine.block_count());
+    try std.testing.expectEqual(@as(u32, 0), harness.storage_engine.block_count());
 
     // Test valid block after invalid one
     const valid_block = ContextBlock{
@@ -549,6 +422,6 @@ test "invalid data handling robustness" {
         .content = "Valid content",
     };
 
-    try storage_engine.put_block(valid_block);
-    try std.testing.expectEqual(@as(u32, 1), storage_engine.block_count());
+    try harness.storage_engine.put_block(valid_block);
+    try std.testing.expectEqual(@as(u32, 1), harness.storage_engine.block_count());
 }

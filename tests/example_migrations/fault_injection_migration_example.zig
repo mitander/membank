@@ -73,26 +73,26 @@ const kausaldb = @import("kausaldb");
 
 // ========== NEW PATTERN (after refactoring) ==========
 
-/// Modern approach using declarative scenario framework
+// Modern approach using declarative scenario framework
 test "systematic WAL durability fault injection using scenarios" {
     const allocator = testing.allocator;
-    
-    // Execute predefined scenario - all parameters explicit and discoverable
-    try kausaldb.scenarios.execute_wal_durability_scenario(allocator, 0); // "I/O failure during flush operations"
+
+    // Run predefined scenario - all parameters explicit and discoverable
+    try kausaldb.scenarios.run_wal_durability_scenario(allocator, .io_flush_failures);
 }
 
-/// Individual scenario execution for targeted testing
+// Individual scenario execution for targeted testing
 test "specific torn write scenario for WAL operations" {
     const allocator = testing.allocator;
-    
-    // Execute specific scenario by index - clear and explicit
-    try kausaldb.scenarios.execute_wal_durability_scenario(allocator, 2); // "Torn writes during WAL entry serialization"  
+
+    // Run specific scenario by enum value - type-safe and explicit
+    try kausaldb.scenarios.run_wal_durability_scenario(allocator, .torn_writes);
 }
 
-/// Custom scenario execution for specialized testing
+// Custom scenario execution for specialized testing
 test "custom scenario with specific parameters" {
     const allocator = testing.allocator;
-    
+
     // Create custom scenario with explicit parameters
     const custom_scenario = kausaldb.FaultScenario{
         .description = "High-intensity write failures for stress testing",
@@ -104,80 +104,80 @@ test "custom scenario with specific parameters" {
         .expected_min_survival_rate = 0.75, // Slightly lower expectation for high-intensity test
         .golden_master_file = null,
     };
-    
+
     const executor = kausaldb.ScenarioExecutor.init(allocator, custom_scenario);
-    try executor.execute();
+    try executor.run();
 }
 
-/// Comprehensive testing using scenario batches
+// Comprehensive testing using scenario batches
 test "comprehensive WAL durability validation" {
     const allocator = testing.allocator;
-    
-    // Execute all predefined WAL scenarios for comprehensive testing
-    try kausaldb.scenarios.execute_all_wal_scenarios(allocator);
+
+    // Run all predefined WAL scenarios for comprehensive testing
+    try kausaldb.scenarios.run_all_wal_scenarios(allocator);
 }
 
 // ========== HARNESS USAGE EXAMPLES ==========
 
-/// Example using storage harness for basic operations
+// Example using storage harness for basic operations
 test "storage harness usage example" {
     const allocator = testing.allocator;
-    
+
     // Simple storage testing with standardized setup
     var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "example_storage_test");
     defer harness.deinit(); // O(1) cleanup via arena
-    
+
     // Use standardized test data creation
     const block = try kausaldb.TestData.create_test_block(allocator, 1);
     defer kausaldb.TestData.cleanup_test_block(allocator, block);
-    
+
     try harness.storage_engine.put_block(block);
     const retrieved = try harness.storage_engine.find_block(block.id);
     try testing.expect(retrieved != null);
 }
 
-/// Example using query harness for graph operations
+// Example using query harness for graph operations
 test "query harness usage example" {
     const allocator = testing.allocator;
-    
+
     // Query testing with storage + query engine coordination
     var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "example_query_test");
     defer harness.deinit(); // O(1) cleanup via arena
-    
+
     // Create test data with relationships
     const block1 = try kausaldb.TestData.create_test_block(allocator, 1);
     defer kausaldb.TestData.cleanup_test_block(allocator, block1);
     const block2 = try kausaldb.TestData.create_test_block(allocator, 2);
     defer kausaldb.TestData.cleanup_test_block(allocator, block2);
-    
+
     try harness.storage_engine().put_block(block1);
     try harness.storage_engine().put_block(block2);
-    
+
     const edge = kausaldb.TestData.create_test_edge(1, 2, .calls);
     try harness.storage_engine().put_edge(edge);
-    
+
     // Query using standardized harness
     const found_block = try harness.query_engine.find_block(block1.id);
     try testing.expect(found_block != null);
 }
 
-/// Example using simulation harness for integration testing
+// Example using simulation harness for integration testing
 test "simulation harness usage example" {
     const allocator = testing.allocator;
-    
+
     // Full simulation testing with deterministic seed
     var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xDEADBEEF, "example_simulation_test");
     defer harness.deinit(); // O(1) cleanup via arena
-    
+
     // Create test data
     const block = try kausaldb.TestData.create_test_block(allocator, 42);
     defer kausaldb.TestData.cleanup_test_block(allocator, block);
-    
+
     try harness.storage_engine.put_block(block);
-    
+
     // Advance simulation time for deterministic testing
     harness.tick(10);
-    
+
     const retrieved = try harness.query_engine.find_block(block.id);
     try testing.expect(retrieved != null);
 }
@@ -185,7 +185,7 @@ test "simulation harness usage example" {
 // ========== KEY IMPROVEMENTS DEMONSTRATED ==========
 
 // 1. **Explicitness Over Magic**: All parameters visible in scenario definitions
-// 2. **Reusable Infrastructure**: Standardized harnesses eliminate setup boilerplate  
+// 2. **Reusable Infrastructure**: Standardized harnesses eliminate setup boilerplate
 // 3. **Deterministic Testing**: Seeds ensure reproducible test behavior
 // 4. **Arena-per-Subsystem**: O(1) cleanup via harness.deinit()
 // 5. **Pure Coordinator Pattern**: Harnesses orchestrate without owning state

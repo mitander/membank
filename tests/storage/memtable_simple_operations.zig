@@ -15,27 +15,23 @@ const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const MemtableManager = storage.MemtableManager;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const TestData = kausaldb.TestData;
 
 test "put block basic" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    // Use StorageHarness for simplified setup while testing MemtableManager specifically
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "memtable_basic");
+    defer harness.deinit();
 
-    var manager = try MemtableManager.init(allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
-    defer manager.deinit();
-    try manager.startup();
+    // Access the underlying memtable manager for direct testing
+    const manager = &harness.storage_engine.memtable_manager;
 
-    // Direct block creation - no helpers
-    const test_block = ContextBlock{
-        .id = BlockId{ .bytes = [_]u8{1} ** 16 },
-        .version = 1,
-        .source_uri = "test://memtable.zig",
-        .metadata_json = "{}",
-        .content = "test content",
-    };
+    // Use standardized test data for consistent block creation
+    const test_block = try TestData.create_test_block(allocator, 1);
+    defer TestData.cleanup_test_block(allocator, test_block);
 
-    // Test specific operation
+    // Test specific memtable operation
     try manager.put_block(test_block);
     const retrieved = manager.find_block_in_memtable(test_block.id);
 
@@ -47,15 +43,13 @@ test "put block basic" {
 test "find block missing" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "memtable_missing");
+    defer harness.deinit();
 
-    var manager = try MemtableManager.init(allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
-    defer manager.deinit();
-    try manager.startup();
+    const manager = &harness.storage_engine.memtable_manager;
 
-    // Test finding non-existent block
-    const missing_id = BlockId{ .bytes = [_]u8{99} ** 16 };
+    // Test finding non-existent block using deterministic ID
+    const missing_id = TestData.deterministic_block_id(99);
     const result = manager.find_block_in_memtable(missing_id);
 
     try testing.expect(result == null);
@@ -64,33 +58,45 @@ test "find block missing" {
 test "put block overwrite" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "memtable_overwrite");
+    defer harness.deinit();
 
-    var manager = try MemtableManager.init(allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
-    defer manager.deinit();
-    try manager.startup();
+    const manager = &harness.storage_engine.memtable_manager;
 
-    const block_id = BlockId{ .bytes = [_]u8{1} ** 16 };
+    // Create blocks with same ID but different versions using TestData base
+    const base_block = try TestData.create_test_block(allocator, 1);
+    defer TestData.cleanup_test_block(allocator, base_block);
+
+    const block_id = base_block.id;
 
     // Put first version
     const block_v1 = ContextBlock{
         .id = block_id,
         .version = 1,
-        .source_uri = "test://version1.zig",
-        .metadata_json = "{}",
-        .content = "version 1 content",
+        .source_uri = try allocator.dupe(u8, "test://version1.zig"),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try allocator.dupe(u8, "version 1 content"),
     };
+    defer {
+        allocator.free(block_v1.source_uri);
+        allocator.free(block_v1.metadata_json);
+        allocator.free(block_v1.content);
+    }
     try manager.put_block(block_v1);
 
     // Put second version (overwrite)
     const block_v2 = ContextBlock{
         .id = block_id,
         .version = 2,
-        .source_uri = "test://version2.zig",
-        .metadata_json = "{}",
-        .content = "version 2 content",
+        .source_uri = try allocator.dupe(u8, "test://version2.zig"),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try allocator.dupe(u8, "version 2 content"),
     };
+    defer {
+        allocator.free(block_v2.source_uri);
+        allocator.free(block_v2.metadata_json);
+        allocator.free(block_v2.content);
+    }
     try manager.put_block(block_v2);
 
     // Verify latest version is retrieved

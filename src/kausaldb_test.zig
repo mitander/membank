@@ -108,8 +108,8 @@ pub const FaultInjectionConfig = test_harness.FaultInjectionConfig;
 pub const scenarios = @import("test/scenarios.zig");
 pub const FaultScenario = scenarios.FaultScenario;
 pub const ScenarioExecutor = scenarios.ScenarioExecutor;
-pub const wal_durability_scenarios = scenarios.wal_durability_scenarios;
-pub const compaction_crash_scenarios = scenarios.compaction_crash_scenarios;
+pub const WalDurabilityScenario = scenarios.WalDurabilityScenario;
+pub const CompactionCrashScenario = scenarios.CompactionCrashScenario;
 
 pub const bloom_filter = @import("storage/bloom_filter.zig");
 pub const sstable = @import("storage/sstable.zig");

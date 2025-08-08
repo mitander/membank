@@ -57,92 +57,112 @@ pub const FaultScenario = struct {
     };
 };
 
-/// WAL durability scenarios testing write-ahead log resilience under hostile conditions
-pub const wal_durability_scenarios = [_]FaultScenario{
-    .{
-        .description = "I/O failure during flush operations",
-        .seed = 0xDEAD1111,
-        .fault_type = .sync_failures,
-        .initial_blocks = 100,
-        .fault_operations = 50,
-        .expected_recovery_success = true,
-        .expected_min_survival_rate = 0.8,
-        .golden_master_file = null, // Could be "wal_flush_failures.golden.json"
-    },
-    .{
-        .description = "Disk space exhaustion handling",
-        .seed = 0xBEEF2222,
-        .fault_type = .disk_space_exhaustion,
-        .initial_blocks = 150,
-        .fault_operations = 75,
-        .expected_recovery_success = true,
-        .expected_min_survival_rate = 0.9,
-        .golden_master_file = null,
-    },
-    .{
-        .description = "Torn writes during WAL entry serialization",
-        .seed = 0xCAFE3333,
-        .fault_type = .torn_writes,
-        .initial_blocks = 75,
-        .fault_operations = 25,
-        .expected_recovery_success = true,
-        .expected_min_survival_rate = 0.7,
-        .golden_master_file = null,
-    },
-    .{
-        .description = "Multiple sequential crashes with different fault types",
-        .seed = 0xFEED4444,
-        .fault_type = .sequential_faults,
-        .initial_blocks = 200,
-        .fault_operations = 100,
-        .expected_recovery_success = true,
-        .expected_min_survival_rate = 0.6,
-        .golden_master_file = null,
-    },
+/// WAL durability scenario types for explicit scenario selection
+pub const WalDurabilityScenario = enum {
+    io_flush_failures,
+    disk_space_exhaustion,
+    torn_writes,
+    sequential_faults,
+
+    /// Get scenario configuration for this fault type
+    pub fn config(self: @This()) FaultScenario {
+        return switch (self) {
+            .io_flush_failures => .{
+                .description = "I/O failure during flush operations",
+                .seed = 0xDEAD1111,
+                .fault_type = .sync_failures,
+                .initial_blocks = 100,
+                .fault_operations = 50,
+                .expected_recovery_success = true,
+                .expected_min_survival_rate = 0.8,
+                .golden_master_file = null,
+            },
+            .disk_space_exhaustion => .{
+                .description = "Disk space exhaustion handling",
+                .seed = 0xBEEF2222,
+                .fault_type = .disk_space_exhaustion,
+                .initial_blocks = 150,
+                .fault_operations = 75,
+                .expected_recovery_success = true,
+                .expected_min_survival_rate = 0.9,
+                .golden_master_file = null,
+            },
+            .torn_writes => .{
+                .description = "Torn writes during WAL entry serialization",
+                .seed = 0xCAFE3333,
+                .fault_type = .torn_writes,
+                .initial_blocks = 75,
+                .fault_operations = 25,
+                .expected_recovery_success = true,
+                .expected_min_survival_rate = 0.7,
+                .golden_master_file = null,
+            },
+            .sequential_faults => .{
+                .description = "Multiple sequential crashes with different fault types",
+                .seed = 0xFEED4444,
+                .fault_type = .sequential_faults,
+                .initial_blocks = 200,
+                .fault_operations = 100,
+                .expected_recovery_success = true,
+                .expected_min_survival_rate = 0.6,
+                .golden_master_file = null,
+            },
+        };
+    }
 };
 
-/// Compaction crash scenarios testing SSTable operations under fault conditions
-pub const compaction_crash_scenarios = [_]FaultScenario{
-    .{
-        .description = "Partial SSTable write during compaction",
-        .seed = 0xDEADBEEF,
-        .fault_type = .write_failures,
-        .initial_blocks = 150,
-        .fault_operations = 50,
-        .expected_recovery_success = true,
-        .expected_min_survival_rate = 0.8,
-        .golden_master_file = "partial_sstable_write_recovery.golden.json",
-    },
-    .{
-        .description = "Orphaned files after compaction failure",
-        .seed = 0xCAFEBABE,
-        .fault_type = .cleanup_failures,
-        .initial_blocks = 200,
-        .fault_operations = 30,
-        .expected_recovery_success = true,
-        .expected_min_survival_rate = 0.9,
-        .golden_master_file = null,
-    },
-    .{
-        .description = "Torn write in SSTable header",
-        .seed = 0xBEEFCAFE,
-        .fault_type = .torn_writes,
-        .initial_blocks = 100,
-        .fault_operations = 20,
-        .expected_recovery_success = true,
-        .expected_min_survival_rate = 0.7,
-        .golden_master_file = null,
-    },
-    .{
-        .description = "Multiple sequential crashes",
-        .seed = 0xFEEDFACE,
-        .fault_type = .sequential_faults,
-        .initial_blocks = 180,
-        .fault_operations = 40,
-        .expected_recovery_success = true,
-        .expected_min_survival_rate = 0.6,
-        .golden_master_file = null,
-    },
+/// Compaction crash scenario types for explicit scenario selection
+pub const CompactionCrashScenario = enum {
+    partial_sstable_write,
+    orphaned_files,
+    torn_write_header,
+    sequential_crashes,
+
+    /// Get scenario configuration for this fault type
+    pub fn config(self: @This()) FaultScenario {
+        return switch (self) {
+            .partial_sstable_write => .{
+                .description = "Partial SSTable write during compaction",
+                .seed = 0xDEADBEEF,
+                .fault_type = .write_failures,
+                .initial_blocks = 150,
+                .fault_operations = 50,
+                .expected_recovery_success = true,
+                .expected_min_survival_rate = 0.8,
+                .golden_master_file = "partial_sstable_write_recovery.golden.json",
+            },
+            .orphaned_files => .{
+                .description = "Orphaned files after compaction failure",
+                .seed = 0xCAFEBABE,
+                .fault_type = .cleanup_failures,
+                .initial_blocks = 200,
+                .fault_operations = 30,
+                .expected_recovery_success = true,
+                .expected_min_survival_rate = 0.9,
+                .golden_master_file = null,
+            },
+            .torn_write_header => .{
+                .description = "Torn write in SSTable header",
+                .seed = 0xBEEFCAFE,
+                .fault_type = .torn_writes,
+                .initial_blocks = 100,
+                .fault_operations = 20,
+                .expected_recovery_success = true,
+                .expected_min_survival_rate = 0.7,
+                .golden_master_file = null,
+            },
+            .sequential_crashes => .{
+                .description = "Multiple sequential crashes",
+                .seed = 0xFEEDFACE,
+                .fault_type = .sequential_faults,
+                .initial_blocks = 180,
+                .fault_operations = 40,
+                .expected_recovery_success = true,
+                .expected_min_survival_rate = 0.6,
+                .golden_master_file = null,
+            },
+        };
+    }
 };
 
 /// Executes fault scenarios with validation and recovery testing
@@ -337,29 +357,31 @@ pub const ScenarioExecutor = struct {
 };
 
 /// Run predefined scenario sets for systematic testing
-pub fn run_wal_durability_scenario(allocator: std.mem.Allocator, index: usize) !void {
-    if (index >= wal_durability_scenarios.len) return error.InvalidScenarioIndex;
-    const executor = ScenarioExecutor.init(allocator, wal_durability_scenarios[index]);
+pub fn run_wal_durability_scenario(allocator: std.mem.Allocator, scenario: WalDurabilityScenario) !void {
+    const executor = ScenarioExecutor.init(allocator, scenario.config());
     try executor.run();
 }
 
-pub fn run_compaction_crash_scenario(allocator: std.mem.Allocator, index: usize) !void {
-    if (index >= compaction_crash_scenarios.len) return error.InvalidScenarioIndex;
-    const executor = ScenarioExecutor.init(allocator, compaction_crash_scenarios[index]);
+pub fn run_compaction_crash_scenario(allocator: std.mem.Allocator, scenario: CompactionCrashScenario) !void {
+    const executor = ScenarioExecutor.init(allocator, scenario.config());
     try executor.run();
 }
 
 /// Batch execution of related scenarios for comprehensive validation
 pub fn run_all_wal_scenarios(allocator: std.mem.Allocator) !void {
-    std.debug.print("Running all WAL durability scenarios ({d} total)...\n", .{wal_durability_scenarios.len});
-    for (wal_durability_scenarios, 0..) |_, i| {
-        try run_wal_durability_scenario(allocator, i);
+    const scenario_count = @typeInfo(WalDurabilityScenario).Enum.fields.len;
+    std.debug.print("Running all WAL durability scenarios ({d} total)...\n", .{scenario_count});
+    inline for (@typeInfo(WalDurabilityScenario).Enum.fields) |field| {
+        const scenario = @as(WalDurabilityScenario, @enumFromInt(field.value));
+        try run_wal_durability_scenario(allocator, scenario);
     }
 }
 
 pub fn run_all_compaction_scenarios(allocator: std.mem.Allocator) !void {
-    std.debug.print("Running all compaction crash scenarios ({d} total)...\n", .{compaction_crash_scenarios.len});
-    for (compaction_crash_scenarios, 0..) |_, i| {
-        try run_compaction_crash_scenario(allocator, i);
+    const scenario_count = @typeInfo(CompactionCrashScenario).Enum.fields.len;
+    std.debug.print("Running all compaction crash scenarios ({d} total)...\n", .{scenario_count});
+    inline for (@typeInfo(CompactionCrashScenario).Enum.fields) |field| {
+        const scenario = @as(CompactionCrashScenario, @enumFromInt(field.value));
+        try run_compaction_crash_scenario(allocator, scenario);
     }
 }

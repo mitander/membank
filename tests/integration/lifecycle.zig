@@ -32,6 +32,7 @@ test "full data lifecycle with compaction" {
     // Phase 1: Bulk data ingestion (trigger compaction)
     const num_blocks = 1200; // Exceeds flush threshold of 1000
     var created_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try created_blocks.ensureCapacity(num_blocks);
     defer {
         for (created_blocks.items) |block| {
             allocator.free(block.source_uri);

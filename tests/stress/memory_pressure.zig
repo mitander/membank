@@ -25,22 +25,12 @@ test "memory isolation with 5 storage cycles" {
         const allocator = testing.allocator;
         log.debug("Starting storage cycle {}", .{cycle});
 
-        var sim = try Simulation.init(allocator, 0xDEADBEEF + cycle);
-        defer sim.deinit();
-
-        const node = try sim.add_node();
-        const node_ptr = sim.find_node(node);
-        const vfs = node_ptr.filesystem_interface();
-
         var data_dir_buf: [64]u8 = undefined;
         const data_dir = try std.fmt.bufPrint(&data_dir_buf, "isolation_test_{}", .{cycle});
-        const data_dir_owned = try allocator.dupe(u8, data_dir);
-        defer allocator.free(data_dir_owned);
 
-        var engine = try StorageEngine.init_default(allocator, vfs, data_dir_owned);
-        defer engine.deinit();
-
-        try engine.startup();
+        // Use SimulationHarness for coordinated setup
+        var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xDEADBEEF + cycle, data_dir);
+        defer harness.deinit();
 
         var block_index: u32 = 1;
         while (block_index <= 5) : (block_index += 1) {
@@ -63,10 +53,10 @@ test "memory isolation with 5 storage cycles" {
                 .metadata_json = "{\"test\": true}",
             };
 
-            try engine.put_block(block);
+            try harness.storage_engine.put_block(block);
 
             // Verify block can be retrieved
-            const retrieved = (try engine.find_block(block.id)) orelse {
+            const retrieved = (try harness.storage_engine.find_block(block.id)) orelse {
                 try testing.expect(false); // Block should exist
                 continue;
             };
@@ -83,18 +73,9 @@ test "hashmap operations under stress" {
     // Use testing allocator for faster execution
     const allocator = testing.allocator;
 
-    // Stress test the HashMap operations specifically
-    var sim = try Simulation.init(allocator, 0xFEEDFACE);
-    defer sim.deinit();
-
-    const node = try sim.add_node();
-    const node_ptr = sim.find_node(node);
-    const vfs = node_ptr.filesystem_interface();
-
-    var engine = try StorageEngine.init_default(allocator, vfs, "hashmap_stress");
-    defer engine.deinit();
-
-    try engine.startup();
+    // Use SimulationHarness for hashmap stress testing
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xFEEDFACE, "hashmap_stress");
+    defer harness.deinit();
 
     var index: u32 = 1;
     while (index <= 20) : (index += 1) {
@@ -112,11 +93,11 @@ test "hashmap operations under stress" {
             .metadata_json = "{\"test\": true}",
         };
 
-        try engine.put_block(block);
+        try harness.storage_engine.put_block(block);
 
         // Periodically retrieve and verify blocks
         if (index % 10 == 0) {
-            const retrieved = (try engine.find_block(block.id)) orelse {
+            const retrieved = (try harness.storage_engine.find_block(block.id)) orelse {
                 try testing.expect(false); // Block should exist
                 continue;
             };
