@@ -95,6 +95,22 @@ pub const fatal_assertions = @import("test/fatal_assertions.zig");
 pub const FatalCategory = fatal_assertions.FatalCategory;
 pub const FatalContext = fatal_assertions.FatalContext;
 
+// Test harnesses for standardized setup patterns
+pub const test_harness = @import("test/harness.zig");
+pub const TestData = test_harness.TestData;
+pub const StorageHarness = test_harness.StorageHarness;
+pub const QueryHarness = test_harness.QueryHarness;
+pub const SimulationHarness = test_harness.SimulationHarness;
+pub const FaultInjectionHarness = test_harness.FaultInjectionHarness;
+pub const FaultInjectionConfig = test_harness.FaultInjectionConfig;
+
+// Scenario-driven fault injection testing framework
+pub const scenarios = @import("test/scenarios.zig");
+pub const FaultScenario = scenarios.FaultScenario;
+pub const ScenarioExecutor = scenarios.ScenarioExecutor;
+pub const wal_durability_scenarios = scenarios.wal_durability_scenarios;
+pub const compaction_crash_scenarios = scenarios.compaction_crash_scenarios;
+
 pub const bloom_filter = @import("storage/bloom_filter.zig");
 pub const sstable = @import("storage/sstable.zig");
 pub const tiered_compaction = @import("storage/tiered_compaction.zig");

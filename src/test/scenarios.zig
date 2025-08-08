@@ -1,0 +1,365 @@
+//! Scenario-driven fault injection testing framework
+//!
+//! Provides systematic fault injection following explicitness-over-magic philosophy.
+//! All scenario parameters declared upfront for reproducible hostile condition testing.
+
+const std = @import("std");
+const testing = std.testing;
+
+// Import from kausaldb_test for consistency
+const kausaldb = @import("../kausaldb_test.zig");
+
+const storage = kausaldb.storage;
+const simulation_vfs = kausaldb.simulation_vfs;
+const types = kausaldb.types;
+const golden_master = kausaldb.golden_master;
+const TestData = kausaldb.TestData;
+
+const StorageEngine = storage.StorageEngine;
+const SimulationVFS = simulation_vfs.SimulationVFS;
+const ContextBlock = types.ContextBlock;
+const BlockId = types.BlockId;
+
+/// Fault injection scenario configuration with explicit parameters for reproducibility
+pub const FaultScenario = struct {
+    /// Scenario description for test output and debugging
+    description: []const u8,
+    /// Deterministic seed ensuring reproducible fault injection
+    seed: u64,
+    /// Fault type determining injection strategy
+    fault_type: FaultType,
+    /// Initial data population before fault injection begins
+    initial_blocks: u32,
+    /// Operations attempted under hostile conditions
+    fault_operations: u32,
+    /// Expected recovery outcome for validation
+    expected_recovery_success: bool,
+    /// Minimum data survival rate threshold for validation
+    expected_min_survival_rate: f32,
+    /// Optional golden master for post-recovery state verification
+    golden_master_file: ?[]const u8,
+
+    pub const FaultType = enum {
+        /// Write operation failures
+        write_failures,
+        /// Flush and sync operation failures
+        sync_failures,
+        /// File removal and cleanup failures
+        cleanup_failures,
+        /// Power loss simulation via incomplete writes
+        torn_writes,
+        /// Multiple sequential fault types for compound failures
+        sequential_faults,
+        /// Storage capacity exhaustion
+        disk_space_exhaustion,
+        /// Post-write data corruption
+        read_corruption,
+    };
+};
+
+/// WAL durability scenarios testing write-ahead log resilience under hostile conditions
+pub const wal_durability_scenarios = [_]FaultScenario{
+    .{
+        .description = "I/O failure during flush operations",
+        .seed = 0xDEAD1111,
+        .fault_type = .sync_failures,
+        .initial_blocks = 100,
+        .fault_operations = 50,
+        .expected_recovery_success = true,
+        .expected_min_survival_rate = 0.8,
+        .golden_master_file = null, // Could be "wal_flush_failures.golden.json"
+    },
+    .{
+        .description = "Disk space exhaustion handling",
+        .seed = 0xBEEF2222,
+        .fault_type = .disk_space_exhaustion,
+        .initial_blocks = 150,
+        .fault_operations = 75,
+        .expected_recovery_success = true,
+        .expected_min_survival_rate = 0.9,
+        .golden_master_file = null,
+    },
+    .{
+        .description = "Torn writes during WAL entry serialization",
+        .seed = 0xCAFE3333,
+        .fault_type = .torn_writes,
+        .initial_blocks = 75,
+        .fault_operations = 25,
+        .expected_recovery_success = true,
+        .expected_min_survival_rate = 0.7,
+        .golden_master_file = null,
+    },
+    .{
+        .description = "Multiple sequential crashes with different fault types",
+        .seed = 0xFEED4444,
+        .fault_type = .sequential_faults,
+        .initial_blocks = 200,
+        .fault_operations = 100,
+        .expected_recovery_success = true,
+        .expected_min_survival_rate = 0.6,
+        .golden_master_file = null,
+    },
+};
+
+/// Compaction crash scenarios testing SSTable operations under fault conditions
+pub const compaction_crash_scenarios = [_]FaultScenario{
+    .{
+        .description = "Partial SSTable write during compaction",
+        .seed = 0xDEADBEEF,
+        .fault_type = .write_failures,
+        .initial_blocks = 150,
+        .fault_operations = 50,
+        .expected_recovery_success = true,
+        .expected_min_survival_rate = 0.8,
+        .golden_master_file = "partial_sstable_write_recovery.golden.json",
+    },
+    .{
+        .description = "Orphaned files after compaction failure",
+        .seed = 0xCAFEBABE,
+        .fault_type = .cleanup_failures,
+        .initial_blocks = 200,
+        .fault_operations = 30,
+        .expected_recovery_success = true,
+        .expected_min_survival_rate = 0.9,
+        .golden_master_file = null,
+    },
+    .{
+        .description = "Torn write in SSTable header",
+        .seed = 0xBEEFCAFE,
+        .fault_type = .torn_writes,
+        .initial_blocks = 100,
+        .fault_operations = 20,
+        .expected_recovery_success = true,
+        .expected_min_survival_rate = 0.7,
+        .golden_master_file = null,
+    },
+    .{
+        .description = "Multiple sequential crashes",
+        .seed = 0xFEEDFACE,
+        .fault_type = .sequential_faults,
+        .initial_blocks = 180,
+        .fault_operations = 40,
+        .expected_recovery_success = true,
+        .expected_min_survival_rate = 0.6,
+        .golden_master_file = null,
+    },
+};
+
+/// Executes fault scenarios with validation and recovery testing
+pub const ScenarioExecutor = struct {
+    allocator: std.mem.Allocator,
+    scenario: FaultScenario,
+
+    const Self = @This();
+
+    pub fn init(allocator: std.mem.Allocator, scenario: FaultScenario) Self {
+        return Self{
+            .allocator = allocator,
+            .scenario = scenario,
+        };
+    }
+
+    /// Run fault scenario with systematic validation and recovery testing
+    pub fn run(self: Self) !void {
+        std.debug.print("Executing scenario: {s}\n", .{self.scenario.description});
+
+        // Deterministic VFS ensures reproducible fault behavior
+        var sim_vfs = try SimulationVFS.init_with_fault_seed(self.allocator, self.scenario.seed);
+        defer sim_vfs.deinit();
+
+        // Unique directory prevents test interference
+        const dir_name = try std.fmt.allocPrint(self.allocator, "scenario_{x}", .{
+            @as(u64, @intCast(@intFromPtr(self.scenario.description.ptr))) ^ self.scenario.seed,
+        });
+        defer self.allocator.free(dir_name);
+
+        var storage_engine = try StorageEngine.init_default(self.allocator, sim_vfs.vfs(), dir_name);
+        try storage_engine.startup();
+
+        // Baseline data population establishes pre-fault state
+        try self.populate_initial_data(&storage_engine);
+        const initial_block_count = storage_engine.block_count();
+
+        // Optional golden master captures expected state before faults
+        if (self.scenario.golden_master_file) |golden_file| {
+            // This would record the state before fault injection
+            // Commented out as it would only be run once to generate the golden file
+            // try golden_master.record_vfs_state(&sim_vfs, golden_file);
+            _ = golden_file;
+        }
+
+        // Fault injection configuration matches scenario specification
+        try self.configure_fault_injection(&sim_vfs);
+
+        // Operations under hostile conditions test system resilience
+        try self.execute_fault_operations(&storage_engine);
+
+        // Clean shutdown simulates system crash for recovery testing
+        storage_engine.deinit();
+
+        // Fresh engine instance validates recovery from persisted state
+        var recovered_engine = try StorageEngine.init_default(self.allocator, sim_vfs.vfs(), dir_name);
+        defer recovered_engine.deinit();
+
+        // Clean environment required for accurate recovery validation
+        self.disable_fault_injection(&sim_vfs);
+
+        // Recovery attempt determines system resilience
+        const recovery_result = recovered_engine.startup();
+
+        // Recovery validation against scenario success criteria
+        if (self.scenario.expected_recovery_success) {
+            try recovery_result;
+
+            const recovered_block_count = recovered_engine.block_count();
+            const survival_rate = @as(f32, @floatFromInt(recovered_block_count)) /
+                @as(f32, @floatFromInt(initial_block_count));
+
+            std.debug.print("Recovery stats: {d}/{d} blocks survived ({d:.1%} survival rate)\n", .{
+                recovered_block_count,
+                initial_block_count,
+                survival_rate,
+            });
+
+            // Verify survival rate meets expectations
+            if (survival_rate < self.scenario.expected_min_survival_rate) {
+                std.debug.print("FAILURE: Survival rate {d:.1%} below expected {d:.1%}\n", .{
+                    survival_rate,
+                    self.scenario.expected_min_survival_rate,
+                });
+                return error.InsufficientDataSurvival;
+            }
+
+            // Post-recovery functionality validation ensures complete restoration
+            try self.verify_post_recovery_functionality(&recovered_engine);
+
+            // Golden master validation ensures exact state recovery
+            if (self.scenario.golden_master_file) |golden_file| {
+                try golden_master.verify_recovery_golden_master(
+                    self.allocator,
+                    golden_file,
+                    &recovered_engine,
+                );
+            }
+        } else {
+            // Graceful failure scenarios validate error handling paths
+            try testing.expectError(error.CorruptionDetected, recovery_result);
+        }
+
+        std.debug.print("Scenario completed successfully: {s}\n", .{self.scenario.description});
+    }
+
+    /// Create baseline data set for fault injection testing
+    fn populate_initial_data(self: Self, storage_engine: *StorageEngine) !void {
+        for (0..self.scenario.initial_blocks) |i| {
+            const block = try TestData.create_test_block(self.allocator, @intCast(i));
+            defer TestData.cleanup_test_block(self.allocator, block);
+            try storage_engine.put_block(block);
+        }
+    }
+
+    /// Apply scenario-specific fault configuration to simulation VFS
+    fn configure_fault_injection(self: Self, sim_vfs: *SimulationVFS) !void {
+        switch (self.scenario.fault_type) {
+            .write_failures => {
+                sim_vfs.enable_io_failures(500, .{ .write = true }); // 50% write failure rate
+            },
+            .sync_failures => {
+                sim_vfs.enable_io_failures(300, .{ .sync = true }); // 30% sync failure rate
+            },
+            .cleanup_failures => {
+                sim_vfs.enable_io_failures(400, .{ .remove = true }); // 40% remove failure rate
+            },
+            .torn_writes => {
+                sim_vfs.enable_torn_writes(800, 1, 70); // 80% probability, 70% completion max
+            },
+            .sequential_faults => {
+                // Multiple fault types simulate complex real-world failures
+                sim_vfs.enable_io_failures(300, .{ .write = true, .sync = true });
+                sim_vfs.enable_torn_writes(200, 1, 50); // Lower probability for combined faults
+            },
+            .disk_space_exhaustion => {
+                sim_vfs.set_disk_space_limit(1024 * 1024); // 1MB limit to trigger exhaustion
+            },
+            .read_corruption => {
+                sim_vfs.enable_read_corruption(100, 1); // 0.1% corruption rate, 1 bit per corruption
+            },
+        }
+    }
+
+    /// Perform operations under hostile conditions to test resilience
+    fn execute_fault_operations(self: Self, storage_engine: *StorageEngine) !void {
+        var successful_operations: u32 = 0;
+
+        for (0..self.scenario.fault_operations) |i| {
+            const operation_index = self.scenario.initial_blocks + @as(u32, @intCast(i));
+            const block = try TestData.create_test_block(self.allocator, operation_index);
+            defer TestData.cleanup_test_block(self.allocator, block);
+
+            // Expected failures under fault injection validate error handling
+            if (storage_engine.put_block(block)) |_| {
+                successful_operations += 1;
+            } else |err| switch (err) {
+                error.IoError, error.DiskSpaceExhausted => {
+                    // These errors indicate proper fault injection behavior
+                },
+                else => return err, // Unexpected errors indicate test failures
+            }
+        }
+
+        std.debug.print("Fault phase: {d}/{d} operations succeeded under hostile conditions\n", .{
+            successful_operations,
+            self.scenario.fault_operations,
+        });
+    }
+
+    /// Clear fault injection state for accurate recovery validation
+    fn disable_fault_injection(self: Self, sim_vfs: *SimulationVFS) void {
+        _ = self;
+        sim_vfs.fault_injection.io_failure_config.enabled = false;
+        sim_vfs.fault_injection.torn_write_config.enabled = false;
+        sim_vfs.fault_injection.read_corruption_config.enabled = false;
+        // Restore normal disk capacity for recovery operations
+        sim_vfs.fault_injection.max_disk_space = std.math.maxInt(u64);
+    }
+
+    /// Validate complete functionality restoration after recovery
+    fn verify_post_recovery_functionality(self: Self, storage_engine: *StorageEngine) !void {
+        // New operations validate complete recovery and functionality
+        const recovery_test_index = self.scenario.initial_blocks + self.scenario.fault_operations + 1000;
+        const recovery_block = try TestData.create_test_block(self.allocator, recovery_test_index);
+        defer TestData.cleanup_test_block(self.allocator, recovery_block);
+
+        try storage_engine.put_block(recovery_block);
+        const retrieved = (try storage_engine.find_block(recovery_block.id)).?;
+        try testing.expect(retrieved.id.eql(recovery_block.id));
+    }
+};
+
+/// Run predefined scenario sets for systematic testing
+pub fn run_wal_durability_scenario(allocator: std.mem.Allocator, index: usize) !void {
+    if (index >= wal_durability_scenarios.len) return error.InvalidScenarioIndex;
+    const executor = ScenarioExecutor.init(allocator, wal_durability_scenarios[index]);
+    try executor.run();
+}
+
+pub fn run_compaction_crash_scenario(allocator: std.mem.Allocator, index: usize) !void {
+    if (index >= compaction_crash_scenarios.len) return error.InvalidScenarioIndex;
+    const executor = ScenarioExecutor.init(allocator, compaction_crash_scenarios[index]);
+    try executor.run();
+}
+
+/// Batch execution of related scenarios for comprehensive validation
+pub fn run_all_wal_scenarios(allocator: std.mem.Allocator) !void {
+    std.debug.print("Running all WAL durability scenarios ({d} total)...\n", .{wal_durability_scenarios.len});
+    for (wal_durability_scenarios, 0..) |_, i| {
+        try run_wal_durability_scenario(allocator, i);
+    }
+}
+
+pub fn run_all_compaction_scenarios(allocator: std.mem.Allocator) !void {
+    std.debug.print("Running all compaction crash scenarios ({d} total)...\n", .{compaction_crash_scenarios.len});
+    for (compaction_crash_scenarios, 0..) |_, i| {
+        try run_compaction_crash_scenario(allocator, i);
+    }
+}
