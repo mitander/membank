@@ -19,6 +19,62 @@ const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
+// Compaction crash test scenario configuration
+// Follows KausalDB's "explicitness over magic" philosophy by making
+// all test parameters explicit and discoverable
+const CompactionCrashScenario = struct {
+    description: []const u8,
+    seed: u64,
+    initial_blocks: u32,
+    fault_type: FaultType,
+    expected_min_survival_rate: f32,
+    expected_recovery_success: bool,
+    
+    const FaultType = enum {
+        partial_sstable_write,
+        orphaned_files,
+        torn_write,
+        sequential_crashes,
+    };
+};
+
+// Test scenarios for systematic compaction crash testing
+// Each scenario is explicitly configured to test specific failure modes
+const compaction_crash_scenarios = [_]CompactionCrashScenario{
+    .{
+        .description = "Partial SSTable Write During Compaction",
+        .seed = 0xDEADBEEF,
+        .initial_blocks = 150, // Triggers compaction
+        .fault_type = .partial_sstable_write,
+        .expected_min_survival_rate = 0.8, // Most data should survive
+        .expected_recovery_success = true,
+    },
+    .{
+        .description = "Orphaned Files After Compaction Failure", 
+        .seed = 0xCAFEBABE,
+        .initial_blocks = 200,
+        .fault_type = .orphaned_files,
+        .expected_min_survival_rate = 0.9, // Data safe, cleanup may fail
+        .expected_recovery_success = true,
+    },
+    .{
+        .description = "Torn Write in SSTable Header",
+        .seed = 0xBEEFCAFE, 
+        .initial_blocks = 100,
+        .fault_type = .torn_write,
+        .expected_min_survival_rate = 0.7, // Header corruption more severe
+        .expected_recovery_success = true,
+    },
+    .{
+        .description = "Multiple Sequential Crashes",
+        .seed = 0xFEEDFACE,
+        .initial_blocks = 180,
+        .fault_type = .sequential_crashes,
+        .expected_min_survival_rate = 0.6, // Multiple failures compound
+        .expected_recovery_success = true,
+    },
+};
+
 // Helper function to generate deterministic BlockId for testing
 fn deterministic_block_id(seed: u32) BlockId {
     var bytes: [16]u8 = undefined;
@@ -359,4 +415,143 @@ test "torn write recovery" {
     const maybe_retrieved = try recovered_engine.find_block(recovery_block.id);
     const retrieved = maybe_retrieved.?; // Should not be null for just-written block
     try testing.expect(retrieved.id.eql(recovery_block.id));
+}
+
+// Systematized compaction crash testing using explicit scenario configuration
+// This test implements the TigerBeetle-inspired approach of explicit, scenario-based testing
+// Each scenario is fully specified upfront, making test conditions crystal clear
+test "systematic partial sstable write scenario" {
+    try execute_compaction_crash_scenario(compaction_crash_scenarios[0]);
+}
+
+test "systematic orphaned files scenario" {
+    try execute_compaction_crash_scenario(compaction_crash_scenarios[1]);
+}
+
+test "systematic torn write scenario" {
+    try execute_compaction_crash_scenario(compaction_crash_scenarios[2]);
+}
+
+test "systematic sequential crashes scenario" {
+    try execute_compaction_crash_scenario(compaction_crash_scenarios[3]);
+}
+
+// Execute a single compaction crash scenario
+// Follows the explicit testing philosophy: no hidden logic, all parameters visible
+fn execute_compaction_crash_scenario(scenario: CompactionCrashScenario) !void {
+    const allocator = testing.allocator;
+
+    // Phase 1: Setup with deterministic seed
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    // Generate unique directory name based on scenario description hash
+    // This prevents conflicts when running multiple scenarios
+    const dir_name = try std.fmt.allocPrint(allocator, "crash_test_{x}", .{
+        std.hash_map.hashString(scenario.description),
+    });
+    defer allocator.free(dir_name);
+    
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), dir_name);
+    defer storage_engine.deinit();
+    try storage_engine.startup();
+
+    // Phase 2: Populate with scenario-specified block count
+    try populate_storage_for_compaction(allocator, &storage_engine, scenario.initial_blocks);
+
+    // Record initial state for survival rate calculation
+    const initial_block_count = storage_engine.block_count();
+
+    // Phase 3: Execute fault injection based on scenario type
+    switch (scenario.fault_type) {
+        .partial_sstable_write => {
+            // Simulate partial SSTable write during compaction
+            // This tests recovery from incomplete compaction operations
+            sim_vfs.enable_io_failures(500, .{ .write = true }); // 50% write failure rate
+        },
+        .orphaned_files => {
+            // Simulate file cleanup failure after compaction
+            // Tests handling of orphaned temporary files
+            sim_vfs.enable_io_failures(300, .{ .remove = true }); // 30% remove failure rate
+        },
+        .torn_write => {
+            // Simulate torn writes in SSTable headers
+            // Tests recovery from corrupted file headers
+            sim_vfs.enable_torn_writes(800, 1, 700); // 80% probability, 70% completion max
+        },
+        .sequential_crashes => {
+            // Simulate multiple sequential crashes during recovery
+            // Tests resilience to compound failure scenarios
+            sim_vfs.enable_io_failures(400, .{ .write = true, .sync = true });
+            // Additional faults will be injected during recovery phase
+        },
+    }
+
+    // Phase 4: Trigger operation that will crash (force compaction)
+    // Add blocks to trigger compaction under fault conditions
+    const trigger_blocks = 50;
+    for (0..trigger_blocks) |i| {
+        const trigger_id = scenario.initial_blocks + @as(u32, @intCast(i));
+        const source_uri = try std.fmt.allocPrint(allocator, "test://trigger{d}", .{trigger_id});
+        defer allocator.free(source_uri);
+
+        const content = try std.fmt.allocPrint(allocator, "Trigger block {d}", .{trigger_id});
+        defer allocator.free(content);
+
+        const trigger_block = ContextBlock{
+            .id = deterministic_block_id(trigger_id),
+            .version = 1,
+            .source_uri = source_uri,
+            .metadata_json = "{\"trigger\":true}",
+            .content = content,
+        };
+
+        // This may fail due to injected faults - that's expected
+        _ = storage_engine.put_block(trigger_block) catch |err| switch (err) {
+            vfs.VFSError.IoError => {}, // Expected under fault injection
+            else => return err,
+        };
+    }
+
+    // Phase 5: Simulate crash by destroying storage engine
+    storage_engine.deinit();
+
+    // Phase 6: Recovery - create new storage engine instance
+    var recovered_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), dir_name);
+    defer recovered_engine.deinit();
+
+    // Inject additional faults for sequential crash scenarios
+    if (scenario.fault_type == .sequential_crashes) {
+        sim_vfs.enable_io_failures(300, .{ .read = true }); // 30% read failure rate
+    }
+
+    const recovery_result = recovered_engine.startup();
+
+    // Phase 7: Validate recovery according to scenario expectations
+    if (scenario.expected_recovery_success) {
+        try recovery_result;
+
+        const recovered_block_count = recovered_engine.block_count();
+        const survival_rate = @as(f32, @floatFromInt(recovered_block_count)) / 
+                             @as(f32, @floatFromInt(initial_block_count));
+
+        // Verify survival rate meets scenario expectations
+        try testing.expect(survival_rate >= scenario.expected_min_survival_rate);
+
+        // Verify engine can accept new operations after recovery
+        const recovery_test_block = ContextBlock{
+            .id = deterministic_block_id(99999),
+            .version = 1,
+            .source_uri = "test://post_recovery",
+            .metadata_json = "{\"post_recovery\":true}",
+            .content = "Block written after crash recovery",
+        };
+
+        try recovered_engine.put_block(recovery_test_block);
+        const retrieved = (try recovered_engine.find_block(recovery_test_block.id)).?;
+        try testing.expect(retrieved.id.eql(recovery_test_block.id));
+    } else {
+        // Some scenarios may expect recovery to fail gracefully
+        try testing.expectError(error.CorruptionDetected, recovery_result);
+    }
 }
