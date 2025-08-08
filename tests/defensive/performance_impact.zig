@@ -121,6 +121,11 @@ fn create_benchmark_block(allocator: std.mem.Allocator, index: u32) !ContextBloc
 }
 
 test "assertion framework performance overhead measurement" {
+    // Skip this test in release modes since assertions are compiled out
+    if (builtin.mode != .Debug) {
+        return;
+    }
+
     // Robust measurement of assertion framework overhead with CI-friendly thresholds
     const allocator = testing.allocator;
     const config = BenchmarkConfig{

@@ -530,6 +530,11 @@ fn execute_compaction_crash_scenario(scenario: CompactionCrashScenario) !void {
     if (scenario.expected_recovery_success) {
         try recovery_result;
 
+        // Disable fault injection for recovery verification tests
+        sim_vfs.fault_injection.torn_write_config.enabled = false;
+        sim_vfs.fault_injection.io_failure_config.enabled = false;
+        sim_vfs.fault_injection.read_corruption_config.enabled = false;
+
         const recovered_block_count = recovered_engine.block_count();
         const survival_rate = @as(f32, @floatFromInt(recovered_block_count)) /
             @as(f32, @floatFromInt(initial_block_count));

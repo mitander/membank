@@ -15,7 +15,7 @@ const MemoryProfiler = kausaldb.profiler.MemoryProfiler;
 const query_current_rss_memory = kausaldb.profiler.query_current_rss_memory;
 
 // Test RSS measurement accuracy
-test "Memory profiler RSS measurement accuracy" {
+test "memory profiler RSS measurement accuracy" {
     var memory_profiler = MemoryProfiler.init();
     memory_profiler.start_profiling();
 
@@ -38,7 +38,7 @@ test "Memory profiler RSS measurement accuracy" {
 }
 
 // Test memory growth detection with controlled allocation
-test "Memory profiler detects allocation patterns" {
+test "memory profiler detects allocation patterns" {
     const allocator = testing.allocator;
 
     var memory_profiler = MemoryProfiler.init();
@@ -69,7 +69,7 @@ test "Memory profiler detects allocation patterns" {
 }
 
 // Test performance overhead of memory profiling
-test "Memory profiler performance overhead" {
+test "memory profiler performance overhead" {
     const NUM_SAMPLES = 10000;
     var memory_profiler = MemoryProfiler.init();
 
@@ -98,7 +98,7 @@ test "Memory profiler performance overhead" {
 }
 
 // Test memory efficiency calculation
-test "Memory profiler efficiency calculation" {
+test "memory profiler efficiency calculation" {
     var memory_profiler = MemoryProfiler.init();
     memory_profiler.initial_rss_bytes = 50 * 1024 * 1024; // 50MB baseline
     memory_profiler.peak_rss_bytes = 60 * 1024 * 1024; // 60MB peak (10MB growth)
@@ -156,7 +156,7 @@ test "memory profiler cross platform RSS query" {
 }
 
 // Test memory profiler stability over multiple cycles
-test "Memory profiler stability over multiple measurement cycles" {
+test "memory profiler stability over multiple measurement cycles" {
     const allocator = testing.allocator;
 
     var memory_profiler = MemoryProfiler.init();
@@ -202,7 +202,7 @@ test "Memory profiler stability over multiple measurement cycles" {
 }
 
 // Test memory profiler with simulated production workload
-test "Memory profiler production workload simulation" {
+test "memory profiler production workload simulation" {
     const allocator = testing.allocator;
 
     var memory_profiler = MemoryProfiler.init();
