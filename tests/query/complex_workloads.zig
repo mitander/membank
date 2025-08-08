@@ -25,92 +25,52 @@ const FindBlocksQuery = query.operations.FindBlocksQuery;
 const TraversalQuery = query.traversal.TraversalQuery;
 const QueryResult = query.operations.QueryResult;
 
-fn create_test_block_id(id: u32) BlockId {
-    var id_bytes: [16]u8 = undefined;
-    // Ensure ID is never zero by adding 1
-    std.mem.writeInt(u128, &id_bytes, id + 1, .little);
-    return BlockId{ .bytes = id_bytes };
-}
-
-fn create_test_block(id: u32, content: []const u8, allocator: std.mem.Allocator) !ContextBlock {
-    return ContextBlock{
-        .id = create_test_block_id(id),
-        .version = 1,
-        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{id}),
-        .metadata_json = try allocator.dupe(u8, "{}"),
-        .content = try allocator.dupe(u8, content),
-    };
-}
-
-fn create_test_edge(from_id: u32, to_id: u32, edge_type: EdgeType) GraphEdge {
-    return GraphEdge{
-        .source_id = create_test_block_id(from_id),
-        .target_id = create_test_block_id(to_id),
-        .edge_type = edge_type,
-    };
-}
+// Use standardized TestData utilities instead of custom helpers
+const TestData = kausaldb.TestData;
 
 test "complex graph traversal scenarios" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "complex_traversal_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    // Use QueryHarness for coordinated setup
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "complex_traversal_test");
+    defer harness.deinit();
 
     // Create a complex graph structure: function -> imports -> dependencies
     // Function block
-    const main_func = try create_test_block(1, "pub fn main() !void { process(); }", allocator);
-    defer allocator.free(main_func.content);
-    defer allocator.free(main_func.source_uri);
-    defer allocator.free(main_func.metadata_json);
-    try storage_engine.put_block(main_func);
+    const main_func = try TestData.create_test_block(allocator, 1);
+    defer TestData.cleanup_test_block(allocator, main_func);
+    try harness.storage_engine().put_block(main_func);
 
     // Process function
-    const process_func = try create_test_block(2, "fn process() void { validate(); render(); }", allocator);
-    defer allocator.free(process_func.content);
-    defer allocator.free(process_func.source_uri);
-    defer allocator.free(process_func.metadata_json);
-    try storage_engine.put_block(process_func);
+    const process_func = try TestData.create_test_block(allocator, 2);
+    defer TestData.cleanup_test_block(allocator, process_func);
+    try harness.storage_engine().put_block(process_func);
 
     // Validation function
-    const validate_func = try create_test_block(3, "fn validate() bool { return true; }", allocator);
-    defer allocator.free(validate_func.content);
-    defer allocator.free(validate_func.source_uri);
-    defer allocator.free(validate_func.metadata_json);
-    try storage_engine.put_block(validate_func);
+    const validate_func = try TestData.create_test_block(allocator, 3);
+    defer TestData.cleanup_test_block(allocator, validate_func);
+    try harness.storage_engine().put_block(validate_func);
 
     // Render function
-    const render_func = try create_test_block(4, "fn render() void { draw(); display(); }", allocator);
-    defer allocator.free(render_func.content);
-    defer allocator.free(render_func.source_uri);
-    defer allocator.free(render_func.metadata_json);
-    try storage_engine.put_block(render_func);
+    const render_func = try TestData.create_test_block(allocator, 4);
+    defer TestData.cleanup_test_block(allocator, render_func);
+    try harness.storage_engine().put_block(render_func);
 
     // Utility functions
-    const draw_func = try create_test_block(5, "fn draw() void { /* drawing logic */ }", allocator);
-    defer allocator.free(draw_func.content);
-    defer allocator.free(draw_func.source_uri);
-    defer allocator.free(draw_func.metadata_json);
-    try storage_engine.put_block(draw_func);
+    const draw_func = try TestData.create_test_block(allocator, 5);
+    defer TestData.cleanup_test_block(allocator, draw_func);
+    try harness.storage_engine().put_block(draw_func);
 
-    const display_func = try create_test_block(6, "fn display() void { /* display logic */ }", allocator);
-    defer allocator.free(display_func.content);
-    defer allocator.free(display_func.source_uri);
-    defer allocator.free(display_func.metadata_json);
-    try storage_engine.put_block(display_func);
+    const display_func = try TestData.create_test_block(allocator, 6);
+    defer TestData.cleanup_test_block(allocator, display_func);
+    try harness.storage_engine().put_block(display_func);
 
-    // Create call graph edges
-    try storage_engine.put_edge(create_test_edge(1, 2, EdgeType.calls)); // main -> process
-    try storage_engine.put_edge(create_test_edge(2, 3, EdgeType.calls)); // process -> validate
-    try storage_engine.put_edge(create_test_edge(2, 4, EdgeType.calls)); // process -> render
-    try storage_engine.put_edge(create_test_edge(4, 5, EdgeType.calls)); // render -> draw
-    try storage_engine.put_edge(create_test_edge(4, 6, EdgeType.calls)); // render -> display
+    // Create call graph edges using standardized test data
+    try harness.storage_engine().put_edge(TestData.create_test_edge(1, 2, EdgeType.calls)); // main -> process
+    try harness.storage_engine().put_edge(TestData.create_test_edge(2, 3, EdgeType.calls)); // process -> validate
+    try harness.storage_engine().put_edge(TestData.create_test_edge(2, 4, EdgeType.calls)); // process -> render
+    try harness.storage_engine().put_edge(TestData.create_test_edge(4, 5, EdgeType.calls)); // render -> draw
+    try harness.storage_engine().put_edge(TestData.create_test_edge(4, 6, EdgeType.calls)); // render -> display
 
     // Test multi-hop traversal
     const traversal_query = TraversalQuery{
@@ -122,7 +82,7 @@ test "complex graph traversal scenarios" {
         .max_results = 100,
     };
 
-    var result = try query_engine.execute_traversal(traversal_query);
+    var result = try harness.query_engine.execute_traversal(traversal_query);
     defer result.deinit();
 
     // Should find all reachable functions within 3 hops

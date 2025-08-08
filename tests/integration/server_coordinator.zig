@@ -21,20 +21,11 @@ const ServerConfig = handler.ServerConfig;
 const ConnectionManager = handler.ConnectionManager;
 
 test "server decomposition maintains coordinator pattern" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
-    // Setup storage and query engines for server
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "decomp_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    // Use QueryHarness for coordinated setup
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "decomp_test");
+    defer harness.deinit();
 
     // Test server initialization follows coordinator pattern
     const config = ServerConfig{
@@ -43,7 +34,7 @@ test "server decomposition maintains coordinator pattern" {
         .connection_timeout_sec = 30,
     };
 
-    var server = Server.init(allocator, config, &storage_engine, &query_engine);
+    var server = Server.init(allocator, config, harness.storage_engine(), &harness.query_engine);
     defer server.deinit();
 
     // Verify server has ConnectionManager
@@ -83,20 +74,11 @@ test "connection manager operates independently" {
 }
 
 test "server coordinator delegates to connection manager" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = testing.allocator;
 
-    // Setup minimal environment
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "delegation_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    // Use QueryHarness for coordinated setup
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "delegation_test");
+    defer harness.deinit();
 
     const config = ServerConfig{
         .port = 0,
@@ -104,7 +86,7 @@ test "server coordinator delegates to connection manager" {
         .connection_timeout_sec = 5,
     };
 
-    var server = Server.init(allocator, config, &storage_engine, &query_engine);
+    var server = Server.init(allocator, config, harness.storage_engine(), &harness.query_engine);
     defer server.deinit();
 
     // Test that server properly initializes manager

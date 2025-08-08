@@ -22,33 +22,19 @@ const StorageEngine = storage.StorageEngine;
 test "wal recovery with empty directory" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    // Use StorageHarness for coordinated setup
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "wal_empty_data");
+    defer harness.deinit();
 
-    var storage_engine = try StorageEngine.init_default(
-        allocator,
-        sim_vfs.vfs(),
-        "wal_empty_data",
-    );
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
-
-    try testing.expectEqual(@as(u32, 0), storage_engine.block_count());
+    try testing.expectEqual(@as(u32, 0), harness.storage_engine.block_count());
 }
 
 test "wal recovery with missing wal directory" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(
-        allocator,
-        sim_vfs.vfs(),
-        "wal_missing_data",
-    );
-    defer storage_engine.deinit();
+    // Use StorageHarness for coordinated setup
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "wal_missing_data");
+    defer harness.deinit();
 
     // Don't call startup() to avoid creating WAL directory
     storage_engine.initialized = true;

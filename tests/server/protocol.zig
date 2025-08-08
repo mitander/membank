@@ -27,17 +27,8 @@ const MessageType = server_handler.MessageType;
 const ClientConnection = server_handler.ClientConnection;
 const ConnectionState = server_handler.ConnectionState;
 
-// Helper to create test storage engine
-fn create_test_storage(allocator: std.mem.Allocator, vfs_interface: vfs.VFS) !StorageEngine {
-    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, "test_server_db");
-    try storage_engine.startup();
-    return storage_engine;
-}
-
-// Helper to create test query engine
-fn create_test_query_engine(allocator: std.mem.Allocator, storage_engine: *StorageEngine) !QueryEngine {
-    return QueryEngine.init(allocator, storage_engine);
-}
+// Use standardized TestData utilities instead of custom helpers
+const TestData = kausaldb.TestData;
 
 test "config default values" {
     const config = ServerConfig{};
@@ -110,21 +101,16 @@ test "message header buffer too small" {
 test "server initialization" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try create_test_storage(allocator, sim_vfs.vfs());
-    defer storage_engine.deinit();
-
-    var test_query_engine = try create_test_query_engine(allocator, &storage_engine);
-    defer test_query_engine.deinit();
+    // Use QueryHarness for coordinated setup
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "test_server_db");
+    defer harness.deinit();
 
     const config = ServerConfig{
         .port = 0, // Let OS choose available port
         .max_connections = 10,
     };
 
-    var server = Server.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = Server.init(allocator, config, harness.storage_engine(), &harness.query_engine);
     defer server.deinit();
 
     // Verify initial state

@@ -29,35 +29,20 @@ fn check_compaction_and_cleanup(manager: *TieredCompactionManager) bool {
     return false;
 }
 
-fn create_test_block(id: u32, size_multiplier: u32, allocator: std.mem.Allocator) !ContextBlock {
-    var id_bytes: [16]u8 = undefined;
-    std.mem.writeInt(u128, &id_bytes, id, .little);
-
-    // Create content with variable size for realistic testing
-    const base_content = "enhanced compaction test content for block";
-    const padding_size = size_multiplier * 100;
-    const content = try allocator.alloc(u8, base_content.len + padding_size);
-    @memcpy(content[0..base_content.len], base_content);
-    @memset(content[base_content.len..], 'x'); // Padding
-
-    return ContextBlock{
-        .id = BlockId{ .bytes = id_bytes },
-        .version = 1,
-        .source_uri = try allocator.dupe(u8, "test://enhanced_compaction"),
-        .metadata_json = try allocator.dupe(u8, "{\"test\": \"enhanced_compaction\"}"),
-        .content = content,
-    };
-}
+// Use standardized TestData utilities instead of custom block creation
+const TestData = kausaldb.TestData;
 
 test "cross level compaction with realistic SSTable sizes" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    // Use StorageHarness for coordinated setup
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "test_cross_level");
+    defer harness.deinit();
 
+    // Access the tiered compaction manager through the storage engine
     var manager = TieredCompactionManager.init(
         allocator,
-        sim_vfs.vfs(),
+        harness.sim_vfs.vfs(),
         "/test_cross_level",
     );
     defer manager.deinit();
