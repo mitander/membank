@@ -10,6 +10,7 @@ const testing = std.testing;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
 const types = kausaldb.types;
+const golden_master = kausaldb.golden_master;
 
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
@@ -103,6 +104,13 @@ test "wal recovery single block recovery" {
     try testing.expectEqualStrings(test_block.source_uri, recovered_block.source_uri);
     try testing.expectEqualStrings(test_block.metadata_json, recovered_block.metadata_json);
     try testing.expectEqualStrings(test_block.content, recovered_block.content);
+
+    // Golden master validation: ensure recovery behavior is deterministic
+    try golden_master.verify_recovery_golden_master(
+        allocator,
+        "wal_single_block_recovery",
+        &storage_engine2
+    );
 }
 
 test "wal recovery multiple blocks and operations" {

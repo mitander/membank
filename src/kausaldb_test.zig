@@ -84,6 +84,9 @@ pub const concurrency = @import("core/concurrency.zig");
 pub const error_context = @import("core/error_context.zig");
 pub const stdx = @import("core/stdx.zig");
 
+// Test utilities and frameworks
+pub const golden_master = @import("test/golden_master.zig");
+
 pub const bloom_filter = @import("storage/bloom_filter.zig");
 pub const sstable = @import("storage/sstable.zig");
 pub const tiered_compaction = @import("storage/tiered_compaction.zig");

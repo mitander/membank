@@ -1,0 +1,13 @@
+{
+  "block_count": 1,
+  "metrics": {
+    "blocks_written": 0,
+    "blocks_read": 1,
+    "blocks_deleted": 0,
+    "wal_writes": 0,
+    "wal_flushes": 0,
+    "wal_recoveries": 0
+  },
+  "blocks": [],
+  "edges": []
+}
