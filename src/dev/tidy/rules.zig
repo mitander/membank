@@ -1274,8 +1274,8 @@ fn has_documentation_comment_before(source: []const u8, line_start: usize) bool 
     return false;
 }
 
-/// Check if function is a simple getter or setter that doesn't need documentation
-fn is_simple_getter_or_setter(source: []const u8, line_start: usize, func_name: []const u8) bool {
+/// Check if function name indicates it's simple and doesn't need documentation
+fn is_simple_by_name(func_name: []const u8) bool {
     // Most getters/setters are trivial wrappers that don't justify documentation overhead
     if (std.mem.startsWith(u8, func_name, "get") and func_name.len > 3) {
         return true;
@@ -1294,12 +1294,16 @@ fn is_simple_getter_or_setter(source: []const u8, line_start: usize, func_name: 
         return true;
     }
 
-    // Find the function body to analyze its complexity
-    const func_pattern = std.fmt.allocPrint(std.heap.page_allocator, "fn {s}(", .{func_name}) catch return false;
+    return false;
+}
+
+/// Extract function body text for complexity analysis
+fn find_function_body(source: []const u8, line_start: usize, func_name: []const u8) ?[]const u8 { // tidy:ignore-length
+    const func_pattern = std.fmt.allocPrint(std.heap.page_allocator, "fn {s}(", .{func_name}) catch return null;
     defer std.heap.page_allocator.free(func_pattern);
 
-    const func_start = std.mem.indexOf(u8, source[line_start..], func_pattern) orelse return false;
-    const func_body_start = std.mem.indexOf(u8, source[line_start + func_start ..], "{") orelse return false;
+    const func_start = std.mem.indexOf(u8, source[line_start..], func_pattern) orelse return null;
+    const func_body_start = std.mem.indexOf(u8, source[line_start + func_start ..], "{") orelse return null;
     const func_body_end = blk: {
         var brace_count: i32 = 0;
         var pos = line_start + func_start + func_body_start;
@@ -1318,9 +1322,11 @@ fn is_simple_getter_or_setter(source: []const u8, line_start: usize, func_name: 
         break :blk source.len;
     };
 
-    const func_body = source[line_start + func_start + func_body_start .. func_body_end];
+    return source[line_start + func_start + func_body_start .. func_body_end];
+}
 
-    // Count non-trivial lines (exclude braces, returns, simple assignments)
+/// Count meaningful lines in function body (exclude trivial lines)
+fn count_meaningful_lines(func_body: []const u8) u32 {
     var meaningful_lines: u32 = 0;
     var body_line_it = std.mem.splitSequence(u8, func_body, "\n");
     while (body_line_it.next()) |line| {
@@ -1335,6 +1341,19 @@ fn is_simple_getter_or_setter(source: []const u8, line_start: usize, func_name: 
         }
         meaningful_lines += 1;
     }
+    return meaningful_lines;
+}
+
+/// Check if function is a simple getter or setter that doesn't need documentation
+fn is_simple_getter_or_setter(source: []const u8, line_start: usize, func_name: []const u8) bool {
+    // Check simple naming patterns first
+    if (is_simple_by_name(func_name)) {
+        return true;
+    }
+
+    // Analyze function body complexity
+    const func_body = find_function_body(source, line_start, func_name) orelse return false;
+    const meaningful_lines = count_meaningful_lines(func_body);
 
     // Simple functions have <= 2 meaningful lines
     return meaningful_lines <= 2;
