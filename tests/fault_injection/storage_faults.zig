@@ -67,23 +67,11 @@ test "fault injection disk full during compaction" {
 
     try storage_engine.startup();
 
-    // Fill up storage with blocks to trigger compaction
+    // Fill up storage with blocks to trigger compaction using standardized test data
     var blocks_written: u32 = 0;
-    for (0..100) |i| {
-        const source_uri = try std.fmt.allocPrint(allocator, "test://block{d}", .{i});
-        defer allocator.free(source_uri);
-        const metadata_json = try std.fmt.allocPrint(allocator, "{{\"index\":\"{d}\"}}", .{i});
-        defer allocator.free(metadata_json);
-        const content = try std.fmt.allocPrint(allocator, "Content for block {d} - large enough to trigger compaction", .{i});
-        defer allocator.free(content);
-
-        const block = ContextBlock{
-            .id = BlockId{ .bytes = [_]u8{@intCast(i)} ** 16 },
-            .version = 1,
-            .source_uri = source_uri,
-            .metadata_json = metadata_json,
-            .content = content,
-        };
+    for (1..101) |i| {
+        const block = try kausaldb.TestData.create_test_block(allocator, @intCast(i));
+        defer kausaldb.TestData.cleanup_test_block(allocator, block);
 
         storage_engine.put_block(block) catch {
             // Any error during storage indicates resource exhaustion
@@ -93,9 +81,8 @@ test "fault injection disk full during compaction" {
 
         // After some blocks, set a disk space limit that will cause compaction to fail
         if (i == 50) {
-            // Calculate current disk usage and set limit slightly above it
-            const current_usage = calculate_disk_usage(&sim_vfs);
-            sim_vfs.configure_disk_space_limit(current_usage + 1024); // Allow only 1KB more
+            // Set disk space limit to trigger fault condition
+            sim_vfs.configure_disk_space_limit(4096); // 4KB limit
         }
     }
 
@@ -111,10 +98,8 @@ test "fault injection read corruption during query" {
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 0xDEADBEEF);
     defer sim_vfs.deinit();
 
-    // Disable read corruption to avoid memory corruption issues in testing
-    // In practice, this would be useful for testing checksum validation
-    // but causes memory alignment issues in the test environment
-    // sim_vfs.enable_read_corruption(5, 1); // Very low probability
+    // Note: Read corruption disabled to avoid memory alignment issues in test environment
+    // In production testing, this would validate checksum mechanisms
 
     const vfs_interface = sim_vfs.vfs();
 
@@ -123,24 +108,18 @@ test "fault injection read corruption during query" {
 
     try storage_engine.startup();
 
-    // Create and store a test block
-    const test_id = try BlockId.from_hex("1234567890abcdef1234567890abcdef");
-    const original_block = ContextBlock{
-        .id = test_id,
-        .version = 1,
-        .source_uri = "test://corruption_test",
-        .metadata_json = "{\"corruption_test\":true}",
-        .content = "Test content for corruption test",
-    };
+    // Create and store a test block using standardized test data
+    const test_block = try kausaldb.TestData.create_test_block(allocator, 1);
+    defer kausaldb.TestData.cleanup_test_block(allocator, test_block);
 
-    try storage_engine.put_block(original_block);
+    try storage_engine.put_block(test_block);
 
     // Force flush to SSTable to ensure data goes to disk
     try storage_engine.flush_memtable_to_sstable();
 
     // Verify normal read operations work
-    if (try storage_engine.find_block(test_id)) |found_block| {
-        try testing.expect(std.mem.eql(u8, found_block.content, original_block.content));
+    if (try storage_engine.find_block(test_block.id)) |found_block| {
+        try testing.expect(std.mem.eql(u8, found_block.content, test_block.content));
     } else {
         // Block not found - this is an error in normal operation
         try testing.expect(false);
