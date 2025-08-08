@@ -19,6 +19,7 @@ const ContextBlock = kausaldb.types.ContextBlock;
 const BlockId = kausaldb.types.BlockId;
 const GraphEdge = kausaldb.types.GraphEdge;
 const EdgeType = kausaldb.types.EdgeType;
+const TestData = kausaldb.TestData;
 
 const log = std.log.scoped(.memory_fault_injection);
 
@@ -104,19 +105,18 @@ test "allocation failure during memtable operations" {
         // Try to add blocks until allocation fails
         var block_count: u32 = 0;
         while (block_count < 200) : (block_count += 1) {
-            // Allocate strings separately to ensure proper cleanup on failure
-            const source_uri = std.fmt.allocPrint(failing_allocator, "test://fault/{}", .{block_count}) catch break;
-            defer failing_allocator.free(source_uri);
-
             const content = std.fmt.allocPrint(failing_allocator, "Fault injection test block {}", .{block_count}) catch break;
             defer failing_allocator.free(content);
 
+            // Use deterministic ID for fault injection testing
+            const block_id = std.crypto.random.int(u32);
+            const owned_content = try failing_allocator.dupe(u8, content);
             const block = ContextBlock{
-                .id = BlockId.from_bytes([_]u8{@intCast(std.crypto.random.int(u8))} ** 16),
+                .id = TestData.deterministic_block_id(block_id),
                 .version = 1,
-                .source_uri = source_uri,
-                .metadata_json = "{}",
-                .content = content,
+                .source_uri = "test://memory_fault_injection.zig",
+                .metadata_json = "{\"test\":\"memory_fault_injection\"}",
+                .content = owned_content,
             };
 
             memtable.put_block(block) catch |err| {
@@ -164,15 +164,11 @@ test "I/O errors during memory operations" {
     };
 
     // If startup succeeded, test operations under I/O stress
-    var test_id_bytes: [16]u8 = undefined;
-    std.crypto.random.bytes(&test_id_bytes);
-    if (test_id_bytes[0] == 0) test_id_bytes[0] = 1; // Ensure non-zero
-
     const test_block = ContextBlock{
-        .id = BlockId.from_bytes(test_id_bytes),
+        .id = TestData.deterministic_block_id(0x12345678),
         .version = 1,
-        .source_uri = "test://io_fault",
-        .metadata_json = "{}",
+        .source_uri = "test://io_fault_injection.zig",
+        .metadata_json = "{\"test\":\"io_fault_injection\"}",
         .content = "I/O fault injection test content",
     };
 
@@ -207,15 +203,16 @@ test "arena corruption detection" {
     // Add some normal data first
     var i: u32 = 0;
     while (i < 100) : (i += 1) {
+        const content = try std.fmt.allocPrint(allocator, "Corruption test block {}", .{i});
+        defer allocator.free(content);
+        const owned_content = try allocator.dupe(u8, content);
         const block = ContextBlock{
-            .id = BlockId.from_bytes([_]u8{@intCast(std.crypto.random.int(u8))} ** 16),
+            .id = TestData.deterministic_block_id(i),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://corrupt/{}", .{i}),
-            .metadata_json = "{}",
-            .content = try std.fmt.allocPrint(allocator, "Corruption test block {}", .{i}),
+            .source_uri = "test://arena_expansion_failure.zig",
+            .metadata_json = "{\"test\":\"arena_expansion_failure\"}",
+            .content = owned_content,
         };
-        defer allocator.free(block.source_uri);
-        defer allocator.free(block.content);
 
         try memtable.put_block(block);
     }
@@ -229,14 +226,12 @@ test "arena corruption detection" {
 
     // Add data again to test arena reuse after reset
     const reuse_block = ContextBlock{
-        .id = BlockId.from_bytes([_]u8{@intCast(std.crypto.random.int(u8))} ** 16),
+        .id = TestData.deterministic_block_id(0x99999999),
         .version = 1,
-        .source_uri = try allocator.dupe(u8, "test://reuse"),
-        .metadata_json = "{}",
-        .content = try allocator.dupe(u8, "Arena reuse test"),
+        .source_uri = "test://arena_reuse.zig",
+        .metadata_json = "{\"test\":\"arena_reuse\"}",
+        .content = "Arena reuse test",
     };
-    defer allocator.free(reuse_block.source_uri);
-    defer allocator.free(reuse_block.content);
 
     try memtable.put_block(reuse_block);
     try testing.expect(memtable.memory_usage() > 0); // Should have some memory usage
@@ -297,16 +292,17 @@ test "error path cleanup validation" {
         const content = try std.fmt.allocPrint(allocator, "Error path test scenario {}", .{scenario_idx});
         defer allocator.free(content);
 
-        const test_block = ContextBlock{
-            .id = BlockId.from_bytes([_]u8{@intCast(std.crypto.random.int(u8))} ** 16),
+        const owned_content = try allocator.dupe(u8, content);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(scenario_idx)),
             .version = 1,
-            .source_uri = source_uri,
-            .metadata_json = "{}",
-            .content = content,
+            .source_uri = "test://memory_pressure_simulation.zig",
+            .metadata_json = "{\"test\":\"memory_pressure_simulation\"}",
+            .content = owned_content,
         };
 
         // Operation should fail gracefully
-        storage.put_block(test_block) catch |err| {
+        storage.put_block(block) catch |err| {
             try testing.expect(err == error.AccessDenied or err == error.CorruptedData or err == error.IoError);
         };
 
@@ -362,12 +358,17 @@ test "sustained operations under memory pressure" {
             };
             defer allocator.free(content);
 
+            const block_id = std.crypto.random.int(u32);
+            const owned_content = allocator.dupe(u8, content) catch {
+                cycle_successful = false;
+                break;
+            };
             const block = ContextBlock{
-                .id = BlockId.from_bytes([_]u8{@intCast(std.crypto.random.int(u8))} ** 16),
+                .id = TestData.deterministic_block_id(block_id),
                 .version = 1,
-                .source_uri = source_uri,
-                .metadata_json = "{}",
-                .content = content,
+                .source_uri = "test://sustained_memory_pressure.zig",
+                .metadata_json = "{\"test\":\"sustained_memory_pressure\"}",
+                .content = owned_content,
             };
 
             memtable.put_block(block) catch {
@@ -424,16 +425,18 @@ test "graph edge operations under stress" {
         block_ids[i] = BlockId.from_bytes(id_bytes);
     }
 
-    for (block_ids, 0..) |id, idx| {
+    for (block_ids, 0..) |_, idx| {
+        const content = try std.fmt.allocPrint(allocator, "Graph stress test block {}", .{idx});
+        defer allocator.free(content);
+
+        const owned_content = try allocator.dupe(u8, content);
         const block = ContextBlock{
-            .id = id,
+            .id = TestData.deterministic_block_id(@intCast(idx)),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://graph/{}", .{idx}),
-            .metadata_json = "{}",
-            .content = try std.fmt.allocPrint(allocator, "Graph stress test block {}", .{idx}),
+            .source_uri = "test://stress_test_memory_corruption.zig",
+            .metadata_json = "{\"test\":\"stress_test_memory_corruption\"}",
+            .content = owned_content,
         };
-        defer allocator.free(block.source_uri);
-        defer allocator.free(block.content);
 
         try storage.put_block(block);
     }

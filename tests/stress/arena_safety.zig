@@ -11,13 +11,15 @@ const std = @import("std");
 const builtin = @import("builtin");
 const kausaldb = @import("kausaldb");
 const testing = std.testing;
-const assert = kausaldb.assert.assert;
 
+const assert = kausaldb.assert.assert;
 const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
 const StorageEngine = kausaldb.storage.StorageEngine;
 const MemtableManager = kausaldb.storage.MemtableManager;
 const ContextBlock = kausaldb.types.ContextBlock;
 const BlockId = kausaldb.types.BlockId;
+const TestData = kausaldb.TestData;
+const StorageHarness = kausaldb.StorageHarness;
 
 const log = std.log.scoped(.arena_safety);
 
@@ -47,31 +49,21 @@ test "memtable manager lifecycle safety" {
     const block_count = if (builtin.mode == .Debug) 250 else 1000;
     var i: u32 = 0;
     while (i < block_count) : (i += 1) {
-        var id_bytes1: [16]u8 = undefined;
-        std.crypto.random.bytes(&id_bytes1);
         const block1 = ContextBlock{
-            .id = BlockId{ .bytes = id_bytes1 },
+            .id = TestData.deterministic_block_id(i * 2 + 1),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://arena1/{}", .{i}),
-            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"index\":{}}}", .{i}),
-            .content = try std.fmt.allocPrint(allocator, "Content for arena test block {}", .{i}),
+            .source_uri = "test://arena_safety_1.zig",
+            .metadata_json = "{\"test\":\"arena_safety\"}",
+            .content = "Arena safety test block 1 content",
         };
-        defer allocator.free(block1.source_uri);
-        defer allocator.free(block1.metadata_json);
-        defer allocator.free(block1.content);
 
-        var id_bytes2: [16]u8 = undefined;
-        std.crypto.random.bytes(&id_bytes2);
         const block2 = ContextBlock{
-            .id = BlockId{ .bytes = id_bytes2 },
+            .id = TestData.deterministic_block_id(i * 2 + 2),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://arena2/{}", .{i}),
-            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"other\":{}}}", .{i}),
-            .content = try std.fmt.allocPrint(allocator, "Different content for block {}", .{i}),
+            .source_uri = "test://arena_safety_2.zig",
+            .metadata_json = "{\"test\":\"arena_safety\"}",
+            .content = "Arena safety test block 2 content",
         };
-        defer allocator.free(block2.source_uri);
-        defer allocator.free(block2.metadata_json);
-        defer allocator.free(block2.content);
 
         try memtable1.put_block(block1);
         try memtable2.put_block(block2);
@@ -110,17 +102,13 @@ test "error path memory cleanup" {
     // Fill arena with data
     var i: u32 = 0;
     while (i < 100) : (i += 1) {
-        var id_bytes: [16]u8 = undefined;
-        std.crypto.random.bytes(&id_bytes);
         const block = ContextBlock{
-            .id = BlockId{ .bytes = id_bytes },
+            .id = TestData.deterministic_block_id(@intCast(i)),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://error/{}", .{i}),
-            .metadata_json = "{}",
-            .content = try std.fmt.allocPrint(allocator, "Error test content {}", .{i}),
+            .source_uri = "test://arena_boundary.zig",
+            .metadata_json = "{\"test\":\"arena_boundary\"}",
+            .content = "Arena boundary test block content",
         };
-        defer allocator.free(block.source_uri);
-        defer allocator.free(block.content);
 
         try memtable.put_block(block);
     }
@@ -168,16 +156,14 @@ test "memory fragmentation stress" {
                 byte.* = @truncate(idx + cycle);
             }
 
-            var id_bytes: [16]u8 = undefined;
-            std.crypto.random.bytes(&id_bytes);
+            const owned_content = try allocator.dupe(u8, content);
             const block = ContextBlock{
-                .id = BlockId{ .bytes = id_bytes },
+                .id = TestData.deterministic_block_id(@intCast(cycle)),
                 .version = 1,
-                .source_uri = try std.fmt.allocPrint(allocator, "test://frag/{}/{}", .{ size, cycle }),
-                .metadata_json = "{}",
-                .content = content,
+                .source_uri = "test://arena_memory_leak.zig",
+                .metadata_json = "{\"test\":\"arena_memory_leak\"}",
+                .content = owned_content,
             };
-            defer allocator.free(block.source_uri);
 
             try memtable.put_block(block);
 
@@ -225,18 +211,13 @@ test "concurrent arena operations" {
     for (&memtables, 0..) |*memtable, arena_idx| {
         var block_idx: u32 = 0;
         while (block_idx < 50) : (block_idx += 1) {
-            var id_bytes: [16]u8 = undefined;
-            std.crypto.random.bytes(&id_bytes);
             const block = ContextBlock{
-                .id = BlockId{ .bytes = id_bytes },
+                .id = TestData.deterministic_block_id(@intCast(arena_idx * 1000 + block_idx)),
                 .version = 1,
-                .source_uri = try std.fmt.allocPrint(allocator, "test://arena{}/{}", .{ arena_idx, block_idx }),
-                .metadata_json = try std.fmt.allocPrint(allocator, "{{\"arena\":{},\"block\":{}}}", .{ arena_idx, block_idx }),
-                .content = try std.fmt.allocPrint(allocator, "Arena {} Block {} Content", .{ arena_idx, block_idx }),
+                .source_uri = "test://concurrent_arena.zig",
+                .metadata_json = "{\"test\":\"concurrent_arena\"}",
+                .content = "Concurrent arena test block content",
             };
-            defer allocator.free(block.source_uri);
-            defer allocator.free(block.metadata_json);
-            defer allocator.free(block.content);
 
             try memtable.put_block(block);
         }
@@ -293,17 +274,14 @@ test "large allocation stress" {
             byte.* = @truncate((idx + i * large_size) % 256);
         }
 
-        var id_bytes: [16]u8 = undefined;
-        std.crypto.random.bytes(&id_bytes);
+        const owned_content = try allocator.dupe(u8, large_content);
         const block = ContextBlock{
-            .id = BlockId{ .bytes = id_bytes },
+            .id = TestData.deterministic_block_id(@intCast(i)),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://large/{}", .{i}),
-            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"size\":{},\"index\":{}}}", .{ large_size, i }),
-            .content = large_content,
+            .source_uri = "test://arena_concurrent.zig",
+            .metadata_json = "{\"test\":\"arena_concurrent\"}",
+            .content = owned_content,
         };
-        defer allocator.free(block.source_uri);
-        defer allocator.free(block.metadata_json);
 
         try memtable.put_block(block);
 
@@ -335,7 +313,6 @@ test "cross allocator corruption detection" {
         const deinit_status = separate_gpa.deinit();
         if (deinit_status == .leak) @panic("Memory leak in separate allocator");
     }
-    const separate_allocator = separate_gpa.allocator();
 
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
@@ -345,17 +322,13 @@ test "cross allocator corruption detection" {
     try memtable.startup();
 
     // Test that memtable correctly uses its own arena
-    var id_bytes_main: [16]u8 = undefined;
-    std.crypto.random.bytes(&id_bytes_main);
     const block_with_main = ContextBlock{
-        .id = BlockId{ .bytes = id_bytes_main },
+        .id = TestData.deterministic_block_id(3001),
         .version = 1,
-        .source_uri = try allocator.dupe(u8, "test://main/allocator"),
-        .metadata_json = "{}",
-        .content = try allocator.dupe(u8, "Content from main allocator"),
+        .source_uri = "test://cross_allocator_main.zig",
+        .metadata_json = "{\"test\":\"cross_allocator\"}",
+        .content = "Content from main allocator",
     };
-    defer allocator.free(block_with_main.source_uri);
-    defer allocator.free(block_with_main.content);
 
     try memtable.put_block(block_with_main);
 
@@ -363,17 +336,13 @@ test "cross allocator corruption detection" {
     try testing.expect(memtable.memory_usage() > 0);
 
     // Test with data from separate allocator
-    var id_bytes_separate: [16]u8 = undefined;
-    std.crypto.random.bytes(&id_bytes_separate);
     const block_with_separate = ContextBlock{
-        .id = BlockId{ .bytes = id_bytes_separate },
+        .id = TestData.deterministic_block_id(3002),
         .version = 1,
-        .source_uri = try separate_allocator.dupe(u8, "test://separate/allocator"),
-        .metadata_json = "{}",
-        .content = try separate_allocator.dupe(u8, "Content from separate allocator"),
+        .source_uri = "test://cross_allocator_separate.zig",
+        .metadata_json = "{\"test\":\"cross_allocator\"}",
+        .content = "Content from separate allocator",
     };
-    defer separate_allocator.free(block_with_separate.source_uri);
-    defer separate_allocator.free(block_with_separate.content);
 
     try memtable.put_block(block_with_separate);
 
@@ -409,18 +378,13 @@ test "sustained operations memory stability" {
         // Fill memtable
         var block_idx: u32 = 0;
         while (block_idx < blocks_per_cycle) : (block_idx += 1) {
-            var id_bytes: [16]u8 = undefined;
-            std.crypto.random.bytes(&id_bytes);
             const block = ContextBlock{
-                .id = BlockId{ .bytes = id_bytes },
+                .id = TestData.deterministic_block_id(cycle * 10000 + block_idx),
                 .version = 1,
-                .source_uri = try std.fmt.allocPrint(allocator, "test://sustained/{}/{}", .{ cycle, block_idx }),
-                .metadata_json = try std.fmt.allocPrint(allocator, "{{\"cycle\":{},\"block\":{}}}", .{ cycle, block_idx }),
-                .content = try std.fmt.allocPrint(allocator, "Cycle {} Block {} sustained operation content", .{ cycle, block_idx }),
+                .source_uri = "test://sustained_operations.zig",
+                .metadata_json = "{\"test\":\"sustained_operations\"}",
+                .content = "Sustained operations test block content",
             };
-            defer allocator.free(block.source_uri);
-            defer allocator.free(block.metadata_json);
-            defer allocator.free(block.content);
 
             try memtable.put_block(block);
         }

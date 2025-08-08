@@ -3,33 +3,35 @@
 //! Tests individual MemtableManager functionality in isolation.
 //! Focus: basic operations, memory management, block lifecycle.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
+const kausaldb = @import("kausaldb");
 
-const simulation_vfs = kausaldb.simulation_vfs;
-const storage = kausaldb.storage;
-const types = kausaldb.types;
-
-const ContextBlock = types.ContextBlock;
-const BlockId = types.BlockId;
-const MemtableManager = storage.MemtableManager;
-const SimulationVFS = simulation_vfs.SimulationVFS;
+const ContextBlock = kausaldb.types.ContextBlock;
+const BlockId = kausaldb.types.BlockId;
+const MemtableManager = kausaldb.storage.MemtableManager;
+const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
 const TestData = kausaldb.TestData;
+const StorageHarness = kausaldb.StorageHarness;
 
 test "put block basic" {
     const allocator = testing.allocator;
 
     // Use StorageHarness for simplified setup while testing MemtableManager specifically
-    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "memtable_basic");
+    var harness = try StorageHarness.init_and_startup(allocator, "memtable_basic");
     defer harness.deinit();
 
     // Access the underlying memtable manager for direct testing
     const manager = &harness.storage_engine.memtable_manager;
 
     // Use standardized test data for consistent block creation
-    const test_block = try TestData.create_test_block(allocator, 1);
-    defer TestData.cleanup_test_block(allocator, test_block);
+    const test_block = ContextBlock{
+        .id = TestData.deterministic_block_id(1),
+        .version = 1,
+        .source_uri = "test://memtable_simple.zig",
+        .metadata_json = "{\"test\":\"memtable_simple\"}",
+        .content = "Memtable simple operations test block content",
+    };
 
     // Test specific memtable operation
     try manager.put_block(test_block);
@@ -63,40 +65,27 @@ test "put block overwrite" {
 
     const manager = &harness.storage_engine.memtable_manager;
 
-    // Create blocks with same ID but different versions using TestData base
-    const base_block = try TestData.create_test_block(allocator, 1);
-    defer TestData.cleanup_test_block(allocator, base_block);
-
-    const block_id = base_block.id;
-
-    // Put first version
+    // Create blocks with same ID but different versions using TestData
     const block_v1 = ContextBlock{
-        .id = block_id,
+        .id = TestData.deterministic_block_id(1),
         .version = 1,
-        .source_uri = try allocator.dupe(u8, "test://version1.zig"),
-        .metadata_json = try allocator.dupe(u8, "{}"),
-        .content = try allocator.dupe(u8, "version 1 content"),
+        .source_uri = "test://memtable_overwrite_v1.zig",
+        .metadata_json = "{\"test\":\"memtable_overwrite\",\"version\":1}",
+        .content = "version 1 content",
     };
-    defer {
-        allocator.free(block_v1.source_uri);
-        allocator.free(block_v1.metadata_json);
-        allocator.free(block_v1.content);
-    }
+    const block_id = block_v1.id;
+
     try manager.put_block(block_v1);
 
     // Put second version (overwrite)
     const block_v2 = ContextBlock{
-        .id = block_id,
+        .id = TestData.deterministic_block_id(1),
         .version = 2,
-        .source_uri = try allocator.dupe(u8, "test://version2.zig"),
-        .metadata_json = try allocator.dupe(u8, "{}"),
-        .content = try allocator.dupe(u8, "version 2 content"),
+        .source_uri = "test://memtable_overwrite_v2.zig",
+        .metadata_json = "{\"test\":\"memtable_overwrite\",\"version\":2}",
+        .content = "version 2 content",
     };
-    defer {
-        allocator.free(block_v2.source_uri);
-        allocator.free(block_v2.metadata_json);
-        allocator.free(block_v2.content);
-    }
+
     try manager.put_block(block_v2);
 
     // Verify latest version is retrieved

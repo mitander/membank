@@ -19,6 +19,9 @@ const EdgeType = types.EdgeType;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = storage.StorageEngine;
 
+const TestData = kausaldb.TestData;
+const StorageHarness = kausaldb.StorageHarness;
+
 test "wal recovery with empty directory" {
     const allocator = testing.allocator;
 
@@ -37,9 +40,9 @@ test "wal recovery with missing wal directory" {
     defer harness.deinit();
 
     // Don't call startup() to avoid creating WAL directory
-    storage_engine.initialized = true;
+    harness.storage_engine.initialized = true;
 
-    try testing.expectEqual(@as(u32, 0), storage_engine.block_count());
+    try testing.expectEqual(@as(u32, 0), harness.storage_engine.block_count());
 }
 
 test "wal recovery single block recovery" {
@@ -59,10 +62,10 @@ test "wal recovery single block recovery" {
     try storage_engine1.startup();
 
     const test_block = ContextBlock{
-        .id = try BlockId.from_hex("0123456789abcdeffedcba9876543210"),
+        .id = TestData.deterministic_block_id(0x01234567),
         .version = 1,
-        .source_uri = "test://single_block.zig",
-        .metadata_json = "{\"type\":\"function\",\"language\":\"zig\"}",
+        .source_uri = "test://wal_recovery.zig",
+        .metadata_json = "{\"test\":\"wal_recovery\"}",
         .content = "pub fn recovery_test() void { return; }",
     };
 
@@ -112,18 +115,18 @@ test "wal recovery multiple blocks and operations" {
     try storage_engine1.startup();
 
     const block1 = ContextBlock{
-        .id = try BlockId.from_hex("11111111111111111111111111111111"),
+        .id = TestData.deterministic_block_id(0x11111111),
         .version = 1,
-        .source_uri = "test://block1.zig",
-        .metadata_json = "{\"type\":\"struct\"}",
+        .source_uri = "test://wal_multiple_data.zig",
+        .metadata_json = "{\"test\":\"wal_multiple_data\"}",
         .content = "const Block1 = struct {};",
     };
 
     const block2 = ContextBlock{
-        .id = try BlockId.from_hex("22222222222222222222222222222222"),
-        .version = 2,
-        .source_uri = "test://block2.zig",
-        .metadata_json = "{\"type\":\"function\"}",
+        .id = TestData.deterministic_block_id(0x22222222),
+        .version = 1,
+        .source_uri = "test://wal_multiple_data_block2.zig",
+        .metadata_json = "{\"test\":\"wal_multiple_data\"}",
         .content = "pub fn block2_function() void {}",
     };
 
@@ -180,10 +183,10 @@ test "wal recovery corruption with invalid checksum" {
     try storage_engine1.startup();
 
     const good_block = ContextBlock{
-        .id = try BlockId.from_hex("1234567890abcdef1234567890abcdef"),
+        .id = TestData.deterministic_block_id(0x12345678),
         .version = 1,
-        .source_uri = "test://good.zig",
-        .metadata_json = "{\"status\":\"good\"}",
+        .source_uri = "test://wal_corruption_recovery.zig",
+        .metadata_json = "{\"test\":\"wal_corruption_recovery\"}",
         .content = "good content",
     };
 
@@ -233,12 +236,13 @@ test "wal recovery with large blocks" {
     defer allocator.free(large_content);
     @memset(large_content, 'x');
 
+    const owned_content = try allocator.dupe(u8, large_content);
     const large_block = ContextBlock{
-        .id = try BlockId.from_hex("abcdef0123456789abcdef0123456789"),
+        .id = TestData.deterministic_block_id(0xabcdef01),
         .version = 1,
-        .source_uri = "test://large.zig",
-        .metadata_json = "{\"size\":\"large\"}",
-        .content = large_content,
+        .source_uri = "test://wal_large_blocks.zig",
+        .metadata_json = "{\"test\":\"wal_large_blocks\"}",
+        .content = owned_content,
     };
 
     // Write large block
@@ -303,23 +307,32 @@ test "wal recovery stress with many entries" {
 
     // Create and store many blocks
     for (1..num_blocks + 1) |i| {
-        const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
-        defer allocator.free(block_id_hex);
-
-        const source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{i});
-        const metadata_json = try std.fmt.allocPrint(allocator, "{{\"index\":{}}}", .{i});
         const content = try std.fmt.allocPrint(allocator, "Block {} content", .{i});
+        defer allocator.free(content);
 
+        const owned_content = try allocator.dupe(u8, content);
         const block = ContextBlock{
-            .id = try BlockId.from_hex(block_id_hex),
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = "test://wal_multiple_segments.zig",
+            .metadata_json = "{\"test\":\"wal_multiple_segments\"}",
+            .content = owned_content,
+        };
+        const source_uri = try allocator.dupe(u8, block.source_uri);
+        const metadata_json = try allocator.dupe(u8, block.metadata_json);
+        const content_copy = try allocator.dupe(u8, block.content);
+
+        // Create block copy for expected_blocks list with proper memory management
+        const block_copy = ContextBlock{
+            .id = block.id,
             .version = @intCast(i + 1),
             .source_uri = source_uri,
             .metadata_json = metadata_json,
-            .content = content,
+            .content = content_copy,
         };
 
         try storage_engine1.put_block(block);
-        try expected_blocks.append(block); // tidy:ignore-perf - capacity pre-allocated line 304
+        try expected_blocks.append(block_copy); // tidy:ignore-perf - capacity pre-allocated line 304
     }
 
     // Recover all blocks

@@ -19,10 +19,12 @@ const EdgeType = kausaldb.EdgeType;
 const TraversalQuery = kausaldb.query.traversal.TraversalQuery;
 const TraversalAlgorithm = kausaldb.query.traversal.TraversalAlgorithm;
 const TraversalDirection = kausaldb.query.traversal.TraversalDirection;
+const execute_traversal = kausaldb.query.traversal.execute_traversal;
 
-// Import new testing infrastructure
 const QueryHarness = kausaldb.QueryHarness;
 const TestData = kausaldb.TestData;
+const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
+const StorageEngine = kausaldb.StorageEngine;
 
 test "A* search integration with storage engine" {
     const allocator = testing.allocator;
@@ -45,8 +47,13 @@ test "A* search integration with storage engine" {
 
     // Add all blocks to storage using standardized test data
     for (blocks) |block_info| {
-        const block = try TestData.create_test_block(allocator, block_info.id);
-        defer TestData.cleanup_test_block(allocator, block);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(block_info.id),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://traversal_block_{}.zig", .{block_info.id}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"id\":{},\"content\":\"{s}\"}}", .{ block_info.id, block_info.content }),
+            .content = block_info.content,
+        };
         try harness.storage_engine().put_block(block);
     }
 
@@ -62,7 +69,7 @@ test "A* search integration with storage engine" {
     };
 
     for (edges) |edge_info| {
-        const edge = TestData.create_test_edge(edge_info.from, edge_info.to, edge_info.edge_type);
+        const edge = TestData.create_test_edge_from_indices(edge_info.from, edge_info.to, edge_info.edge_type);
         try harness.storage_engine().put_edge(edge);
     }
 
@@ -103,7 +110,6 @@ test "A* search integration with storage engine" {
 test "bidirectional search integration and performance" {
     const allocator = testing.allocator;
 
-    // Use QueryHarness for bidirectional search testing
     var harness = try QueryHarness.init_and_startup(allocator, "test_bidirectional_integration");
     defer harness.deinit();
 
@@ -111,8 +117,13 @@ test "bidirectional search integration and performance" {
     const block_count: u32 = 20;
     var i: u32 = 1;
     while (i <= block_count) : (i += 1) {
-        const block = try TestData.create_test_block(allocator, i);
-        defer TestData.cleanup_test_block(allocator, block);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(i),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://large_graph_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"large_graph_test\":{}}}", .{i}),
+            .content = try std.fmt.allocPrint(allocator, "Large graph test block {}", .{i}),
+        };
         try harness.storage_engine().put_block(block);
     }
 
@@ -120,17 +131,16 @@ test "bidirectional search integration and performance" {
     i = 1;
     while (i < block_count) : (i += 1) {
         // Create forward edges
-        const edge_forward = TestData.create_test_edge(i, i + 1, .calls);
+        const edge_forward = TestData.create_test_edge_from_indices(i, i + 1, .calls);
         try harness.storage_engine().put_edge(edge_forward);
 
         // Create some backward references
         if (i % 3 == 0 and i > 3) {
-            const edge_back = TestData.create_test_edge(i, i - 3, .references);
+            const edge_back = TestData.create_test_edge_from_indices(i, i - 3, .references);
             try harness.storage_engine().put_edge(edge_back);
         }
     }
 
-    // Test bidirectional search using standardized ID generation
     const start_id = TestData.deterministic_block_id(1);
 
     const bidirectional_query = TraversalQuery{
@@ -172,8 +182,13 @@ test "algorithm comparison BFS vs DFS vs A* vs Bidirectional" {
     const graph_size = 15;
     var i: u32 = 1;
     while (i <= graph_size) : (i += 1) {
-        const block = try TestData.create_test_block(allocator, i);
-        defer TestData.cleanup_test_block(allocator, block);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(i),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://performance_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"performance_test\":{}}}", .{i}),
+            .content = try std.fmt.allocPrint(allocator, "Performance test block {}", .{i}),
+        };
         try harness.storage_engine().put_block(block);
     }
 
@@ -182,19 +197,15 @@ test "algorithm comparison BFS vs DFS vs A* vs Bidirectional" {
     while (i <= graph_size / 2) : (i += 1) {
         // Left child
         if (i * 2 <= graph_size) {
-            const edge_left = TestData.create_test_edge(i, i * 2, .calls);
+            const edge_left = TestData.create_test_edge_from_indices(i, i * 2, .calls);
             try harness.storage_engine().put_edge(edge_left);
         }
         // Right child
         if (i * 2 + 1 <= graph_size) {
-            const edge_right = TestData.create_test_edge(i, i * 2 + 1, .calls);
+            const edge_right = TestData.create_test_edge_from_indices(i, i * 2 + 1, .calls);
             try harness.storage_engine().put_edge(edge_right);
         }
     }
-
-    var start_bytes: [16]u8 = std.mem.zeroes([16]u8);
-    std.mem.writeInt(u32, start_bytes[12..16], 1, .little);
-    const start_id = BlockId{ .bytes = start_bytes };
 
     const start_id = TestData.deterministic_block_id(1);
 
@@ -250,21 +261,19 @@ test "large graph traversal with new algorithms" {
         // Connect to next few nodes
         var j: u32 = 1;
         while (j <= 3 and i + j <= large_graph_size) : (j += 1) {
-            const edge = TestData.create_test_edge(i, i + j, .calls);
+            const edge = TestData.create_test_edge_from_indices(i, i + j, .calls);
             try harness.storage_engine().put_edge(edge);
         }
 
         // Connect to some previous nodes for richness
         if (i > 10 and i % 5 == 0) {
-            const edge_back = TestData.create_test_edge(i, i - 5, .references);
+            const edge_back = TestData.create_test_edge_from_indices(i, i - 5, .references);
             try harness.storage_engine().put_edge(edge_back);
         }
     }
 
     var start_bytes: [16]u8 = std.mem.zeroes([16]u8);
     std.mem.writeInt(u32, start_bytes[12..16], 1, .little);
-    const start_id = BlockId{ .bytes = start_bytes };
-
     const start_id = TestData.deterministic_block_id(1);
 
     // Test A* on large graph
@@ -312,7 +321,7 @@ test "edge type filtering integration" {
         const content = try std.fmt.allocPrint(allocator, "Block {} for edge filtering test", .{i});
         defer allocator.free(content);
 
-        const block = try create_test_block(i, content, allocator);
+        const block = try TestData.create_test_block_with_content(allocator, @intCast(i), content);
         defer allocator.free(block.source_uri);
         defer allocator.free(block.metadata_json);
         defer allocator.free(block.content);
@@ -329,7 +338,7 @@ test "edge type filtering integration" {
     };
 
     for (mixed_edges) |edge_info| {
-        const edge = try create_test_edge(edge_info.from, edge_info.to, edge_info.edge_type, allocator);
+        const edge = TestData.create_test_edge_from_indices(edge_info.from, edge_info.to, edge_info.edge_type);
         try storage_engine.put_edge(edge);
     }
 
@@ -347,7 +356,7 @@ test "edge type filtering integration" {
         .edge_filter = .{ .only_type = .calls },
     };
 
-    const calls_result = try query.traversal.execute_traversal(allocator, &storage_engine, calls_query);
+    const calls_result = try execute_traversal(allocator, &storage_engine, calls_query);
     defer calls_result.deinit();
 
     // Should find blocks 1, 2, 4 (connected by calls edges)
@@ -363,7 +372,7 @@ test "edge type filtering integration" {
         .edge_filter = .{ .only_type = .imports },
     };
 
-    const imports_result = try query.traversal.execute_traversal(allocator, &storage_engine, imports_query);
+    const imports_result = try execute_traversal(allocator, &storage_engine, imports_query);
     defer imports_result.deinit();
 
     // Should find blocks 1, 3, 6 (connected by imports edges)
@@ -389,7 +398,7 @@ test "memory safety under stress with new algorithms" {
         const content = try std.fmt.allocPrint(allocator, "Stress test block {} with variable content length", .{i});
         defer allocator.free(content);
 
-        const block = try create_test_block(i, content, allocator);
+        const block = try TestData.create_test_block_with_content(allocator, @intCast(i), content);
         defer allocator.free(block.source_uri);
         defer allocator.free(block.metadata_json);
         defer allocator.free(block.content);
@@ -399,12 +408,20 @@ test "memory safety under stress with new algorithms" {
     // Create edges
     i = 1;
     while (i < stress_graph_size) : (i += 1) {
-        const edge = try create_test_edge(i, i + 1, .calls, allocator);
+        const edge = GraphEdge{
+            .source_id = TestData.deterministic_block_id(i),
+            .target_id = TestData.deterministic_block_id(i + 1),
+            .edge_type = .calls,
+        };
         try storage_engine.put_edge(edge);
 
         // Add some cross-links
         if (i % 3 == 0 and i + 3 <= stress_graph_size) {
-            const cross_edge = try create_test_edge(i, i + 3, .references, allocator);
+            const cross_edge = GraphEdge{
+                .source_id = TestData.deterministic_block_id(i),
+                .target_id = TestData.deterministic_block_id(i + 3),
+                .edge_type = .references,
+            };
             try storage_engine.put_edge(cross_edge);
         }
     }
@@ -428,7 +445,7 @@ test "memory safety under stress with new algorithms" {
                 .edge_filter = .all_types,
             };
 
-            const result = try query.traversal.execute_traversal(allocator, &storage_engine, traversal_query);
+            const result = try execute_traversal(allocator, &storage_engine, traversal_query);
             defer result.deinit();
 
             // Verify results are valid

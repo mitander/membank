@@ -25,52 +25,102 @@ const FindBlocksQuery = query.operations.FindBlocksQuery;
 const TraversalQuery = query.traversal.TraversalQuery;
 const QueryResult = query.operations.QueryResult;
 
-// Use standardized TestData utilities instead of custom helpers
 const TestData = kausaldb.TestData;
+const StorageHarness = kausaldb.StorageHarness;
+const QueryHarness = kausaldb.QueryHarness;
 
 test "complex graph traversal scenarios" {
     const allocator = testing.allocator;
 
-    // Use QueryHarness for coordinated setup
     var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "complex_traversal_test");
     defer harness.deinit();
 
     // Create a complex graph structure: function -> imports -> dependencies
     // Function block
-    const main_func = try TestData.create_test_block(allocator, 1);
-    defer TestData.cleanup_test_block(allocator, main_func);
+    const main_func = ContextBlock{
+        .id = TestData.deterministic_block_id(1),
+        .version = 1,
+        .source_uri = "test://complex_traversal_main.zig",
+        .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"main_func\"}",
+        .content = "Complex traversal main function",
+    };
     try harness.storage_engine().put_block(main_func);
 
     // Process function
-    const process_func = try TestData.create_test_block(allocator, 2);
-    defer TestData.cleanup_test_block(allocator, process_func);
+    const process_func = ContextBlock{
+        .id = TestData.deterministic_block_id(2),
+        .version = 1,
+        .source_uri = "test://complex_process_func.zig",
+        .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"process_func\"}",
+        .content = "Complex traversal process function",
+    };
     try harness.storage_engine().put_block(process_func);
 
     // Validation function
-    const validate_func = try TestData.create_test_block(allocator, 3);
-    defer TestData.cleanup_test_block(allocator, validate_func);
+    const validate_func = ContextBlock{
+        .id = TestData.deterministic_block_id(3),
+        .version = 1,
+        .source_uri = "test://complex_validate_func.zig",
+        .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"validate_func\"}",
+        .content = "Complex traversal validation function",
+    };
     try harness.storage_engine().put_block(validate_func);
 
     // Render function
-    const render_func = try TestData.create_test_block(allocator, 4);
-    defer TestData.cleanup_test_block(allocator, render_func);
+    const render_func = ContextBlock{
+        .id = TestData.deterministic_block_id(4),
+        .version = 1,
+        .source_uri = "test://complex_render_func.zig",
+        .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"render_func\"}",
+        .content = "Complex traversal render function",
+    };
     try harness.storage_engine().put_block(render_func);
 
     // Utility functions
-    const draw_func = try TestData.create_test_block(allocator, 5);
-    defer TestData.cleanup_test_block(allocator, draw_func);
+    const draw_func = ContextBlock{
+        .id = TestData.deterministic_block_id(5),
+        .version = 1,
+        .source_uri = "test://complex_draw_func.zig",
+        .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"draw_func\"}",
+        .content = "Complex traversal draw function",
+    };
     try harness.storage_engine().put_block(draw_func);
 
-    const display_func = try TestData.create_test_block(allocator, 6);
-    defer TestData.cleanup_test_block(allocator, display_func);
+    const display_func = ContextBlock{
+        .id = TestData.deterministic_block_id(6),
+        .version = 1,
+        .source_uri = "test://complex_display_func.zig",
+        .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"display_func\"}",
+        .content = "Complex traversal display function",
+    };
     try harness.storage_engine().put_block(display_func);
 
-    // Create call graph edges using standardized test data
-    try harness.storage_engine().put_edge(TestData.create_test_edge(1, 2, EdgeType.calls)); // main -> process
-    try harness.storage_engine().put_edge(TestData.create_test_edge(2, 3, EdgeType.calls)); // process -> validate
-    try harness.storage_engine().put_edge(TestData.create_test_edge(2, 4, EdgeType.calls)); // process -> render
-    try harness.storage_engine().put_edge(TestData.create_test_edge(4, 5, EdgeType.calls)); // render -> draw
-    try harness.storage_engine().put_edge(TestData.create_test_edge(4, 6, EdgeType.calls)); // render -> display
+    // Create call graph edges using explicit construction
+    try harness.storage_engine().put_edge(GraphEdge{
+        .source_id = TestData.deterministic_block_id(1),
+        .target_id = TestData.deterministic_block_id(2),
+        .edge_type = EdgeType.calls,
+    }); // main -> process
+    try harness.storage_engine().put_edge(GraphEdge{
+        .source_id = TestData.deterministic_block_id(2),
+        .target_id = TestData.deterministic_block_id(3),
+        .edge_type = EdgeType.calls,
+    }); // process -> validate
+    try harness.storage_engine().put_edge(GraphEdge{
+        .source_id = TestData.deterministic_block_id(2),
+        .target_id = TestData.deterministic_block_id(4),
+        .edge_type = EdgeType.calls,
+    }); // process -> render
+    try harness.storage_engine().put_edge(GraphEdge{
+        .source_id = TestData.deterministic_block_id(4),
+        .target_id = TestData.deterministic_block_id(5),
+        .edge_type = EdgeType.calls,
+    }); // render -> draw
+    try harness.storage_engine().put_edge(GraphEdge{
+        .source_id = TestData.deterministic_block_id(4),
+        .target_id = TestData.deterministic_block_id(6),
+        .edge_type = EdgeType.calls,
+    }); // render -> display
 
     // Test multi-hop traversal
     const traversal_query = TraversalQuery{
@@ -115,19 +165,21 @@ test "query optimization strategy validation" {
     var i: u32 = 0;
     while (i < dataset_size) : (i += 1) {
         const content = try std.fmt.allocPrint(allocator, "Block content {}", .{i});
-        defer allocator.free(content);
-        const block = try create_test_block(i, content, allocator);
-        defer allocator.free(block.content);
-        defer allocator.free(block.source_uri);
-        defer allocator.free(block.metadata_json);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(i),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://optimization_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"optimization_test\":{}}}", .{i}),
+            .content = content,
+        };
         try storage_engine.put_block(block);
     }
 
     // Test small query (should use direct strategy)
     const small_query = FindBlocksQuery{
         .block_ids = &[_]BlockId{
-            create_test_block_id(1),
-            create_test_block_id(2),
+            TestData.deterministic_block_id(1),
+            TestData.deterministic_block_id(2),
         },
     };
 
@@ -140,7 +192,7 @@ test "query optimization strategy validation" {
     defer large_block_ids.deinit();
     i = 0;
     while (i < 100) : (i += 1) {
-        try large_block_ids.append(create_test_block_id(i));
+        try large_block_ids.append(TestData.deterministic_block_id(i));
     }
 
     const large_query = FindBlocksQuery{
@@ -181,10 +233,14 @@ test "query performance under memory pressure" {
             try content.append('A' + @as(u8, @intCast(j % 26)));
         }
 
-        const block = try create_test_block(i, content.items, allocator);
-        defer allocator.free(block.content);
-        defer allocator.free(block.source_uri);
-        defer allocator.free(block.metadata_json);
+        const owned_content = try allocator.dupe(u8, content.items);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(i),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://memory_pressure_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"memory_pressure_test\":{}}}", .{i}),
+            .content = owned_content,
+        };
         try storage_engine.put_block(block);
     }
 
@@ -198,7 +254,7 @@ test "query performance under memory pressure" {
         // Query random subset
         i = query_round * 20;
         while (i < (query_round + 1) * 20) : (i += 1) {
-            try query_block_ids.append(create_test_block_id(i));
+            try query_block_ids.append(TestData.deterministic_block_id(i));
         }
 
         const find_query = FindBlocksQuery{
@@ -242,10 +298,14 @@ test "complex filtering and search scenarios" {
     };
 
     for (content_patterns, 0..) |pattern, idx| {
-        const block = try create_test_block(@intCast(idx), pattern, allocator);
-        defer allocator.free(block.content);
-        defer allocator.free(block.source_uri);
-        defer allocator.free(block.metadata_json);
+        const owned_content = try allocator.dupe(u8, pattern);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(idx)),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://filtering_pattern_{}.zig", .{idx}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"filtering_test\":{}}}", .{idx}),
+            .content = owned_content,
+        };
         try storage_engine.put_block(block);
     }
 
@@ -256,7 +316,7 @@ test "complex filtering and search scenarios" {
 
     var i: u32 = 0;
     while (i < content_patterns.len) : (i += 1) {
-        try all_block_ids.append(create_test_block_id(i));
+        try all_block_ids.append(TestData.deterministic_block_id(i));
     }
 
     const find_query = FindBlocksQuery{
@@ -289,28 +349,52 @@ test "graph traversal with cycle detection" {
     defer query_engine.deinit();
 
     // Create blocks that form a cycle
-    const block_a = try create_test_block(1, "Function A calls B", allocator);
-    defer allocator.free(block_a.content);
-    defer allocator.free(block_a.source_uri);
-    defer allocator.free(block_a.metadata_json);
+    const block_a = ContextBlock{
+        .id = TestData.deterministic_block_id(1),
+        .version = 1,
+        .source_uri = "test://cycle_function_a.zig",
+        .metadata_json = "{\"test\":\"cycle_detection\",\"function\":\"A\"}",
+        .content = "Function A calls B",
+    };
     try storage_engine.put_block(block_a);
 
-    const block_b = try create_test_block(2, "Function B calls C", allocator);
-    defer allocator.free(block_b.content);
-    defer allocator.free(block_b.source_uri);
-    defer allocator.free(block_b.metadata_json);
+    const block_b = ContextBlock{
+        .id = TestData.deterministic_block_id(2),
+        .version = 1,
+        .source_uri = "test://cycle_function_b.zig",
+        .metadata_json = "{\"test\":\"cycle_detection\",\"function\":\"B\"}",
+        .content = "Function B calls C",
+    };
     try storage_engine.put_block(block_b);
 
-    const block_c = try create_test_block(3, "Function C calls A", allocator);
-    defer allocator.free(block_c.content);
-    defer allocator.free(block_c.source_uri);
-    defer allocator.free(block_c.metadata_json);
+    const block_c = ContextBlock{
+        .id = TestData.deterministic_block_id(3),
+        .version = 1,
+        .source_uri = "test://cycle_function_c.zig",
+        .metadata_json = "{\"test\":\"cycle_detection\",\"function\":\"C\"}",
+        .content = "Function C calls A",
+    };
     try storage_engine.put_block(block_c);
 
     // Create cycle: A -> B -> C -> A
-    try storage_engine.put_edge(create_test_edge(1, 2, EdgeType.calls));
-    try storage_engine.put_edge(create_test_edge(2, 3, EdgeType.calls));
-    try storage_engine.put_edge(create_test_edge(3, 1, EdgeType.calls));
+    const edge = GraphEdge{
+        .source_id = TestData.deterministic_block_id(1),
+        .target_id = TestData.deterministic_block_id(2),
+        .edge_type = EdgeType.calls,
+    };
+    try storage_engine.put_edge(edge);
+    const edge2 = GraphEdge{
+        .source_id = TestData.deterministic_block_id(2),
+        .target_id = TestData.deterministic_block_id(3),
+        .edge_type = EdgeType.calls,
+    };
+    try storage_engine.put_edge(edge2);
+    const edge3 = GraphEdge{
+        .source_id = TestData.deterministic_block_id(3),
+        .target_id = TestData.deterministic_block_id(1),
+        .edge_type = EdgeType.calls,
+    };
+    try storage_engine.put_edge(edge3);
 
     // Traversal should handle cycle gracefully
     const traversal_query = TraversalQuery{
@@ -355,11 +439,13 @@ test "batch query operations and efficiency" {
     var i: u32 = 0;
     while (i < 100) : (i += 1) {
         const content = try std.fmt.allocPrint(allocator, "Batch test block {}", .{i});
-        defer allocator.free(content);
-        const block = try create_test_block(i, content, allocator);
-        defer allocator.free(block.content);
-        defer allocator.free(block.source_uri);
-        defer allocator.free(block.metadata_json);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(i),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://batch_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"batch_test\":{}}}", .{i}),
+            .content = content,
+        };
         try storage_engine.put_block(block);
     }
 
@@ -375,7 +461,7 @@ test "batch query operations and efficiency" {
         // Create batch of 10 block IDs
         i = batch_round * 10;
         while (i < (batch_round + 1) * 10) : (i += 1) {
-            try batch_block_ids.append(create_test_block_id(i));
+            try batch_block_ids.append(TestData.deterministic_block_id(@intCast(i)));
         }
 
         const batch_query = FindBlocksQuery{
@@ -422,7 +508,7 @@ test "query error handling and recovery" {
 
     var i: u32 = 9000; // IDs that don't exist
     while (i < 9010) : (i += 1) {
-        try nonexistent_ids.append(create_test_block_id(i));
+        try nonexistent_ids.append(TestData.deterministic_block_id(@intCast(i)));
     }
 
     const missing_query = FindBlocksQuery{
@@ -479,17 +565,24 @@ test "mixed query workload simulation" {
     var i: u32 = 0;
     while (i < 50) : (i += 1) {
         const content = try std.fmt.allocPrint(allocator, "Mixed workload block {}: {s}", .{ i, if (i % 2 == 0) "function" else "struct" });
-        defer allocator.free(content);
-        const block = try create_test_block(i, content, allocator);
-        defer allocator.free(block.content);
-        defer allocator.free(block.source_uri);
-        defer allocator.free(block.metadata_json);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(i),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://mixed_workload_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"mixed_workload_test\":{},\"type\":\"{s}\"}}", .{ i, if (i % 2 == 0) "function" else "struct" }),
+            .content = content,
+        };
         try storage_engine.put_block(block);
 
         // Add some edges for traversal testing
         // Skip creating edge for first block (i==0) to avoid negative index
         if (i > 0 and i % 5 != 0) {
-            try storage_engine.put_edge(create_test_edge(i - 1, i, EdgeType.calls));
+            const edge = GraphEdge{
+                .source_id = TestData.deterministic_block_id(@intCast(i - 1)),
+                .target_id = TestData.deterministic_block_id(@intCast(i)),
+                .edge_type = EdgeType.calls,
+            };
+            try storage_engine.put_edge(edge);
         }
     }
 
@@ -497,7 +590,7 @@ test "mixed query workload simulation" {
     var workload_round: u32 = 0;
     while (workload_round < 5) : (workload_round += 1) {
         // Single block lookup
-        const single_id = create_test_block_id(workload_round);
+        const single_id = TestData.block_id_from_index(workload_round);
         const single_query = FindBlocksQuery{
             .block_ids = &[_]BlockId{single_id},
         };
@@ -511,7 +604,7 @@ test "mixed query workload simulation" {
         defer batch_ids.deinit();
         i = workload_round * 5;
         while (i < (workload_round + 1) * 5) : (i += 1) {
-            try batch_ids.append(create_test_block_id(i));
+            try batch_ids.append(TestData.block_id_from_index(i));
         }
 
         const batch_query = FindBlocksQuery{
@@ -522,7 +615,7 @@ test "mixed query workload simulation" {
         defer batch_result.deinit();
 
         // Graph traversal
-        const traversal_start = create_test_block_id(workload_round * 5);
+        const traversal_start = TestData.deterministic_block_id(workload_round * 5);
         const traversal_query = TraversalQuery{
             .start_block_id = traversal_start,
             .edge_filter = .{ .include_types = &[_]EdgeType{EdgeType.calls} },

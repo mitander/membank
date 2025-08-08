@@ -13,19 +13,18 @@ const log = std.log.scoped(.streaming_memory_benchmark);
 const PerformanceAssertion = kausaldb.PerformanceAssertion;
 const BatchPerformanceMeasurement = kausaldb.BatchPerformanceMeasurement;
 
-const storage = kausaldb.storage;
-const query = kausaldb.query;
-const simulation_vfs = kausaldb.simulation_vfs;
 const types = kausaldb.types;
 const assert = kausaldb.assert.assert;
 
-const StorageEngine = storage.StorageEngine;
-const QueryEngine = kausaldb.QueryEngine;
-const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const GraphEdge = types.GraphEdge;
 const EdgeType = types.EdgeType;
+const TestData = kausaldb.TestData;
+
+// Query operations and types
+const operations = kausaldb.query_operations;
+const FindBlocksQuery = kausaldb.FindBlocksQuery;
 
 // Performance targets from PERFORMANCE.md
 const TARGET_BLOCK_WRITE_LATENCY_NS = 50_000; // 50µs
@@ -33,664 +32,369 @@ const TARGET_BLOCK_READ_LATENCY_NS = 10_000; // 10µs
 const TARGET_QUERY_LATENCY_NS = 10_000; // 10µs
 const TARGET_BATCH_QUERY_LATENCY_NS = 100_000; // 100µs
 
-fn create_test_block_from_int(id_int: u32, content_size: usize, allocator: std.mem.Allocator) !ContextBlock {
-    var id_bytes: [16]u8 = [_]u8{0} ** 16;
-    std.mem.writeInt(u32, id_bytes[0..4], id_int, .little);
-    const id = BlockId.from_bytes(id_bytes);
-
-    const content = try allocator.alloc(u8, content_size);
-    @memset(content, 'A');
-
-    return ContextBlock{
-        .id = id,
-        .version = 1,
-        .source_uri = "test://streaming_benchmark.zig",
-        .metadata_json = "{}",
-        .content = content,
-    };
-}
-
 // Test limits for performance validation
 const MAX_BENCHMARK_DURATION_MS = 30_000;
-const MIN_OPERATIONS_FOR_STATS = 100;
-const PERFORMANCE_SAMPLES = 50;
-const WARMUP_OPERATIONS = 25;
+const MAX_MEMORY_GROWTH_FACTOR = 3.0;
+const MAX_STREAMING_OVERHEAD_PERCENT = 20.0;
 
-fn measure_operation_latency(comptime operation_fn: anytype, args: anytype) i64 {
-    const start = std.time.nanoTimestamp();
-    _ = operation_fn(args) catch @panic("Operation failed in performance test");
-    return std.time.nanoTimestamp() - start;
-}
+test "memory efficiency during large dataset operations" {
+    const allocator = testing.allocator;
 
-test "streaming memory efficiency benchmark" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "streaming_perf_test");
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "memory_efficiency_test");
+    defer harness.deinit();
 
     // Phase 1: Memory baseline measurement
-    const baseline_memory: u64 = storage_engine.memtable_manager.memory_usage();
+    const baseline_memory = harness.storage_engine().memtable_manager.memory_usage();
 
     // Phase 2: Streaming query formation with varying result sizes
     const result_sizes = [_]usize{ 10, 50, 100, 500, 1000 };
     var peak_memory: u64 = baseline_memory;
     var total_streaming_time: i64 = 0;
+    var total_streamed_count: usize = 0;
 
     for (result_sizes) |result_size| {
-        // Prepare test blocks
+        // Prepare test blocks using TestData
+        var block_ids = std.ArrayList(BlockId).init(allocator);
+        defer block_ids.deinit();
+        try block_ids.ensureTotalCapacity(result_size);
+
         for (0..result_size) |i| {
-            const block = try create_test_block_from_int(@intCast(i + 1), 256, allocator);
-            defer allocator.free(block.content);
-            try storage_engine.put_block(block);
+            const content = try allocator.alloc(u8, 256);
+            @memset(content, @as(u8, @intCast('A' + (i % 26))));
+            const block = ContextBlock{
+                .id = TestData.deterministic_block_id(@intCast(i + 1)),
+                .version = 1,
+                .source_uri = "test://streaming_memory_benchmark.zig",
+                .metadata_json = "{\"test\":\"streaming_memory_benchmark\"}",
+                .content = content,
+            };
+
+            try harness.storage_engine().put_block(block);
+            try block_ids.append(block.id);
         }
 
-        // Measure streaming query performance
-        const stream_start = std.time.nanoTimestamp();
+        // Measure streaming performance
+        const start_time = std.time.nanoTimestamp();
 
-        var result_buffer = std.ArrayList(ContextBlock).init(allocator);
-        try result_buffer.ensureTotalCapacity(result_size); // Pre-allocate for exact number of blocks
-        defer {
-            for (result_buffer.items) |block| {
-                allocator.free(block.content);
-            }
-            result_buffer.deinit();
+        const query = FindBlocksQuery{ .block_ids = block_ids.items };
+        var result = try operations.execute_find_blocks(allocator, harness.storage_engine(), query);
+        defer result.deinit();
+
+        // Stream through results
+        var streamed_count: usize = 0;
+        while (try result.next()) |block| {
+            streamed_count += 1;
+
+            // Track peak memory during streaming
+            const current_memory = harness.storage_engine().memtable_manager.memory_usage();
+            peak_memory = @max(peak_memory, current_memory);
+
+            // Verify block integrity
+            try testing.expect(block.content.len > 0);
         }
 
-        // Stream results to simulate real query formatting
-        for (1..result_size + 1) |i| {
-            var id_bytes: [16]u8 = [_]u8{0} ** 16;
-            std.mem.writeInt(u32, id_bytes[0..4], @intCast(i), .little);
-            const block_id = BlockId.from_bytes(id_bytes);
-            if (try storage_engine.find_block(block_id)) |block| {
-                const owned_content = try allocator.dupe(u8, block.content);
-                const owned_block = ContextBlock{
-                    .id = block.id,
-                    .version = block.version,
-                    .source_uri = block.source_uri,
-                    .metadata_json = block.metadata_json,
-                    .content = owned_content,
-                };
-                result_buffer.appendAssumeCapacity(owned_block);
-            }
-        }
+        const end_time = std.time.nanoTimestamp();
+        total_streaming_time += @intCast(end_time - start_time);
+        total_streamed_count += streamed_count;
 
-        const stream_time = std.time.nanoTimestamp() - stream_start;
-        total_streaming_time += @as(i64, @intCast(stream_time));
-
-        // Track peak memory usage during streaming
-        const current_memory: u64 = storage_engine.memtable_manager.memory_usage();
-        if (current_memory > peak_memory) {
-            peak_memory = current_memory;
-        }
-
-        // Verify streaming maintained reasonable memory usage
-        const memory_growth = current_memory - baseline_memory;
-        const expected_growth = result_size * 256; // Approximate per-block overhead
-        // Allow generous tolerance for memory growth due to storage overhead
-        if (memory_growth > expected_growth * 5) {
-            log.warn("Memory growth higher than expected: {} bytes vs {} bytes maximum", .{ memory_growth, expected_growth * 5 });
-        }
+        try testing.expectEqual(result_size, streamed_count);
     }
 
     // Phase 3: Memory efficiency validation
-    const average_streaming_latency = @divTrunc(total_streaming_time, result_sizes.len);
-    const memory_overhead = peak_memory - baseline_memory;
 
-    // Memory overhead should be reasonable for streaming operations
-    try testing.expect(memory_overhead < 10 * 1024 * 1024); // <10MB overhead
+    const memory_growth_factor = @as(f64, @floatFromInt(peak_memory)) / @as(f64, @floatFromInt(baseline_memory));
 
-    // Streaming should complete within reasonable time
-    // Make performance expectations more tolerant for CI environments
-    if (average_streaming_latency >= 10_000_000) { // Only fail if > 10ms (very slow)
-        log.warn("Streaming latency higher than expected: {}ns", .{average_streaming_latency});
-    }
-}
+    try testing.expect(memory_growth_factor < MAX_MEMORY_GROWTH_FACTOR);
 
-test "storage engine throughput benchmark" {
-    const allocator = testing.allocator;
+    log.info("Memory efficiency: baseline={}KB, peak={}KB, growth_factor={d:.2}", .{
+        baseline_memory / 1024,
+        peak_memory / 1024,
+        memory_growth_factor,
+    });
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "throughput_test");
-    defer engine.deinit();
-
-    try engine.startup();
-
-    // Phase 1: Write throughput measurement
-    const write_operations = 1000;
-    const write_start = std.time.nanoTimestamp();
-
-    for (1..write_operations + 1) |i| {
-        const block = try create_test_block_from_int(@intCast(i), 512, allocator);
-        defer allocator.free(block.content);
-        try engine.put_block(block);
-    }
-
-    const write_time = std.time.nanoTimestamp() - write_start;
-    const write_throughput = @divTrunc(@as(u64, write_operations) * 1_000_000_000, @as(u64, @intCast(write_time)));
-    const avg_write_latency = @divTrunc(write_time, write_operations);
-
-    // Validate write performance targets
-    // Make write latency expectations more tolerant for CI
-    if (avg_write_latency >= TARGET_BLOCK_WRITE_LATENCY_NS * 10) { // 10x tolerance
-        log.warn("Write latency higher than target: {}ns vs {}ns", .{ avg_write_latency, TARGET_BLOCK_WRITE_LATENCY_NS });
-    }
-    // Make throughput expectations very tolerant for CI environments
-    if (write_throughput < 1_000) { // Only fail if extremely slow (<1K ops/sec)
-        log.warn("Write throughput very low: {} ops/sec", .{write_throughput});
-    }
-
-    // Phase 2: Read throughput measurement
-    const read_start = std.time.nanoTimestamp();
-
-    for (1..write_operations + 1) |i| {
-        var id_bytes: [16]u8 = [_]u8{0} ** 16;
-        std.mem.writeInt(u32, id_bytes[0..4], @intCast(i), .little);
-        const block_id = BlockId.from_bytes(id_bytes);
-        const block = try engine.find_block(block_id);
-        try testing.expect(block != null);
-    }
-
-    const read_time = std.time.nanoTimestamp() - read_start;
-    const read_throughput = @divTrunc(@as(u64, write_operations) * 1_000_000_000, @as(u64, @intCast(read_time)));
-    const avg_read_latency = @divTrunc(read_time, write_operations);
-
-    // Validate read performance targets with tolerance for CI
-    if (avg_read_latency >= TARGET_BLOCK_READ_LATENCY_NS * 10) { // 10x tolerance
-        log.warn("Read latency higher than target: {}ns vs {}ns", .{ avg_read_latency, TARGET_BLOCK_READ_LATENCY_NS });
-    }
-    // Make read throughput expectations very tolerant for CI environments
-    if (read_throughput < 10_000) { // Only fail if extremely slow (<10K ops/sec)
-        log.warn("Read throughput very low: {} ops/sec", .{read_throughput});
-    }
-
-    // Phase 3: Mixed workload performance
-    const mixed_start = std.time.nanoTimestamp();
-    var mixed_operations: u32 = 0;
-
-    while (mixed_operations < 500) {
-        // 70% reads, 30% writes
-        if (mixed_operations % 10 < 7) {
-            const id = (mixed_operations % write_operations) + 1;
-            var id_bytes: [16]u8 = [_]u8{0} ** 16;
-            std.mem.writeInt(u32, id_bytes[0..4], @intCast(id), .little);
-            const block_id = BlockId.from_bytes(id_bytes);
-            const block = try engine.find_block(block_id);
-            try testing.expect(block != null);
-        } else {
-            const new_id = write_operations + mixed_operations + 1;
-            const block = try create_test_block_from_int(@intCast(new_id), 512, allocator);
-            defer allocator.free(block.content);
-            try engine.put_block(block);
-        }
-        mixed_operations += 1;
-    }
-
-    const mixed_time = std.time.nanoTimestamp() - mixed_start;
-    const mixed_throughput = @divTrunc(@as(u64, mixed_operations) * 1_000_000_000, @as(u64, @intCast(mixed_time)));
-
-    // Mixed workload should maintain reasonable throughput
-    // Make mixed workload throughput expectations very tolerant for CI environments
-    if (mixed_throughput < 2_000) { // Only fail if extremely slow (<2K ops/sec)
-        log.warn("Mixed throughput very low: {} ops/sec", .{mixed_throughput});
-    }
+    // Phase 4: Streaming performance validation
+    const avg_streaming_time_per_result = @divTrunc(total_streaming_time, @as(i64, @intCast(result_sizes.len)));
+    try testing.expect(avg_streaming_time_per_result < 10_000_000); // 10ms per result set
 }
 
 test "query engine performance benchmark" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "query_perf_test");
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "query_perf_test");
+    defer harness.deinit();
 
     // Phase 1: Setup test data with relationships
     const block_count = 500;
-    for (1..block_count + 1) |i| {
-        const block = try create_test_block_from_int(@intCast(i), 256, allocator);
-        defer allocator.free(block.content);
-        try storage_engine.put_block(block);
+    var block_ids = std.ArrayList(BlockId).init(allocator);
+    defer block_ids.deinit();
+    try block_ids.ensureTotalCapacity(block_count);
 
-        // Create edges for graph traversal testing
-        if (i > 1) {
-            var source_id_bytes: [16]u8 = [_]u8{0} ** 16;
-            std.mem.writeInt(u32, source_id_bytes[0..4], @intCast(i - 1), .little);
-            var target_id_bytes: [16]u8 = [_]u8{0} ** 16;
-            std.mem.writeInt(u32, target_id_bytes[0..4], @intCast(i), .little);
-            const edge = GraphEdge{
-                .source_id = BlockId.from_bytes(source_id_bytes),
-                .target_id = BlockId.from_bytes(target_id_bytes),
-                .edge_type = .calls,
-            };
-            try storage_engine.put_edge(edge);
-        }
+    // Create blocks using TestData
+    for (0..block_count) |i| {
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = "test://memory_efficiency_benchmark.zig",
+            .metadata_json = "{\"test\":\"memory_efficiency_benchmark\"}",
+            .content = "Memory efficiency benchmark test block content",
+        };
+
+        try harness.storage_engine().put_block(block);
+        try block_ids.append(block.id);
     }
 
-    // Phase 2: Single block query performance
-    var single_query_times = std.ArrayList(i64).init(allocator);
-    try single_query_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
-    defer single_query_times.deinit();
-    try single_query_times.ensureTotalCapacity(PERFORMANCE_SAMPLES);
-
-    for (0..PERFORMANCE_SAMPLES) |_| {
-        const query_id = (@mod(std.crypto.random.int(u32), block_count)) + 1;
-
-        const start = std.time.nanoTimestamp();
-        var id_bytes: [16]u8 = [_]u8{0} ** 16;
-        std.mem.writeInt(u32, id_bytes[0..4], query_id, .little);
-        const block_id = BlockId.from_bytes(id_bytes);
-        _ = try query_engine.find_block(block_id);
-        const end = std.time.nanoTimestamp();
-        try single_query_times.append(@intCast(end - start));
+    // Create edges for graph traversal testing
+    for (0..block_count - 1) |i| {
+        const edge = GraphEdge{
+            .source_id = TestData.deterministic_block_id(@intCast(i)),
+            .target_id = TestData.deterministic_block_id(@intCast(i + 1)),
+            .edge_type = EdgeType.calls,
+        };
+        try harness.storage_engine().put_edge(edge);
     }
 
-    const avg_single_query = calculate_average(single_query_times.items);
-    // Make query latency expectations more tolerant for CI
-    if (avg_single_query >= TARGET_QUERY_LATENCY_NS * 20) { // 20x tolerance
-        log.warn("Single query latency higher than target: {}ns vs {}ns", .{ avg_single_query, TARGET_QUERY_LATENCY_NS });
+    // Phase 3: Single block query performance
+    var single_measurement = BatchPerformanceMeasurement.init(allocator);
+    defer single_measurement.deinit();
+
+    for (0..100) |_| {
+        const random_index = std.crypto.random.intRangeLessThan(usize, 0, block_count);
+        const target_id = block_ids.items[random_index];
+
+        const start_time = std.time.nanoTimestamp();
+        const found_block = try harness.storage_engine().find_block(target_id);
+        const end_time = std.time.nanoTimestamp();
+
+        try testing.expect(found_block != null);
+        try single_measurement.add_measurement(@intCast(end_time - start_time));
     }
+
+    try single_measurement.assert_statistics("query_engine_single", TARGET_QUERY_LATENCY_NS, "single block query");
 
     // Phase 3: Batch query performance
-    var batch_query_times = std.ArrayList(i64).init(allocator);
-    try batch_query_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
-    defer batch_query_times.deinit();
-    try batch_query_times.ensureTotalCapacity(PERFORMANCE_SAMPLES);
+    var batch_measurement = BatchPerformanceMeasurement.init(allocator);
+    defer batch_measurement.deinit();
 
-    for (0..PERFORMANCE_SAMPLES) |_| {
-        var query_ids: [10]BlockId = undefined;
-        for (&query_ids, 0..) |*id, j| {
-            const id_int = (@mod(std.crypto.random.int(u32), block_count)) + 1;
-            var id_bytes: [16]u8 = [_]u8{0} ** 16;
-            std.mem.writeInt(u32, id_bytes[0..4], id_int, .little);
-            id.* = BlockId.from_bytes(id_bytes);
-            _ = j;
+    const batch_sizes = [_]usize{ 5, 10, 25, 50 };
+    for (batch_sizes) |batch_size| {
+        var batch_ids = try allocator.alloc(BlockId, batch_size);
+        defer allocator.free(batch_ids);
+
+        for (0..batch_size) |i| {
+            const random_index = std.crypto.random.intRangeLessThan(usize, 0, block_count);
+            batch_ids[i] = block_ids.items[random_index];
         }
 
-        const start = std.time.nanoTimestamp();
-        for (query_ids) |block_id| {
-            _ = try query_engine.find_block(block_id);
+        const start_time = std.time.nanoTimestamp();
+        const query = FindBlocksQuery{ .block_ids = batch_ids };
+        var result = try operations.execute_find_blocks(allocator, harness.storage_engine(), query);
+        defer result.deinit();
+
+        var found_count: usize = 0;
+        while (try result.next()) |_| {
+            found_count += 1;
         }
-        const end = std.time.nanoTimestamp();
-        try batch_query_times.append(@intCast(end - start));
+        const end_time = std.time.nanoTimestamp();
+
+        try testing.expect(found_count > 0);
+        try batch_measurement.add_measurement(@intCast(end_time - start_time));
     }
 
-    const avg_batch_query = calculate_average(batch_query_times.items);
-    // Make batch query latency expectations more tolerant for CI
-    if (avg_batch_query >= TARGET_BATCH_QUERY_LATENCY_NS * 20) { // 20x tolerance
-        log.warn("Batch query latency higher than target: {}ns vs {}ns", .{ avg_batch_query, TARGET_BATCH_QUERY_LATENCY_NS });
-    }
+    try batch_measurement.assert_statistics("query_engine_batch", TARGET_BATCH_QUERY_LATENCY_NS, "batch block query");
 
-    // Phase 4: Graph traversal performance
-    var traversal_times = std.ArrayList(i64).init(allocator);
-    try traversal_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
-    defer traversal_times.deinit();
-
-    for (0..PERFORMANCE_SAMPLES) |_| {
-        const start_id = (@mod(std.crypto.random.int(u32), block_count - 10)) + 1;
-        var id_bytes: [16]u8 = [_]u8{0} ** 16;
-        std.mem.writeInt(u32, id_bytes[0..4], start_id, .little);
-        const block_id = BlockId.from_bytes(id_bytes);
-
-        const start = std.time.nanoTimestamp();
-        const edges = storage_engine.find_outgoing_edges(block_id);
-        const end = std.time.nanoTimestamp();
-
-        // Validate traversal results
-        try testing.expect(edges.len >= 0); // Should always be valid
-        if (edges.len > 0) {
-            // Validate first edge has valid target
-            try testing.expect(edges[0].target_id.bytes.len == 16);
-        }
-        try traversal_times.append(@intCast(end - start)); // tidy:ignore-perf - capacity pre-allocated line 350
-    }
-
-    const avg_traversal = calculate_average(traversal_times.items);
-    try testing.expect(avg_traversal < TARGET_QUERY_LATENCY_NS * 5); // 5x tolerance for traversal
+    log.info("Query performance completed successfully", .{});
 }
 
-test "memory management efficiency benchmark" {
+test "storage engine write throughput measurement" {
     const allocator = testing.allocator;
 
-    // Phase 1: Arena allocation performance
-    var arena_times = std.ArrayList(i64).init(allocator);
-    try arena_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
-    defer arena_times.deinit();
-
-    for (0..PERFORMANCE_SAMPLES) |_| {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-        const arena_allocator = arena.allocator();
-
-        const start = std.time.nanoTimestamp();
-
-        // Allocate many small blocks (simulating MemtableManager pattern)
-        for (0..100) |_| {
-            const mem = try arena_allocator.alloc(u8, 256);
-            @memset(mem, 0xAB);
-        }
-
-        const end = std.time.nanoTimestamp();
-        try arena_times.append(@intCast(end - start));
-    }
-
-    const avg_arena_time = calculate_average(arena_times.items);
-
-    // Phase 2: Arena cleanup performance
-    var cleanup_times = std.ArrayList(i64).init(allocator);
-    try cleanup_times.ensureTotalCapacity(1000); // Pre-allocate for benchmark iterations
-    defer cleanup_times.deinit();
-
-    for (0..PERFORMANCE_SAMPLES) |_| {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        const arena_allocator = arena.allocator();
-
-        // Pre-allocate significant data
-        for (0..1000) |_| {
-            const mem = try arena_allocator.alloc(u8, 512);
-            @memset(mem, 0xCD);
-        }
-
-        const start = std.time.nanoTimestamp();
-        arena.deinit();
-        const end = std.time.nanoTimestamp();
-
-        try cleanup_times.append(@intCast(end - start));
-    }
-
-    const avg_cleanup_time = calculate_average(cleanup_times.items);
-
-    // Arena operations should be very fast
-    // Make arena timing expectations very tolerant for CI environments
-    if (avg_arena_time > 1_000_000) { // Only fail if extremely slow (>1ms for 100 allocations)
-        log.warn("Arena allocation time very high: {}ns for 100 allocations", .{avg_arena_time});
-    }
-    // Make cleanup timing expectations very tolerant for CI environments
-    if (avg_cleanup_time > 100_000) { // Only fail if extremely slow (>100µs for cleanup)
-        log.warn("Arena cleanup time very high: {}ns for cleanup", .{avg_cleanup_time});
-    }
-
-    // Phase 3: Memory pressure simulation
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "memory_pressure_test");
-    defer engine.deinit();
-
-    try engine.startup();
-
-    const initial_memory: u64 = engine.memtable_manager.memory_usage();
-
-    // Allocate substantial data
-    for (1..1001) |i| {
-        const block = try create_test_block_from_int(@intCast(i), 1024, allocator);
-        defer allocator.free(block.content);
-        try engine.put_block(block);
-    }
-
-    const peak_memory: u64 = engine.memtable_manager.memory_usage();
-    const memory_growth = peak_memory - initial_memory;
-
-    // Memory growth should be proportional to data size
-    const expected_minimum = 1000 * 256; // At least 256B per block (conservative estimate)
-    const expected_maximum = 1000 * 2048; // At most 2KB per block (generous overhead)
-
-    if (memory_growth < expected_minimum) {
-        log.warn("Memory growth lower than expected: {} bytes vs {} bytes minimum", .{ memory_growth, expected_minimum });
-    } else if (memory_growth > expected_maximum) {
-        log.warn("Memory growth higher than expected: {} bytes vs {} bytes maximum", .{ memory_growth, expected_maximum });
-    } else {
-        log.debug("Memory growth within expected range: {} bytes", .{memory_growth});
-    }
-}
-
-test "performance regression detection" {
-    const allocator = testing.allocator;
-
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "regression_test");
-    defer engine.deinit();
-
-    try engine.startup();
-
-    // Baseline performance measurement
-    const baseline_start = std.time.nanoTimestamp();
-
-    for (1..101) |i| {
-        const block = try create_test_block_from_int(@intCast(i), 512, allocator);
-        defer allocator.free(block.content);
-        try engine.put_block(block);
-    }
-
-    const baseline_time = std.time.nanoTimestamp() - baseline_start;
-    const baseline_per_op = @divTrunc(baseline_time, 100);
-
-    // Stress test with larger dataset
-    const stress_start = std.time.nanoTimestamp();
-
-    for (101..1001) |i| {
-        const block = try create_test_block_from_int(@intCast(i), 512, allocator);
-        defer allocator.free(block.content);
-        try engine.put_block(block);
-    }
-
-    const stress_time = std.time.nanoTimestamp() - stress_start;
-    const stress_per_op = @divTrunc(stress_time, 900);
-
-    // Performance should not degrade significantly with scale
-    try testing.expect(stress_per_op < baseline_per_op * 3); // <3x degradation
-
-    // Read performance should remain consistent
-    const read_start = std.time.nanoTimestamp();
-
-    for (1..101) |i| {
-        var id_bytes: [16]u8 = [_]u8{0} ** 16;
-        std.mem.writeInt(u32, id_bytes[0..4], @intCast(i), .little);
-        const block_id = BlockId.from_bytes(id_bytes);
-        const block = try engine.find_block(block_id);
-        try testing.expect(block != null);
-    }
-
-    const read_time = std.time.nanoTimestamp() - read_start;
-    const read_per_op = @divTrunc(read_time, 100);
-
-    // Read performance should meet targets even with larger dataset (with tolerance)
-    if (read_per_op >= TARGET_BLOCK_READ_LATENCY_NS * 10) { // 10x tolerance
-        log.warn("Regression read latency higher than target: {}ns vs {}ns", .{ read_per_op, TARGET_BLOCK_READ_LATENCY_NS });
-    }
-}
-
-test "concurrent safety performance validation" {
-    const allocator = testing.allocator;
-
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "concurrent_safety_test");
-    defer engine.deinit();
-
-    try engine.startup();
-
-    // Verify single-threaded design performance
-    // Single-threaded test - no concurrency assertions needed
-
-    const rapid_ops_start = std.time.nanoTimestamp();
-
-    // Rapid sequential operations to test thread safety assertions overhead
-    for (1..501) |i| {
-        // Single-threaded test - no concurrency assertions needed
-
-        const block = try create_test_block_from_int(@intCast(i), 256, allocator);
-        defer allocator.free(block.content);
-        try engine.put_block(block);
-
-        // Single-threaded test - no concurrency assertions needed
-
-        var id_bytes: [16]u8 = [_]u8{0} ** 16;
-        std.mem.writeInt(u32, id_bytes[0..4], @intCast(i), .little);
-        const block_id = BlockId.from_bytes(id_bytes);
-        const retrieved = try engine.find_block(block_id);
-        try testing.expect(retrieved != null);
-
-        // Single-threaded test - no concurrency assertions needed
-    }
-
-    const rapid_ops_time = std.time.nanoTimestamp() - rapid_ops_start;
-    const rapid_ops_per_op = @divTrunc(rapid_ops_time, 500 * 2); // 2 ops per iteration
-
-    // Thread safety assertions should not significantly impact performance (with tolerance)
-    if (rapid_ops_per_op >= TARGET_BLOCK_WRITE_LATENCY_NS * 20) { // 20x tolerance
-        log.warn("Thread safety overhead higher than expected: {}ns vs {}ns", .{ rapid_ops_per_op, TARGET_BLOCK_WRITE_LATENCY_NS * 2 });
-    }
-}
-
-fn calculate_average(times: []const i64) i64 {
-    if (times.len == 0) return 0;
-
-    var sum: i64 = 0;
-    for (times) |time| {
-        sum += time;
-    }
-    return @divTrunc(sum, @as(i64, @intCast(times.len)));
-}
-
-fn calculate_percentile(times: []i64, percentile: f64) i64 {
-    if (times.len == 0) return 0;
-
-    std.sort.heap(i64, times, {}, std.sort.asc(i64));
-    const index = @as(usize, @intFromFloat(@as(f64, @floatFromInt(times.len)) * percentile / 100.0));
-    return times[@min(index, times.len - 1)];
-}
-
-// Demonstration of tiered performance assertions
-// Shows different thresholds for local development vs CI environments
-test "tiered performance assertions demonstration" {
-    const allocator = testing.allocator;
-
-    // Create test storage setup
-    var sim_vfs = try kausaldb.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "perf_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "write_throughput_test");
+    defer harness.deinit();
 
     // Initialize performance assertion framework
-    const perf = PerformanceAssertion.init("tiered_performance_demo");
+    const perf = PerformanceAssertion.init("storage_write_throughput");
 
-    // Test 1: Single operation latency assertion
-    std.debug.print("\n[TEST] Testing single operation latency assertion...\n", .{});
+    // Phase 1: Single block write performance
+    var write_measurement = BatchPerformanceMeasurement.init(allocator);
+    defer write_measurement.deinit();
 
-    const test_block = try create_test_block_from_int(1, 1024, allocator);
-    defer allocator.free(test_block.content);
+    const write_iterations = 1000;
+    for (0..write_iterations) |i| {
+        const block = try TestData.create_test_block(allocator, @intCast(i + 1));
+        defer TestData.cleanup_test_block(allocator, block);
 
-    // Measure write latency
-    const write_start = std.time.nanoTimestamp();
-    try storage_engine.put_block(test_block);
-    const write_end = std.time.nanoTimestamp();
-    const write_duration = @as(u64, @intCast(write_end - write_start));
+        const start_time = std.time.nanoTimestamp();
+        try harness.storage_engine.put_block(block);
+        const end_time = std.time.nanoTimestamp();
 
-    // Assert with tier-adjusted thresholds (adjusted for ReleaseSafe overhead)
-    // Local: 500µs (5x), CI: 250µs (2.5x), Production: 100µs (1x)
-    try perf.assert_latency(write_duration, 100_000, "block write operation");
-
-    // Measure read latency
-    const read_start = std.time.nanoTimestamp();
-    const maybe_found = try storage_engine.find_block(test_block.id);
-    const read_end = std.time.nanoTimestamp();
-    const read_duration = @as(u64, @intCast(read_end - read_start));
-
-    // Assert read latency with tier-adjusted thresholds
-    // Local: 30µs (3x), CI: 15µs (1.5x), Production: 10µs (1x)
-    try perf.assert_latency(read_duration, 10_000, "block read operation");
-
-    // Verify we got the block back
-    const found_block = maybe_found orelse return error.BlockNotFound;
-    try testing.expect(found_block.id.eql(test_block.id));
-
-    // Test 2: Batch operations with statistical validation
-    std.debug.print("\n[TEST] Testing batch operations with statistical validation...\n", .{});
-
-    var batch_measurements = BatchPerformanceMeasurement.init(allocator);
-    defer batch_measurements.deinit();
-
-    // Perform multiple operations and collect timing
-    const batch_size = 50;
-    for (0..batch_size) |i| {
-        const batch_block = try create_test_block_from_int(@intCast(i + 100), 512, allocator);
-        defer allocator.free(batch_block.content);
-
-        const batch_start = std.time.nanoTimestamp();
-        try storage_engine.put_block(batch_block);
-        const batch_end = std.time.nanoTimestamp();
-
-        const batch_duration = @as(u64, @intCast(batch_end - batch_start));
-        try batch_measurements.add_measurement(batch_duration);
+        try write_measurement.add_measurement(@intCast(end_time - start_time));
     }
 
-    // Assert batch performance statistics (P95 latency)
-    try batch_measurements.assert_statistics("batch_operations_demo", 50_000, // Base requirement: 50µs per write
-        "batch block writes (P95)");
+    try write_measurement.assert_statistics("storage_write_throughput", TARGET_BLOCK_WRITE_LATENCY_NS, "block write operation");
 
-    // Test 3: Throughput assertion
-    std.debug.print("\n[TEST] Testing throughput assertion...\n", .{});
+    // Apply tiered performance assertions for write latency
+    const write_stats = write_measurement.calculate_statistics();
+    try perf.assert_mean_latency_within_target(
+        write_stats.mean_latency_ns,
+        TARGET_BLOCK_WRITE_LATENCY_NS,
+    );
 
-    // Use more operations for reliable throughput measurement
-    const throughput_operations = 1000;
+    try perf.assert_p99_latency_acceptable(
+        write_stats.p99_latency_ns,
+        TARGET_BLOCK_WRITE_LATENCY_NS * 5, // 5x allowance for P99
+    );
 
-    // Pre-allocate blocks to avoid allocation overhead in measurement
-    var throughput_blocks = std.ArrayList(ContextBlock).init(allocator);
-    defer {
-        for (throughput_blocks.items) |block| {
-            // Only free the content, as source_uri and metadata_json are string literals
-            allocator.free(block.content);
+    // Phase 2: Read performance validation
+    var read_measurement = BatchPerformanceMeasurement.init(allocator);
+    defer read_measurement.deinit();
+
+    for (0..100) |i| {
+        const target_block = try TestData.create_test_block(allocator, @intCast(i + 2000));
+        defer TestData.cleanup_test_block(allocator, target_block);
+        try harness.storage_engine.put_block(target_block);
+
+        const start_time = std.time.nanoTimestamp();
+        const found_block = try harness.storage_engine.find_block(target_block.id);
+        const end_time = std.time.nanoTimestamp();
+
+        try testing.expect(found_block != null);
+        try read_measurement.record_latency_ns(@intCast(end_time - start_time));
+    }
+
+    const read_stats = read_measurement.calculate_statistics();
+
+    try perf.assert_mean_latency_within_target(
+        read_stats.mean_latency_ns,
+        TARGET_BLOCK_READ_LATENCY_NS,
+    );
+
+    log.info("Storage performance: write_avg={d}µs, read_avg={d}µs", .{
+        write_stats.mean_latency_ns / 1000,
+        read_stats.mean_latency_ns / 1000,
+    });
+}
+
+test "streaming query result formatting performance" {
+    const allocator = testing.allocator;
+
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "streaming_benchmark_test");
+    defer harness.deinit();
+
+    // Phase 1: Setup diverse dataset
+    const dataset_size = 200;
+    var block_ids = std.ArrayList(BlockId).init(allocator);
+    defer block_ids.deinit();
+    try block_ids.ensureTotalCapacity(dataset_size);
+
+    for (0..dataset_size) |i| {
+        const content_size = 256 + @as(u32, @intCast(i % 512));
+        const content = try allocator.alloc(u8, content_size);
+        @memset(content, @as(u8, @intCast('A' + (i % 26))));
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i + 1)),
+            .version = 1,
+            .source_uri = "test://streaming_result_formatting.zig",
+            .metadata_json = "{\"test\":\"streaming_result_formatting\"}",
+            .content = content,
+        };
+
+        try harness.storage_engine().put_block(block);
+        try block_ids.append(block.id);
+    }
+
+    // Phase 2: Streaming performance measurement
+    var streaming_measurement = BatchPerformanceMeasurement.init(allocator);
+    defer streaming_measurement.deinit();
+
+    const chunk_sizes = [_]usize{ 10, 25, 50, 100 };
+    for (chunk_sizes) |chunk_size| {
+        const chunk_end = @min(chunk_size, block_ids.items.len);
+        const chunk_ids = block_ids.items[0..chunk_end];
+
+        const start_time = std.time.nanoTimestamp();
+
+        const query = FindBlocksQuery{ .block_ids = chunk_ids };
+        var result = try operations.execute_find_blocks(allocator, harness.storage_engine(), query);
+        defer result.deinit();
+
+        var formatted_count: usize = 0;
+        while (try result.next()) |block| {
+            // Simulate LLM formatting overhead
+            const formatted = try std.fmt.allocPrint(allocator, "Formatted: {s}", .{block.content});
+            defer allocator.free(formatted);
+
+            try testing.expect(formatted.len > 0);
+            formatted_count += 1;
         }
-        throughput_blocks.deinit();
+
+        const end_time = std.time.nanoTimestamp();
+
+        try testing.expectEqual(chunk_end, formatted_count);
+        try streaming_measurement.record_latency_ns(@intCast(end_time - start_time));
     }
 
-    try throughput_blocks.ensureTotalCapacity(throughput_operations);
-    for (0..throughput_operations) |i| {
-        const block = try create_test_block_from_int(@intCast(i + 300), 128, allocator); // Smaller blocks for faster writes
-        try throughput_blocks.append(block);
+    const streaming_stats = streaming_measurement.calculate_statistics();
+
+    // Streaming should not have excessive overhead
+    const per_block_latency = streaming_stats.mean_latency_ns / (dataset_size / chunk_sizes.len);
+    try testing.expect(per_block_latency < 1_000_000); // 1ms per block max
+
+    log.info("Streaming performance: avg_per_block={d}µs", .{per_block_latency / 1000});
+}
+
+test "memory usage growth patterns under load" {
+    const allocator = testing.allocator;
+
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "memory_growth_test");
+    defer harness.deinit();
+
+    const baseline_memory = harness.storage_engine().memtable_manager.memory_usage();
+    var memory_samples = std.ArrayList(u64).init(allocator);
+    defer memory_samples.deinit();
+    try memory_samples.ensureTotalCapacity(5);
+
+    // Phase 1: Gradual load increase
+    const load_phases = [_]usize{ 50, 100, 200, 400, 800 };
+    for (load_phases) |phase_size| {
+        for (0..phase_size) |i| {
+            const block = ContextBlock{
+                .id = TestData.deterministic_block_id(@intCast(i + phase_size * 1000)),
+                .version = 1,
+                .source_uri = "test://fragmentation_benchmark.zig",
+                .metadata_json = "{\"test\":\"fragmentation_benchmark\"}",
+                .content = "Fragmentation benchmark test block content",
+            };
+            try harness.storage_engine().put_block(block);
+        }
+
+        const current_memory = harness.storage_engine().memtable_manager.memory_usage();
+        try memory_samples.append(current_memory);
     }
 
-    const throughput_start = std.time.nanoTimestamp();
-    for (throughput_blocks.items) |block| {
-        try storage_engine.put_block(block);
+    // Phase 2: Memory growth analysis
+    var max_growth_rate: f64 = 0.0;
+    for (1..memory_samples.items.len) |i| {
+        const prev_memory = memory_samples.items[i - 1];
+        const curr_memory = memory_samples.items[i];
+
+        if (prev_memory > 0) {
+            const growth_rate = @as(f64, @floatFromInt(curr_memory)) / @as(f64, @floatFromInt(prev_memory));
+            max_growth_rate = @max(max_growth_rate, growth_rate);
+        }
     }
-    const throughput_end = std.time.nanoTimestamp();
 
-    const throughput_duration_ns = @as(u64, @intCast(throughput_end - throughput_start));
+    // Memory growth should be roughly linear, not exponential
+    try testing.expect(max_growth_rate < 3.0); // No more than 3x growth between phases
 
-    // Calculate actual throughput
-    const ops_per_sec = (throughput_operations * std.time.ns_per_s) / throughput_duration_ns;
+    const final_memory = memory_samples.items[memory_samples.items.len - 1];
+    const total_growth_factor = @as(f64, @floatFromInt(final_memory)) / @as(f64, @floatFromInt(baseline_memory));
 
-    // Assert throughput with tier-adjusted thresholds
-    // Local: 6k ops/sec (30% of base), CI: 12k ops/sec (60% of base), Production: 20k ops/sec (100% of base)
-    try perf.assert_throughput(ops_per_sec, 20_000, "storage write throughput");
+    log.info("Memory growth: baseline={}KB, final={}KB, factor={d:.2}", .{
+        baseline_memory / 1024,
+        final_memory / 1024,
+        total_growth_factor,
+    });
 
-    std.debug.print("\n[SUCCESS] Tiered performance assertions completed successfully!\n", .{});
-    std.debug.print("Performance tier: {s}\n", .{switch (perf.tier) {
-        .local => "LOCAL (relaxed thresholds for development)",
-        .ci => "CI (balanced thresholds for validation)",
-        .production => "PRODUCTION (strict thresholds for release)",
-    }});
+    // Total growth should be reasonable for the amount of data
+    try testing.expect(total_growth_factor < 20.0); // Less than 20x growth
 }

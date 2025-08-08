@@ -185,6 +185,13 @@ pub const SimulationVFS = struct {
         pub fn update_disk_usage(self: *FaultInjectionState, old_size: usize, new_size: usize) void {
             self.used_disk_space = self.used_disk_space - old_size + new_size;
         }
+
+        /// Disable all fault injection for clean recovery testing
+        pub fn disable_all_faults(self: *FaultInjectionState) void {
+            self.io_failure_config.enabled = false;
+            self.torn_write_config.enabled = false;
+            self.read_corruption_config.enabled = false;
+        }
     };
 
     pub fn init(allocator: std.mem.Allocator) !SimulationVFS {
@@ -728,6 +735,11 @@ pub const SimulationVFS = struct {
         const self: *Self = @ptrCast(@alignCast(ptr));
         _ = allocator;
         _ = self;
+    }
+
+    /// Disable all fault injection for clean recovery testing
+    pub fn disable_all_fault_injection(self: *Self) void {
+        self.fault_injection.disable_all_faults();
     }
 };
 

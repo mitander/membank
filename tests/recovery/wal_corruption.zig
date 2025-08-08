@@ -29,25 +29,14 @@ const MAX_RECOVERY_ENTRIES = 1000;
 const MAX_CORRUPTION_ATTEMPTS = 50;
 const SYSTEMATIC_CORRUPTION_THRESHOLD = 4;
 
+const TestData = kausaldb.TestData;
+const StorageHarness = kausaldb.StorageHarness;
+
 fn create_test_block_from_int(id_int: u32, content: []const u8) ContextBlock {
-    var id_bytes: [16]u8 = [_]u8{0} ** 16;
-    std.mem.writeInt(u32, id_bytes[0..4], id_int, .little);
-    const id = BlockId.from_bytes(id_bytes);
-
     return ContextBlock{
-        .id = id,
+        .id = TestData.deterministic_block_id(id_int),
         .version = 1,
-        .source_uri = "test://wal_corruption_test.zig",
-        .metadata_json = "{}",
-        .content = content,
-    };
-}
-
-fn create_test_block(id: BlockId, content: []const u8) ContextBlock {
-    return ContextBlock{
-        .id = id,
-        .version = 1,
-        .source_uri = "test://wal_corruption_test.zig",
+        .source_uri = "test://corruption",
         .metadata_json = "{}",
         .content = content,
     };
@@ -69,7 +58,13 @@ test "magic number detection" {
 
         try wal.startup();
 
-        const test_block = create_test_block_from_int(1, "Valid block before magic corruption");
+        const test_block = ContextBlock{
+            .id = TestData.deterministic_block_id(1),
+            .version = 1,
+            .source_uri = "test://magic_corruption.zig",
+            .metadata_json = "{\"test\":\"magic_corruption\"}",
+            .content = "Valid block before magic corruption",
+        };
         const entry = try WALEntry.create_put_block(test_block, allocator);
         defer entry.deinit(allocator);
         try wal.write_entry(entry);
@@ -128,7 +123,14 @@ test "systematic checksum failures" {
         for (1..10) |i| {
             const content = try std.fmt.allocPrint(allocator, "Systematic test block {}", .{i});
             defer allocator.free(content);
-            const block = create_test_block_from_int(@intCast(i), content);
+            const owned_content = try allocator.dupe(u8, content);
+            const block = ContextBlock{
+                .id = TestData.deterministic_block_id(@intCast(i)),
+                .version = 1,
+                .source_uri = try std.fmt.allocPrint(allocator, "test://systematic_corruption_{}.zig", .{i}),
+                .metadata_json = try std.fmt.allocPrint(allocator, "{{\"systematic_test\":{}}}", .{i}),
+                .content = owned_content,
+            };
             const entry = try WALEntry.create_put_block(block, allocator);
             defer entry.deinit(allocator);
             try wal.write_entry(entry);
@@ -199,7 +201,14 @@ test "boundary conditions" {
             byte.* = @intCast((i + j) & 0xFF);
         }
 
-        const block = create_test_block_from_int(@intCast(i), content);
+        const owned_content = try allocator.dupe(u8, content);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://partial_write_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"partial_write_test\":{}}}", .{i}),
+            .content = owned_content,
+        };
         const entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
         try wal.write_entry(entry);
@@ -230,9 +239,16 @@ test "recovery partial success" {
 
         // Write good entries first
         for (1..6) |i| {
-            const content = try std.fmt.allocPrint(allocator, "Good entry {}", .{i});
+            const content = try std.fmt.allocPrint(allocator, "Final recovery {}", .{i});
             defer allocator.free(content);
-            const block = create_test_block_from_int(@intCast(i), content);
+            const owned_content = try allocator.dupe(u8, content);
+            const block = ContextBlock{
+                .id = TestData.deterministic_block_id(@intCast(i)),
+                .version = 1,
+                .source_uri = try std.fmt.allocPrint(allocator, "test://recovery_verification_{}.zig", .{i}),
+                .metadata_json = try std.fmt.allocPrint(allocator, "{{\"recovery_verification\":{}}}", .{i}),
+                .content = owned_content,
+            };
             const entry = try WALEntry.create_put_block(block, allocator);
             defer entry.deinit(allocator);
             try wal.write_entry(entry);
@@ -244,7 +260,14 @@ test "recovery partial success" {
         for (6..11) |i| {
             const content = try std.fmt.allocPrint(allocator, "Corruptible entry {}", .{i});
             defer allocator.free(content);
-            const block = create_test_block_from_int(@intCast(i), content);
+            const owned_content = try allocator.dupe(u8, content);
+            const block = ContextBlock{
+                .id = TestData.deterministic_block_id(@intCast(i)),
+                .version = 1,
+                .source_uri = "test://wal_corruption_recovery.zig",
+                .metadata_json = "{\"test\":\"wal_corruption_recovery\"}",
+                .content = owned_content,
+            };
             const entry = try WALEntry.create_put_block(block, allocator);
             defer entry.deinit(allocator);
             try wal.write_entry(entry);
@@ -323,7 +346,14 @@ test "large entry handling" {
         byte.* = @intCast(i & 0xFF);
     }
 
-    const large_block = create_test_block_from_int(1, large_content);
+    const owned_content = try allocator.dupe(u8, large_content);
+    const large_block = ContextBlock{
+        .id = TestData.deterministic_block_id(1),
+        .version = 1,
+        .source_uri = "test://systematic_recovery_test.zig",
+        .metadata_json = "{\"test\":\"systematic_recovery\"}",
+        .content = owned_content,
+    };
     const large_entry = try WALEntry.create_put_block(large_block, allocator);
     defer large_entry.deinit(allocator);
     try wal.write_entry(large_entry);
@@ -332,7 +362,14 @@ test "large entry handling" {
     for (2..5) |i| {
         const content = try std.fmt.allocPrint(allocator, "Small entry after large {}", .{i});
         defer allocator.free(content);
-        const block = create_test_block_from_int(@intCast(i), content);
+        const owned_small_content = try allocator.dupe(u8, content);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = "test://checksum_corruption_test.zig",
+            .metadata_json = "{\"test\":\"checksum_corruption\"}",
+            .content = owned_small_content,
+        };
         const entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
         try wal.write_entry(entry);
@@ -352,13 +389,7 @@ test "large entry handling" {
     try recovery_wal.startup();
 
     // Verify recovery succeeded by writing a test entry
-    const test_block = ContextBlock{
-        .id = BlockId.from_bytes([_]u8{1} ** 16),
-        .version = 1,
-        .source_uri = "recovery://test",
-        .metadata_json = "{}",
-        .content = "recovery_verification",
-    };
+    const test_block = create_test_block_from_int(999, "recovery_verification");
     const recovery_test_entry = try WALEntry.create_put_block(test_block, allocator);
     defer recovery_test_entry.deinit(allocator);
     try recovery_wal.write_entry(recovery_test_entry);
@@ -391,7 +422,14 @@ test "defensive timeout recovery" {
 
             const content = try std.fmt.allocPrint(allocator, "Timeout test entry {}", .{entries_written});
             defer allocator.free(content);
-            const block = create_test_block_from_int(entries_written + 1, content);
+            const owned_content = try allocator.dupe(u8, content);
+            const block = ContextBlock{
+                .id = TestData.deterministic_block_id(entries_written + 1),
+                .version = 1,
+                .source_uri = "test://mixed_corruption_test.zig",
+                .metadata_json = "{\"test\":\"mixed_corruption\"}",
+                .content = owned_content,
+            };
             const entry = try WALEntry.create_put_block(block, allocator);
             defer entry.deinit(allocator);
             try wal.write_entry(entry);
@@ -421,13 +459,7 @@ test "defensive timeout recovery" {
     try testing.expect(recovery_time < MAX_TEST_DURATION_MS / 2);
 
     // Verify recovery succeeded by writing a test entry
-    const test_block = ContextBlock{
-        .id = BlockId.from_bytes([_]u8{2} ** 16),
-        .version = 1,
-        .source_uri = "recovery://timeout_test",
-        .metadata_json = "{}",
-        .content = "timeout_recovery_verification",
-    };
+    const test_block = create_test_block_from_int(998, "timeout_recovery_verification");
     const recovery_test_entry = try WALEntry.create_put_block(test_block, allocator);
     defer recovery_test_entry.deinit(allocator);
     try recovery_wal.write_entry(recovery_test_entry);
@@ -454,7 +486,13 @@ test "edge case patterns" {
     // Test edge cases that could trigger corruption
 
     // Empty content block
-    const empty_block = create_test_block_from_int(1, "");
+    const empty_block = ContextBlock{
+        .id = TestData.deterministic_block_id(1),
+        .version = 1,
+        .source_uri = "test://empty_content_test.zig",
+        .metadata_json = "{\"test\":\"empty_content\"}",
+        .content = "",
+    };
     const empty_entry = try WALEntry.create_put_block(empty_block, allocator);
     defer empty_entry.deinit(allocator);
     try wal.write_entry(empty_entry);
@@ -462,15 +500,27 @@ test "edge case patterns" {
     // Single character block
     var tiny_id_bytes: [16]u8 = [_]u8{0} ** 16;
     std.mem.writeInt(u32, tiny_id_bytes[0..4], 2, .little);
-    const tiny_id = BlockId.from_bytes(tiny_id_bytes);
-    const tiny_block = create_test_block(tiny_id, "x");
+    _ = BlockId.from_bytes(tiny_id_bytes);
+    const tiny_block = ContextBlock{
+        .id = TestData.deterministic_block_id(999),
+        .version = 1,
+        .source_uri = "test://tiny_block.zig",
+        .metadata_json = "{\"type\":\"tiny\"}",
+        .content = "pub fn tiny() void {}",
+    };
     const tiny_entry = try WALEntry.create_put_block(tiny_block, allocator);
     defer tiny_entry.deinit(allocator);
     try wal.write_entry(tiny_entry);
 
     // Block with special byte patterns that could confuse parser
     const special_bytes = [_]u8{ 0x00, 0xFF, 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE };
-    const special_block = create_test_block_from_int(3, &special_bytes);
+    const special_block = ContextBlock{
+        .id = TestData.deterministic_block_id(3),
+        .version = 1,
+        .source_uri = "test://wal_corruption_special.zig",
+        .metadata_json = "{\"test\":\"wal_corruption_special\"}",
+        .content = &special_bytes,
+    };
     const special_entry = try WALEntry.create_put_block(special_block, allocator);
     defer special_entry.deinit(allocator);
     try wal.write_entry(special_entry);
@@ -512,13 +562,7 @@ test "edge case patterns" {
 
     try recovery_wal.startup();
     // Verify recovery by attempting to write a test entry
-    const test_block = ContextBlock{
-        .id = BlockId.from_bytes([_]u8{3} ** 16),
-        .version = 1,
-        .source_uri = "recovery://pattern_test",
-        .metadata_json = "{}",
-        .content = "pattern_recovery_verification",
-    };
+    const test_block = create_test_block_from_int(997, "pattern_recovery_verification");
     const verify_entry = try WALEntry.create_put_block(test_block, allocator);
     defer verify_entry.deinit(allocator);
     try recovery_wal.write_entry(verify_entry);
@@ -552,7 +596,14 @@ test "memory safety during recovery" {
 
             @memset(content, @intCast(i & 0xFF));
 
-            const block = create_test_block_from_int(@intCast(i), content);
+            const owned_content = try allocator.dupe(u8, content);
+            const block = ContextBlock{
+                .id = TestData.deterministic_block_id(@intCast(i)),
+                .version = 1,
+                .source_uri = "test://truncated_entry_recovery.zig",
+                .metadata_json = "{\"test\":\"truncated_entry_recovery\"}",
+                .content = owned_content,
+            };
             const entry = try WALEntry.create_put_block(block, allocator);
             defer entry.deinit(allocator);
             try wal.write_entry(entry);

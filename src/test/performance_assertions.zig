@@ -207,6 +207,24 @@ pub const PerformanceAssertion = struct {
         const duration_ns = @as(u64, @intCast(end_time - start_time));
         try self.assert_latency(duration_ns, base_requirement_ns, operation_description);
     }
+
+    /// Assert that mean latency is within target
+    pub fn assert_mean_latency_within_target(
+        self: PerformanceAssertion,
+        actual_mean_ns: u64,
+        target_ns: u64,
+    ) !void {
+        try self.assert_latency(actual_mean_ns, target_ns, "mean latency");
+    }
+
+    /// Assert that P99 latency is acceptable
+    pub fn assert_p99_latency_acceptable(
+        self: PerformanceAssertion,
+        actual_p99_ns: u64,
+        acceptable_ns: u64,
+    ) !void {
+        try self.assert_latency(actual_p99_ns, acceptable_ns, "P99 latency");
+    }
 };
 
 /// Convenience macros for common performance assertions
@@ -264,6 +282,62 @@ pub const BatchPerformanceMeasurement = struct {
     pub fn add_measurement(self: *BatchPerformanceMeasurement, duration_ns: u64) !void {
         try self.measurements.append(duration_ns);
     }
+
+    /// Alias for add_measurement for compatibility with test code
+    pub fn record_latency_ns(self: *BatchPerformanceMeasurement, duration_ns: u64) !void {
+        try self.add_measurement(duration_ns);
+    }
+
+    /// Calculate basic statistics for the measurements
+    pub fn calculate_statistics(self: *BatchPerformanceMeasurement) StatisticsResult {
+        if (self.measurements.items.len == 0) {
+            return StatisticsResult{
+                .mean_latency_ns = 0,
+                .p99_latency_ns = 0,
+                .min_ns = 0,
+                .max_ns = 0,
+                .count = 0,
+            };
+        }
+
+        var total: u64 = 0;
+        var min_val: u64 = std.math.maxInt(u64);
+        var max_val: u64 = 0;
+
+        for (self.measurements.items) |measurement| {
+            total += measurement;
+            if (measurement < min_val) min_val = measurement;
+            if (measurement > max_val) max_val = measurement;
+        }
+
+        // Calculate P99 - sort and find 99th percentile
+        var sorted_measurements = std.ArrayList(u64).init(self.allocator);
+        defer sorted_measurements.deinit();
+        sorted_measurements.appendSlice(self.measurements.items) catch unreachable;
+        std.mem.sort(u64, sorted_measurements.items, {}, comptime std.sort.asc(u64));
+
+        const p99_index = (sorted_measurements.items.len * 99) / 100;
+        const p99_latency = if (p99_index < sorted_measurements.items.len)
+            sorted_measurements.items[p99_index]
+        else
+            max_val;
+
+        return StatisticsResult{
+            .mean_latency_ns = total / self.measurements.items.len,
+            .p99_latency_ns = p99_latency,
+            .min_ns = min_val,
+            .max_ns = max_val,
+            .count = self.measurements.items.len,
+        };
+    }
+
+    pub const StatisticsResult = struct {
+        mean_latency_ns: u64,
+        p99_latency_ns: u64,
+        min_ns: u64,
+        max_ns: u64,
+        count: usize,
+    };
 
     /// Calculate statistical metrics and assert against tier-adjusted thresholds
     pub fn assert_statistics(

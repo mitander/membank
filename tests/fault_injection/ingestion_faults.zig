@@ -9,39 +9,42 @@
 //!
 //! All tests use deterministic simulation for reproducible failure scenarios.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
+const kausaldb = @import("kausaldb");
 
-const simulation_vfs = kausaldb.simulation_vfs;
-const storage = kausaldb.storage;
-const types = kausaldb.types;
-const vfs = kausaldb.vfs;
-
-const SimulationVFS = simulation_vfs.SimulationVFS;
-const StorageEngine = storage.StorageEngine;
-const ContextBlock = types.ContextBlock;
-const BlockId = types.BlockId;
-
-// Helper function to create test BlockId from integer
-fn test_block_id(id: u32) BlockId {
-    var bytes: [16]u8 = [_]u8{0} ** 16;
-    std.mem.writeInt(u32, bytes[0..4], id, .little);
-    return BlockId.from_bytes(bytes);
-}
+const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
+const StorageEngine = kausaldb.storage.StorageEngine;
+const ContextBlock = kausaldb.types.ContextBlock;
+const BlockId = kausaldb.types.BlockId;
+const TestData = kausaldb.TestData;
+const FaultInjectionHarness = kausaldb.FaultInjectionHarness;
+const FaultInjectionConfig = kausaldb.FaultInjectionConfig;
 
 test "ingestion handles source file read errors gracefully" {
     const allocator = testing.allocator;
-    var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 0x12345);
-    defer sim_vfs.deinit();
 
-    var vfs_interface = sim_vfs.vfs();
+    // Configure fault injection for read operations
+    var fault_config = FaultInjectionConfig{};
+    fault_config.io_failures.enabled = true;
+    fault_config.io_failures.failure_rate_per_thousand = 1000; // 100% failure rate
+    fault_config.io_failures.operations.read = true;
+
+    var harness = try FaultInjectionHarness.init_with_faults(allocator, 0x12345, "kausaldb_data", fault_config);
+    defer harness.deinit();
+    try harness.startup();
 
     // Create test repository structure
+    const node = harness.simulation_harness.node();
+
+    const vfs_interface = node.filesystem_interface();
+
     try vfs_interface.mkdir("test_repo");
     try vfs_interface.mkdir("test_repo/src");
+
+    // Temporarily disable faults to create test files
+    harness.disable_all_faults();
     var file = try vfs_interface.create("test_repo/src/main.zig");
-    defer file.close();
     _ = try file.write(
         \\const std = @import("std");
         \\fn main() void {
@@ -50,15 +53,11 @@ test "ingestion handles source file read errors gracefully" {
     );
     file.close();
 
-    // Setup storage engine
-    var engine = try StorageEngine.init_default(allocator, vfs_interface, "kausaldb_data");
-    defer engine.deinit();
-    try engine.startup();
-
-    // Enable I/O failures for file read operations
-    sim_vfs.enable_io_failures(1000, .{ .read = true }); // 100% probability on reads
+    // Re-enable faults for testing
+    try harness.apply_fault_configuration();
 
     // Attempt to access the test file - should trigger read error
+    harness.tick(1); // Advance simulation to trigger faults
     const read_result = vfs_interface.open("test_repo/src/main.zig", .read);
 
     // Should handle I/O error gracefully
@@ -186,7 +185,7 @@ test "ingestion handles storage failures during block insertion" {
 
     // Test basic storage operations under write pressure
     const test_block = ContextBlock{
-        .id = test_block_id(12345),
+        .id = TestData.deterministic_block_id(12345),
         .version = 1,
         .source_uri = "test_simple.zig",
         .metadata_json = "{}",
@@ -294,14 +293,14 @@ test "ingestion maintains atomicity during cascade failures" {
     // Test multiple storage operations
     const test_blocks = [_]ContextBlock{
         .{
-            .id = test_block_id(1001),
+            .id = TestData.deterministic_block_id(1001),
             .version = 1,
             .source_uri = "main.zig",
             .metadata_json = "{}",
             .content = "fn main() void {}",
         },
         .{
-            .id = test_block_id(1002),
+            .id = TestData.deterministic_block_id(1002),
             .version = 1,
             .source_uri = "helpers.zig",
             .metadata_json = "{}",
@@ -427,7 +426,7 @@ test "ingestion cleans up resources after failures" {
 
     // Test basic storage operation under write pressure
     const test_block = ContextBlock{
-        .id = test_block_id(9001),
+        .id = TestData.deterministic_block_id(9001),
         .version = 1,
         .source_uri = "test.zig",
         .metadata_json = "{}",

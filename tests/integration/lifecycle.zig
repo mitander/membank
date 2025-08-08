@@ -18,7 +18,6 @@ const BlockId = kausaldb.BlockId;
 const GraphEdge = kausaldb.GraphEdge;
 const EdgeType = kausaldb.EdgeType;
 
-// Import new testing infrastructure
 const SimulationHarness = kausaldb.SimulationHarness;
 const TestData = kausaldb.TestData;
 
@@ -31,8 +30,8 @@ test "full data lifecycle with compaction" {
 
     // Phase 1: Bulk data ingestion (trigger compaction)
     const num_blocks = 1200; // Exceeds flush threshold of 1000
-    var created_blocks = std.ArrayList(ContextBlock).init(allocator);
-    try created_blocks.ensureCapacity(num_blocks);
+    var created_blocks = try std.ArrayList(ContextBlock).initCapacity(allocator, num_blocks);
+    // CAPACITY_MANAGED: Pre-allocated for known bounds performance
     defer {
         for (created_blocks.items) |block| {
             allocator.free(block.source_uri);
@@ -44,9 +43,16 @@ test "full data lifecycle with compaction" {
 
     // Create blocks using standardized test data (start from 1, all-zero BlockID invalid)
     for (1..num_blocks + 1) |i| {
-        const block = try TestData.create_test_block(allocator, @intCast(i));
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = "test://lifecycle_block.zig",
+            .metadata_json = "{\"test\":\"lifecycle_management\"}",
+            .content = "Lifecycle management test block content",
+        };
 
         try harness.storage_engine.put_block(block);
+        // ALLOW: append without ensureCapacity
         try created_blocks.append(ContextBlock{
             .id = block.id,
             .version = block.version,
@@ -103,7 +109,11 @@ test "full data lifecycle with compaction" {
         const source_idx = i;
         const target_idx = (i % 100) + 1; // Create circular dependencies, ensure non-zero
 
-        const edge = TestData.create_test_edge(@intCast(source_idx), @intCast(target_idx), .imports);
+        const edge = GraphEdge{
+            .source_id = TestData.deterministic_block_id(@intCast(source_idx)),
+            .target_id = TestData.deterministic_block_id(@intCast(target_idx)),
+            .edge_type = .imports,
+        };
 
         try harness.storage_engine.put_edge(edge);
         edges_created += 1;
@@ -119,7 +129,7 @@ test "full data lifecycle with compaction" {
 
     // Phase 4: Data modification and consistency
 
-    // Update blocks to trigger WAL writes using standardized test data
+    // Update blocks to trigger WAL writes
     for (1..11) |i| {
         const block_id = TestData.deterministic_block_id(@intCast(i));
 
@@ -229,8 +239,8 @@ test "concurrent storage and query operations" {
     defer harness.deinit();
 
     // Create additional node for latency simulation
-    const node2 = try harness.simulation().add_node();
-    harness.simulation().configure_latency(harness.node_id(), node2, 5); // 5ms latency
+    const node2 = try harness.simulation.add_node();
+    harness.simulation.configure_latency(harness.node_id, node2, 5); // 5ms latency
     harness.tick(10);
 
     // Simulate concurrent workload patterns
@@ -238,8 +248,13 @@ test "concurrent storage and query operations" {
 
     // Phase 1: Baseline data
     for (0..base_blocks) |i| {
-        const block = try TestData.create_test_block(allocator, @intCast(i));
-        defer TestData.cleanup_test_block(allocator, block);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = "test://restart_recovery.zig",
+            .metadata_json = "{\"test\":\"restart_recovery\"}",
+            .content = "Restart recovery test block content",
+        };
 
         try harness.storage_engine.put_block(block);
 
@@ -252,12 +267,17 @@ test "concurrent storage and query operations" {
     // Phase 2: Interleaved reads and writes
     for (0..100) |round| {
         // Write new block using standardized test data
-        const write_block = try TestData.create_test_block(allocator, @intCast(base_blocks + round));
-        defer TestData.cleanup_test_block(allocator, write_block);
+        const write_block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(base_blocks + round)),
+            .version = 1,
+            .source_uri = "test://concurrent_write_read.zig",
+            .metadata_json = "{\"test\":\"concurrent_write_read\"}",
+            .content = "Concurrent write/read test block content",
+        };
 
         try harness.storage_engine.put_block(write_block);
 
-        // Read existing block using standardized ID generation
+        // Read existing block
         const read_idx = round % base_blocks;
         const read_id = TestData.deterministic_block_id(@intCast(read_idx));
 
@@ -325,14 +345,27 @@ test "storage recovery and query consistency" {
         const test_indices = [_]u32{ 1, 2, 3 };
 
         for (test_indices) |i| {
-            const block = try TestData.create_test_block(allocator, i);
-            defer TestData.cleanup_test_block(allocator, block);
+            const block = ContextBlock{
+                .id = TestData.deterministic_block_id(@intCast(i)),
+                .version = 1,
+                .source_uri = "test://concurrent_operation.zig",
+                .metadata_json = "{\"test\":\"concurrent_operations\"}",
+                .content = "Concurrent operations test block content",
+            };
             try harness.storage_engine.put_block(block);
         }
 
         // Create edges using TestData
-        const edge1 = TestData.create_test_edge(1, 2, .imports);
-        const edge2 = TestData.create_test_edge(2, 3, .calls);
+        const edge1 = GraphEdge{
+            .source_id = TestData.deterministic_block_id(1),
+            .target_id = TestData.deterministic_block_id(2),
+            .edge_type = .imports,
+        };
+        const edge2 = GraphEdge{
+            .source_id = TestData.deterministic_block_id(2),
+            .target_id = TestData.deterministic_block_id(3),
+            .edge_type = .calls,
+        };
         try harness.storage_engine.put_edge(edge1);
         try harness.storage_engine.put_edge(edge2);
 
@@ -417,8 +450,15 @@ test "large scale performance characteristics" {
     for (1..large_block_count + 1) |i| {
         // Create realistic-sized blocks using TestData with custom sizes
         const content_size = 512 + (i % 1024); // 512-1536 bytes
-        const block = try TestData.create_test_block_with_size(allocator, @intCast(i), content_size);
-        defer TestData.cleanup_test_block(allocator, block);
+        const content = try allocator.alloc(u8, content_size);
+        @memset(content, @as(u8, @intCast('A' + (i % 26))));
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = "test://large_scale_stress.zig",
+            .metadata_json = "{\"test\":\"large_scale_stress\"}",
+            .content = content,
+        };
 
         try harness.storage_engine.put_block(block);
         inserted_count += 1;

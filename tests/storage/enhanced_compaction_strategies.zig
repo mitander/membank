@@ -8,15 +8,13 @@ const std = @import("std");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
-const storage = kausaldb.storage;
-const simulation_vfs = kausaldb.simulation_vfs;
-const types = kausaldb.types;
-
-const TieredCompactionManager = storage.TieredCompactionManager;
-const StorageEngine = storage.StorageEngine;
-const SimulationVFS = simulation_vfs.SimulationVFS;
-const ContextBlock = types.ContextBlock;
-const BlockId = types.BlockId;
+const TieredCompactionManager = kausaldb.storage.TieredCompactionManager;
+const StorageEngine = kausaldb.storage.StorageEngine;
+const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
+const ContextBlock = kausaldb.types.ContextBlock;
+const BlockId = kausaldb.types.BlockId;
+const TestData = kausaldb.TestData;
+const StorageHarness = kausaldb.StorageHarness;
 
 // Helper function to check compaction without leaking memory
 fn check_compaction_and_cleanup(manager: *TieredCompactionManager) bool {
@@ -29,14 +27,11 @@ fn check_compaction_and_cleanup(manager: *TieredCompactionManager) bool {
     return false;
 }
 
-// Use standardized TestData utilities instead of custom block creation
-const TestData = kausaldb.TestData;
-
 test "cross level compaction with realistic SSTable sizes" {
     const allocator = testing.allocator;
 
     // Use StorageHarness for coordinated setup
-    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "test_cross_level");
+    var harness = try StorageHarness.init_and_startup(allocator, "test_cross_level");
     defer harness.deinit();
 
     // Access the tiered compaction manager through the storage engine
@@ -129,7 +124,16 @@ test "compaction memory efficiency under large datasets" {
     var i: u32 = 0;
     while (i < large_dataset_size) : (i += 1) {
         const size_multiplier = (i % 10) + 1; // Variable block sizes
-        const block = try create_test_block(i, size_multiplier, allocator);
+        const content_size = @as(usize, size_multiplier * 128); // Base size * multiplier
+        const content = try allocator.alloc(u8, content_size);
+        @memset(content, @as(u8, @intCast('A' + (i % 26))));
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://compaction_strategy_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"compaction_test\":{},\"size_multiplier\":{}}}", .{ i, size_multiplier }),
+            .content = content,
+        };
         try storage_engine.put_block(block);
         try test_blocks.append(block);
 

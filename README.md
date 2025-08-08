@@ -48,11 +48,11 @@ The model now operates on a subgraph of reality, eliminating guesswork and enabl
 
 ## Features
 
--   **Fast:** 47K writes/sec and 16.7M reads/sec.
--   **Zero Races by Design:** A single-threaded core with an async I/O event loop eliminates data races and simplifies state management.
--   **Zero Dependencies:** A single, static binary written in pure Zig. No runtime, no complex toolchains, no headache.
--   **Deterministic Testing:** A simulation-first testing framework validates the exact production code against catastrophic failures like disk corruption, network partitions, and power loss in a byte-for-byte reproducible manner.
--   **Arena-Based Memory Model:** An arena-per-subsystem memory model provides O(1) cleanup for state-heavy components, high performance, and zero memory leaks across a test suite of over 500 tests.
+- **Fast:** 47K writes/sec and 16.7M reads/sec.
+- **Zero Races by Design:** A single-threaded core with an async I/O event loop eliminates data races and simplifies state management.
+- **Zero Dependencies:** A single, static binary written in pure Zig. No runtime, no complex toolchains, no headache.
+- **Deterministic Testing:** A simulation-first testing framework validates the exact production code against catastrophic failures like disk corruption, network partitions, and power loss in a byte-for-byte reproducible manner.
+- **Arena-Based Memory Model:** An arena-per-subsystem memory model provides O(1) cleanup for state-heavy components, high performance, and zero memory leaks across a test suite of over 500 tests.
 
 ## Development
 
@@ -63,7 +63,7 @@ The repository includes a full suite of tools for validation and performance ana
 ./scripts/local_ci.sh
 
 # Run performance regression detection against baseline
-./scripts/benchmark.sh
+./scripts/check_regression.sh
 
 # Run chaos testing with random inputs (multiple profiles available)
 ./scripts/fuzz.sh quick
@@ -71,6 +71,6 @@ The repository includes a full suite of tools for validation and performance ana
 
 ## Documentation
 
--   **[Architectural Design](docs/DESIGN.md)**
--   **[Development Workflow](docs/DEVELOPMENT.md)**
--   **[Style Guide](docs/STYLE.md)**
+- **[Architectural Design](docs/DESIGN.md)**
+- **[Development Workflow](docs/DEVELOPMENT.md)**
+- **[Style Guide](docs/STYLE.md)**

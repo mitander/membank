@@ -18,9 +18,12 @@ const types = kausaldb.types;
 const assert = kausaldb.assert;
 
 const StorageEngine = storage.StorageEngine;
+const NodeId = simulation.NodeId;
+const Node = simulation.Node;
 const QueryEngine = query_engine.QueryEngine;
 const Simulation = simulation.Simulation;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const VFS = kausaldb.VFS;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const GraphEdge = types.GraphEdge;
@@ -28,7 +31,7 @@ const EdgeType = types.EdgeType;
 
 /// Test data utilities following deterministic patterns for reproducible testing
 pub const TestData = struct {
-    /// Create deterministic BlockId from seed ensuring non-zero result
+    /// Generate deterministic BlockId from seed ensuring non-zero result
     /// All-zero BlockId is invalid per storage engine requirements
     pub fn deterministic_block_id(seed: u32) BlockId {
         var bytes: [16]u8 = undefined;
@@ -37,24 +40,15 @@ pub const TestData = struct {
         return BlockId.from_bytes(bytes);
     }
 
-    /// Create test block with deterministic content and standard 128-byte size
-    /// Caller must free using cleanup_test_block
+    /// Create test block with deterministic content for reproducible testing
     pub fn create_test_block(allocator: std.mem.Allocator, index: u32) !ContextBlock {
-        return create_test_block_sized(allocator, index, 128);
-    }
-
-    /// Create test block with configurable content size for compaction and performance testing
-    /// Caller must free using cleanup_test_block
-    pub fn create_test_block_sized(allocator: std.mem.Allocator, index: u32, content_size: u32) !ContextBlock {
+        const block_id = deterministic_block_id(index);
         const source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{index});
-        const metadata_json = try std.fmt.allocPrint(allocator, "{{\"index\":{},\"test\":true}}", .{index});
-
-        const content = try allocator.alloc(u8, content_size);
-        // Deterministic content pattern ensures consistent test behavior across runs
-        @memset(content, @as(u8, @intCast('A' + (index % 26))));
+        const metadata_json = try std.fmt.allocPrint(allocator, "{{\"type\":\"test\",\"index\":{}}}", .{index});
+        const content = try std.fmt.allocPrint(allocator, "Test block content for index {}", .{index});
 
         return ContextBlock{
-            .id = deterministic_block_id(index),
+            .id = block_id,
             .version = 1,
             .source_uri = source_uri,
             .metadata_json = metadata_json,
@@ -62,17 +56,43 @@ pub const TestData = struct {
         };
     }
 
-    /// Create test edge between blocks using deterministic ID generation
-    pub fn create_test_edge(source_index: u32, target_index: u32, edge_type: EdgeType) GraphEdge {
+    /// Create test edge between blocks using provided block IDs
+    pub fn create_test_edge(source_id: BlockId, target_id: BlockId, edge_type: EdgeType) GraphEdge {
         return GraphEdge{
-            .source_id = deterministic_block_id(source_index),
-            .target_id = deterministic_block_id(target_index),
+            .source_id = source_id,
+            .target_id = target_id,
             .edge_type = edge_type,
         };
     }
 
-    /// Clean up all allocations from test block created by create_test_block functions
-    /// Must be called to prevent memory leaks
+    /// Create test edge from indices using deterministic ID generation
+    /// Convenience function for tests that work with sequential indices
+    pub fn create_test_edge_from_indices(source_index: u32, target_index: u32, edge_type: EdgeType) GraphEdge {
+        return create_test_edge(deterministic_block_id(source_index), deterministic_block_id(target_index), edge_type);
+    }
+
+    /// Create test block with custom content for specific test scenarios
+    pub fn create_test_block_with_content(allocator: std.mem.Allocator, index: u32, content: []const u8) !ContextBlock {
+        const block_id = deterministic_block_id(index);
+        const source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{index});
+        const metadata_json = try std.fmt.allocPrint(allocator, "{{\"type\":\"test\",\"index\":{}}}", .{index});
+        const content_copy = try allocator.dupe(u8, content);
+
+        return ContextBlock{
+            .id = block_id,
+            .version = 1,
+            .source_uri = source_uri,
+            .metadata_json = metadata_json,
+            .content = content_copy,
+        };
+    }
+
+    /// Create BlockId from index for use in queries and edge creation
+    pub fn block_id_from_index(index: u32) BlockId {
+        return deterministic_block_id(index);
+    }
+
+    /// Clean up test block allocated strings
     pub fn cleanup_test_block(allocator: std.mem.Allocator, block: ContextBlock) void {
         allocator.free(block.source_uri);
         allocator.free(block.metadata_json);
@@ -86,9 +106,20 @@ pub const StorageHarness = struct {
     allocator: std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
     sim_vfs: *SimulationVFS,
+    vfs_instance: VFS,
     storage_engine: *StorageEngine,
 
     const Self = @This();
+
+    /// Get VFS interface for components that need direct VFS access
+    pub fn vfs(self: *Self) *SimulationVFS {
+        return self.sim_vfs;
+    }
+
+    /// Get VFS pointer for components that need *VFS parameter
+    pub fn vfs_ptr(self: *Self) *VFS {
+        return &self.vfs_instance;
+    }
 
     /// Phase 1 initialization: memory allocation only, no I/O operations
     pub fn init(allocator: std.mem.Allocator, db_name: []const u8) !Self {
@@ -102,12 +133,14 @@ pub const StorageHarness = struct {
 
         // Storage engine created with VFS abstraction but no I/O operations yet
         const storage_engine = try arena_allocator.create(StorageEngine);
-        storage_engine.* = try StorageEngine.init_default(arena_allocator, sim_vfs.vfs(), db_name);
+        const vfs_instance = sim_vfs.vfs();
+        storage_engine.* = try StorageEngine.init_default(arena_allocator, vfs_instance, db_name);
 
         return Self{
             .allocator = allocator,
             .arena = arena,
             .sim_vfs = sim_vfs,
+            .vfs_instance = vfs_instance,
             .storage_engine = storage_engine,
         };
     }
@@ -195,7 +228,7 @@ pub const SimulationHarness = struct {
     simulation: *Simulation,
     storage_engine: *StorageEngine,
     query_engine: *QueryEngine,
-    node_id: u32,
+    node_id: NodeId,
 
     const Self = @This();
 
@@ -261,7 +294,7 @@ pub const SimulationHarness = struct {
     }
 
     /// Access simulation node for network and filesystem operations
-    pub fn node(self: *Self) *Simulation.Node {
+    pub fn node(self: *Self) *Node {
         return self.simulation.find_node(self.node_id);
     }
 };
@@ -332,15 +365,21 @@ pub const FaultInjectionHarness = struct {
     }
 
     /// Configure fault injection parameters in simulation VFS
-    fn apply_fault_configuration(self: *Self) !void {
+    pub fn apply_fault_configuration(self: *Self) !void {
         const node = self.simulation_harness.node();
-        const sim_vfs = node.simulation_vfs();
+        const sim_vfs = &node.filesystem;
 
         // I/O failure configuration based on fault settings
         if (self.fault_config.io_failures.enabled) {
+            const operations = SimulationVFS.FaultInjectionState.IoFailureConfig.OperationType{
+                .read = self.fault_config.io_failures.operations.read,
+                .write = self.fault_config.io_failures.operations.write,
+                .sync = self.fault_config.io_failures.operations.sync,
+                .remove = self.fault_config.io_failures.operations.remove,
+            };
             sim_vfs.enable_io_failures(
                 self.fault_config.io_failures.failure_rate_per_thousand,
-                self.fault_config.io_failures.operations,
+                operations,
             );
         }
 
@@ -374,7 +413,7 @@ pub const FaultInjectionHarness = struct {
     /// Disable all fault injection to enable clean recovery testing
     pub fn disable_all_faults(self: *Self) void {
         const node = self.simulation_harness.node();
-        const sim_vfs = node.simulation_vfs();
+        const sim_vfs = &node.filesystem;
         sim_vfs.disable_all_fault_injection();
     }
 };

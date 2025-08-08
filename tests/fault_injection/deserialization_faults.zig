@@ -16,14 +16,15 @@ const BlockId = types.BlockId;
 const GraphEdge = types.GraphEdge;
 const EdgeType = types.EdgeType;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const TestData = kausaldb.TestData;
 
 // Helper to create valid serialized ContextBlock for corruption testing
 fn create_valid_serialized_block(allocator: std.mem.Allocator) ![]u8 {
     const test_block = ContextBlock{
-        .id = try BlockId.from_hex("12345678123456781234567812345678"),
+        .id = TestData.deterministic_block_id(0x12345678),
         .version = 1,
-        .source_uri = "test://source.zig",
-        .metadata_json = "{\"type\":\"function\"}",
+        .source_uri = "test://deserialization_test.zig",
+        .metadata_json = "{\"test\":\"deserialization\"}",
         .content = "pub fn test() void {}",
     };
 
@@ -35,9 +36,11 @@ fn create_valid_serialized_block(allocator: std.mem.Allocator) ![]u8 {
 
 // Helper to create valid serialized GraphEdge for corruption testing
 fn create_valid_serialized_edge() ![GraphEdge.SERIALIZED_SIZE]u8 {
+    const source_id = TestData.deterministic_block_id(0x11111111);
+    const target_id = TestData.deterministic_block_id(0x22222222);
     const test_edge = GraphEdge{
-        .source_id = try BlockId.from_hex("11111111111111111111111111111111"),
-        .target_id = try BlockId.from_hex("22222222222222222222222222222222"),
+        .source_id = source_id,
+        .target_id = target_id,
         .edge_type = EdgeType.imports,
     };
 

@@ -28,8 +28,8 @@ const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
-// Use standardized test data helpers for consistent block creation
 const TestData = kausaldb.TestData;
+const StorageHarness = kausaldb.StorageHarness;
 
 /// Generate random BlockId for testing purposes
 fn random_block_id() BlockId {
@@ -110,8 +110,13 @@ test "recovery after system restart with partial data" {
         try testing.expectEqual(@as(u32, 0), validator.corrupted_entries);
 
         // Verify system can continue normal operation after recovery
-        const new_block = try TestData.create_test_block(allocator, 999);
-        defer TestData.cleanup_test_block(allocator, new_block);
+        const new_block = ContextBlock{
+            .id = TestData.deterministic_block_id(999),
+            .version = 1,
+            .source_uri = "test://post_recovery_verification.zig",
+            .metadata_json = "{\"test\":\"post_recovery\"}",
+            .content = "Post-recovery verification block",
+        };
 
         var new_entry = try WALEntry.create_put_block(new_block, allocator);
         defer new_entry.deinit(allocator);
@@ -140,8 +145,13 @@ test "I/O failure during flush operations" {
 
     // Write some entries successfully first
     for (0..5) |i| {
-        const block = try TestData.create_test_block(allocator, @intCast(i));
-        defer TestData.cleanup_test_block(allocator, block);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://io_failure_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"io_failure_test\":{}}}", .{i}),
+            .content = try std.fmt.allocPrint(allocator, "IO failure test block {}", .{i}),
+        };
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -157,8 +167,13 @@ test "I/O failure during flush operations" {
     var failed_writes: u32 = 0;
 
     for (5..15) |i| {
-        const block = try TestData.create_test_block(allocator, @intCast(i));
-        defer TestData.cleanup_test_block(allocator, block);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://io_failure_continued_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"io_failure_continued\":{}}}", .{i}),
+            .content = try std.fmt.allocPrint(allocator, "IO failure continued test block {}", .{i}),
+        };
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -183,8 +198,13 @@ test "I/O failure during flush operations" {
     sim_vfs.enable_io_failures(0, .{});
 
     // Should be able to write normally after I/O issues resolved
-    const recovery_block = try TestData.create_test_block(allocator, 999);
-    defer TestData.cleanup_test_block(allocator, recovery_block);
+    const recovery_block = ContextBlock{
+        .id = TestData.deterministic_block_id(888),
+        .version = 1,
+        .source_uri = "test://io_failure_recovery.zig",
+        .metadata_json = "{\"test\":\"io_failure_recovery\"}",
+        .content = "IO failure recovery test block content",
+    };
 
     var recovery_entry = try WALEntry.create_put_block(recovery_block, allocator);
     defer recovery_entry.deinit(allocator);
@@ -224,8 +244,15 @@ test "disk space exhaustion handling" {
 
     // Write until disk space is exhausted
     for (0..20) |i| { // Upper bound to prevent infinite loop
-        const block = try TestData.create_test_block_sized(allocator, @intCast(i), large_content_size);
-        defer TestData.cleanup_test_block(allocator, block);
+        const content = try allocator.alloc(u8, large_content_size);
+        @memset(content, @as(u8, @intCast('A' + (i % 26))));
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://disk_space_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"disk_space_test\":{}}}", .{i}),
+            .content = content,
+        };
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -248,8 +275,13 @@ test "disk space exhaustion handling" {
     // Increase disk space and verify normal operation resumes
     sim_vfs.configure_disk_space_limit(1024 * 1024); // 1MB
 
-    const recovery_block = try TestData.create_test_block(allocator, 888);
-    defer TestData.cleanup_test_block(allocator, recovery_block);
+    const recovery_block = ContextBlock{
+        .id = TestData.deterministic_block_id(888),
+        .version = 1,
+        .source_uri = "test://disk_space_recovery.zig",
+        .metadata_json = "{\"test\":\"disk_space_recovery\"}",
+        .content = "Disk space recovery test block",
+    };
 
     var recovery_entry = try WALEntry.create_put_block(recovery_block, allocator);
     defer recovery_entry.deinit(allocator);
@@ -313,8 +345,13 @@ test "power loss simulation during segment rotation" {
     sim_vfs.enable_io_failures(1000, .{ .write = true, .sync = true }); // Guaranteed failure on writes
 
     // Attempt to write another entry - should fail due to "power loss"
-    const power_loss_block = try create_test_block(777, allocator);
-    defer cleanup_test_block(power_loss_block, allocator);
+    const power_loss_block = ContextBlock{
+        .id = TestData.deterministic_block_id(777),
+        .version = 1,
+        .source_uri = "test://power_loss_simulation.zig",
+        .metadata_json = "{\"test\":\"power_loss_simulation\"}",
+        .content = "Power loss simulation test block",
+    };
 
     var power_loss_entry = try WALEntry.create_put_block(power_loss_block, allocator);
     defer power_loss_entry.deinit(allocator);
@@ -334,8 +371,13 @@ test "power loss simulation during segment rotation" {
     sim_vfs.enable_io_failures(0, .{});
 
     // Verify system can recover and continue normal operation
-    const post_recovery_block = try create_test_block(777, allocator);
-    defer cleanup_test_block(post_recovery_block, allocator);
+    const post_recovery_block = ContextBlock{
+        .id = TestData.deterministic_block_id(777),
+        .version = 1,
+        .source_uri = "test://power_loss_recovery.zig",
+        .metadata_json = "{\"test\":\"power_loss_recovery\"}",
+        .content = "Power loss recovery test block content",
+    };
 
     var post_recovery_entry = try WALEntry.create_put_block(post_recovery_block, allocator);
     defer post_recovery_entry.deinit(allocator);
@@ -366,8 +408,13 @@ test "recovery robustness with simulated disk errors" {
 
     // Write some valid entries first to establish baseline
     for (0..5) |i| {
-        const block = try TestData.create_test_block(allocator, @intCast(i));
-        defer TestData.cleanup_test_block(allocator, block);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = try std.fmt.allocPrint(allocator, "test://concurrent_access_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"concurrent_access_test\":{}}}", .{i}),
+            .content = try std.fmt.allocPrint(allocator, "Concurrent access test block {}", .{i}),
+        };
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -384,10 +431,15 @@ test "recovery robustness with simulated disk errors" {
     var io_errors: u32 = 0;
 
     for (5..15) |i| {
-        const block = try TestData.create_test_block(allocator, @intCast(i));
-        defer TestData.cleanup_test_block(allocator, block);
+        const single_block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = "test://concurrent_access_single.zig",
+            .metadata_json = "{\"test\":\"concurrent_access_single\"}",
+            .content = "Concurrent access single test block content",
+        };
 
-        var entry = try WALEntry.create_put_block(block, allocator);
+        var entry = try WALEntry.create_put_block(single_block, allocator);
         defer entry.deinit(allocator);
 
         writes_attempted += 1;
@@ -413,8 +465,13 @@ test "recovery robustness with simulated disk errors" {
     // Clear fault injection and verify normal operation
     sim_vfs.enable_io_failures(0, .{});
 
-    const recovery_block = try TestData.create_test_block(allocator, 777);
-    defer TestData.cleanup_test_block(allocator, recovery_block);
+    const recovery_block = ContextBlock{
+        .id = TestData.deterministic_block_id(777),
+        .version = 1,
+        .source_uri = "test://wal_durability_recovery.zig",
+        .metadata_json = "{\"test\":\"wal_durability_recovery\"}",
+        .content = "WAL durability recovery test block content",
+    };
 
     var recovery_entry = try WALEntry.create_put_block(recovery_block, allocator);
     defer recovery_entry.deinit(allocator);
@@ -445,8 +502,13 @@ test "concurrent failure modes stress test" {
 
     // Write baseline entries
     for (0..5) |i| {
-        const block = try TestData.create_test_block(allocator, @intCast(i));
-        defer TestData.cleanup_test_block(allocator, block);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = "test://wal_validation_stress.zig",
+            .metadata_json = "{\"test\":\"wal_validation_stress\"}",
+            .content = "WAL validation stress test block content",
+        };
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);
@@ -468,8 +530,15 @@ test "concurrent failure modes stress test" {
     var other_failures: u32 = 0;
 
     for (5..50) |i| {
-        const block = try TestData.create_test_block_sized(allocator, @intCast(i), 512); // 512-byte blocks
-        defer TestData.cleanup_test_block(allocator, block);
+        const content = try allocator.alloc(u8, 512);
+        @memset(content, @as(u8, @intCast('A' + (i % 26))));
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = "test://wal_durability_sized.zig",
+            .metadata_json = "{\"test\":\"wal_durability_sized\"}",
+            .content = content,
+        };
 
         var entry = try WALEntry.create_put_block(block, allocator);
         defer entry.deinit(allocator);

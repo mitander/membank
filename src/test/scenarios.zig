@@ -235,17 +235,17 @@ pub const ScenarioExecutor = struct {
             const survival_rate = @as(f32, @floatFromInt(recovered_block_count)) /
                 @as(f32, @floatFromInt(initial_block_count));
 
-            std.debug.print("Recovery stats: {d}/{d} blocks survived ({d:.1%} survival rate)\n", .{
+            std.debug.print("Recovery stats: {d}/{d} blocks survived ({:.1}% survival rate)\n", .{
                 recovered_block_count,
                 initial_block_count,
-                survival_rate,
+                survival_rate * 100.0,
             });
 
             // Verify survival rate meets expectations
             if (survival_rate < self.scenario.expected_min_survival_rate) {
-                std.debug.print("FAILURE: Survival rate {d:.1%} below expected {d:.1%}\n", .{
-                    survival_rate,
-                    self.scenario.expected_min_survival_rate,
+                std.debug.print("FAILURE: Survival rate {d:.1}% below expected {d:.1}%\n", .{
+                    survival_rate * 100.0,
+                    self.scenario.expected_min_survival_rate * 100.0,
                 });
                 return error.InsufficientDataSurvival;
             }
@@ -272,8 +272,13 @@ pub const ScenarioExecutor = struct {
     /// Create baseline data set for fault injection testing
     fn populate_initial_data(self: Self, storage_engine: *StorageEngine) !void {
         for (0..self.scenario.initial_blocks) |i| {
-            const block = try TestData.create_test_block(self.allocator, @intCast(i));
-            defer TestData.cleanup_test_block(self.allocator, block);
+            const block = ContextBlock{
+                .id = TestData.deterministic_block_id(@intCast(i)),
+                .version = 1,
+                .source_uri = "test://fault_injection_block.zig",
+                .metadata_json = "{\"fault_injection_test\":true}",
+                .content = "pub fn fault_injection_test_block() void { return; }",
+            };
             try storage_engine.put_block(block);
         }
     }
@@ -299,7 +304,7 @@ pub const ScenarioExecutor = struct {
                 sim_vfs.enable_torn_writes(200, 1, 50); // Lower probability for combined faults
             },
             .disk_space_exhaustion => {
-                sim_vfs.set_disk_space_limit(1024 * 1024); // 1MB limit to trigger exhaustion
+                sim_vfs.configure_disk_space_limit(1024 * 1024); // 1MB limit to trigger exhaustion
             },
             .read_corruption => {
                 sim_vfs.enable_read_corruption(100, 1); // 0.1% corruption rate, 1 bit per corruption
@@ -313,14 +318,19 @@ pub const ScenarioExecutor = struct {
 
         for (0..self.scenario.fault_operations) |i| {
             const operation_index = self.scenario.initial_blocks + @as(u32, @intCast(i));
-            const block = try TestData.create_test_block(self.allocator, operation_index);
-            defer TestData.cleanup_test_block(self.allocator, block);
+            const block = ContextBlock{
+                .id = TestData.deterministic_block_id(operation_index),
+                .version = 1,
+                .source_uri = try std.fmt.allocPrint(self.allocator, "test://fault_operation_{}.zig", .{operation_index}),
+                .metadata_json = try std.fmt.allocPrint(self.allocator, "{{\"fault_operation\":{}}}", .{operation_index}),
+                .content = try std.fmt.allocPrint(self.allocator, "Fault operation test block {}", .{operation_index}),
+            };
 
             // Expected failures under fault injection validate error handling
             if (storage_engine.put_block(block)) |_| {
                 successful_operations += 1;
             } else |err| switch (err) {
-                error.IoError, error.DiskSpaceExhausted => {
+                error.IoError, error.NoSpaceLeft => {
                     // These errors indicate proper fault injection behavior
                 },
                 else => return err, // Unexpected errors indicate test failures
@@ -347,8 +357,13 @@ pub const ScenarioExecutor = struct {
     fn verify_post_recovery_functionality(self: Self, storage_engine: *StorageEngine) !void {
         // New operations validate complete recovery and functionality
         const recovery_test_index = self.scenario.initial_blocks + self.scenario.fault_operations + 1000;
-        const recovery_block = try TestData.create_test_block(self.allocator, recovery_test_index);
-        defer TestData.cleanup_test_block(self.allocator, recovery_block);
+        const recovery_block = ContextBlock{
+            .id = TestData.deterministic_block_id(recovery_test_index),
+            .version = 1,
+            .source_uri = "test://recovery_validation.zig",
+            .metadata_json = "{\"test\":\"recovery_validation\"}",
+            .content = "Recovery validation test block content",
+        };
 
         try storage_engine.put_block(recovery_block);
         const retrieved = (try storage_engine.find_block(recovery_block.id)).?;
@@ -369,18 +384,18 @@ pub fn run_compaction_crash_scenario(allocator: std.mem.Allocator, scenario: Com
 
 /// Batch execution of related scenarios for comprehensive validation
 pub fn run_all_wal_scenarios(allocator: std.mem.Allocator) !void {
-    const scenario_count = @typeInfo(WalDurabilityScenario).Enum.fields.len;
+    const scenario_count = @typeInfo(WalDurabilityScenario).@"enum".fields.len;
     std.debug.print("Running all WAL durability scenarios ({d} total)...\n", .{scenario_count});
-    inline for (@typeInfo(WalDurabilityScenario).Enum.fields) |field| {
+    inline for (@typeInfo(WalDurabilityScenario).@"enum".fields) |field| {
         const scenario = @as(WalDurabilityScenario, @enumFromInt(field.value));
         try run_wal_durability_scenario(allocator, scenario);
     }
 }
 
 pub fn run_all_compaction_scenarios(allocator: std.mem.Allocator) !void {
-    const scenario_count = @typeInfo(CompactionCrashScenario).Enum.fields.len;
+    const scenario_count = @typeInfo(CompactionCrashScenario).@"enum".fields.len;
     std.debug.print("Running all compaction crash scenarios ({d} total)...\n", .{scenario_count});
-    inline for (@typeInfo(CompactionCrashScenario).Enum.fields) |field| {
+    inline for (@typeInfo(CompactionCrashScenario).@"enum".fields) |field| {
         const scenario = @as(CompactionCrashScenario, @enumFromInt(field.value));
         try run_compaction_crash_scenario(allocator, scenario);
     }

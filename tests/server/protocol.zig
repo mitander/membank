@@ -27,7 +27,6 @@ const MessageType = server_handler.MessageType;
 const ClientConnection = server_handler.ClientConnection;
 const ConnectionState = server_handler.ConnectionState;
 
-// Use standardized TestData utilities instead of custom helpers
 const TestData = kausaldb.TestData;
 
 test "config default values" {
@@ -110,7 +109,7 @@ test "server initialization" {
         .max_connections = 10,
     };
 
-    var server = Server.init(allocator, config, harness.storage_engine(), &harness.query_engine);
+    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
     defer server.deinit();
 
     // Verify initial state
@@ -176,21 +175,16 @@ test "protocol find blocks message" {
 test "connection limit configuration" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try create_test_storage(allocator, sim_vfs.vfs());
-    defer storage_engine.deinit();
-
-    var test_query_engine = try create_test_query_engine(allocator, &storage_engine);
-    defer test_query_engine.deinit();
+    // Use QueryHarness for coordinated setup
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "connection_limit_test");
+    defer harness.deinit();
 
     const config = ServerConfig{
         .port = 0,
         .max_connections = 2, // Very low limit for testing
     };
 
-    var server = Server.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
     defer server.deinit();
 
     // Verify configuration
@@ -201,18 +195,13 @@ test "connection limit configuration" {
 test "stats initial values" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try create_test_storage(allocator, sim_vfs.vfs());
-    defer storage_engine.deinit();
-
-    var test_query_engine = try create_test_query_engine(allocator, &storage_engine);
-    defer test_query_engine.deinit();
+    // Use QueryHarness for coordinated setup
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "stats_test");
+    defer harness.deinit();
 
     const config = ServerConfig{};
 
-    var server = Server.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
     defer server.deinit();
 
     // Verify initial stats
@@ -272,23 +261,18 @@ test "protocol corrupted header recovery" {
 test "engine references basic" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try create_test_storage(allocator, sim_vfs.vfs());
-    defer storage_engine.deinit();
-
-    var test_query_engine = try create_test_query_engine(allocator, &storage_engine);
-    defer test_query_engine.deinit();
+    // Use QueryHarness for coordinated setup
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "engine_refs_test");
+    defer harness.deinit();
 
     const config = ServerConfig{};
 
-    var server = Server.init(allocator, config, &storage_engine, &test_query_engine);
+    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
     defer server.deinit();
 
     // Test that server maintains valid references
-    try testing.expect(@intFromPtr(server.storage_engine) == @intFromPtr(&storage_engine));
-    try testing.expect(@intFromPtr(server.query_engine) == @intFromPtr(&test_query_engine));
+    try testing.expect(@intFromPtr(server.storage_engine) == @intFromPtr(harness.storage_engine()));
+    try testing.expect(@intFromPtr(server.query_engine) == @intFromPtr(harness.query_engine));
 
     // Verify configuration is properly copied
     try testing.expectEqual(config.port, server.config.port);

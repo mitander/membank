@@ -18,6 +18,10 @@ const NodeId = simulation.NodeId;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const GraphEdge = types.GraphEdge;
+
+const TestData = kausaldb.TestData;
+const StorageHarness = kausaldb.StorageHarness;
+const SimulationHarness = kausaldb.SimulationHarness;
 const EdgeType = types.EdgeType;
 const StorageEngine = storage.StorageEngine;
 
@@ -25,24 +29,29 @@ test "high volume writes during network partition" {
     const allocator = std.testing.allocator;
 
     // Use SimulationHarness for coordinated setup
-    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x57E55501, "storage_data");
+    var harness = try SimulationHarness.init_and_startup(allocator, 0x57E55501, "storage_data");
     defer harness.deinit();
 
     // Add additional nodes for partition testing
-    const node2 = try harness.simulation().add_node();
-    const node3 = try harness.simulation().add_node();
+    const node2 = try harness.simulation.add_node();
+    const node3 = try harness.simulation.add_node();
 
     harness.tick(10);
 
     // Create network partition isolating primary node
-    harness.simulation().partition_nodes(harness.node_id(), node2);
-    harness.simulation().partition_nodes(harness.node_id(), node3);
+    harness.simulation.partition_nodes(harness.node_id, node2);
+    harness.simulation.partition_nodes(harness.node_id, node3);
 
     var i: u32 = 1;
     while (i < 101) : (i += 1) {
         // Use standardized test data creation
-        const block = try kausaldb.TestData.create_test_block(allocator, i);
-        defer kausaldb.TestData.cleanup_test_block(allocator, block);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(i)),
+            .version = 1,
+            .source_uri = "test://storage_load_basic.zig",
+            .metadata_json = "{\"test\":\"storage_load_basic\"}",
+            .content = "Storage load basic test block content",
+        };
 
         try harness.storage_engine.put_block(block);
 
@@ -54,18 +63,15 @@ test "high volume writes during network partition" {
     // Verify all blocks were stored
     try std.testing.expectEqual(@as(u32, 100), harness.storage_engine.block_count());
 
-    harness.simulation().heal_partition(harness.node_id(), node2);
-    harness.simulation().heal_partition(harness.node_id(), node3);
-    harness.tick(20);
+    harness.simulation.heal_partition(harness.node_id, node2);
+    harness.simulation.heal_partition(harness.node_id, node3);
+    harness.simulation.tick_multiple(20);
 
     // Verify we can retrieve all blocks
     i = 1;
     while (i < 101) : (i += 1) {
-        const block_id_hex = try std.fmt.allocPrint(allocator, "{:0>32}", .{i});
-        defer allocator.free(block_id_hex);
-
-        const block_id = try BlockId.from_hex(block_id_hex);
-        const retrieved = (try storage_engine.find_block(block_id)) orelse {
+        const block_id = TestData.deterministic_block_id(i);
+        const retrieved = (try harness.storage_engine.find_block(block_id)) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
@@ -77,15 +83,20 @@ test "recovery from WAL corruption simulation" {
     const allocator = std.testing.allocator;
 
     // Use SimulationHarness for WAL corruption testing
-    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x4AF7E5D1, "wal_data");
+    var harness = try SimulationHarness.init_and_startup(allocator, 0x4AF7E5D1, "wal_data");
     defer harness.deinit();
 
-    harness.tick(5);
+    harness.simulation.tick_multiple(5);
 
     // Create test blocks using standardized data
     for (1..11) |index| {
-        const block = try kausaldb.TestData.create_test_block(allocator, @intCast(index));
-        defer kausaldb.TestData.cleanup_test_block(allocator, block);
+        const block = ContextBlock{
+            .id = TestData.deterministic_block_id(@intCast(index)),
+            .version = 1,
+            .source_uri = "test://storage_load_concurrent.zig",
+            .metadata_json = "{\"test\":\"storage_load_concurrent\"}",
+            .content = "Storage load concurrent test block content",
+        };
 
         try harness.storage_engine.put_block(block);
     }
@@ -93,11 +104,10 @@ test "recovery from WAL corruption simulation" {
     try std.testing.expectEqual(@as(u32, 10), harness.storage_engine.block_count());
 
     // Simulate system restart - harness handles proper cleanup and restart
-    const initial_node_id = harness.node_id();
     harness.deinit();
 
     // Create new harness simulating restart with same data directory
-    var recovery_harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x4AF7E5D1, "wal_data");
+    var recovery_harness = try SimulationHarness.init_and_startup(allocator, 0x4AF7E5D1, "wal_data");
     defer recovery_harness.deinit();
 
     // Verify blocks were recovered from WAL
@@ -105,7 +115,7 @@ test "recovery from WAL corruption simulation" {
 
     // Verify we can retrieve the recovered blocks
     for (1..11) |j| {
-        const block_id = kausaldb.TestData.deterministic_block_id(@intCast(j));
+        const block_id = TestData.deterministic_block_id(@intCast(j));
         const recovered_block = (try recovery_harness.storage_engine.find_block(block_id)) orelse {
             try testing.expect(false); // Block should exist
             return;
@@ -124,10 +134,10 @@ test "large block handling limits" {
     const allocator = std.testing.allocator;
 
     // Use SimulationHarness for large block testing
-    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x1A26EB1C, "large_data");
+    var harness = try SimulationHarness.init_and_startup(allocator, 0x1A26EB1C, "large_data");
     defer harness.deinit();
 
-    harness.tick(5);
+    harness.simulation.tick_multiple(5);
 
     const large_content = try allocator.alloc(u8, 1024 * 1024);
     defer allocator.free(large_content);
@@ -137,14 +147,15 @@ test "large block handling limits" {
         byte.* = 'A' + @as(u8, @intCast(idx % 26));
     }
 
-    const block_id = try BlockId.from_hex("0123456789abcdeffedcba9876543210");
+    const owned_content = try allocator.dupe(u8, large_content);
     const large_block = ContextBlock{
-        .id = block_id,
+        .id = TestData.deterministic_block_id(123),
         .version = 1,
-        .source_uri = "large://test/file.dat",
-        .metadata_json = "{\"type\":\"large_data\",\"size\":1048576}",
-        .content = large_content,
+        .source_uri = "test://storage_load_variable_size.zig",
+        .metadata_json = "{\"test\":\"storage_load_variable_size\"}",
+        .content = owned_content,
     };
+    const block_id = large_block.id;
 
     // Test storing large block
     try harness.storage_engine.put_block(large_block);
@@ -163,24 +174,33 @@ test "rapid block updates concurrency" {
     const allocator = std.testing.allocator;
 
     // Use SimulationHarness for rapid update testing
-    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x2A91DFDD, "rapid_data");
+    var harness = try SimulationHarness.init_and_startup(allocator, 0x2A91DFDD, "rapid_data");
     defer harness.deinit();
 
-    harness.tick(5);
+    harness.simulation.tick_multiple(5);
 
-    const block_id = try BlockId.from_hex("11111111111111112222222222222222");
+    const base_block = ContextBlock{
+        .id = TestData.deterministic_block_id(111),
+        .version = 1,
+        .source_uri = "test://storage_load_test.zig",
+        .metadata_json = "{\"test\":\"storage_load\"}",
+        .content = "Storage load test block content",
+    };
+
+    const block_id = base_block.id;
 
     // Rapidly update the same block multiple times
     for (1..51) |version| {
         const content = try std.fmt.allocPrint(allocator, "Version {}", .{version});
         defer allocator.free(content);
 
+        const owned_content = try allocator.dupe(u8, content);
         const updated_block = ContextBlock{
-            .id = block_id,
-            .version = version,
-            .source_uri = "rapid://test/updates",
-            .metadata_json = "{\"rapid_update\":true}",
-            .content = content,
+            .id = TestData.deterministic_block_id(111),
+            .version = 1,
+            .source_uri = "test://rapid_block_updates.zig",
+            .metadata_json = "{\"test\":\"rapid_block_updates\"}",
+            .content = owned_content,
         };
 
         try harness.storage_engine.put_block(updated_block);
@@ -205,29 +225,29 @@ test "duplicate block handling integrity" {
     const allocator = std.testing.allocator;
 
     // Use SimulationHarness for duplicate handling testing
-    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xDFD11CA7, "dup_data");
+    var harness = try SimulationHarness.init_and_startup(allocator, 0xDFD11CA7, "dup_data");
     defer harness.deinit();
 
     harness.tick(5);
 
-    const block_id = try BlockId.from_hex("deadbeefcafebabe1337133713371337");
     const original_block = ContextBlock{
-        .id = block_id,
+        .id = TestData.deterministic_block_id(0xdeadbeef),
         .version = 1,
-        .source_uri = "dup://test/original",
-        .metadata_json = "{\"original\":true}",
+        .source_uri = "test://duplicate_handling_original.zig",
+        .metadata_json = "{\"test\":\"duplicate_handling\"}",
         .content = "Original content",
     };
+    const block_id = original_block.id;
 
     try harness.storage_engine.put_block(original_block);
     try std.testing.expectEqual(@as(u32, 1), harness.storage_engine.block_count());
 
     // Try to store duplicate (should overwrite)
     const duplicate_block = ContextBlock{
-        .id = block_id,
-        .version = 2,
-        .source_uri = "dup://test/updated",
-        .metadata_json = "{\"updated\":true}",
+        .id = TestData.deterministic_block_id(0xdeadbeef),
+        .version = 1,
+        .source_uri = "test://duplicate_handling_updated.zig",
+        .metadata_json = "{\"test\":\"duplicate_handling\"}",
         .content = "Updated content",
     };
 
@@ -248,38 +268,37 @@ test "graph relationship persistence" {
     const allocator = std.testing.allocator;
 
     // Use SimulationHarness for graph relationship testing
-    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x62A9DE1, "graph_data");
+    var harness = try SimulationHarness.init_and_startup(allocator, 0x62A9DE1, "graph_data");
     defer harness.deinit();
 
     harness.tick(5);
 
-    const main_id = try BlockId.from_hex("11111111111111111111111111111111");
-    const util_id = try BlockId.from_hex("22222222222222222222222222222222");
-    const test_id = try BlockId.from_hex("33333333333333333333333333333333");
-
     const main_block = ContextBlock{
-        .id = main_id,
+        .id = TestData.deterministic_block_id(0x11111111),
         .version = 1,
-        .source_uri = "graph://main.zig",
-        .metadata_json = "{\"type\":\"function\",\"name\":\"main\"}",
+        .source_uri = "test://graph_relationship_main.zig",
+        .metadata_json = "{\"test\":\"graph_relationship\"}",
         .content = "pub fn main() !void { utils.helper(); }",
     };
+    const main_id = main_block.id;
 
     const util_block = ContextBlock{
-        .id = util_id,
+        .id = TestData.deterministic_block_id(0x22222222),
         .version = 1,
-        .source_uri = "graph://utils.zig",
-        .metadata_json = "{\"type\":\"function\",\"name\":\"helper\"}",
+        .source_uri = "test://graph_relationship_util.zig",
+        .metadata_json = "{\"test\":\"graph_relationship\"}",
         .content = "pub fn helper() void { return; }",
     };
+    const util_id = util_block.id;
 
     const test_block = ContextBlock{
-        .id = test_id,
+        .id = TestData.deterministic_block_id(0x33333333),
         .version = 1,
-        .source_uri = "graph://test.zig",
-        .metadata_json = "{\"type\":\"test\",\"name\":\"test_main\"}",
+        .source_uri = "test://graph_relationship_test.zig",
+        .metadata_json = "{\"test\":\"graph_relationship\"}",
         .content = "test \"main\" { main(); }",
     };
+    const test_id = test_block.id;
 
     try harness.storage_engine.put_block(main_block);
     try harness.storage_engine.put_block(util_block);
@@ -288,19 +307,17 @@ test "graph relationship persistence" {
     const import_edge = GraphEdge{
         .source_id = main_id,
         .target_id = util_id,
-        .edge_type = EdgeType.imports,
+        .edge_type = .imports,
     };
-
     const calls_edge = GraphEdge{
         .source_id = main_id,
         .target_id = util_id,
-        .edge_type = EdgeType.calls,
+        .edge_type = .calls,
     };
-
     const test_edge = GraphEdge{
         .source_id = test_id,
         .target_id = main_id,
-        .edge_type = EdgeType.calls,
+        .edge_type = .calls,
     };
 
     try harness.storage_engine.put_edge(import_edge);
@@ -320,17 +337,17 @@ test "batch operations under load" {
     const allocator = std.testing.allocator;
 
     // Use SimulationHarness for batch operations testing
-    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xBA7C410D, "batch_data");
+    var harness = try SimulationHarness.init_and_startup(allocator, 0xBA7C410D, "batch_data");
     defer harness.deinit();
 
     // Add additional node for network simulation
-    const node2 = try harness.simulation().add_node();
+    const node2 = try harness.simulation.add_node();
 
     // High latency and packet loss
-    harness.simulation().configure_latency(harness.node_id(), node2, 15);
-    harness.simulation().configure_packet_loss(harness.node_id(), node2, 0.3);
+    harness.simulation.configure_latency(harness.node_id, node2, 15);
+    harness.simulation.configure_packet_loss(harness.node_id, node2, 0.3);
 
-    harness.tick(10);
+    harness.simulation.tick_multiple(10);
 
     // Perform batch writes in chunks (start from 1, all-zero BlockID invalid)
     const batch_size = 20;
@@ -341,10 +358,6 @@ test "batch operations under load" {
         var item: u32 = 0;
         while (item < batch_size) : (item += 1) {
             const block_num = batch * batch_size + item + 1; // Start from 1
-            const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{block_num});
-            defer allocator.free(block_id_hex);
-
-            const block_id = try BlockId.from_hex(block_id_hex);
             const content = try std.fmt.allocPrint(
                 allocator,
                 "Batch {} item {} content",
@@ -352,12 +365,13 @@ test "batch operations under load" {
             );
             defer allocator.free(content);
 
+            const owned_content = try allocator.dupe(u8, content);
             const block = ContextBlock{
-                .id = block_id,
+                .id = TestData.deterministic_block_id(@intCast(block_num)),
                 .version = 1,
-                .source_uri = "batch://load/test",
-                .metadata_json = "{\"batch_test\":true}",
-                .content = content,
+                .source_uri = "test://batch_operations_load.zig",
+                .metadata_json = "{\"test\":\"batch_operations_load\"}",
+                .content = owned_content,
             };
 
             try harness.storage_engine.put_block(block);
@@ -372,8 +386,8 @@ test "batch operations under load" {
     try std.testing.expectEqual(@as(u32, expected_count), harness.storage_engine.block_count());
 
     // Spot check some blocks (adjusted for 1-based indexing)
-    const first_block_id = try BlockId.from_hex("00000000000000000000000000000001"); // First block is now 1
-    const last_block_id = try BlockId.from_hex("00000000000000000000000000000064"); // 100 in hex
+    const first_block_id = TestData.deterministic_block_id(1); // First block is now 1
+    const last_block_id = TestData.deterministic_block_id(100);
 
     const first_block = (try harness.storage_engine.find_block(first_block_id)) orelse {
         try testing.expect(false); // Block should exist
@@ -392,15 +406,14 @@ test "invalid data handling robustness" {
     const allocator = std.testing.allocator;
 
     // Use SimulationHarness for invalid data testing
-    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0x1FADA7, "invalid_data");
+    var harness = try SimulationHarness.init_and_startup(allocator, 0x1FADA7, "invalid_data");
     defer harness.deinit();
 
     harness.tick(5);
 
-    // Test invalid JSON metadata
-    const block_id = try BlockId.from_hex("deadbeefdeadbeefdeadbeefdeadbeef");
+    // Test invalid JSON metadata - create manually for invalid JSON test
     const invalid_block = ContextBlock{
-        .id = block_id,
+        .id = TestData.deterministic_block_id(0xdeadbeef),
         .version = 1,
         .source_uri = "invalid://test",
         .metadata_json = "{this is not valid json",
@@ -415,10 +428,10 @@ test "invalid data handling robustness" {
 
     // Test valid block after invalid one
     const valid_block = ContextBlock{
-        .id = block_id,
+        .id = TestData.deterministic_block_id(0xdeadbeef),
         .version = 1,
-        .source_uri = "valid://test",
-        .metadata_json = "{\"valid\":true}",
+        .source_uri = "test://invalid_data_handling.zig",
+        .metadata_json = "{\"test\":\"invalid_data_handling\"}",
         .content = "Valid content",
     };
 

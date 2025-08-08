@@ -23,7 +23,6 @@ const ConnectionManager = handler.ConnectionManager;
 test "server decomposition maintains coordinator pattern" {
     const allocator = testing.allocator;
 
-    // Use QueryHarness for coordinated setup
     var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "decomp_test");
     defer harness.deinit();
 
@@ -34,7 +33,7 @@ test "server decomposition maintains coordinator pattern" {
         .connection_timeout_sec = 30,
     };
 
-    var server = Server.init(allocator, config, harness.storage_engine(), &harness.query_engine);
+    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
     defer server.deinit();
 
     // Verify server has ConnectionManager
@@ -76,7 +75,6 @@ test "connection manager operates independently" {
 test "server coordinator delegates to connection manager" {
     const allocator = testing.allocator;
 
-    // Use QueryHarness for coordinated setup
     var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "delegation_test");
     defer harness.deinit();
 
@@ -86,7 +84,7 @@ test "server coordinator delegates to connection manager" {
         .connection_timeout_sec = 5,
     };
 
-    var server = Server.init(allocator, config, harness.storage_engine(), &harness.query_engine);
+    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
     defer server.deinit();
 
     // Test that server properly initializes manager

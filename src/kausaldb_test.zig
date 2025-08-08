@@ -28,6 +28,7 @@ pub const TraversalDirection = kausaldb_public.TraversalDirection;
 pub const TraversalResult = kausaldb_public.TraversalResult;
 pub const TraversalQuery = kausaldb_public.TraversalQuery;
 pub const TraversalAlgorithm = kausaldb_public.TraversalAlgorithm;
+pub const FindBlocksQuery = @import("query/operations.zig").FindBlocksQuery;
 pub const SemanticQuery = kausaldb_public.SemanticQuery;
 pub const SemanticQueryResult = kausaldb_public.SemanticQueryResult;
 pub const SemanticResult = kausaldb_public.SemanticResult;
@@ -137,6 +138,7 @@ pub const query = struct {
     pub const traversal = @import("query/traversal.zig");
     pub const filtering = @import("query/filtering.zig");
     pub const cache = @import("query/cache.zig");
+    pub const FindBlocksQuery = @import("query/operations.zig").FindBlocksQuery;
 };
 
 pub const debug_allocator = @import("dev/debug_allocator.zig");
