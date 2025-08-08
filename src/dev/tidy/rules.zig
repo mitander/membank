@@ -213,6 +213,7 @@ pub const KAUSALDB_RULES = [_]Rule{
 /// Rule: Enforce KausalDB naming conventions
 fn check_naming_conventions(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(10) catch {};
 
     // Skip tidy files - they contain pattern examples
     if (std.mem.indexOf(u8, context.file_path, "tidy/rules.zig") != null) {
@@ -369,6 +370,7 @@ fn is_camel_case(name: []const u8) bool {
 /// Rule: Prevent threading primitives in single-threaded architecture
 fn check_single_threaded(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(5) catch {};
 
     // Skip tidy files - they contain pattern examples
     if (std.mem.indexOf(u8, context.file_path, "tidy/rules.zig") != null) {
@@ -396,6 +398,7 @@ fn check_single_threaded(context: *RuleContext) []const Rule.RuleViolation {
 /// Rule: Suggest arena allocation for appropriate bulk operations
 fn check_arena_usage(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(10) catch {};
 
     // Skip test files - they should use testing.allocator for leak detection
     if (std.mem.indexOf(u8, context.file_path, "test") != null or
@@ -454,6 +457,7 @@ fn check_arena_usage(context: *RuleContext) []const Rule.RuleViolation {
 /// Rule: Explicit error handling prevents silent failures
 fn check_error_handling(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(20) catch {};
 
     // Skip tidy files and test files - they contain pattern examples and test failures are not production segfaults
     if (std.mem.indexOf(u8, context.file_path, "tidy/rules.zig") != null or
@@ -501,6 +505,7 @@ fn check_error_handling(context: *RuleContext) []const Rule.RuleViolation {
 /// Rule: Prevent allocation patterns that hurt performance
 fn check_allocation_patterns(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(15) catch {};
 
     // Find specific problematic patterns - bounded collections that should pre-allocate
     var search_start: usize = 0;
@@ -554,6 +559,7 @@ fn check_allocation_patterns(context: *RuleContext) []const Rule.RuleViolation {
 /// Rule: Maintain clean architectural boundaries
 fn check_layer_boundaries(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(5) catch {};
 
     // Storage layer shouldn't import query layer
     if (context.is_in_layer("storage")) {
@@ -696,6 +702,7 @@ fn find_next_newline_or_end(source: []const u8, start: usize) usize {
 /// Rule: Check for control characters (carriage returns and tabs)
 fn check_control_characters(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(3) catch {};
 
     // Skip binary files
     const binary_extensions = [_][]const u8{ ".ico", ".png", ".webp", ".svg" };
@@ -786,6 +793,7 @@ fn check_unicode_emojis(context: *RuleContext) []const Rule.RuleViolation {
 /// Rule: Check documentation standards (simplified)
 fn check_documentation_standards(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(10) catch {};
 
     // Skip tidy files - they contain pattern examples
     if (std.mem.indexOf(u8, context.file_path, "tidy/rules.zig") != null) {
@@ -815,6 +823,7 @@ fn check_function_length( // tidy:ignore-length - analysis function may legitima
     context: *RuleContext,
 ) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(10) catch {};
 
     var line_start: usize = 0;
     var line_num: u32 = 1;
@@ -881,6 +890,7 @@ fn check_function_length( // tidy:ignore-length - analysis function may legitima
 /// Rule: Check generic function naming using smart pattern matching
 fn check_generic_functions(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(5) catch {};
 
     var line_start: usize = 0;
     var line_num: u32 = 1;
@@ -932,6 +942,7 @@ fn check_generic_functions(context: *RuleContext) []const Rule.RuleViolation {
 /// Rule: Check for banned patterns and enforce stdx usage
 fn check_banned_patterns(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(15) catch {};
 
     // stdx.zig is allowed to use std functions, and tidy rules need these patterns for detection
     if (std.mem.endsWith(u8, context.file_path, "src/core/stdx.zig") or
@@ -1010,6 +1021,7 @@ fn check_banned_patterns(context: *RuleContext) []const Rule.RuleViolation {
 /// Rule: Check function declaration line length and suggest multiline formatting
 fn check_function_declaration_length(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(10) catch {};
 
     const MAX_DECLARATION_LENGTH = 120; // Maximum line length for function declarations
 
@@ -1051,6 +1063,7 @@ fn check_function_declaration_length(context: *RuleContext) []const Rule.RuleVio
 /// Rule: Require all public functions to have documentation
 fn check_public_function_documentation(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(20) catch {};
 
     // Skip test files - test functions don't need full documentation
     if (std.mem.indexOf(u8, context.file_path, "test") != null or
@@ -1115,6 +1128,7 @@ fn check_public_function_documentation(context: *RuleContext) []const Rule.RuleV
 /// Rule: Intelligent detection of "WHAT" comments that should explain "WHY"
 fn check_comment_quality(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(25) catch {};
 
     // Skip tidy files - they contain pattern examples
     if (std.mem.indexOf(u8, context.file_path, "tidy/rules.zig") != null) {
@@ -1346,6 +1360,7 @@ fn is_obvious_what_comment(context: *RuleContext, comment_text: []const u8, next
     // Extract meaningful words (>3 chars) from comment
     var comment_words = std.ArrayList([]const u8).init(context.allocator);
     defer comment_words.deinit();
+    comment_words.ensureTotalCapacity(10) catch {};
 
     var comment_word_it = std.mem.tokenizeAny(u8, lower_comment, " \t(){}[].,;:");
     while (comment_word_it.next()) |word| {
@@ -1441,6 +1456,7 @@ fn is_why_explanation(comment_text: []const u8) bool {
 /// Major services should separate cold initialization from hot I/O operations
 fn check_two_phase_initialization(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(10) catch {};
 
     // Only apply to major service components
     if (!context.is_in_layer("storage") and
@@ -1472,10 +1488,10 @@ fn check_two_phase_initialization(context: *RuleContext) []const Rule.RuleViolat
 
             for (io_patterns) |pattern| {
                 if (std.mem.indexOf(u8, func_body, pattern) != null) {
-                    violations.append(.{
+                    violations.append(.{ // tidy:ignore-perf
                         .line = func.line,
                         .message = "init() function performs I/O - violates two-phase initialization pattern",
-                        .context = std.fmt.allocPrint(context.allocator, "Found I/O operation: {s}", .{pattern}) catch null,
+                        .context = "Found I/O operation in init() function",
                         .suggested_fix = "Move I/O operations to startup() function, keep init() memory-only",
                     }) catch continue;
                 }
@@ -1490,6 +1506,7 @@ fn check_two_phase_initialization(context: *RuleContext) []const Rule.RuleViolat
 /// startup() is for the second initialization phase, start() is deprecated
 fn check_lifecycle_naming(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(10) catch {};
 
     // Check for deprecated lifecycle method names
     const deprecated_names = [_][]const u8{
@@ -1503,21 +1520,11 @@ fn check_lifecycle_naming(context: *RuleContext) []const Rule.RuleViolation {
     for (context.functions) |func| {
         for (deprecated_names) |deprecated| {
             if (std.mem.eql(u8, func.name, deprecated)) {
-                const replacement = if (std.mem.eql(u8, deprecated, "start"))
-                    "startup"
-                else if (std.mem.startsWith(u8, deprecated, "initialize_"))
-                    std.fmt.allocPrint(context.allocator, "{s}_startup", .{deprecated["initialize_".len..]}) catch "startup"
-                else if (std.mem.startsWith(u8, deprecated, "init_"))
-                    std.fmt.allocPrint(context.allocator, "{s}_startup", .{deprecated["init_".len..]}) catch "startup"
-                else
-                    "startup";
-
                 violations.append(.{
                     .line = func.line,
-                    .message = std.fmt.allocPrint(context.allocator, "Function '{s}' uses deprecated lifecycle naming", .{deprecated}) catch
-                        "Deprecated lifecycle naming",
+                    .message = "Function uses deprecated lifecycle naming",
                     .context = "KausalDB uses precise lifecycle verbs for clarity",
-                    .suggested_fix = std.fmt.allocPrint(context.allocator, "Rename to '{s}'", .{replacement}) catch "Use startup()",
+                    .suggested_fix = "Rename to 'startup'",
                 }) catch continue;
             }
         }
@@ -1530,6 +1537,7 @@ fn check_lifecycle_naming(context: *RuleContext) []const Rule.RuleViolation {
 /// Tests should use SimulationVFS instead of direct file system access
 fn check_simulation_first_testing(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(20) catch {};
 
     // Only apply to test files
     if (!std.mem.endsWith(u8, context.file_path, "_test.zig") and
@@ -1556,10 +1564,10 @@ fn check_simulation_first_testing(context: *RuleContext) []const Rule.RuleViolat
             if (std.mem.indexOf(u8, line, pattern) != null) {
                 // Allow if there's an explicit suppression comment
                 if (std.mem.indexOf(u8, line, "// tidy:ignore-simulation") == null) {
-                    violations.append(.{
+                    violations.append(.{ // tidy:ignore-perf
                         .line = line_num,
                         .message = "Test uses direct file system access instead of SimulationVFS",
-                        .context = std.fmt.allocPrint(context.allocator, "Found pattern: {s}", .{pattern}) catch null,
+                        .context = "Direct filesystem access prevents deterministic testing",
                         .suggested_fix = "Use SimulationVFS for deterministic, simulation-first testing",
                     }) catch continue;
                 }

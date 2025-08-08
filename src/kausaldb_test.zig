@@ -94,7 +94,6 @@ pub const BatchPerformanceMeasurement = performance_assertions.BatchPerformanceM
 pub const fatal_assertions = @import("test/fatal_assertions.zig");
 pub const FatalCategory = fatal_assertions.FatalCategory;
 pub const FatalContext = fatal_assertions.FatalContext;
-pub const FatalAssertionTester = fatal_assertions.FatalAssertionTester;
 
 pub const bloom_filter = @import("storage/bloom_filter.zig");
 pub const sstable = @import("storage/sstable.zig");
