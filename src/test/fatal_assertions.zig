@@ -40,6 +40,7 @@ pub const FatalCategory = enum {
 };
 
 /// Enhanced context for fatal assertion failures
+/// Created lazily only when assertion fails to minimize performance overhead
 pub const FatalContext = struct {
     category: FatalCategory,
     component: []const u8,
@@ -83,7 +84,7 @@ pub const FatalContext = struct {
         });
 
         if (self.thread_id) |tid| {
-            try writer.print("Thread:    {}\n", .{tid});
+            try writer.print("Thread ID: {d}\n", .{tid});
         }
 
         try writer.print("--------------------------------------------------------------------------------\n", .{});
@@ -91,20 +92,34 @@ pub const FatalContext = struct {
 };
 
 /// Fatal assertion with enhanced context and forensic information
+/// Context is created lazily only when assertion fails to eliminate performance overhead
 pub fn fatal_assert_ctx(
     condition: bool,
-    context: FatalContext,
+    category: FatalCategory,
+    component: []const u8,
+    operation: []const u8,
+    comptime src: std.builtin.SourceLocation,
     comptime format: []const u8,
     args: anytype,
 ) void {
     if (!condition) {
-        var stderr_writer = std.io.getStdOut().writer();
+        // Create context lazily only when assertion fails
+        const context = FatalContext.init(category, component, operation, src);
+
+        // Use a dummy writer struct that delegates to std.debug.print
+        const DummyWriter = struct {
+            pub fn print(self: @This(), comptime fmt: []const u8, print_args: anytype) !void {
+                _ = self;
+                std.debug.print(fmt, print_args);
+            }
+        };
+        const dummy_writer = DummyWriter{};
 
         // Format enhanced header
-        context.format_header(stderr_writer) catch {};
+        context.format_header(dummy_writer) catch {};
 
         // Format the specific assertion message
-        stderr_writer.print("ASSERTION: " ++ format ++ "\n", args) catch {};
+        std.debug.print("ASSERTION: " ++ format ++ "\n", args);
 
         // Add debugging hints based on category
         const debug_hint = switch (context.category) {
@@ -117,27 +132,18 @@ pub fn fatal_assert_ctx(
             .security_violation => "DEBUGGING HINT: Audit authentication, authorization, and input validation",
         };
 
-        stderr_writer.print("--------------------------------------------------------------------------------\n", .{}) catch {};
-        stderr_writer.print("{s}\n", .{debug_hint}) catch {};
-        stderr_writer.print("================================================================================\n\n", .{}) catch {};
+        std.debug.print("{s}\n", .{debug_hint});
+        std.debug.print("================================================================================\n\n", .{});
 
         std.process.exit(1);
     }
 }
 
-/// Specialized fatal assertions for KausalDB components
 /// Assert that a BlockId is valid (non-zero)
 pub fn fatal_assert_block_id_valid(
     block_id: anytype,
     comptime src: std.builtin.SourceLocation,
 ) void {
-    const context = FatalContext.init(
-        .invariant_violation,
-        "Storage Engine",
-        "Block ID validation",
-        src,
-    );
-
     // Check for zero BlockId (invalid)
     const is_zero = blk: {
         for (block_id.bytes) |byte| {
@@ -146,7 +152,7 @@ pub fn fatal_assert_block_id_valid(
         break :blk true;
     };
 
-    fatal_assert_ctx(!is_zero, context, "Invalid BlockId: all bytes are zero (BlockId must be non-zero)", .{});
+    fatal_assert_ctx(!is_zero, .invariant_violation, "Storage Engine", "Block ID validation", src, "Invalid BlockId: all bytes are zero (BlockId must be non-zero)", .{});
 }
 
 /// Assert that memory is properly aligned for DMA/mmap operations
@@ -155,15 +161,8 @@ pub fn fatal_assert_memory_aligned(
     alignment: usize,
     comptime src: std.builtin.SourceLocation,
 ) void {
-    const context = FatalContext.init(
-        .memory_corruption,
-        "Memory Manager",
-        "Alignment validation",
-        src,
-    );
-
     const addr = @intFromPtr(ptr);
-    fatal_assert_ctx(addr % alignment == 0, context, "Memory alignment violation: address 0x{x} not aligned to {} bytes (offset: {})", .{ addr, alignment, addr % alignment });
+    fatal_assert_ctx(addr % alignment == 0, .memory_corruption, "Memory Manager", "Alignment validation", src, "Memory alignment violation: address 0x{x} not aligned to {} bytes (offset: {})", .{ addr, alignment, addr % alignment });
 }
 
 /// Assert that a buffer write will not cause overflow (always fatal)
@@ -173,21 +172,15 @@ pub fn fatal_assert_buffer_bounds(
     buffer_len: usize,
     comptime src: std.builtin.SourceLocation,
 ) void {
-    const context = FatalContext.init(
-        .memory_corruption,
-        "Buffer Manager",
-        "Bounds checking",
-        src,
-    );
-
     // Check for overflow in the addition itself
     const overflow = @addWithOverflow(pos, write_len);
     if (overflow[1] != 0) {
-        fatal_assert_ctx(false, context, "Buffer position overflow: {} + {} causes integer overflow", .{ pos, write_len });
+        fatal_assert_ctx(false, .memory_corruption, "Buffer Manager", "Bounds checking", src, "Buffer position overflow: {} + {} causes integer overflow", .{ pos, write_len });
         return;
     }
 
-    fatal_assert_ctx(pos + write_len <= buffer_len, context, "Buffer overflow: attempting to write {} bytes at position {} in buffer of {} bytes (exceeds by {} bytes)", .{ write_len, pos, buffer_len, (pos + write_len) - buffer_len });
+    const end_pos = overflow[0];
+    fatal_assert_ctx(end_pos <= buffer_len, .memory_corruption, "Buffer Manager", "Bounds checking", src, "Buffer bounds violation: write extends beyond buffer (pos: {}, write_len: {}, end_pos: {}, buffer_len: {})", .{ pos, write_len, end_pos, buffer_len });
 }
 
 /// Assert that file system operation succeeded (for critical I/O)
@@ -197,48 +190,35 @@ pub fn fatal_assert_file_operation(
     path: []const u8,
     comptime src: std.builtin.SourceLocation,
 ) void {
-    const context = FatalContext.init(
-        .data_corruption,
-        "File System",
-        operation,
-        src,
-    );
-
     if (@TypeOf(result) == anyerror) {
-        fatal_assert_ctx(false, context, "Critical file operation '{s}' failed on path '{s}': {}", .{ operation, path, result });
+        fatal_assert_ctx(false, .data_corruption, "File System", operation, src, "Critical file operation '{s}' failed on path '{s}': {}", .{ operation, path, result });
+        return;
     }
 
     // For non-error types, check if it's a boolean or optional indicating failure
     const TypeInfo = @typeInfo(@TypeOf(result));
     switch (TypeInfo) {
         .bool => {
-            fatal_assert_ctx(result, context, "Critical file operation '{s}' failed on path '{s}' (returned false)", .{ operation, path });
+            fatal_assert_ctx(result, .data_corruption, "File System", operation, src, "Critical file operation '{s}' failed on path '{s}' (returned false)", .{ operation, path });
         },
         .optional => {
-            fatal_assert_ctx(result != null, context, "Critical file operation '{s}' failed on path '{s}' (returned null)", .{ operation, path });
+            fatal_assert_ctx(result != null, .data_corruption, "File System", operation, src, "Critical file operation '{s}' failed on path '{s}' (returned null)", .{ operation, path });
         },
         else => {
             // For other types, assume non-zero means success
-            fatal_assert_ctx(result != 0, context, "Critical file operation '{s}' failed on path '{s}' (returned {})", .{ operation, path, result });
+            fatal_assert_ctx(result != 0, .data_corruption, "File System", operation, src, "Critical file operation '{s}' failed on path '{s}' (returned zero)", .{ operation, path });
         },
     }
 }
 
-/// Assert that a CRC checksum matches expected value (data integrity)
+/// Assert that checksum validation passed (data integrity)
 pub fn fatal_assert_crc_valid(
-    actual: u64,
-    expected: u64,
+    actual: u32,
+    expected: u32,
     data_description: []const u8,
     comptime src: std.builtin.SourceLocation,
 ) void {
-    const context = FatalContext.init(
-        .data_corruption,
-        "Integrity Checker",
-        "CRC validation",
-        src,
-    );
-
-    fatal_assert_ctx(actual == expected, context, "Data corruption detected in {s}: CRC mismatch (actual: 0x{x}, expected: 0x{x})", .{ data_description, actual, expected });
+    fatal_assert_ctx(actual == expected, .data_corruption, "Integrity Checker", "CRC validation", src, "Data corruption detected in {s}: CRC mismatch (actual: 0x{x}, expected: 0x{x})", .{ data_description, actual, expected });
 }
 
 /// Assert that a WAL entry is properly formatted and not corrupted
@@ -246,36 +226,22 @@ pub fn fatal_assert_wal_entry_valid(
     entry: anytype,
     comptime src: std.builtin.SourceLocation,
 ) void {
-    const context = FatalContext.init(
-        .data_corruption,
-        "Write-Ahead Log",
-        "Entry validation",
-        src,
-    );
-
     // Check magic number
     fatal_assert_ctx(entry.magic == 0x57414C45, // "WALE" in hex
-        context, "WAL entry corruption: invalid magic number (actual: 0x{x}, expected: 0x57414C45)", .{entry.magic});
+        .data_corruption, "Write-Ahead Log", "Entry validation", src, "WAL entry corruption: invalid magic number (actual: 0x{x}, expected: 0x57414C45)", .{entry.magic});
 
     // Check entry size is reasonable
     fatal_assert_ctx(entry.size > 0 and entry.size <= 64 * 1024 * 1024, // Max 64MB per entry
-        context, "WAL entry corruption: invalid size {} (must be between 1 and 67108864 bytes)", .{entry.size});
+        .data_corruption, "Write-Ahead Log", "Entry validation", src, "WAL entry corruption: invalid size {} (must be between 1 and 67108864 bytes)", .{entry.size});
 }
 
 /// Assert that context state transitions are valid
 pub fn fatal_assert_context_transition(
     from_state: anytype,
     to_state: @TypeOf(from_state),
-    comptime valid_transitions: []const struct { from: @TypeOf(from_state), to: @TypeOf(from_state) },
+    comptime valid_transitions: anytype,
     comptime src: std.builtin.SourceLocation,
 ) void {
-    const context = FatalContext.init(
-        .invariant_violation,
-        "Context Manager",
-        "State transition",
-        src,
-    );
-
     // Check if this transition is valid
     const transition_valid = for (valid_transitions) |transition| {
         if (transition.from == from_state and transition.to == to_state) {
@@ -283,7 +249,7 @@ pub fn fatal_assert_context_transition(
         }
     } else false;
 
-    fatal_assert_ctx(transition_valid, context, "Invalid context state transition: {} -> {} (not in allowed transitions)", .{ from_state, to_state });
+    fatal_assert_ctx(transition_valid, .invariant_violation, "Context Manager", "State transition", src, "Invalid context state transition: {} -> {} (not in allowed transitions)", .{ from_state, to_state });
 }
 
 /// Assert that network protocol invariant holds
@@ -295,14 +261,7 @@ pub fn fatal_assert_protocol_invariant(
     args: anytype,
     comptime src: std.builtin.SourceLocation,
 ) void {
-    const context = FatalContext.init(
-        .protocol_violation,
-        protocol_name,
-        invariant_description,
-        src,
-    );
-
-    fatal_assert_ctx(condition, context, format, args);
+    fatal_assert_ctx(condition, .protocol_violation, protocol_name, invariant_description, src, format, args);
 }
 
 /// Assert that resource usage is within acceptable limits
@@ -312,115 +271,16 @@ pub fn fatal_assert_resource_limit(
     resource_name: []const u8,
     comptime src: std.builtin.SourceLocation,
 ) void {
-    const context = FatalContext.init(
-        .resource_exhaustion,
-        "Resource Manager",
-        resource_name,
-        src,
-    );
-
-    fatal_assert_ctx(current_usage <= limit, context, "Resource limit exceeded for {s}: current usage {} exceeds limit {} (overage: {})", .{ resource_name, current_usage, limit, current_usage - limit });
-}
-
-/// Test helper to validate fatal assertion behavior in controlled environment
-pub const FatalAssertionTester = struct {
-    allocator: std.mem.Allocator,
-    captured_outputs: std.ArrayList([]const u8),
-
-    pub fn init(allocator: std.mem.Allocator) FatalAssertionTester {
-        return FatalAssertionTester{
-            .allocator = allocator,
-            .captured_outputs = std.ArrayList([]const u8).init(allocator),
-        };
+    if (current_usage > limit) {
+        const overage = current_usage - limit;
+        fatal_assert_ctx(false, .resource_exhaustion, "Resource Manager", resource_name, src, "Resource limit exceeded for {s}: current usage {} exceeds limit {} (overage: {})", .{ resource_name, current_usage, limit, overage });
     }
-
-    pub fn deinit(self: *FatalAssertionTester) void {
-        for (self.captured_outputs.items) |output| {
-            self.allocator.free(output);
-        }
-        self.captured_outputs.deinit();
-    }
-
-    /// Test that a fatal assertion triggers under specific conditions
-    /// This is primarily for unit testing the assertion framework itself
-    pub fn expect_fatal_assertion(
-        self: *FatalAssertionTester,
-        comptime assertion_fn: anytype,
-        args: anytype,
-        expected_category: FatalCategory,
-    ) !void {
-        // In a real implementation, this would capture the assertion output
-        // For now, we'll validate that the assertion would trigger
-        _ = self;
-        _ = assertion_fn;
-        _ = args;
-        _ = expected_category;
-
-        // This is a placeholder for test infrastructure that would:
-        // 1. Fork the process or use setjmp/longjmp
-        // 2. Capture the assertion output
-        // 3. Validate the category and message format
-        // 4. Return control to the test
-    }
-};
-
-// Convenience macros that automatically provide source location
-
-/// Macro for fatal block ID validation
-pub inline fn FATAL_ASSERT_BLOCK_ID_VALID(block_id: anytype) void {
-    fatal_assert_block_id_valid(block_id, @src());
 }
 
-/// Macro for fatal memory alignment validation
-pub inline fn FATAL_ASSERT_MEMORY_ALIGNED(ptr: anytype, alignment: usize) void {
-    fatal_assert_memory_aligned(ptr, alignment, @src());
-}
+/// Enhanced fatal assertions with better error messages
+pub const fatal_assert = fatal_assert_ctx;
 
-/// Macro for fatal buffer bounds validation
-pub inline fn FATAL_ASSERT_BUFFER_BOUNDS(pos: usize, write_len: usize, buffer_len: usize) void {
-    fatal_assert_buffer_bounds(pos, write_len, buffer_len, @src());
-}
-
-/// Macro for fatal file operation validation
-pub inline fn FATAL_ASSERT_FILE_OPERATION(result: anytype, operation: []const u8, path: []const u8) void {
-    fatal_assert_file_operation(result, operation, path, @src());
-}
-
-/// Macro for fatal CRC validation
-pub inline fn FATAL_ASSERT_CRC_VALID(actual: u64, expected: u64, data_description: []const u8) void {
-    fatal_assert_crc_valid(actual, expected, data_description, @src());
-}
-
-/// Macro for fatal WAL entry validation
-pub inline fn FATAL_ASSERT_WAL_ENTRY_VALID(entry: anytype) void {
-    fatal_assert_wal_entry_valid(entry, @src());
-}
-
-/// Macro for fatal context state transition validation
-pub inline fn FATAL_ASSERT_CONTEXT_TRANSITION(
-    from_state: anytype,
-    to_state: @TypeOf(from_state),
-    comptime valid_transitions: anytype,
-) void {
-    fatal_assert_context_transition(from_state, to_state, valid_transitions, @src());
-}
-
-/// Macro for fatal protocol invariant validation
-pub inline fn FATAL_ASSERT_PROTOCOL_INVARIANT(
-    condition: bool,
-    protocol_name: []const u8,
-    invariant_description: []const u8,
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    fatal_assert_protocol_invariant(condition, protocol_name, invariant_description, format, args, @src());
-}
-
-/// Macro for fatal resource limit validation
-pub inline fn FATAL_ASSERT_RESOURCE_LIMIT(
-    current_usage: u64,
-    limit: u64,
-    resource_name: []const u8,
-) void {
-    fatal_assert_resource_limit(current_usage, limit, resource_name, @src());
+/// Example usage and test helpers
+pub fn fatal_assert_simple(condition: bool, comptime message: []const u8) void {
+    fatal_assert_ctx(condition, .logic_error, "Generic", "assertion", @src(), message, .{});
 }

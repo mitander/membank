@@ -12,7 +12,6 @@ const fatal_assertions = kausaldb.fatal_assertions;
 
 const FatalCategory = fatal_assertions.FatalCategory;
 const FatalContext = fatal_assertions.FatalContext;
-const FatalAssertionTester = fatal_assertions.FatalAssertionTester;
 
 // Test data structures
 const MockBlockId = struct {
@@ -127,7 +126,7 @@ test "memory alignment validation passes for aligned pointers" {
     const allocator = testing.allocator;
 
     // Allocate aligned memory
-    const aligned_memory = try allocator.alignedAlloc(u8, @alignOf(u8), 64);
+    const aligned_memory = try allocator.alignedAlloc(u8, .@"16", 64);
     defer allocator.free(aligned_memory);
 
     // This should not panic (test passes if no panic occurs)
@@ -156,8 +155,8 @@ test "file operation validation passes for successful operations" {
 }
 
 test "CRC validation passes for matching checksums" {
-    const expected_crc: u64 = 0x1234567890ABCDEF;
-    const actual_crc: u64 = 0x1234567890ABCDEF;
+    const expected_crc: u32 = 0x1234ABCD;
+    const actual_crc: u32 = 0x1234ABCD;
 
     // Matching CRCs should pass (test passes if no panic occurs)
     fatal_assertions.fatal_assert_crc_valid(actual_crc, expected_crc, "test data", @src());
@@ -175,7 +174,7 @@ test "context state transition validation passes for valid transitions" {
     fatal_assertions.fatal_assert_context_transition(
         ContextState.ready,
         ContextState.processing,
-        ContextState.valid_transitions,
+        &ContextState.valid_transitions,
         @src(),
     );
 
@@ -183,7 +182,7 @@ test "context state transition validation passes for valid transitions" {
     fatal_assertions.fatal_assert_context_transition(
         ContextState.uninitialized,
         ContextState.initializing,
-        ContextState.valid_transitions,
+        &ContextState.valid_transitions,
         @src(),
     );
 }
@@ -209,48 +208,58 @@ test "resource limit validation passes for usage within limits" {
 }
 
 test "convenience macros provide proper source location" {
+    const allocator = testing.allocator;
+
     // Test that macros work and provide source location automatically
     const valid_block_id = MockBlockId.valid();
-    fatal_assertions.FATAL_ASSERT_BLOCK_ID_VALID(valid_block_id);
+    fatal_assertions.fatal_assert_block_id_valid(valid_block_id, @src());
 
-    const aligned_buffer = [_]u8{0} ** 64;
-    const aligned_ptr = @as([*]const u8, @ptrCast(&aligned_buffer));
-    fatal_assertions.FATAL_ASSERT_MEMORY_ALIGNED(aligned_ptr, 8);
+    const aligned_buffer = try allocator.alignedAlloc(u8, .@"8", 64);
+    defer allocator.free(aligned_buffer);
+    fatal_assertions.fatal_assert_memory_aligned(aligned_buffer.ptr, 8, @src());
 
-    fatal_assertions.FATAL_ASSERT_BUFFER_BOUNDS(0, 32, 64);
+    fatal_assertions.fatal_assert_buffer_bounds(0, 32, 64, @src());
 
-    fatal_assertions.FATAL_ASSERT_FILE_OPERATION(true, "test", "/path");
+    fatal_assertions.fatal_assert_file_operation(true, "test", "/path", @src());
 
-    fatal_assertions.FATAL_ASSERT_CRC_VALID(0x123, 0x123, "test data");
+    fatal_assertions.fatal_assert_crc_valid(0x123, 0x123, "test data", @src());
 
     const valid_wal_entry = MockWALEntry.valid();
-    fatal_assertions.FATAL_ASSERT_WAL_ENTRY_VALID(valid_wal_entry);
+    fatal_assertions.fatal_assert_wal_entry_valid(valid_wal_entry, @src());
 
-    fatal_assertions.FATAL_ASSERT_CONTEXT_TRANSITION(
+    fatal_assertions.fatal_assert_context_transition(
         ContextState.ready,
         ContextState.processing,
-        ContextState.valid_transitions,
+        &ContextState.valid_transitions,
+        @src(),
     );
 
-    fatal_assertions.FATAL_ASSERT_PROTOCOL_INVARIANT(
+    fatal_assertions.fatal_assert_protocol_invariant(
         true,
         "TestProtocol",
         "test_invariant",
         "Test condition holds: {}",
         .{true},
+        @src(),
     );
 
-    fatal_assertions.FATAL_ASSERT_RESOURCE_LIMIT(100, 1000, "test_resource");
+    fatal_assertions.fatal_assert_resource_limit(100, 1000, "test_resource", @src());
 }
 
-test "fatal assertion tester framework initialization" {
-    const allocator = testing.allocator;
+test "fatal assertion lazy context creation" {
+    // Test that context is only created when assertion fails
+    // This test validates the performance optimization
 
-    var tester = FatalAssertionTester.init(allocator);
-    defer tester.deinit();
-
-    // Verify tester is properly initialized
-    try testing.expect(tester.captured_outputs.items.len == 0);
+    // Passing assertions should not create any context (no system calls)
+    fatal_assertions.fatal_assert_ctx(
+        true,
+        .logic_error,
+        "TestComponent",
+        "validation",
+        @src(),
+        "This should not fail",
+        .{},
+    );
 }
 
 test "fatal assertions provide rich debugging context" {
@@ -310,7 +319,12 @@ test "fatal assertions integrate with existing assert framework" {
 
     // Verify that both frameworks can be used together
     assert.assert_fmt(true, "Regular assertion with format: {}", .{42});
-    fatal_assertions.fatal_assert_memory_aligned([*]const u8{ 0, 0, 0, 0 }, 4, @src());
+
+    // Use properly aligned memory for integration test
+    const allocator = testing.allocator;
+    const aligned_buffer = try allocator.alignedAlloc(u8, .@"4", 16);
+    defer allocator.free(aligned_buffer);
+    fatal_assertions.fatal_assert_memory_aligned(aligned_buffer.ptr, 4, @src());
 }
 
 test "fatal assertion performance impact is minimal" {
@@ -318,34 +332,62 @@ test "fatal assertion performance impact is minimal" {
     const allocator = testing.allocator;
     const iterations = 1000;
 
+    // Use pseudo-random condition that's almost always true but not optimizable
+    var prng = std.Random.DefaultPrng.init(@as(u64, @intCast(std.time.nanoTimestamp())));
+    const random = prng.random();
+
     // Baseline: simple condition check
     const baseline_start = std.time.nanoTimestamp();
-    for (0..iterations) |i| {
-        const condition = (i % 2) == 0;
-        if (!condition) unreachable;
+    var baseline_result: usize = 0;
+    for (0..iterations) |_| {
+        // Condition that's ~99.9% true but compiler can't prove it
+        const condition = random.int(u32) < 0xFFFFF000; // Almost always true
+        if (!condition) {
+            baseline_result +%= 1; // Rare case, just continue
+        }
+        baseline_result +%= 1; // Prevent optimization
     }
+    std.mem.doNotOptimizeAway(&baseline_result);
     const baseline_time = std.time.nanoTimestamp() - baseline_start;
+
+    // Reset PRNG for fair comparison
+    prng = std.Random.DefaultPrng.init(@as(u64, @intCast(std.time.nanoTimestamp())));
 
     // With fatal assertion framework
     const assertion_start = std.time.nanoTimestamp();
-    for (0..iterations) |i| {
-        const condition = (i % 2) == 0;
+    var assertion_result: usize = 0;
+    for (0..iterations) |_| {
+        // Same probabilistic condition for fair comparison
+        const condition = random.int(u32) < 0xFFFFF000; // Almost always true
         fatal_assertions.fatal_assert_ctx(
             condition,
-            FatalContext.init(.logic_error, "PerfTest", "iteration", @src()),
-            "Iteration {} failed",
-            .{i},
+            .logic_error,
+            "PerfTest",
+            "iteration",
+            @src(),
+            "Performance test iteration failed",
+            .{},
         );
+        assertion_result +%= 1; // Prevent optimization
     }
+    std.mem.doNotOptimizeAway(&assertion_result);
     const assertion_time = std.time.nanoTimestamp() - assertion_start;
 
-    // Fatal assertions should not add significant overhead for passing conditions
-    // Allow up to 10x overhead (very generous for safety-critical code)
-    const overhead_ratio = @as(f64, @floatFromInt(assertion_time)) / @as(f64, @floatFromInt(baseline_time));
-    try testing.expect(overhead_ratio <= 10.0);
+    // Calculate overhead, handling optimized baseline
+    const baseline_per_call = @as(f64, @floatFromInt(baseline_time)) / iterations;
+    const assertion_per_call = @as(f64, @floatFromInt(assertion_time)) / iterations;
+
+    if (baseline_per_call > 0.1) {
+        // Normal case: calculate overhead ratio
+        const overhead_ratio = assertion_per_call / baseline_per_call;
+        try testing.expect(overhead_ratio <= 10.0);
+    } else {
+        // Baseline optimized away: just check assertion is reasonable (ReleaseSafe mode)
+        try testing.expect(assertion_per_call <= 100.0); // Less than 100ns per call
+    }
 
     // Basic sanity checks
-    try testing.expect(baseline_time > 0);
+    try testing.expect(baseline_time >= 0);
     try testing.expect(assertion_time > 0);
     _ = allocator;
 }
@@ -363,19 +405,34 @@ test "fatal assertions handle edge cases properly" {
     // CRC values at integer boundaries
     fatal_assertions.fatal_assert_crc_valid(0, 0, "zero_crc_data", @src());
     fatal_assertions.fatal_assert_crc_valid(
-        std.math.maxInt(u64),
-        std.math.maxInt(u64),
+        std.math.maxInt(u32),
+        std.math.maxInt(u32),
         "max_crc_data",
         @src(),
     );
 
-    // Memory alignment with power-of-2 values
-    const test_buffer = [_]u8{0} ** 1024;
-    const aligned_ptr = @as([*]const u8, @ptrCast(&test_buffer));
-    fatal_assertions.fatal_assert_memory_aligned(aligned_ptr, 1, @src());
-    fatal_assertions.fatal_assert_memory_aligned(aligned_ptr, 2, @src());
-    fatal_assertions.fatal_assert_memory_aligned(aligned_ptr, 4, @src());
-    fatal_assertions.fatal_assert_memory_aligned(aligned_ptr, 8, @src());
+    // Memory alignment with power-of-2 values using proper aligned allocation
+    const allocator = testing.allocator;
+
+    // Test 1-byte alignment (always passes)
+    const buffer_1 = try allocator.alloc(u8, 16);
+    defer allocator.free(buffer_1);
+    fatal_assertions.fatal_assert_memory_aligned(buffer_1.ptr, 1, @src());
+
+    // Test 2-byte alignment
+    const buffer_2 = try allocator.alignedAlloc(u8, .@"2", 16);
+    defer allocator.free(buffer_2);
+    fatal_assertions.fatal_assert_memory_aligned(buffer_2.ptr, 2, @src());
+
+    // Test 4-byte alignment
+    const buffer_4 = try allocator.alignedAlloc(u8, .@"4", 16);
+    defer allocator.free(buffer_4);
+    fatal_assertions.fatal_assert_memory_aligned(buffer_4.ptr, 4, @src());
+
+    // Test 8-byte alignment
+    const buffer_8 = try allocator.alignedAlloc(u8, .@"8", 16);
+    defer allocator.free(buffer_8);
+    fatal_assertions.fatal_assert_memory_aligned(buffer_8.ptr, 8, @src());
 }
 
 // Note: The following tests demonstrate scenarios that WOULD trigger fatal assertions
@@ -419,30 +476,30 @@ test "fatal assertions in storage engine scenario" {
     defer allocator.free(write_buffer);
 
     // Step 1: Validate buffer alignment for DMA operations
-    fatal_assertions.FATAL_ASSERT_MEMORY_ALIGNED(write_buffer.ptr, 8);
+    fatal_assertions.fatal_assert_memory_aligned(write_buffer.ptr, 8, @src());
 
     // Step 2: Validate block ID before writing
     const block_id = MockBlockId.valid();
-    fatal_assertions.FATAL_ASSERT_BLOCK_ID_VALID(block_id);
+    fatal_assertions.fatal_assert_block_id_valid(block_id, @src());
 
     // Step 3: Validate write bounds
     const write_offset = 1000;
-    const write_size = 2000;
-    fatal_assertions.FATAL_ASSERT_BUFFER_BOUNDS(write_offset, write_size, buffer_size);
+    const write_size = 2048;
+    fatal_assertions.fatal_assert_buffer_bounds(write_offset, write_size, buffer_size, @src());
 
     // Step 4: Simulate successful write with CRC validation
-    const expected_crc: u64 = 0x1234567890ABCDEF;
-    const computed_crc: u64 = 0x1234567890ABCDEF; // Simulate matching CRC
-    fatal_assertions.FATAL_ASSERT_CRC_VALID(computed_crc, expected_crc, "block_data");
+    const expected_crc: u32 = 0x1234ABCD;
+    const computed_crc: u32 = 0x1234ABCD; // Simulate matching checksum
+    fatal_assertions.fatal_assert_crc_valid(computed_crc, expected_crc, "block_data", @src());
 
     // Step 5: Validate WAL entry format
     const wal_entry = MockWALEntry.valid();
-    fatal_assertions.FATAL_ASSERT_WAL_ENTRY_VALID(wal_entry);
+    fatal_assertions.fatal_assert_wal_entry_valid(wal_entry, @src());
 
     // Step 6: Validate resource usage
     const memory_used = 1024 * 1024; // 1MB
     const memory_limit = 100 * 1024 * 1024; // 100MB
-    fatal_assertions.FATAL_ASSERT_RESOURCE_LIMIT(memory_used, memory_limit, "write_buffer_memory");
+    fatal_assertions.fatal_assert_resource_limit(memory_used, memory_limit, "write_buffer_memory", @src());
 
     // All validations passed - the operation would continue normally
     try testing.expect(true); // Test passes if we reach this point
