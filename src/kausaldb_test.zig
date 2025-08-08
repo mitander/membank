@@ -86,6 +86,10 @@ pub const stdx = @import("core/stdx.zig");
 
 // Test utilities and frameworks
 pub const golden_master = @import("test/golden_master.zig");
+pub const performance_assertions = @import("test/performance_assertions.zig");
+pub const PerformanceAssertion = performance_assertions.PerformanceAssertion;
+pub const PerformanceTier = performance_assertions.PerformanceTier;
+pub const BatchPerformanceMeasurement = performance_assertions.BatchPerformanceMeasurement;
 
 pub const bloom_filter = @import("storage/bloom_filter.zig");
 pub const sstable = @import("storage/sstable.zig");

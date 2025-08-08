@@ -9,6 +9,10 @@ const testing = std.testing;
 
 const log = std.log.scoped(.streaming_memory_benchmark);
 
+// Import tiered performance assertions
+const PerformanceAssertion = kausaldb.PerformanceAssertion;
+const BatchPerformanceMeasurement = kausaldb.BatchPerformanceMeasurement;
+
 const storage = kausaldb.storage;
 const query = kausaldb.query;
 const simulation_vfs = kausaldb.simulation_vfs;
@@ -574,4 +578,104 @@ fn calculate_percentile(times: []i64, percentile: f64) i64 {
     std.sort.heap(i64, times, {}, std.sort.asc(i64));
     const index = @as(usize, @intFromFloat(@as(f64, @floatFromInt(times.len)) * percentile / 100.0));
     return times[@min(index, times.len - 1)];
+}
+
+// Demonstration of tiered performance assertions
+// Shows different thresholds for local development vs CI environments
+test "tiered performance assertions demonstration" {
+    const allocator = testing.allocator;
+
+    // Create test storage setup
+    var sim_vfs = try kausaldb.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "perf_test");
+    defer storage_engine.deinit();
+    try storage_engine.startup();
+
+    // Initialize performance assertion framework
+    const perf = PerformanceAssertion.init("tiered_performance_demo");
+
+    // Test 1: Single operation latency assertion
+    std.debug.print("\n[TEST] Testing single operation latency assertion...\n", .{});
+
+    const test_block = try create_test_block_from_int(1, 1024, allocator);
+    defer allocator.free(test_block.content);
+
+    // Measure write latency
+    const write_start = std.time.nanoTimestamp();
+    try storage_engine.put_block(test_block);
+    const write_end = std.time.nanoTimestamp();
+    const write_duration = @as(u64, @intCast(write_end - write_start));
+
+    // Assert with tier-adjusted thresholds
+    // Local: 150µs (3x), CI: 75µs (1.5x), Production: 50µs (1x)
+    try perf.assert_latency(write_duration, 50_000, "block write operation");
+
+    // Measure read latency
+    const read_start = std.time.nanoTimestamp();
+    const maybe_found = try storage_engine.find_block(test_block.id);
+    const read_end = std.time.nanoTimestamp();
+    const read_duration = @as(u64, @intCast(read_end - read_start));
+
+    // Assert read latency with tier-adjusted thresholds
+    // Local: 30µs (3x), CI: 15µs (1.5x), Production: 10µs (1x)
+    try perf.assert_latency(read_duration, 10_000, "block read operation");
+
+    // Verify we got the block back
+    const found_block = maybe_found orelse return error.BlockNotFound;
+    try testing.expect(found_block.id.eql(test_block.id));
+
+    // Test 2: Batch operations with statistical validation
+    std.debug.print("\n[TEST] Testing batch operations with statistical validation...\n", .{});
+
+    var batch_measurements = BatchPerformanceMeasurement.init(allocator);
+    defer batch_measurements.deinit();
+
+    // Perform multiple operations and collect timing
+    const batch_size = 50;
+    for (0..batch_size) |i| {
+        const batch_block = try create_test_block_from_int(@intCast(i + 100), 512, allocator);
+        defer allocator.free(batch_block.content);
+
+        const batch_start = std.time.nanoTimestamp();
+        try storage_engine.put_block(batch_block);
+        const batch_end = std.time.nanoTimestamp();
+
+        const batch_duration = @as(u64, @intCast(batch_end - batch_start));
+        try batch_measurements.add_measurement(batch_duration);
+    }
+
+    // Assert batch performance statistics (P95 latency)
+    try batch_measurements.assert_statistics("batch_operations_demo", 50_000, // Base requirement: 50µs per write
+        "batch block writes (P95)");
+
+    // Test 3: Throughput assertion
+    std.debug.print("\n[TEST] Testing throughput assertion...\n", .{});
+
+    const throughput_start = std.time.nanoTimestamp();
+    const throughput_operations = 20;
+
+    for (0..throughput_operations) |i| {
+        const throughput_block = try create_test_block_from_int(@intCast(i + 200), 256, allocator);
+        defer allocator.free(throughput_block.content);
+        try storage_engine.put_block(throughput_block);
+    }
+
+    const throughput_end = std.time.nanoTimestamp();
+    const throughput_duration_ns = @as(u64, @intCast(throughput_end - throughput_start));
+
+    // Calculate actual throughput
+    const ops_per_sec = (throughput_operations * std.time.ns_per_s) / throughput_duration_ns;
+
+    // Assert throughput with tier-adjusted thresholds
+    // Local: 10k ops/sec (50% of base), CI: 16k ops/sec (80% of base), Production: 20k ops/sec (100% of base)
+    try perf.assert_throughput(ops_per_sec, 20_000, "storage write throughput");
+
+    std.debug.print("\n[SUCCESS] Tiered performance assertions completed successfully!\n", .{});
+    std.debug.print("Performance tier: {s}\n", .{switch (perf.tier) {
+        .local => "LOCAL (relaxed thresholds for development)",
+        .ci => "CI (balanced thresholds for validation)",
+        .production => "PRODUCTION (strict thresholds for release)",
+    }});
 }

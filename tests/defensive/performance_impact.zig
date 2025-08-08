@@ -88,7 +88,7 @@ const PerformanceResult = struct {
 const Timer = struct {
     start_time: i128,
 
-    fn start() Timer {
+    fn startup() Timer {
         return Timer{ .start_time = std.time.nanoTimestamp() };
     }
 
@@ -135,7 +135,7 @@ test "assertion framework performance overhead measurement" {
     try baseline_samples.ensureTotalCapacity(config.statistical_samples);
 
     for (0..config.statistical_samples) |_| {
-        const timer = Timer.start();
+        const timer = Timer.startup();
 
         var result: u64 = 0;
         for (0..config.iterations) |i| {
@@ -160,7 +160,7 @@ test "assertion framework performance overhead measurement" {
     try assertion_samples.ensureTotalCapacity(config.statistical_samples);
 
     for (0..config.statistical_samples) |_| {
-        const timer = Timer.start();
+        const timer = Timer.startup();
 
         var result: u64 = 0;
         for (0..config.iterations) |i| {
@@ -276,7 +276,7 @@ test "storage operations performance with defensive programming" {
 
     // Benchmark write performance
     for (0..config.statistical_samples) |sample| {
-        const timer = Timer.start();
+        const timer = Timer.startup();
 
         for (test_blocks.items) |block| {
             try engine.put_block(block);
@@ -297,7 +297,7 @@ test "storage operations performance with defensive programming" {
     defer read_samples.deinit();
 
     for (0..config.statistical_samples) |_| {
-        const timer = Timer.start();
+        const timer = Timer.startup();
 
         for (test_blocks.items) |block| {
             const retrieved = try engine.find_block(block.id);
@@ -364,7 +364,7 @@ test "graph operations performance with defensive programming" {
     try edge_write_samples.ensureTotalCapacity(config.statistical_samples);
 
     for (0..config.statistical_samples) |_| {
-        const timer = Timer.start();
+        const timer = Timer.startup();
 
         for (0..config.iterations) |i| {
             const source_idx = i % blocks.items.len;
@@ -395,7 +395,7 @@ test "graph operations performance with defensive programming" {
     defer traversal_samples.deinit();
 
     for (0..config.statistical_samples) |_| {
-        const timer = Timer.start();
+        const timer = Timer.startup();
 
         for (blocks.items) |block| {
             const outgoing = engine.find_outgoing_edges(block.id);
@@ -426,7 +426,7 @@ test "memory allocation performance with defensive programming" {
     defer allocation_samples.deinit();
 
     for (0..config.statistical_samples) |_| {
-        const timer = Timer.start();
+        const timer = Timer.startup();
 
         for (0..config.iterations) |i| {
             // Allocate and immediately free to test assertion overhead in allocation paths
@@ -460,7 +460,7 @@ test "defensive programming zero cost abstraction validation" {
     defer baseline_samples.deinit();
 
     for (0..config.statistical_samples) |_| {
-        const timer = Timer.start();
+        const timer = Timer.startup();
 
         var sum: u64 = 0;
         for (0..config.iterations) |i| {
@@ -477,7 +477,7 @@ test "defensive programming zero cost abstraction validation" {
     defer assertion_samples.deinit();
 
     for (0..config.statistical_samples) |_| {
-        const timer = Timer.start();
+        const timer = Timer.startup();
 
         var sum: u64 = 0;
         for (0..config.iterations) |i| {
@@ -541,7 +541,7 @@ test "assertion framework consistency under load" {
         defer arena.deinit();
         const arena_allocator = arena.allocator();
 
-        const timer = Timer.start();
+        const timer = Timer.startup();
 
         for (0..config.iterations) |i| {
             const block = try create_benchmark_block(arena_allocator, @intCast(i));
