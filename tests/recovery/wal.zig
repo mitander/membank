@@ -106,11 +106,7 @@ test "wal recovery single block recovery" {
     try testing.expectEqualStrings(test_block.content, recovered_block.content);
 
     // Golden master validation: ensure recovery behavior is deterministic
-    try golden_master.verify_recovery_golden_master(
-        allocator,
-        "wal_single_block_recovery",
-        &storage_engine2
-    );
+    try golden_master.verify_recovery_golden_master(allocator, "wal_single_block_recovery", &storage_engine2);
 }
 
 test "wal recovery multiple blocks and operations" {

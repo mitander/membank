@@ -24,7 +24,7 @@ const StorageSnapshot = struct {
     block_count: u32,
     /// Sorted list of all recovered blocks (by ID for determinism)
     blocks: []BlockSnapshot,
-    /// Sorted list of all recovered edges (by source/target ID for determinism) 
+    /// Sorted list of all recovered edges (by source/target ID for determinism)
     edges: []EdgeSnapshot,
     /// Storage metrics at time of snapshot
     metrics: MetricsSnapshot,
@@ -65,7 +65,7 @@ pub const GoldenMaster = struct {
     pub fn init(allocator: std.mem.Allocator, test_name: []const u8) !Self {
         // Create golden masters directory in test root
         const golden_dir = try std.fs.path.join(allocator, &[_][]const u8{ "tests", "golden_masters" });
-        
+
         return Self{
             .allocator = allocator,
             .test_name = test_name,
@@ -85,11 +85,11 @@ pub const GoldenMaster = struct {
         // TODO: Need to iterate through all blocks in storage engine
         // For now, this would require extending the StorageEngine API
         // to provide an iterator over all blocks
-        
+
         const metrics = storage_engine.metrics();
         const metrics_snapshot = StorageSnapshot.MetricsSnapshot{
             .blocks_written = metrics.blocks_written.load(),
-            .blocks_read = metrics.blocks_read.load(), 
+            .blocks_read = metrics.blocks_read.load(),
             .blocks_deleted = metrics.blocks_deleted.load(),
             .wal_writes = metrics.wal_writes.load(),
             .wal_flushes = metrics.wal_flushes.load(),
@@ -106,7 +106,7 @@ pub const GoldenMaster = struct {
 
     /// Compare a snapshot against the stored golden master
     pub fn verify_snapshot(self: Self, snapshot: StorageSnapshot) !void {
-        const golden_path = try self.get_golden_master_path();
+        const golden_path = try self.build_golden_master_path();
         defer self.allocator.free(golden_path);
 
         // Try to read existing golden master
@@ -118,11 +118,8 @@ pub const GoldenMaster = struct {
             error.FileNotFound => {
                 // Create new golden master
                 try self.save_snapshot(snapshot);
-                std.debug.print(
-                    "Created new golden master: {s}\n" ++
-                    "This is the first run - future runs will validate against this snapshot.\n",
-                    .{golden_path}
-                );
+                std.debug.print("Created new golden master: {s}\n" ++
+                    "This is the first run - future runs will validate against this snapshot.\n", .{golden_path});
                 return;
             },
             else => return err,
@@ -136,7 +133,7 @@ pub const GoldenMaster = struct {
 
     /// Save a snapshot as the golden master
     fn save_snapshot(self: Self, snapshot: StorageSnapshot) !void {
-        const golden_path = try self.get_golden_master_path();
+        const golden_path = try self.build_golden_master_path();
         defer self.allocator.free(golden_path);
 
         // Ensure golden masters directory exists
@@ -153,13 +150,9 @@ pub const GoldenMaster = struct {
         });
     }
 
-    /// Get path to golden master file for this test
-    fn get_golden_master_path(self: Self) ![]u8 {
-        return std.fmt.allocPrint(
-            self.allocator,
-            "{s}/{s}.golden.json",
-            .{ self.golden_dir, self.test_name }
-        );
+    /// Build path to golden master file for this test
+    fn build_golden_master_path(self: Self) ![]u8 {
+        return std.fmt.allocPrint(self.allocator, "{s}/{s}.golden.json", .{ self.golden_dir, self.test_name });
     }
 
     /// Serialize snapshot to canonical JSON format
@@ -197,35 +190,35 @@ pub const GoldenMaster = struct {
         return json_buf.toOwnedSlice();
     }
 
-    /// Parse snapshot from JSON content  
+    /// Parse snapshot from JSON content
     fn parse_snapshot(self: Self, json_content: []const u8) !StorageSnapshot {
         _ = self;
-        
+
         // Simple JSON parsing - extract values using string search
         // For production, would use proper JSON parser
-        
+
         const block_count = blk: {
             if (std.mem.indexOf(u8, json_content, "\"block_count\": ")) |start| {
                 const value_start = start + "\"block_count\": ".len;
                 if (std.mem.indexOfScalar(u8, json_content[value_start..], ',')) |comma_offset| {
-                    const value_str = json_content[value_start..value_start + comma_offset];
+                    const value_str = json_content[value_start .. value_start + comma_offset];
                     break :blk std.fmt.parseInt(u32, value_str, 10) catch 0;
                 }
             }
             break :blk 0;
         };
-        
+
         const blocks_read = blk: {
             if (std.mem.indexOf(u8, json_content, "\"blocks_read\": ")) |start| {
                 const value_start = start + "\"blocks_read\": ".len;
                 if (std.mem.indexOfScalar(u8, json_content[value_start..], ',')) |comma_offset| {
-                    const value_str = json_content[value_start..value_start + comma_offset];
+                    const value_str = json_content[value_start .. value_start + comma_offset];
                     break :blk std.fmt.parseInt(u64, value_str, 10) catch 0;
                 }
             }
             break :blk 0;
         };
-        
+
         return StorageSnapshot{
             .block_count = block_count,
             .blocks = &[_]StorageSnapshot.BlockSnapshot{},
@@ -247,18 +240,12 @@ pub const GoldenMaster = struct {
 
         // Compare basic metrics
         if (golden.block_count != actual.block_count) {
-            std.debug.print(
-                "Block count mismatch: golden={}, actual={}\n",
-                .{ golden.block_count, actual.block_count }
-            );
+            std.debug.print("Block count mismatch: golden={}, actual={}\n", .{ golden.block_count, actual.block_count });
             return error.GoldenMasterMismatch;
         }
 
         if (golden.metrics.wal_recoveries != actual.metrics.wal_recoveries) {
-            std.debug.print(
-                "WAL recoveries mismatch: golden={}, actual={}\n", 
-                .{ golden.metrics.wal_recoveries, actual.metrics.wal_recoveries }
-            );
+            std.debug.print("WAL recoveries mismatch: golden={}, actual={}\n", .{ golden.metrics.wal_recoveries, actual.metrics.wal_recoveries });
             return error.GoldenMasterMismatch;
         }
 

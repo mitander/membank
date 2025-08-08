@@ -29,7 +29,7 @@ const CompactionCrashScenario = struct {
     fault_type: FaultType,
     expected_min_survival_rate: f32,
     expected_recovery_success: bool,
-    
+
     const FaultType = enum {
         partial_sstable_write,
         orphaned_files,
@@ -50,7 +50,7 @@ const compaction_crash_scenarios = [_]CompactionCrashScenario{
         .expected_recovery_success = true,
     },
     .{
-        .description = "Orphaned Files After Compaction Failure", 
+        .description = "Orphaned Files After Compaction Failure",
         .seed = 0xCAFEBABE,
         .initial_blocks = 200,
         .fault_type = .orphaned_files,
@@ -59,7 +59,7 @@ const compaction_crash_scenarios = [_]CompactionCrashScenario{
     },
     .{
         .description = "Torn Write in SSTable Header",
-        .seed = 0xBEEFCAFE, 
+        .seed = 0xBEEFCAFE,
         .initial_blocks = 100,
         .fault_type = .torn_write,
         .expected_min_survival_rate = 0.7, // Header corruption more severe
@@ -451,7 +451,7 @@ fn execute_compaction_crash_scenario(scenario: CompactionCrashScenario) !void {
         std.hash_map.hashString(scenario.description),
     });
     defer allocator.free(dir_name);
-    
+
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), dir_name);
     defer storage_engine.deinit();
     try storage_engine.startup();
@@ -532,8 +532,8 @@ fn execute_compaction_crash_scenario(scenario: CompactionCrashScenario) !void {
         try recovery_result;
 
         const recovered_block_count = recovered_engine.block_count();
-        const survival_rate = @as(f32, @floatFromInt(recovered_block_count)) / 
-                             @as(f32, @floatFromInt(initial_block_count));
+        const survival_rate = @as(f32, @floatFromInt(recovered_block_count)) /
+            @as(f32, @floatFromInt(initial_block_count));
 
         // Verify survival rate meets scenario expectations
         try testing.expect(survival_rate >= scenario.expected_min_survival_rate);
