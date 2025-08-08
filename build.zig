@@ -18,6 +18,13 @@ fn discover_test_files(allocator: std.mem.Allocator, tests_dir_path: []const u8)
         .description = "core component unit tests",
     });
 
+    // Add unit tests from source modules with embedded tests
+    try discovered_tests.append(.{
+        .name = "cache-unit",
+        .source_file = "src/query/cache.zig",
+        .description = "query cache unit tests",
+    });
+
     var tests_dir = std.fs.cwd().openDir(tests_dir_path, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return discovered_tests, // No tests directory, return unit tests only
         else => return err,
