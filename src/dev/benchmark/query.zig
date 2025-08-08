@@ -7,7 +7,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const kausaldb = @import("kausaldb");
 const coordinator = @import("../benchmark.zig");
-const profiler = @import("../profiler.zig");
 
 const storage = kausaldb.storage;
 const query_engine = kausaldb.query_engine;
@@ -81,7 +80,7 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
     const test_block_ids = try create_query_test_block_ids(allocator);
     defer allocator.free(test_block_ids);
 
-    const initial_memory = profiler.query_current_rss_memory();
+    const initial_memory = kausaldb.profiler.query_current_rss_memory();
     var timings = try allocator.alloc(u64, ITERATIONS);
     defer allocator.free(timings);
 
@@ -105,7 +104,7 @@ fn benchmark_single_block_queries(query_eng: *QueryEngine, allocator: std.mem.Al
         timings[i] = @intCast(end_time - start_time);
     }
 
-    const peak_memory = profiler.query_current_rss_memory();
+    const peak_memory = kausaldb.profiler.query_current_rss_memory();
     const memory_growth = peak_memory - initial_memory;
 
     const stats = analyze_timings(timings);
@@ -136,7 +135,7 @@ fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allo
     const test_block_ids = try create_query_test_block_ids(allocator);
     defer allocator.free(test_block_ids);
 
-    const initial_memory = profiler.query_current_rss_memory();
+    const initial_memory = kausaldb.profiler.query_current_rss_memory();
     var timings = try allocator.alloc(u64, ITERATIONS);
     defer allocator.free(timings);
 
@@ -164,7 +163,7 @@ fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allo
         timings[i] = @intCast(end_time - start_time);
     }
 
-    const peak_memory = profiler.query_current_rss_memory();
+    const peak_memory = kausaldb.profiler.query_current_rss_memory();
     const memory_growth = peak_memory - initial_memory;
 
     const stats = analyze_timings(timings);

@@ -338,13 +338,13 @@ memory_job() {
     fi
 
     log_step "Running memory safety tests"
-    if ! ./zig/zig build safety_memory_corruption -Doptimize="$OPTIMIZE"; then
+    if ! ./zig/zig build test-sanitizer -Doptimize="$OPTIMIZE"; then
         log_error "Memory safety tests failed"
         return 1
     fi
 
     log_step "Running stress tests"
-    if ! ./zig/zig build stress_memory -Doptimize="$OPTIMIZE"; then
+    if ! ./zig/zig build test-memory-stress -Doptimize="$OPTIMIZE"; then
         log_error "Memory stress tests failed"
         return 1
     fi
@@ -392,7 +392,7 @@ memory_job() {
             return 1
         fi
 
-        if ! ./zig/zig build safety_memory_fatal -Doptimize="$OPTIMIZE"; then
+        if ! ./zig/zig build safety_fatal_safety_violations -Doptimize="$OPTIMIZE"; then
             log_error "Memory fatal safety tests failed"
             return 1
         fi

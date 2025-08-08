@@ -7,7 +7,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const kausaldb = @import("kausaldb");
 const coordinator = @import("../benchmark.zig");
-const profiler = @import("../profiler.zig");
 const assert = kausaldb.assert;
 
 const storage = kausaldb.storage;
@@ -57,7 +56,7 @@ fn benchmark_compaction_operations(
 ) !BenchmarkResult {
     try setup_compaction_test_data(storage_engine, allocator);
 
-    const initial_memory = profiler.query_current_rss_memory();
+    const initial_memory = kausaldb.profiler.query_current_rss_memory();
     var timings = try allocator.alloc(u64, COMPACTION_ITERATIONS);
     defer allocator.free(timings);
 
@@ -83,7 +82,7 @@ fn benchmark_compaction_operations(
         timings[i] = @intCast(end_time - start_time);
     }
 
-    const peak_memory = profiler.query_current_rss_memory();
+    const peak_memory = kausaldb.profiler.query_current_rss_memory();
     const memory_growth = peak_memory - initial_memory;
 
     const stats = analyze_timings(timings);
