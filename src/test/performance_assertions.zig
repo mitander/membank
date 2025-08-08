@@ -106,7 +106,7 @@ pub const PerformanceAssertion = struct {
                 .production => "PRODUCTION",
             };
 
-            std.debug.print("\n❌ Performance assertion failed in {s} mode\n" ++
+            std.debug.print("\nPerformance assertion failed in {s} mode\n" ++
                 "Test: {s}\n" ++
                 "Operation: {s}\n" ++
                 "Expected: ≤ {d}ns (base: {d}ns)\n" ++
@@ -157,7 +157,7 @@ pub const PerformanceAssertion = struct {
                 .production => "PRODUCTION",
             };
 
-            std.debug.print("\n❌ Throughput assertion failed in {s} mode\n" ++
+            std.debug.print("\nThroughput assertion failed in {s} mode\n" ++
                 "Test: {s}\n" ++
                 "Operation: {s}\n" ++
                 "Expected: ≥ {d} ops/sec (base: {d} ops/sec)\n" ++
@@ -219,9 +219,19 @@ const StorageOp = enum { read, write };
 /// Factory function for storage latency assertions
 fn measure_storage_latency(
     comptime op_type: StorageOp,
-) fn ([]const u8, u64, anytype, anytype) anyerror!void {
+) fn (
+    []const u8,
+    u64,
+    anytype,
+    anytype,
+) anyerror!void {
     return struct {
-        fn measure_impl(test_name: []const u8, duration_ns: u64, operation_description: []const u8, expected_desc: []const u8) !void {
+        fn measure_impl(
+            test_name: []const u8,
+            duration_ns: u64,
+            operation_description: []const u8,
+            expected_desc: []const u8,
+        ) !void {
             _ = expected_desc;
             const perf = PerformanceAssertion.init(test_name);
 
