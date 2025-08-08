@@ -334,12 +334,12 @@ pub fn build(b: *std.Build) void {
 
     const memory_stress = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/stress/memory.zig"),
+            .root_source_file = b.path("tests/stress/memory_pressure.zig"),
             .target = target,
             .optimize = .ReleaseSafe,
         }),
     });
-    memory_stress.root_module.addImport("kausaldb", kausaldb_module);
+    memory_stress.root_module.addImport("kausaldb", kausaldb_test_module);
 
     const run_memory_stress = b.addRunArtifact(memory_stress);
     const memory_stress_step = b.step("test-memory-stress", "Run memory safety stress tests");

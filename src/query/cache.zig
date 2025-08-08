@@ -362,3 +362,143 @@ pub const CacheStatistics = struct {
         return eviction_rate > 0.1;
     }
 };
+
+// Unit tests for query result caching system
+const testing = std.testing;
+
+test "cache key generation and equality" {
+    const allocator = testing.allocator;
+
+    const block_id1 = try BlockId.from_hex("11111111111111111111111111111111");
+    const block_id2 = try BlockId.from_hex("22222222222222222222222222222222");
+
+    // Test single block cache keys
+    const key1 = CacheKey.for_single_block(block_id1);
+    const key2 = CacheKey.for_single_block(block_id1);
+    const key3 = CacheKey.for_single_block(block_id2);
+
+    try testing.expect(key1.eql(key2)); // Same block should be equal
+    try testing.expect(!key1.eql(key3)); // Different blocks should not be equal
+    try testing.expectEqual(key1.hash(), key2.hash()); // Hash consistency
+
+    // Test traversal cache keys
+    const traversal_key1 = CacheKey.for_traversal(block_id1, 1, 2, 5, 100);
+    const traversal_key2 = CacheKey.for_traversal(block_id1, 1, 2, 5, 100);
+    const traversal_key3 = CacheKey.for_traversal(block_id1, 1, 2, 10, 100); // Different max_depth
+
+    try testing.expect(traversal_key1.eql(traversal_key2));
+    try testing.expect(!traversal_key1.eql(traversal_key3));
+
+    // Test find_blocks cache keys
+    const block_ids = [_]BlockId{ block_id1, block_id2 };
+    const find_key1 = CacheKey.for_find_blocks(&block_ids);
+    const find_key2 = CacheKey.for_find_blocks(&block_ids);
+
+    try testing.expect(find_key1.eql(find_key2));
+
+    _ = allocator;
+}
+
+test "cache initialization and configuration" {
+    const allocator = testing.allocator;
+
+    var query_cache = QueryCache.init(allocator, 100, 15); // 100 entries, 15 minute TTL
+    defer query_cache.deinit();
+
+    try testing.expectEqual(@as(u32, 100), query_cache.max_entries);
+    try testing.expectEqual(@as(i64, 15 * 60 * 1_000_000_000), query_cache.ttl_ns); // 15 minutes in nanoseconds
+    try testing.expectEqual(@as(u64, 0), query_cache.hits);
+    try testing.expectEqual(@as(u64, 0), query_cache.misses);
+
+    const stats = query_cache.statistics();
+    try testing.expectEqual(@as(u32, 0), stats.current_entries);
+    try testing.expectEqual(@as(u32, 100), stats.max_entries);
+    try testing.expectEqual(@as(f64, 0.0), stats.hit_rate);
+}
+
+test "cache TTL expiration" {
+    const allocator = testing.allocator;
+
+    // Very short TTL for testing (immediate expiration)
+    var query_cache = QueryCache.init(allocator, 10, 0); // 0 minutes = immediate expiration
+    query_cache.ttl_ns = 1; // 1 nanosecond = immediate expiration
+    defer query_cache.deinit();
+
+    var id_bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &id_bytes, 1, .little);
+    const test_block = ContextBlock{
+        .id = BlockId{ .bytes = id_bytes },
+        .version = 1,
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{1}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try allocator.dupe(u8, "expiring content"),
+    };
+    defer {
+        allocator.free(test_block.source_uri);
+        allocator.free(test_block.metadata_json);
+        allocator.free(test_block.content);
+    }
+
+    const cache_key = CacheKey.for_single_block(test_block.id);
+    const cache_value = CacheValue{ .find_blocks = test_block };
+
+    // Store in cache
+    try query_cache.put(cache_key, cache_value);
+
+    // With immediate expiration, should be expired on retrieval
+    try testing.expect(query_cache.get(cache_key, allocator) == null);
+
+    // Should register as a miss due to expiration
+    const stats = query_cache.statistics();
+    try testing.expect(stats.misses > 0);
+}
+
+test "cache invalidation" {
+    const allocator = testing.allocator;
+
+    var query_cache = QueryCache.init(allocator, 10, 30);
+    defer query_cache.deinit();
+
+    var id_bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &id_bytes, 1, .little);
+    const test_block = ContextBlock{
+        .id = BlockId{ .bytes = id_bytes },
+        .version = 1,
+        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{1}),
+        .metadata_json = try allocator.dupe(u8, "{}"),
+        .content = try allocator.dupe(u8, "invalidation test"),
+    };
+    defer {
+        allocator.free(test_block.source_uri);
+        allocator.free(test_block.metadata_json);
+        allocator.free(test_block.content);
+    }
+
+    const cache_key = CacheKey.for_single_block(test_block.id);
+    const cache_value = CacheValue{ .find_blocks = test_block };
+
+    // Store in cache
+    try query_cache.put(cache_key, cache_value);
+
+    // Verify it's cached
+    if (query_cache.get(cache_key, allocator)) |retrieved| {
+        defer retrieved.deinit(allocator);
+        switch (retrieved) {
+            .find_blocks => |block| {
+                _ = block;
+            },
+            else => {},
+        }
+    } else {
+        try testing.expect(false);
+    }
+
+    // Invalidate all cache entries
+    query_cache.invalidate_all();
+
+    // Should no longer be in cache
+    try testing.expect(query_cache.get(cache_key, allocator) == null);
+
+    // Should have recorded invalidation
+    try testing.expect(query_cache.statistics().invalidations > 0);
+}
