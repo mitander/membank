@@ -453,7 +453,6 @@ fn execute_compaction_crash_scenario(scenario: CompactionCrashScenario) !void {
     defer allocator.free(dir_name);
 
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), dir_name);
-    defer storage_engine.deinit();
     try storage_engine.startup();
 
     // Phase 2: Populate with scenario-specified block count

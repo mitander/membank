@@ -91,6 +91,11 @@ pub const PerformanceAssertion = performance_assertions.PerformanceAssertion;
 pub const PerformanceTier = performance_assertions.PerformanceTier;
 pub const BatchPerformanceMeasurement = performance_assertions.BatchPerformanceMeasurement;
 
+pub const fatal_assertions = @import("test/fatal_assertions.zig");
+pub const FatalCategory = fatal_assertions.FatalCategory;
+pub const FatalContext = fatal_assertions.FatalContext;
+pub const FatalAssertionTester = fatal_assertions.FatalAssertionTester;
+
 pub const bloom_filter = @import("storage/bloom_filter.zig");
 pub const sstable = @import("storage/sstable.zig");
 pub const tiered_compaction = @import("storage/tiered_compaction.zig");

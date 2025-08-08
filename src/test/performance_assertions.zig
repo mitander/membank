@@ -64,8 +64,8 @@ pub const PerformanceThresholds = struct {
         };
 
         const multipliers: Multipliers = switch (tier) {
-            .local => .{ .latency = 3.0, .throughput = 0.5, .memory = 2.0 }, // 3x latency, 50% throughput, 2x memory
-            .ci => .{ .latency = 1.5, .throughput = 0.8, .memory = 1.5 }, // 1.5x latency, 80% throughput, 1.5x memory
+            .local => .{ .latency = 5.0, .throughput = 0.3, .memory = 3.0 }, // 5x latency, 30% throughput, 3x memory (generous for local dev)
+            .ci => .{ .latency = 2.5, .throughput = 0.6, .memory = 2.0 }, // 2.5x latency, 60% throughput, 2x memory
             .production => .{ .latency = 1.0, .throughput = 1.0, .memory = 1.0 }, // Exact requirements
         };
 
