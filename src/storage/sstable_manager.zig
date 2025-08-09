@@ -79,8 +79,8 @@ pub const SSTableManager = struct {
     pub fn startup(self: *SSTableManager) !void {
         concurrency.assert_main_thread();
 
-        const sst_dir = try std.fmt.allocPrint(self.backing_allocator, "{s}/sst", .{self.data_dir});
-        defer self.backing_allocator.free(sst_dir);
+        var sst_dir_buffer: [512]u8 = undefined;
+        const sst_dir = try std.fmt.bufPrint(sst_dir_buffer[0..], "{s}/sst", .{self.data_dir});
 
         if (!self.vfs.exists(sst_dir)) {
             self.vfs.mkdir(sst_dir) catch |err| switch (err) {
@@ -220,8 +220,8 @@ pub const SSTableManager = struct {
     /// Called during startup to restore system state after restart.
     /// Scans SSTable directory for .sst files and registers them in order.
     fn discover_existing_sstables(self: *SSTableManager) !void {
-        const sst_dir = try std.fmt.allocPrint(self.backing_allocator, "{s}/sst", .{self.data_dir});
-        defer self.backing_allocator.free(sst_dir);
+        var sst_dir_buffer: [512]u8 = undefined;
+        const sst_dir = try std.fmt.bufPrint(sst_dir_buffer[0..], "{s}/sst", .{self.data_dir});
 
         if (!self.vfs.exists(sst_dir)) {
             return;

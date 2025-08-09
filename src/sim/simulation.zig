@@ -138,16 +138,19 @@ pub const NodeId = struct {
 /// A simulated node in the KausalDB cluster.
 pub const Node = struct {
     id: NodeId,
-    filesystem: sim_vfs.SimulationVFS,
+    filesystem: *sim_vfs.SimulationVFS,
     message_queue: std.ArrayList(Message),
     allocator: std.mem.Allocator,
 
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator, id: NodeId) !Self {
+        const filesystem_ptr = try allocator.create(sim_vfs.SimulationVFS);
+        filesystem_ptr.* = try sim_vfs.SimulationVFS.init(allocator);
+
         return Self{
             .id = id,
-            .filesystem = try sim_vfs.SimulationVFS.init(allocator),
+            .filesystem = filesystem_ptr,
             .message_queue = std.ArrayList(Message).init(allocator),
             .allocator = allocator,
         };
@@ -155,6 +158,7 @@ pub const Node = struct {
 
     pub fn deinit(self: *Self) void {
         self.filesystem.deinit();
+        self.allocator.destroy(self.filesystem);
         self.message_queue.deinit();
     }
 

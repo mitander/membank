@@ -27,11 +27,14 @@ const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
 const StorageEngine = kausaldb.StorageEngine;
 
 test "A* search integration with storage engine" {
-    const allocator = testing.allocator;
+    // Arena allocator for complex graph traversal test with many temporary allocations
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     // Use QueryHarness for complete integration testing
-    var harness = try QueryHarness.init_and_startup(allocator, "test_astar_integration");
-    defer harness.deinit(); // O(1) cleanup via arena allocation
+    var harness = try QueryHarness.init_and_startup(testing.allocator, "test_astar_integration");
+    defer harness.deinit();
 
     // Create a knowledge graph that would benefit from A* pathfinding
     // Structure: A -> B -> C -> D with some branches
@@ -85,8 +88,8 @@ test "A* search integration with storage engine" {
         .edge_filter = .all_types,
     };
 
-    // Execute A* search
-    const result = try kausaldb.query.traversal.execute_traversal(allocator, harness.storage_engine(), astar_query);
+    // Execute A* search (use testing.allocator for result to ensure proper cleanup detection)
+    const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage_engine(), astar_query);
     defer result.deinit();
 
     // Verify A* found optimal paths
@@ -108,9 +111,12 @@ test "A* search integration with storage engine" {
 }
 
 test "bidirectional search integration and performance" {
-    const allocator = testing.allocator;
+    // Arena allocator for complex bidirectional search test with temporary data structures
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    var harness = try QueryHarness.init_and_startup(allocator, "test_bidirectional_integration");
+    var harness = try QueryHarness.init_and_startup(testing.allocator, "test_bidirectional_integration");
     defer harness.deinit();
 
     // Create a larger graph using standardized test data
@@ -153,7 +159,7 @@ test "bidirectional search integration and performance" {
     };
 
     const start_time = std.time.nanoTimestamp();
-    const result = try kausaldb.query.traversal.execute_traversal(allocator, harness.storage_engine(), bidirectional_query);
+    const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage_engine(), bidirectional_query);
     defer result.deinit();
     const end_time = std.time.nanoTimestamp();
 
@@ -172,10 +178,13 @@ test "bidirectional search integration and performance" {
 }
 
 test "algorithm comparison BFS vs DFS vs A* vs Bidirectional" {
-    const allocator = testing.allocator;
+    // Arena allocator for algorithm comparison test with multiple temporary string allocations
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     // Use QueryHarness for algorithm comparison testing
-    var harness = try QueryHarness.init_and_startup(allocator, "test_algorithm_comparison");
+    var harness = try QueryHarness.init_and_startup(testing.allocator, "test_algorithm_comparison");
     defer harness.deinit();
 
     // Create a structured graph using standardized test data
@@ -223,7 +232,7 @@ test "algorithm comparison BFS vs DFS vs A* vs Bidirectional" {
         };
 
         const start_time = std.time.nanoTimestamp();
-        const result = try kausaldb.query.traversal.execute_traversal(allocator, harness.storage_engine(), traversal_query);
+        const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage_engine(), traversal_query);
         defer result.deinit();
         const end_time = std.time.nanoTimestamp();
 
@@ -240,10 +249,13 @@ test "algorithm comparison BFS vs DFS vs A* vs Bidirectional" {
 }
 
 test "large graph traversal with new algorithms" {
-    const allocator = testing.allocator;
+    // Arena allocator for large graph test with 100+ temporary block allocations
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     // Use QueryHarness for large graph testing
-    var harness = try QueryHarness.init_and_startup(allocator, "test_large_graph");
+    var harness = try QueryHarness.init_and_startup(testing.allocator, "test_large_graph");
     defer harness.deinit();
 
     // Create a larger graph using standardized test data
@@ -287,7 +299,7 @@ test "large graph traversal with new algorithms" {
     };
 
     const start_time = std.time.nanoTimestamp();
-    const result = try kausaldb.query.traversal.execute_traversal(allocator, harness.storage_engine(), astar_query);
+    const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage_engine(), astar_query);
     defer result.deinit();
     const end_time = std.time.nanoTimestamp();
 
@@ -342,9 +354,7 @@ test "edge type filtering integration" {
         try storage_engine.put_edge(edge);
     }
 
-    var start_bytes: [16]u8 = std.mem.zeroes([16]u8);
-    std.mem.writeInt(u32, start_bytes[12..16], 1, .little);
-    const start_id = BlockId{ .bytes = start_bytes };
+    const start_id = TestData.deterministic_block_id(1);
 
     // Test filtering for 'calls' edges only
     const calls_query = TraversalQuery{
@@ -432,9 +442,7 @@ test "memory safety under stress with new algorithms" {
     var round: u32 = 0;
     while (round < 10) : (round += 1) {
         for (algorithms) |algorithm| {
-            var start_bytes: [16]u8 = std.mem.zeroes([16]u8);
-            std.mem.writeInt(u32, start_bytes[12..16], (round % 10) + 1, .little);
-            const start_id = BlockId{ .bytes = start_bytes };
+            const start_id = TestData.deterministic_block_id((round % 10) + 1);
 
             const traversal_query = TraversalQuery{
                 .start_block_id = start_id,

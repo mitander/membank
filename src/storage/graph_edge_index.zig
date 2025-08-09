@@ -84,7 +84,6 @@ pub const GraphEdgeIndex = struct {
         self.outgoing_edges.deinit();
         self.incoming_edges.deinit();
 
-        // Arena cleanup handles all ArrayList memory automatically
         self.arena.deinit();
     }
 

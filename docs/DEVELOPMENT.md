@@ -121,7 +121,7 @@ When adding new features:
 
 1.  **Use appropriate harness**: Select QueryHarness, StorageHarness, or NetworkHarness based on subsystem
 2.  **Test failure modes**: Every success path requires corresponding failure mode tests
-3.  **Validate memory safety**: Use arena-per-test pattern for automatic cleanup
+3.  **Validate memory safety**: Follow arena-per-subsystem memory management with proper resource cleanup
 4.  **Include performance tests**: Add benchmark coverage for performance-critical paths
 
 ### Performance Regression Testing

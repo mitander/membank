@@ -36,7 +36,7 @@ const SIMULATION_FILE_MAGIC: u64 = 0xFEEDFACE_DEADBEEF;
 const MAX_REASONABLE_FILE_SIZE: u64 = 1024 * 1024 * 1024; // 1GB
 
 /// Default maximum disk space for simulation (unlimited if not set)
-const DEFAULT_MAX_DISK_SPACE: u64 = 1024 * 1024 * 1024 * 1024; // 1TB
+const DEFAULT_MAX_DISK_SPACE: u64 = 100 * 1024 * 1024; // 100MB - reasonable for in-memory simulation
 
 comptime {
     assert(MAX_PATH_LENGTH > 0);
@@ -60,6 +60,7 @@ const FileStorage = struct {
 
 /// Simulation VFS providing deterministic in-memory filesystem operations
 pub const SimulationVFS = struct {
+    magic: u64,
     allocator: std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
     files: std.StringHashMap(FileHandle),
@@ -68,6 +69,8 @@ pub const SimulationVFS = struct {
     next_handle: FileHandle,
     current_time_ns: i64,
     fault_injection: FaultInjectionState,
+
+    const MAGIC_NUMBER: u64 = 0xDEADBEEFCAFEBABE;
 
     const Self = @This();
 
@@ -183,7 +186,12 @@ pub const SimulationVFS = struct {
 
         /// Update disk usage tracking
         pub fn update_disk_usage(self: *FaultInjectionState, old_size: usize, new_size: usize) void {
-            self.used_disk_space = self.used_disk_space - old_size + new_size;
+            // Prevent underflow when old_size > used_disk_space
+            if (old_size > self.used_disk_space) {
+                self.used_disk_space = new_size;
+            } else {
+                self.used_disk_space = self.used_disk_space - old_size + new_size;
+            }
         }
 
         /// Disable all fault injection for clean recovery testing
@@ -211,6 +219,7 @@ pub const SimulationVFS = struct {
         file_storage.ensureTotalCapacity(512) catch unreachable; // Safety: generous initial capacity for testing
 
         return SimulationVFS{
+            .magic = MAGIC_NUMBER,
             .allocator = allocator,
             .arena = arena,
             .files = files,
@@ -286,6 +295,16 @@ pub const SimulationVFS = struct {
         }
     }
 
+    /// Recalculate total disk usage from all active files
+    fn recalculate_disk_usage(self: *SimulationVFS) void {
+        self.fault_injection.used_disk_space = 0;
+        for (self.file_storage.items) |storage| {
+            if (storage.active) {
+                self.fault_injection.used_disk_space += storage.data.content.items.len;
+            }
+        }
+    }
+
     /// Retrieve stable pointer to file data by handle
     fn file_data_by_handle(self: *SimulationVFS, handle: FileHandle) ?*SimulationFileData {
         for (self.file_storage.items) |*storage| {
@@ -323,17 +342,17 @@ pub const SimulationVFS = struct {
 
         const self: *SimulationVFS = @ptrCast(@alignCast(vfs_ptr));
 
+        // Conservative disk space check - may reject writes that would fit due to overwrites
+        // but prevents violations by always assuming additional space usage
         if (self.fault_injection.used_disk_space + write_size > self.fault_injection.max_disk_space) {
             return VFileWriteError.NoSpaceLeft;
         }
 
         if (self.fault_injection.should_torn_write(write_size)) |partial_size| {
             assert(partial_size <= write_size); // Torn writes never exceed original
-            self.fault_injection.used_disk_space += partial_size;
             return partial_size;
         }
 
-        self.fault_injection.used_disk_space += write_size;
         return write_size;
     }
 
@@ -546,7 +565,8 @@ pub const SimulationVFS = struct {
             return VFSError.IsDirectory;
         }
 
-        self.fault_injection.update_disk_usage(file_data.content.items.len, 0);
+        // Recalculate disk usage after file removal
+        self.recalculate_disk_usage();
 
         const removed_entry = self.files.fetchRemove(path).?;
         self.allocator.free(removed_entry.key);

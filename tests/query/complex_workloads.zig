@@ -150,6 +150,10 @@ test "complex graph traversal scenarios" {
 test "query optimization strategy validation" {
     const allocator = testing.allocator;
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -164,12 +168,12 @@ test "query optimization strategy validation" {
     const dataset_size = 500;
     var i: u32 = 0;
     while (i < dataset_size) : (i += 1) {
-        const content = try std.fmt.allocPrint(allocator, "Block content {}", .{i});
+        const content = try std.fmt.allocPrint(arena_allocator, "Block content {}", .{i});
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(i),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://optimization_block_{}.zig", .{i}),
-            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"optimization_test\":{}}}", .{i}),
+            .source_uri = try std.fmt.allocPrint(arena_allocator, "test://optimization_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"optimization_test\":{}}}", .{i}),
             .content = content,
         };
         try storage_engine.put_block(block);
@@ -209,6 +213,10 @@ test "query optimization strategy validation" {
 test "query performance under memory pressure" {
     const allocator = testing.allocator;
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -233,12 +241,12 @@ test "query performance under memory pressure" {
             try content.append('A' + @as(u8, @intCast(j % 26)));
         }
 
-        const owned_content = try allocator.dupe(u8, content.items);
+        const owned_content = try arena_allocator.dupe(u8, content.items);
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(i),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://memory_pressure_block_{}.zig", .{i}),
-            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"memory_pressure_test\":{}}}", .{i}),
+            .source_uri = try std.fmt.allocPrint(arena_allocator, "test://memory_pressure_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"memory_pressure_test\":{}}}", .{i}),
             .content = owned_content,
         };
         try storage_engine.put_block(block);
@@ -278,6 +286,10 @@ test "query performance under memory pressure" {
 test "complex filtering and search scenarios" {
     const allocator = testing.allocator;
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -298,12 +310,12 @@ test "complex filtering and search scenarios" {
     };
 
     for (content_patterns, 0..) |pattern, idx| {
-        const owned_content = try allocator.dupe(u8, pattern);
+        const owned_content = try arena_allocator.dupe(u8, pattern);
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(@intCast(idx)),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://filtering_pattern_{}.zig", .{idx}),
-            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"filtering_test\":{}}}", .{idx}),
+            .source_uri = try std.fmt.allocPrint(arena_allocator, "test://filtering_pattern_{}.zig", .{idx}),
+            .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"filtering_test\":{}}}", .{idx}),
             .content = owned_content,
         };
         try storage_engine.put_block(block);
@@ -425,6 +437,10 @@ test "graph traversal with cycle detection" {
 test "batch query operations and efficiency" {
     const allocator = testing.allocator;
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -438,12 +454,12 @@ test "batch query operations and efficiency" {
     // Create a moderate dataset
     var i: u32 = 0;
     while (i < 100) : (i += 1) {
-        const content = try std.fmt.allocPrint(allocator, "Batch test block {}", .{i});
+        const content = try std.fmt.allocPrint(arena_allocator, "Batch test block {}", .{i});
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(i),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://batch_block_{}.zig", .{i}),
-            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"batch_test\":{}}}", .{i}),
+            .source_uri = try std.fmt.allocPrint(arena_allocator, "test://batch_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"batch_test\":{}}}", .{i}),
             .content = content,
         };
         try storage_engine.put_block(block);
@@ -551,6 +567,10 @@ test "query error handling and recovery" {
 test "mixed query workload simulation" {
     const allocator = testing.allocator;
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -564,12 +584,12 @@ test "mixed query workload simulation" {
     // Create diverse dataset
     var i: u32 = 0;
     while (i < 50) : (i += 1) {
-        const content = try std.fmt.allocPrint(allocator, "Mixed workload block {}: {s}", .{ i, if (i % 2 == 0) "function" else "struct" });
+        const content = try std.fmt.allocPrint(arena_allocator, "Mixed workload block {}: {s}", .{ i, if (i % 2 == 0) "function" else "struct" });
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(i),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://mixed_workload_block_{}.zig", .{i}),
-            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"mixed_workload_test\":{},\"type\":\"{s}\"}}", .{ i, if (i % 2 == 0) "function" else "struct" }),
+            .source_uri = try std.fmt.allocPrint(arena_allocator, "test://mixed_workload_block_{}.zig", .{i}),
+            .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"mixed_workload_test\":{},\"type\":\"{s}\"}}", .{ i, if (i % 2 == 0) "function" else "struct" }),
             .content = content,
         };
         try storage_engine.put_block(block);

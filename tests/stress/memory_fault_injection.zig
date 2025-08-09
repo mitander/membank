@@ -110,7 +110,9 @@ test "allocation failure during memtable operations" {
 
             // Use deterministic ID for fault injection testing
             const block_id = std.crypto.random.int(u32);
-            const owned_content = try failing_allocator.dupe(u8, content);
+            const owned_content = failing_allocator.dupe(u8, content) catch break;
+            defer failing_allocator.free(owned_content); // Always free the duplicated content
+
             const block = ContextBlock{
                 .id = TestData.deterministic_block_id(block_id),
                 .version = 1,
@@ -206,6 +208,8 @@ test "arena corruption detection" {
         const content = try std.fmt.allocPrint(allocator, "Corruption test block {}", .{i});
         defer allocator.free(content);
         const owned_content = try allocator.dupe(u8, content);
+        defer allocator.free(owned_content); // Free duplicated content after memtable clones it
+
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(i),
             .version = 1,
@@ -293,6 +297,8 @@ test "error path cleanup validation" {
         defer allocator.free(content);
 
         const owned_content = try allocator.dupe(u8, content);
+        defer allocator.free(owned_content);
+
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(@intCast(scenario_idx)),
             .version = 1,
@@ -363,6 +369,7 @@ test "sustained operations under memory pressure" {
                 cycle_successful = false;
                 break;
             };
+            defer allocator.free(owned_content);
             const block = ContextBlock{
                 .id = TestData.deterministic_block_id(block_id),
                 .version = 1,
@@ -430,6 +437,8 @@ test "graph edge operations under stress" {
         defer allocator.free(content);
 
         const owned_content = try allocator.dupe(u8, content);
+        defer allocator.free(owned_content);
+
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(@intCast(idx)),
             .version = 1,

@@ -321,9 +321,9 @@ pub const ScenarioExecutor = struct {
             const block = ContextBlock{
                 .id = TestData.deterministic_block_id(operation_index),
                 .version = 1,
-                .source_uri = try std.fmt.allocPrint(self.allocator, "test://fault_operation_{}.zig", .{operation_index}),
-                .metadata_json = try std.fmt.allocPrint(self.allocator, "{{\"fault_operation\":{}}}", .{operation_index}),
-                .content = try std.fmt.allocPrint(self.allocator, "Fault operation test block {}", .{operation_index}),
+                .source_uri = "test://fault_operation.zig",
+                .metadata_json = "{\"fault_operation\":true}",
+                .content = "Fault operation test block content",
             };
 
             // Expected failures under fault injection validate error handling

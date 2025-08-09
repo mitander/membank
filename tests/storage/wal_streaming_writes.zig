@@ -70,7 +70,7 @@ fn create_test_block(allocator: std.mem.Allocator, id_suffix: u8) !ContextBlock 
 test "streaming recovery basic" {
     const allocator = testing.allocator;
 
-    var harness = try StorageHarness.init_and_startup(allocator, "streaming_test_dir");
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xDEADBEEF, "streaming_test_dir");
     defer harness.deinit();
 
     // Create and store test data
@@ -104,18 +104,19 @@ test "streaming recovery basic" {
     // Delete one block
     try harness.storage_engine.delete_block(test_block3.id);
 
-    // Test recovery using fresh storage harness
-    var recovery_harness = try StorageHarness.init_and_startup(allocator, "streaming_test_dir");
-    defer recovery_harness.deinit();
+    // Test recovery by shutting down and restarting storage engine
+    harness.storage_engine.deinit();
+    harness.storage_engine.* = try StorageEngine.init_default(harness.allocator, harness.node().filesystem_interface(), "streaming_test_dir");
+    try harness.storage_engine.startup();
 
     // Validate recovery results by checking storage engine state
     // Should have 2 blocks remaining (3 created, 1 deleted)
-    try testing.expectEqual(@as(u32, 2), recovery_harness.storage_engine.block_count());
+    try testing.expectEqual(@as(u32, 2), harness.storage_engine.block_count());
 
     // Verify specific blocks exist
-    const recovered_block1 = try recovery_harness.storage_engine.find_block(test_block1.id);
-    const recovered_block2 = try recovery_harness.storage_engine.find_block(test_block2.id);
-    const recovered_block3 = try recovery_harness.storage_engine.find_block(test_block3.id);
+    const recovered_block1 = try harness.storage_engine.find_block(test_block1.id);
+    const recovered_block2 = try harness.storage_engine.find_block(test_block2.id);
+    const recovered_block3 = try harness.storage_engine.find_block(test_block3.id);
 
     try testing.expect(recovered_block1 != null);
     try testing.expect(recovered_block2 != null);
@@ -125,7 +126,7 @@ test "streaming recovery basic" {
 test "streaming recovery large entries" {
     const allocator = testing.allocator;
 
-    var harness = try StorageHarness.init_and_startup(allocator, "large_entries_test_dir");
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xCAFEBABE, "large_entries_test_dir");
     defer harness.deinit();
 
     // Create block with large content that exceeds typical buffer sizes
@@ -159,17 +160,17 @@ test "streaming recovery large entries" {
     defer allocator.free(normal_block2.metadata_json);
 
     // Recovery should handle large entries correctly
-    var recovery_harness = try StorageHarness.init_and_startup(allocator, "large_entries_test_dir");
-    defer recovery_harness.deinit();
+    harness.storage_engine.deinit();
+    harness.storage_engine.* = try StorageEngine.init_default(harness.allocator, harness.node().filesystem_interface(), "large_entries_test_dir");
+    try harness.storage_engine.startup();
 
-    // All blocks should be recovered successfully
-    try testing.expectEqual(@as(u32, 3), recovery_harness.storage_engine.block_count());
+    try testing.expectEqual(@as(u32, 3), harness.storage_engine.block_count());
 }
 
 test "streaming recovery memory efficiency" {
     const allocator = testing.allocator;
 
-    var harness = try StorageHarness.init_and_startup(allocator, "memory_efficiency_test_dir");
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xFEEDFACE, "memory_efficiency_test_dir");
     defer harness.deinit();
 
     // Create many entries to test memory efficiency
@@ -192,26 +193,26 @@ test "streaming recovery memory efficiency" {
     }
 
     // Recovery should process all entries without excessive memory usage
-    var recovery_harness = try StorageHarness.init_and_startup(allocator, "memory_efficiency_test_dir");
-    defer recovery_harness.deinit();
+    harness.storage_engine.deinit();
+    harness.storage_engine.* = try StorageEngine.init_default(harness.allocator, harness.node().filesystem_interface(), "memory_efficiency_test_dir");
+    try harness.storage_engine.startup();
 
-    // All entries should be recovered
-    try testing.expectEqual(@as(u32, num_entries), recovery_harness.storage_engine.block_count());
+    try testing.expectEqual(@as(u32, 100), harness.storage_engine.block_count());
 }
 
 test "streaming recovery empty WAL" {
     const allocator = testing.allocator;
 
-    var harness = try StorageHarness.init_and_startup(allocator, "empty_wal_test_dir");
+    var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xBEEFFEED, "empty_wal_test_dir");
     defer harness.deinit();
 
     // Don't write any data - WAL should be empty
 
-    // Recovery from empty WAL should complete without errors with fresh storage engine
-    var recovery_harness = try StorageHarness.init_and_startup(allocator, "empty_wal_test_dir");
-    defer recovery_harness.deinit();
+    // Recovery from empty WAL should complete without errors
+    harness.storage_engine.deinit();
+    harness.storage_engine.* = try StorageEngine.init_default(harness.allocator, harness.node().filesystem_interface(), "empty_wal_test_dir");
+    try harness.storage_engine.startup();
 
-    // No entries should be recovered from empty WAL
-    try testing.expectEqual(@as(u32, 0), recovery_harness.storage_engine.block_count());
-    try testing.expectEqual(@as(u32, 0), recovery_harness.storage_engine.edge_count());
+    try testing.expectEqual(@as(u32, 0), harness.storage_engine.block_count());
+    try testing.expectEqual(@as(u32, 0), harness.storage_engine.edge_count());
 }

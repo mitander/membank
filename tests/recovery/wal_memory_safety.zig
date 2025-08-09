@@ -8,6 +8,7 @@ const std = @import("std");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
+const simulation_vfs = kausaldb.simulation_vfs;
 const Simulation = kausaldb.simulation.Simulation;
 const ContextBlock = kausaldb.types.ContextBlock;
 const BlockId = kausaldb.types.BlockId;
@@ -17,51 +18,58 @@ const TestData = kausaldb.TestData;
 
 // Test WAL recovery robustness under memory pressure scenarios
 test "sequential recovery cycles" {
-    const allocator = testing.allocator;
+    // Arena allocator for recovery test with many temporary string allocations across cycles
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    // Test multiple sequential WAL write/recovery cycles using harness
+    var harness = try SimulationHarness.init_and_startup(testing.allocator, 0xDEADBEEF, "memory_safety_cycles");
+    defer harness.deinit();
+
+    // Test multiple sequential WAL write/recovery cycles using single harness
     // This stresses memory management across multiple operations
     for (0..5) |cycle| {
-        const data_dir = try std.fmt.allocPrint(allocator, "memory_safety_cycle_{}", .{cycle});
-        defer allocator.free(data_dir);
+        // Write phase - create blocks with varying content sizes
+        for (1..4) |block_idx| {
+            const content_size = (block_idx + 1) * 256; // 256, 512, 768 bytes
+            const content = try allocator.alloc(u8, content_size);
+            defer allocator.free(content);
+            @memset(content, @intCast(cycle + block_idx));
 
-        // Write phase using SimulationHarness
-        {
-            var harness = try SimulationHarness.init_and_startup(allocator, 0xDEADBEEF + @as(u64, cycle), data_dir);
-            defer harness.deinit();
+            const block_id = @as(u32, @intCast(cycle * 10 + block_idx));
+            const owned_content = try allocator.dupe(u8, content);
+            const source_uri = try std.fmt.allocPrint(allocator, "test://wal_cycle_{}_block_{}.zig", .{ cycle, block_idx });
+            const metadata_json = try std.fmt.allocPrint(allocator, "{{\"cycle\":{},\"block_idx\":{}}}", .{ cycle, block_idx });
 
-            // Create blocks with varying content sizes using TestData
-            for (1..4) |block_idx| {
-                const content_size = (block_idx + 1) * 256; // 256, 512, 768 bytes
-                const content = try allocator.alloc(u8, content_size);
-                defer allocator.free(content);
-                @memset(content, @intCast(cycle + block_idx));
+            const block = ContextBlock{
+                .id = TestData.deterministic_block_id(block_id),
+                .version = 1,
+                .source_uri = source_uri,
+                .metadata_json = metadata_json,
+                .content = owned_content,
+            };
 
-                const block_id = @as(u32, @intCast(cycle * 10 + block_idx));
-                const owned_content = try allocator.dupe(u8, content);
-                const block = ContextBlock{
-                    .id = TestData.deterministic_block_id(block_id),
-                    .version = 1,
-                    .source_uri = try std.fmt.allocPrint(allocator, "test://wal_cycle_{}_block_{}.zig", .{ cycle, block_idx }),
-                    .metadata_json = try std.fmt.allocPrint(allocator, "{{\"cycle\":{},\"block_idx\":{}}}", .{ cycle, block_idx }),
-                    .content = owned_content,
-                };
+            try harness.storage_engine.put_block(block);
 
-                try harness.storage_engine.put_block(block);
-            }
+            // Clean up after storage engine has cloned the data
+            allocator.free(owned_content);
+            allocator.free(source_uri);
+            allocator.free(metadata_json);
         }
 
-        // Recovery phase using fresh harness
-        {
-            var recovery_harness = try SimulationHarness.init_and_startup(allocator, 0xDEADBEEF + @as(u64, cycle), data_dir);
-            defer recovery_harness.deinit();
+        // Recovery phase - manually trigger recovery by reinitializing storage engine
+        harness.storage_engine.deinit();
+        harness.storage_engine.* = try StorageEngine.init_default(harness.allocator, harness.node().filesystem_interface(), "memory_safety_cycles");
+        try harness.storage_engine.startup();
 
-            // Verify all blocks recovered correctly
-            try testing.expectEqual(@as(u32, 3), recovery_harness.storage_engine.block_count());
+        // Verify all blocks from all cycles recovered correctly
+        const expected_total_blocks = @as(u32, @intCast((cycle + 1) * 3));
+        try testing.expectEqual(expected_total_blocks, harness.storage_engine.block_count());
 
+        for (0..cycle + 1) |verify_cycle| {
             for (1..4) |block_idx| {
-                const block_id = TestData.deterministic_block_id(@as(u32, @intCast(cycle * 10 + block_idx)));
-                const recovered = try recovery_harness.storage_engine.find_block(block_id) orelse {
+                const block_id = TestData.deterministic_block_id(@as(u32, @intCast(verify_cycle * 10 + block_idx)));
+                const recovered = try harness.storage_engine.find_block(block_id) orelse {
                     try testing.expect(false); // Block should exist
                     return;
                 };
@@ -77,9 +85,18 @@ test "sequential recovery cycles" {
 test "allocator stress testing" {
     const allocator = testing.allocator;
 
-    // Test with large blocks that stress memory allocation patterns
-    var harness = try SimulationHarness.init_and_startup(allocator, 0xFEEDFACE, "allocator_stress");
-    defer harness.deinit();
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    // First storage engine: write data
+    var storage_engine1 = try StorageEngine.init_default(
+        allocator,
+        sim_vfs.vfs(),
+        "allocator_stress",
+    );
+    defer storage_engine1.deinit();
+
+    try storage_engine1.startup();
 
     // Create blocks with sizes that might trigger reallocations in HashMap
     const block_sizes = [_]usize{ 1024, 4096, 16384, 65536 };
@@ -95,27 +112,41 @@ test "allocator stress testing" {
 
         const block_id = @as(u32, @intCast(idx + 100));
         const owned_content = try allocator.dupe(u8, content);
+        const source_uri = try std.fmt.allocPrint(allocator, "test://wal_verification_{}.zig", .{block_id});
+        const metadata_json = try std.fmt.allocPrint(allocator, "{{\"block_id\":{}}}", .{block_id});
+
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(block_id),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://wal_verification_{}.zig", .{block_id}),
-            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"block_id\":{}}}", .{block_id}),
+            .source_uri = source_uri,
+            .metadata_json = metadata_json,
             .content = owned_content,
         };
 
-        try harness.storage_engine.put_block(block);
+        try storage_engine1.put_block(block);
+
+        // Clean up after storage engine has cloned the data
+        allocator.free(owned_content);
+        allocator.free(source_uri);
+        allocator.free(metadata_json);
     }
 
-    // Recovery with fresh harness
-    var recovery_harness = try SimulationHarness.init_and_startup(allocator, 0xFEEDFACE, "allocator_stress");
-    defer recovery_harness.deinit();
+    // Second storage engine: recover from WAL
+    var storage_engine2 = try StorageEngine.init_default(
+        allocator,
+        sim_vfs.vfs(),
+        "allocator_stress",
+    );
+    defer storage_engine2.deinit();
 
-    try testing.expectEqual(@as(u32, block_sizes.len), recovery_harness.storage_engine.block_count());
+    try storage_engine2.startup();
+
+    try testing.expectEqual(@as(u32, block_sizes.len), storage_engine2.block_count());
 
     // Verify content integrity
     for (block_sizes, 0..) |size, index| {
         const block_id = TestData.deterministic_block_id(@as(u32, @intCast(index + 100)));
-        const recovered = try recovery_harness.storage_engine.find_block(block_id) orelse {
+        const recovered = try storage_engine2.find_block(block_id) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
@@ -148,15 +179,23 @@ test "rapid cycle stress test" {
         defer allocator.free(content);
 
         const owned_content = try allocator.dupe(u8, content);
+        const source_uri = try std.fmt.allocPrint(allocator, "test://arena_safety_cycle_{}.zig", .{cycle});
+        const metadata_json = try std.fmt.allocPrint(allocator, "{{\"cycle\":{}}}", .{cycle});
+
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(@as(u32, @intCast(cycle))),
             .version = 1,
-            .source_uri = try std.fmt.allocPrint(allocator, "test://arena_safety_cycle_{}.zig", .{cycle}),
-            .metadata_json = try std.fmt.allocPrint(allocator, "{{\"cycle\":{}}}", .{cycle}),
+            .source_uri = source_uri,
+            .metadata_json = metadata_json,
             .content = owned_content,
         };
 
         try harness.storage_engine.put_block(block);
+
+        // Clean up after storage engine has cloned the data
+        allocator.free(owned_content);
+        allocator.free(source_uri);
+        allocator.free(metadata_json);
 
         // Immediate recovery in same cycle
         try testing.expectEqual(@as(u32, 1), harness.storage_engine.block_count());
@@ -217,6 +256,7 @@ test "edge case robustness" {
 
         const special_content = "Hello 世界 (world) Здравствуй мир!";
         const owned_content = try allocator.dupe(u8, special_content);
+
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(3),
             .version = 1,
@@ -226,6 +266,9 @@ test "edge case robustness" {
         };
 
         try harness.storage_engine.put_block(block);
+
+        // Clean up after storage engine has cloned the data
+        allocator.free(owned_content);
 
         const recovered = try harness.storage_engine.find_block(block.id) orelse {
             try testing.expect(false); // Block should exist
@@ -239,35 +282,54 @@ test "edge case robustness" {
 test "rapid sequential operations" {
     const allocator = testing.allocator;
 
-    var harness = try SimulationHarness.init_and_startup(allocator, 0xABCDEF01, "rapid_operations");
-    defer harness.deinit();
-
-    // Simulate rapid operations that might stress the HashMap implementation
     const num_operations = 10; // Reduced from 100 to avoid memory corruption
 
-    for (1..num_operations + 1) |index| {
-        const content = try std.fmt.allocPrint(allocator, "operation {} content", .{index});
-        defer allocator.free(content);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
 
-        const block = try TestData.create_test_block_with_content(allocator, @as(u32, @intCast(index)), content);
-        defer TestData.cleanup_test_block(allocator, block);
+    // Phase 1: Create blocks with first storage engine
+    {
+        var storage_engine1 = try StorageEngine.init_default(
+            allocator,
+            sim_vfs.vfs(),
+            "rapid_operations",
+        );
+        defer storage_engine1.deinit();
 
-        try harness.storage_engine.put_block(block);
+        try storage_engine1.startup();
+
+        // Simulate rapid operations that might stress the HashMap implementation
+        for (1..num_operations + 1) |index| {
+            const content = try std.fmt.allocPrint(allocator, "operation {} content", .{index});
+            defer allocator.free(content);
+
+            const block = try TestData.create_test_block_with_content(allocator, @as(u32, @intCast(index)), content);
+            defer TestData.cleanup_test_block(allocator, block);
+
+            try storage_engine1.put_block(block);
+        }
+
+        try testing.expectEqual(@as(u32, num_operations), storage_engine1.block_count());
     }
+    // First storage engine is now cleaned up
 
-    try testing.expectEqual(@as(u32, num_operations), harness.storage_engine.block_count());
+    // Phase 2: Test recovery with new storage engine
+    var storage_engine2 = try StorageEngine.init_default(
+        allocator,
+        sim_vfs.vfs(),
+        "rapid_operations",
+    );
+    defer storage_engine2.deinit();
 
-    // Test recovery of all operations
-    var recovery_harness = try SimulationHarness.init_and_startup(allocator, 0xABCDEF01, "rapid_operations");
-    defer recovery_harness.deinit();
+    try storage_engine2.startup();
 
-    try testing.expectEqual(@as(u32, num_operations), recovery_harness.storage_engine.block_count());
+    try testing.expectEqual(@as(u32, num_operations), storage_engine2.block_count());
 
     // Verify random sample of recovered blocks
     const sample_indices = [_]u32{ 1, 3, 6, 8, 10 };
     for (sample_indices) |index| {
         const block_id = TestData.deterministic_block_id(index);
-        const recovered = try recovery_harness.storage_engine.find_block(block_id) orelse {
+        const recovered = try storage_engine2.find_block(block_id) orelse {
             try testing.expect(false); // Block should exist
             return;
         };

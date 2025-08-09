@@ -110,7 +110,6 @@ pub const ConnectionManager = struct {
             self.backing_allocator.free(self.poll_fds);
         }
 
-        // Arena cleanup handles all connection memory automatically
         self.arena.deinit();
 
         log.info("ConnectionManager shutdown: {} total connections served", .{self.stats.connections_accepted});

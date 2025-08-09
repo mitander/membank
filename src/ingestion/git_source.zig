@@ -383,6 +383,7 @@ pub const GitSource = struct {
         var dir_iterator = file_system.iterate_directory(full_path, allocator) catch {
             return;
         };
+        defer dir_iterator.deinit(allocator);
 
         while (dir_iterator.next()) |entry| {
             const entry_name = entry.name;

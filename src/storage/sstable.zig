@@ -475,7 +475,9 @@ pub const SSTable = struct {
             }
         }
 
-        const found_entry = entry orelse return null;
+        const found_entry = entry orelse {
+            return null;
+        };
 
         var file = try self.filesystem.open(self.file_path, .read);
         defer file.close();

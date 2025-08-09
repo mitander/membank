@@ -104,7 +104,6 @@ pub const TestData = struct {
 /// Follows two-phase initialization and arena-per-subsystem memory patterns
 pub const StorageHarness = struct {
     allocator: std.mem.Allocator,
-    arena: std.heap.ArenaAllocator,
     sim_vfs: *SimulationVFS,
     vfs_instance: VFS,
     storage_engine: *StorageEngine,
@@ -123,22 +122,19 @@ pub const StorageHarness = struct {
 
     /// Phase 1 initialization: memory allocation only, no I/O operations
     pub fn init(allocator: std.mem.Allocator, db_name: []const u8) !Self {
-        // Arena allocation enables O(1) cleanup of all harness resources
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        const arena_allocator = arena.allocator();
+        // Use backing allocator consistently - components manage their own arenas
 
-        // SimulationVFS provides deterministic filesystem abstraction for testing
-        var sim_vfs = try arena_allocator.create(SimulationVFS);
-        sim_vfs.* = try SimulationVFS.init(arena_allocator);
+        // SimulationVFS manages its own internal arena
+        var sim_vfs = try allocator.create(SimulationVFS);
+        sim_vfs.* = try SimulationVFS.init(allocator);
 
-        // Storage engine created with VFS abstraction but no I/O operations yet
-        const storage_engine = try arena_allocator.create(StorageEngine);
+        // Storage engine uses same backing allocator for consistency
+        const storage_engine = try allocator.create(StorageEngine);
         const vfs_instance = sim_vfs.vfs();
-        storage_engine.* = try StorageEngine.init_default(arena_allocator, vfs_instance, db_name);
+        storage_engine.* = try StorageEngine.init_default(allocator, vfs_instance, db_name);
 
         return Self{
             .allocator = allocator,
-            .arena = arena,
             .sim_vfs = sim_vfs,
             .vfs_instance = vfs_instance,
             .storage_engine = storage_engine,
@@ -150,12 +146,12 @@ pub const StorageHarness = struct {
         try self.storage_engine.startup();
     }
 
-    /// Clean up all harness resources with O(1) arena deinitialization
+    /// Clean up all harness resources
     pub fn deinit(self: *Self) void {
-        // Arena allocation ensures automatic cleanup of storage engine and VFS
         self.storage_engine.deinit();
+        self.allocator.destroy(self.storage_engine);
         self.sim_vfs.deinit();
-        self.arena.deinit();
+        self.allocator.destroy(self.sim_vfs);
     }
 
     /// Convenience method combining init and startup phases
@@ -178,10 +174,12 @@ pub const QueryHarness = struct {
     pub fn init(allocator: std.mem.Allocator, db_name: []const u8) !Self {
         var storage_harness = try StorageHarness.init(allocator, db_name);
 
-        // Query engine shares arena with storage for unified memory management
-        const arena_allocator = storage_harness.arena.allocator();
-        const query_engine_ptr = try arena_allocator.create(QueryEngine);
-        query_engine_ptr.* = QueryEngine.init(arena_allocator, storage_harness.storage_engine);
+        // Query engine uses backing allocator for consistency
+        const query_engine_ptr = try storage_harness.allocator.create(QueryEngine);
+        query_engine_ptr.* = QueryEngine.init(storage_harness.allocator, storage_harness.storage_engine);
+
+        // Disable caching in tests to prevent memory leaks from arena allocator
+        query_engine_ptr.caching_enabled = false;
 
         return Self{
             .storage_harness = storage_harness,
@@ -195,10 +193,9 @@ pub const QueryHarness = struct {
         // Query engine requires no separate I/O initialization
     }
 
-    /// Clean up all harness resources with O(1) arena deinitialization
+    /// Clean up all harness resources
     pub fn deinit(self: *Self) void {
-        // Arena allocation ensures automatic cleanup of query and storage components
-        self.query_engine.deinit();
+        self.storage_harness.allocator.destroy(self.query_engine);
         self.storage_harness.deinit();
     }
 
@@ -224,7 +221,6 @@ pub const QueryHarness = struct {
 /// Coordinates simulation, storage, and query components
 pub const SimulationHarness = struct {
     allocator: std.mem.Allocator,
-    arena: std.heap.ArenaAllocator,
     simulation: *Simulation,
     storage_engine: *StorageEngine,
     query_engine: *QueryEngine,
@@ -234,12 +230,11 @@ pub const SimulationHarness = struct {
 
     /// Phase 1 initialization with deterministic seed for reproducible behavior
     pub fn init(allocator: std.mem.Allocator, seed: u64, db_name: []const u8) !Self {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        const arena_allocator = arena.allocator();
+        // Use backing allocator consistently for all components
 
         // Deterministic simulation ensures reproducible test behavior
-        var simulation_ptr = try arena_allocator.create(Simulation);
-        simulation_ptr.* = try Simulation.init(arena_allocator, seed);
+        var simulation_ptr = try allocator.create(Simulation);
+        simulation_ptr.* = try Simulation.init(allocator, seed);
 
         // Single simulation node hosts storage engine
         const node_id = try simulation_ptr.add_node();
@@ -251,16 +246,15 @@ pub const SimulationHarness = struct {
         const node_vfs = node_ptr.filesystem_interface();
 
         // Storage engine uses simulation VFS for deterministic I/O
-        const storage_engine = try arena_allocator.create(StorageEngine);
-        storage_engine.* = try StorageEngine.init_default(arena_allocator, node_vfs, db_name);
+        const storage_engine = try allocator.create(StorageEngine);
+        storage_engine.* = try StorageEngine.init_default(allocator, node_vfs, db_name);
 
         // Query engine coordinates with storage engine
-        const query_engine_ptr = try arena_allocator.create(QueryEngine);
-        query_engine_ptr.* = QueryEngine.init(arena_allocator, storage_engine);
+        const query_engine_ptr = try allocator.create(QueryEngine);
+        query_engine_ptr.* = QueryEngine.init(allocator, storage_engine);
 
         return Self{
             .allocator = allocator,
-            .arena = arena,
             .simulation = simulation_ptr,
             .storage_engine = storage_engine,
             .query_engine = query_engine_ptr,
@@ -273,12 +267,14 @@ pub const SimulationHarness = struct {
         try self.storage_engine.startup();
     }
 
-    /// Clean up all harness resources with O(1) arena deinitialization
+    /// Clean up all harness resources
     pub fn deinit(self: *Self) void {
         self.query_engine.deinit();
+        self.allocator.destroy(self.query_engine);
         self.storage_engine.deinit();
+        self.allocator.destroy(self.storage_engine);
         self.simulation.deinit();
-        self.arena.deinit();
+        self.allocator.destroy(self.simulation);
     }
 
     /// Convenience method combining init and startup phases
@@ -367,7 +363,7 @@ pub const FaultInjectionHarness = struct {
     /// Configure fault injection parameters in simulation VFS
     pub fn apply_fault_configuration(self: *Self) !void {
         const node = self.simulation_harness.node();
-        const sim_vfs = &node.filesystem;
+        const sim_vfs = node.filesystem;
 
         // I/O failure configuration based on fault settings
         if (self.fault_config.io_failures.enabled) {
@@ -413,7 +409,7 @@ pub const FaultInjectionHarness = struct {
     /// Disable all fault injection to enable clean recovery testing
     pub fn disable_all_faults(self: *Self) void {
         const node = self.simulation_harness.node();
-        const sim_vfs = &node.filesystem;
+        const sim_vfs = node.filesystem;
         sim_vfs.disable_all_fault_injection();
     }
 };

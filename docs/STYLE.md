@@ -83,7 +83,7 @@ All tests must use the appropriate harness for coordinated setup and teardown:
 
 ### Test Patterns
 
-- **Arena-per-Test**: Each test uses a dedicated arena for automatic memory cleanup
+- **Proper Resource Management**: Tests must properly clean up resources using appropriate allocators
 - **VFS Integration**: All I/O operations must use the VFS abstraction for deterministic testing
 - **Failure Mode Coverage**: Every success path requires corresponding failure mode tests
 - **Performance Integration**: Performance-critical paths must include benchmark coverage

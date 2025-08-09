@@ -237,6 +237,8 @@ test "wal recovery with large blocks" {
     @memset(large_content, 'x');
 
     const owned_content = try allocator.dupe(u8, large_content);
+    defer allocator.free(owned_content); // Free duplicated content after WAL clones it
+
     const large_block = ContextBlock{
         .id = TestData.deterministic_block_id(0xabcdef01),
         .version = 1,
@@ -311,27 +313,34 @@ test "wal recovery stress with many entries" {
         defer allocator.free(content);
 
         const owned_content = try allocator.dupe(u8, content);
+
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(@intCast(i)),
-            .version = 1,
+            .version = @intCast(i), // Fix: Use consistent version numbering
             .source_uri = "test://wal_multiple_segments.zig",
             .metadata_json = "{\"test\":\"wal_multiple_segments\"}",
             .content = owned_content,
         };
+
+        // Store the block first, then create expected copy
+        try storage_engine1.put_block(block);
+
+        // Clean up the original memory after storage engine has used it
+        allocator.free(owned_content);
+
+        // Create expected block copy with proper memory management
         const source_uri = try allocator.dupe(u8, block.source_uri);
         const metadata_json = try allocator.dupe(u8, block.metadata_json);
-        const content_copy = try allocator.dupe(u8, block.content);
+        const content_copy = try allocator.dupe(u8, content); // Use original content, not freed memory
 
-        // Create block copy for expected_blocks list with proper memory management
         const block_copy = ContextBlock{
             .id = block.id,
-            .version = @intCast(i + 1),
+            .version = @intCast(i), // Fix: Use same version as stored block
             .source_uri = source_uri,
             .metadata_json = metadata_json,
             .content = content_copy,
         };
 
-        try storage_engine1.put_block(block);
         try expected_blocks.append(block_copy); // tidy:ignore-perf - capacity pre-allocated line 304
     }
 

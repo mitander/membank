@@ -70,8 +70,8 @@ pub const MemtableManager = struct {
     ) !MemtableManager {
         const owned_data_dir = try allocator.dupe(u8, data_dir);
 
-        const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{owned_data_dir});
-        defer allocator.free(wal_dir);
+        var wal_dir_buffer: [512]u8 = undefined;
+        const wal_dir = try std.fmt.bufPrint(wal_dir_buffer[0..], "{s}/wal", .{owned_data_dir});
 
         return MemtableManager{
             .backing_allocator = allocator,

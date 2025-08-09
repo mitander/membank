@@ -935,7 +935,152 @@ fn traverse_topological_sort(
     storage_engine: *StorageEngine,
     query: TraversalQuery,
 ) !TraversalResult {
-    return traverse_breadth_first(allocator, storage_engine, query);
+    var result_blocks = std.ArrayList(ContextBlock).init(allocator);
+    defer result_blocks.deinit();
+
+    var result_paths = std.ArrayList([]BlockId).init(allocator);
+    defer {
+        for (result_paths.items) |path| {
+            allocator.free(path);
+        }
+        result_paths.deinit();
+    }
+
+    var result_depths = std.ArrayList(u32).init(allocator);
+    defer result_depths.deinit();
+
+    // Use Kahn's algorithm with cycle detection
+    var visited = BlockIdHashMap.init(allocator);
+    defer visited.deinit();
+
+    var in_degree = std.HashMap(BlockId, u32, BlockIdHashContext, std.hash_map.default_max_load_percentage).init(allocator);
+    defer in_degree.deinit();
+
+    var queue = std.ArrayList(BlockId).init(allocator);
+    defer queue.deinit();
+
+    // Start from the root node
+    var current_nodes = std.ArrayList(BlockId).init(allocator);
+    defer current_nodes.deinit();
+    try current_nodes.append(query.start_block_id);
+
+    var depth: u32 = 0;
+
+    // Build in-degree map for all reachable nodes
+    while (current_nodes.items.len > 0 and depth < query.max_depth) {
+        var next_nodes = std.ArrayList(BlockId).init(allocator);
+        defer next_nodes.deinit();
+
+        for (current_nodes.items) |block_id| {
+            if (visited.contains(block_id)) continue;
+            try visited.put(block_id, {});
+
+            // Initialize in-degree for this node
+            if (!in_degree.contains(block_id)) {
+                try in_degree.put(block_id, 0);
+            }
+
+            // Get outgoing edges
+            const edges = storage_engine.find_outgoing_edges(block_id);
+
+            for (edges) |edge| {
+                if (!edge_passes_filter(edge, query.edge_filter)) continue;
+
+                // Increment in-degree of target node
+                const current_degree = in_degree.get(edge.target_id) orelse 0;
+                try in_degree.put(edge.target_id, current_degree + 1);
+
+                try next_nodes.append(edge.target_id);
+            }
+        }
+
+        current_nodes.clearRetainingCapacity();
+        try current_nodes.appendSlice(next_nodes.items);
+        depth += 1;
+    }
+
+    // Find nodes with zero in-degree (roots for topological sort)
+    var in_degree_iter = in_degree.iterator();
+    while (in_degree_iter.next()) |entry| {
+        if (entry.value_ptr.* == 0) {
+            try queue.append(entry.key_ptr.*);
+        }
+    }
+
+    var sorted_count: usize = 0;
+    var path = std.ArrayList(BlockId).init(allocator);
+    defer path.deinit();
+
+    // Kahn's algorithm
+    while (queue.items.len > 0) {
+        const current = queue.orderedRemove(0);
+        try path.append(current);
+        sorted_count += 1;
+
+        // Process outgoing edges
+        const edges = storage_engine.find_outgoing_edges(current);
+
+        for (edges) |edge| {
+            if (!edge_passes_filter(edge, query.edge_filter)) continue;
+            if (!in_degree.contains(edge.target_id)) continue;
+
+            // Decrease in-degree
+            const current_degree = in_degree.get(edge.target_id).?;
+            if (current_degree > 0) {
+                try in_degree.put(edge.target_id, current_degree - 1);
+                if (current_degree - 1 == 0) {
+                    try queue.append(edge.target_id);
+                }
+            }
+        }
+    }
+
+    // Check for cycle: if sorted_count < total nodes, there's a cycle
+    if (sorted_count < visited.count()) {
+        // Cycle detected - return empty result
+        const owned_blocks = try result_blocks.toOwnedSlice();
+        const owned_paths = try result_paths.toOwnedSlice();
+        const owned_depths = try result_depths.toOwnedSlice();
+
+        return TraversalResult.init(
+            allocator,
+            owned_blocks,
+            owned_paths,
+            owned_depths,
+            0,
+            0,
+        );
+    }
+
+    // No cycle - build result with blocks in topological order
+    if (path.items.len > 0) {
+        for (path.items, 0..) |block_id, i| {
+            // Try to find the block
+            if (storage_engine.find_block(block_id) catch null) |block| {
+                try result_blocks.append(block);
+
+                // Create path slice for this block (just itself in topological order)
+                const block_path = try allocator.alloc(BlockId, 1);
+                block_path[0] = block_id;
+                try result_paths.append(block_path);
+
+                try result_depths.append(@intCast(i));
+            }
+        }
+    }
+
+    const owned_blocks = try result_blocks.toOwnedSlice();
+    const owned_paths = try result_paths.toOwnedSlice();
+    const owned_depths = try result_depths.toOwnedSlice();
+
+    return TraversalResult.init(
+        allocator,
+        owned_blocks,
+        owned_paths,
+        owned_depths,
+        @intCast(owned_blocks.len),
+        @intCast(path.items.len),
+    );
 }
 
 /// Add neighbors to A* priority queue with heuristic scoring

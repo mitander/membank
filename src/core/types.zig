@@ -356,7 +356,7 @@ pub const ContextBlock = struct {
             std.json.Value,
             allocator,
             self.metadata_json,
-            .{},
+            .{ .max_value_len = 1024 * 1024 },
         ) catch {
             return error.InvalidMetadataJson;
         };

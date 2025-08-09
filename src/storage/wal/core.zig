@@ -392,8 +392,8 @@ pub const WAL = struct {
 
     /// Open existing segment file for append operations
     fn open_segment_file(self: *WAL) WALError!void {
-        const filename = try self.segment_filename();
-        defer self.allocator.free(filename);
+        var filename_buffer: [512]u8 = undefined;
+        const filename = try self.segment_filename(&filename_buffer);
 
         self.active_file = self.vfs.open(filename, .read_write) catch |open_err| switch (open_err) {
             error.FileNotFound => self.vfs.create(filename) catch |create_err| switch (create_err) {
@@ -411,8 +411,8 @@ pub const WAL = struct {
 
     /// Create a new segment file
     fn create_new_segment(self: *WAL) WALError!void {
-        const filename = try self.segment_filename();
-        defer self.allocator.free(filename);
+        var filename_buffer: [512]u8 = undefined;
+        const filename = try self.segment_filename(&filename_buffer);
 
         self.active_file = self.vfs.create(filename) catch |err| switch (err) {
             error.AccessDenied => return WALError.AccessDenied,
@@ -424,12 +424,14 @@ pub const WAL = struct {
     }
 
     /// Generate segment filename based on current segment number
-    fn segment_filename(self: *WAL) ![]u8 {
-        return std.fmt.allocPrint(
-            self.allocator,
+    fn segment_filename(self: *WAL, buffer: []u8) WALError![]u8 {
+        return std.fmt.bufPrint(
+            buffer,
             "{s}/{s}{:0>4}{s}",
             .{ self.directory, WAL_FILE_PREFIX, self.segment_number, WAL_FILE_SUFFIX },
-        );
+        ) catch {
+            return WALError.IoError; // Buffer too small - programming error
+        };
     }
 };
 
