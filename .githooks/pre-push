@@ -179,10 +179,10 @@ TESTS_START=$(date +%s)
 
 # These are the tests that frequently fail in CI and should be caught locally
 CRITICAL_TESTS=(
-    "integration_server"           # Server lifecycle (frequent CI failure)
-    "memory_profiling_validation"  # Memory profiling (frequent CI failure)
-    "unit-test"                    # Core functionality
-    "fault_injection_storage"      # Storage fault tolerance
+    "integration_server_coordinator"  # Server lifecycle (frequent CI failure)
+    "memory_profiling_validation"    # Memory profiling (frequent CI failure)
+    "unit-test"                      # Core functionality
+    "fault_injection_storage_faults"        # Storage fault tolerance
 )
 
 CRITICAL_TESTS_SUCCESS=true
