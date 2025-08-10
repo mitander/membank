@@ -33,6 +33,10 @@ fn test_block_id(id: u32) BlockId {
 
 test "query handles SSTable read errors gracefully" {
     const allocator = testing.allocator;
+
+    // Manual setup required because: Test needs to insert data first, then enable
+    // I/O failures to simulate SSTable corruption during reads. FaultInjectionHarness
+    // applies faults during startup(), which would prevent initial data insertion.
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 0xABCDE);
     defer sim_vfs.deinit();
 
@@ -72,6 +76,10 @@ test "query handles SSTable read errors gracefully" {
 
 test "query handles memory pressure in large result sets" {
     const allocator = testing.allocator;
+
+    // Manual setup required because: Test needs to create large dataset first, then
+    // simulate memory pressure during query operations. FaultInjectionHarness would
+    // apply memory constraints from startup(), preventing initial data population.
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 0xBCDEF);
     defer sim_vfs.deinit();
 

@@ -204,9 +204,15 @@ pub const KAUSALDB_RULES = [_]Rule{
     },
     .{
         .name = "simulation_first_testing",
-        .description = "Enforce simulation-first testing via VFS abstraction",
+        .description = "Ensure tests use SimulationVFS instead of direct filesystem access",
         .violation_type = .architecture,
         .check_fn = check_simulation_first_testing,
+    },
+    .{
+        .name = "test_harness_usage",
+        .description = "Encourage standardized test harness usage over manual VFS/StorageEngine setup",
+        .violation_type = .architecture,
+        .check_fn = check_test_harness_usage,
     },
 };
 
@@ -1591,6 +1597,74 @@ fn check_simulation_first_testing(context: *RuleContext) []const Rule.RuleViolat
                     }) catch continue;
                 }
             }
+        }
+
+        line_start = line_end + 1;
+        if (line_start >= context.source.len) break;
+    }
+
+    return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+}
+
+fn check_test_harness_usage(context: *RuleContext) []const Rule.RuleViolation {
+    var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    violations.ensureTotalCapacity(10) catch {};
+
+    // Only apply to test files
+    if (!std.mem.endsWith(u8, context.file_path, "_test.zig") and
+        std.mem.indexOf(u8, context.file_path, "tests/") == null)
+    {
+        return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+    }
+
+    // Skip files that are legitimately manual (benchmark, memory safety, etc.)
+    if (std.mem.indexOf(u8, context.file_path, "defensive/") != null or
+        std.mem.indexOf(u8, context.file_path, "benchmark/") != null or
+        std.mem.indexOf(u8, context.file_path, "recovery/") != null)
+    {
+        return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+    }
+
+    // Look for manual VFS + StorageEngine pattern
+    var line_start: usize = 0;
+    var found_sim_vfs = false;
+    var found_storage_engine = false;
+    var sim_vfs_line: u32 = 0;
+    var has_justification = false;
+
+    while (std.mem.indexOfScalarPos(u8, context.source, line_start, '\n')) |line_end| {
+        const line = context.source[line_start..line_end];
+        const line_num = find_line_with_pos(context.source, line_start) orelse 1;
+
+        // Check for justification comment (flexible pattern matching)
+        if (std.mem.indexOf(u8, line, "// Manual setup required") != null) {
+            has_justification = true;
+        }
+
+        // Look for SimulationVFS.init pattern
+        if (std.mem.indexOf(u8, line, "SimulationVFS.init(") != null) {
+            found_sim_vfs = true;
+            sim_vfs_line = line_num;
+        }
+
+        // Look for StorageEngine.init_default pattern
+        if (std.mem.indexOf(u8, line, "StorageEngine.init_default(") != null and found_sim_vfs) {
+            found_storage_engine = true;
+
+            // If we found both patterns without justification, suggest harness
+            if (!has_justification) {
+                violations.append(.{ // tidy:ignore-perf
+                    .line = sim_vfs_line,
+                    .message = "Consider using StorageHarness instead of manual VFS/StorageEngine setup",
+                    .context = "Manual SimulationVFS + StorageEngine pattern detected",
+                    .suggested_fix = "Use StorageHarness.init_and_startup() or add justification comment",
+                }) catch continue;
+            }
+
+            // Reset for next potential pattern
+            found_sim_vfs = false;
+            found_storage_engine = false;
+            has_justification = false;
         }
 
         line_start = line_end + 1;

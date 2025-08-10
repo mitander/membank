@@ -34,18 +34,16 @@ const SemanticChunker = semantic_chunker.SemanticChunker;
 const SemanticChunkerConfig = semantic_chunker.SemanticChunkerConfig;
 
 test "complete pipeline git to storage" {
-    // Initialize concurrency module
-
     const allocator = testing.allocator;
 
-    // Setup simulation VFS
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    // Use StorageHarness for coordinated VFS and storage setup
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "test_db");
+    defer harness.deinit();
 
-    try create_test_repository(&sim_vfs);
+    try create_test_repository(harness.vfs());
 
     // Debug: Check what files were created
-    const file_state = try sim_vfs.state(allocator);
+    const file_state = try harness.vfs().state(allocator);
     defer {
         for (file_state) |fs| {
             allocator.free(fs.path);
@@ -56,19 +54,14 @@ test "complete pipeline git to storage" {
         allocator.free(file_state);
     }
 
-    // Setup storage engine
-    const vfs_for_storage = sim_vfs.vfs();
-    var storage_engine = try StorageEngine.init_default(allocator, vfs_for_storage, "test_db");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
+    // Storage engine provided by harness
 
     // Setup pipeline configuration
     var pipeline_config = PipelineConfig.init(allocator);
     defer pipeline_config.deinit();
 
-    // Initialize pipeline with shared allocator
-    var vfs_instance = sim_vfs.vfs();
-    var pipeline = try IngestionPipeline.init(allocator, &vfs_instance, pipeline_config);
+    // Initialize pipeline with harness VFS
+    var pipeline = try IngestionPipeline.init(allocator, harness.vfs_ptr(), pipeline_config);
     defer pipeline.deinit();
 
     // Setup Git source with pipeline's allocator to avoid cross-allocator issues
@@ -111,7 +104,7 @@ test "complete pipeline git to storage" {
             .metadata_json = try allocator.dupe(u8, block.metadata_json),
             .content = try allocator.dupe(u8, block.content),
         };
-        try storage_engine.put_block(storage_block);
+        try harness.storage_engine.put_block(storage_block);
 
         // Clean up the duplicated strings since storage engine makes its own copies
         allocator.free(storage_block.source_uri);
@@ -129,7 +122,7 @@ test "complete pipeline git to storage" {
 
     // Verify blocks can be retrieved
     for (blocks) |block| {
-        const retrieved = (try storage_engine.find_block(block.id)) orelse {
+        const retrieved = (try harness.storage_engine.find_block(block.id)) orelse {
             try testing.expect(false); // Block should exist
             continue;
         };

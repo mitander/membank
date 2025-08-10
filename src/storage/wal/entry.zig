@@ -275,8 +275,10 @@ pub const WALEntry = struct {
     /// Extract ContextBlock from put_block entry payload
     pub fn extract_block(self: WALEntry, allocator: std.mem.Allocator) WALError!StorageEngineBlock {
         if (self.entry_type != .put_block) return WALError.InvalidEntryType;
-        const block_data = ContextBlock.deserialize(self.payload, allocator) catch WALError.CorruptedEntry;
-        return StorageEngineBlock.take_ownership(block_data, .storage_engine);
+        const block_data = ContextBlock.deserialize(self.payload, allocator) catch {
+            return WALError.CorruptedEntry;
+        };
+        return StorageEngineBlock.init(block_data);
     }
 
     /// Extract BlockId from delete_block entry payload

@@ -131,3 +131,93 @@ The `check_regression.sh` script provides automated regression detection:
 - **Baseline Management**: `./scripts/check_regression.sh baseline` to update performance baseline
 - **CI Integration**: Automatic regression checks with 15% latency and 10% throughput thresholds
 - **Local Validation**: Run before commits to catch performance issues early
+
+## 6. Test Standardization Requirements
+
+### Harness-First Testing Policy
+
+All new tests MUST follow the harness-first approach unless technical requirements mandate manual setup. This policy ensures consistency, reliability, and maintainability across the test suite.
+
+### Three-Tier Classification
+
+**Tier 1: MUST Use Harness** (Integration/Functional Tests)
+
+- Server lifecycle tests → `QueryHarness` or `SimulationHarness`
+- Query engine integration → `QueryHarness`
+- Storage + query workflows → `QueryHarness`
+- Cross-component functionality → `SimulationHarness`
+
+**Tier 2: MAY Use Manual Setup** (Specialized Tests with Justification)
+
+- Recovery testing requiring shared VFS across engines
+- Fault injection with precise timing requirements
+- Performance measurement needing specific allocator control
+- Memory safety testing with GPA safety features
+
+**Tier 3: SHOULD Migrate** (Simple Unit Tests)
+
+- Tests with >10 lines of setup boilerplate
+- Tests using custom `create_*_block()` functions
+- Tests manually creating `SimulationVFS` + `StorageEngine` without justification
+
+### Required Justification Pattern
+
+When manual setup is technically required, include explicit justification:
+
+```zig
+// Manual setup required because: [specific technical reason]
+// [Additional context explaining why harness doesn't work]
+var sim_vfs = try SimulationVFS.init(allocator);
+defer sim_vfs.deinit();
+```
+
+### Standardized Test Data
+
+Use `TestData.*` utilities instead of custom block creation:
+
+```zig
+// Create test blocks
+const block = try TestData.create_test_block(allocator, 42);
+const block_with_content = try TestData.create_test_block_with_content(allocator, 42, "content");
+
+// Create deterministic IDs
+const block_id = TestData.deterministic_block_id(42);
+
+// Create test edges
+const edge = TestData.create_test_edge_from_indices(1, 2, .calls);
+```
+
+### Automated Enforcement
+
+The tidy system automatically enforces these patterns:
+
+```bash
+./zig/zig build tidy
+```
+
+Violations will be detected and reported:
+
+```
+Line 45: [ARCH] Consider using StorageHarness instead of manual VFS/StorageEngine setup
+  Context: Manual SimulationVFS + StorageEngine pattern detected
+  Suggested fix: Use StorageHarness.init_and_startup() or add justification comment
+```
+
+### Migration Guidelines
+
+When migrating existing tests:
+
+1. **Identify test type**: Storage-only, query, or simulation needs
+2. **Choose appropriate harness**: StorageHarness, QueryHarness, or SimulationHarness
+3. **Replace manual setup**: Swap VFS/StorageEngine creation with harness init
+4. **Update component access**: Use `harness.storage_engine` instead of local variable
+5. **Verify functionality**: Run `./zig/zig build test` to ensure tests still pass
+6. **Check compliance**: Run `./zig/zig build tidy` to verify no violations
+
+### CI Integration
+
+- **Pre-commit hooks**: Automatically run tidy checks before commits
+- **CI pipeline**: Fails builds with unjustified manual setup patterns
+- **Quality gates**: Ensures all new tests follow standardized patterns
+
+For detailed examples and comprehensive guidelines, see [`docs/TESTING_GUIDELINES.md`](TESTING_GUIDELINES.md).

@@ -372,8 +372,9 @@ fn traverse_breadth_first(
         blocks_traversed += 1;
         max_depth_reached = @max(max_depth_reached, current.depth);
 
-        const current_block = (try storage_engine.find_query_block_fast(
+        const current_block = (try storage_engine.find_block_fast(
             current.block_id,
+            .query_engine,
         )) orelse continue;
 
         try result_blocks.append(current_block); // tidy:ignore-perf ensureCapacity called with query.max_results

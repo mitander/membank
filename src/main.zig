@@ -190,7 +190,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     const maybe_block = try query_eng.find_block(block1_id);
 
     if (maybe_block) |block| {
-        std.debug.print("✓ Found block: {s}\n", .{block.source_uri});
+        std.debug.print("✓ Found block: {s}\n", .{block.block.source_uri});
     }
 
     std.debug.print("\nQuerying multiple blocks...\n", .{});
@@ -202,7 +202,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 
     for (block_ids) |block_id| {
         if (try query_eng.find_block(block_id)) |block| {
-            try found_blocks.append(block);
+            try found_blocks.append(block.block);
         }
     }
 

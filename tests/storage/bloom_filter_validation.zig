@@ -18,8 +18,8 @@ test "add query basic" {
     var filter = try BloomFilter.init(allocator, params);
     defer filter.deinit();
 
-    // Create test block ID
-    const test_id = BlockId{ .bytes = [_]u8{1} ** 16 };
+    // Create test block ID using standardized test data
+    const test_id = kausaldb.TestData.deterministic_block_id(1);
 
     // Test add operation
     filter.add(test_id);
@@ -35,8 +35,8 @@ test "query missing item" {
     var filter = try BloomFilter.init(allocator, params);
     defer filter.deinit();
 
-    // Test querying item that was never added
-    const missing_id = BlockId{ .bytes = [_]u8{99} ** 16 };
+    // Test querying item that was never added using standardized test data
+    const missing_id = kausaldb.TestData.deterministic_block_id(99);
 
     // Should return false (no false negatives in Bloom filters)
     try testing.expect(!filter.might_contain(missing_id));
@@ -49,12 +49,10 @@ test "multiple items basic" {
     var filter = try BloomFilter.init(allocator, params);
     defer filter.deinit();
 
-    // Add multiple items
+    // Add multiple items using standardized test data
     var test_ids: [5]BlockId = undefined;
     for (&test_ids, 0..) |*id, i| {
-        var id_bytes: [16]u8 = undefined;
-        std.mem.writeInt(u128, &id_bytes, i + 1, .little);
-        id.* = BlockId{ .bytes = id_bytes };
+        id.* = kausaldb.TestData.deterministic_block_id(@intCast(i + 1));
         filter.add(id.*);
     }
 

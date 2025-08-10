@@ -131,11 +131,11 @@ pub const SSTableManager = struct {
             if (try sstable_file.find_block(block_id)) |block| {
                 const arena_allocator = self.block_arena.allocator();
                 const cloned_block = ContextBlock{
-                    .id = block.id,
-                    .version = block.version,
-                    .source_uri = try arena_allocator.dupe(u8, block.source_uri),
-                    .metadata_json = try arena_allocator.dupe(u8, block.metadata_json),
-                    .content = try arena_allocator.dupe(u8, block.content),
+                    .id = block.block.id,
+                    .version = block.block.version,
+                    .source_uri = try arena_allocator.dupe(u8, block.block.source_uri),
+                    .metadata_json = try arena_allocator.dupe(u8, block.block.metadata_json),
+                    .content = try arena_allocator.dupe(u8, block.block.content),
                 };
                 const owned_block = OwnedBlock.init(cloned_block, accessor, &self.block_arena.arena);
                 return owned_block;

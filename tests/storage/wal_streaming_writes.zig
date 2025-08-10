@@ -53,45 +53,23 @@ const RecoveryContext = struct {
     }
 };
 
-/// Create test block with predictable content
-fn create_test_block(allocator: std.mem.Allocator, id_suffix: u8) !ContextBlock {
-    var id_bytes: [16]u8 = undefined;
-    std.mem.writeInt(u128, &id_bytes, id_suffix, .little);
-
-    return ContextBlock{
-        .id = BlockId{ .bytes = id_bytes },
-        .version = 1,
-        .source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{id_suffix}),
-        .metadata_json = try allocator.dupe(u8, "{}"),
-        .content = try std.fmt.allocPrint(allocator, "Test block {} content", .{id_suffix}),
-    };
-}
-
 test "streaming recovery basic" {
     const allocator = testing.allocator;
 
     var harness = try kausaldb.SimulationHarness.init_and_startup(allocator, 0xDEADBEEF, "streaming_test_dir");
     defer harness.deinit();
 
-    // Create and store test data
-    const test_block1 = try create_test_block(allocator, 1);
-    const test_block2 = try create_test_block(allocator, 2);
-    const test_block3 = try create_test_block(allocator, 3);
+    // Create and store test data using standardized TestData
+    const test_block1 = try TestData.create_test_block(allocator, 1);
+    defer TestData.cleanup_test_block(allocator, test_block1);
+    const test_block2 = try TestData.create_test_block(allocator, 2);
+    defer TestData.cleanup_test_block(allocator, test_block2);
+    const test_block3 = try TestData.create_test_block(allocator, 3);
+    defer TestData.cleanup_test_block(allocator, test_block3);
 
     try harness.storage_engine.put_block(test_block1);
     try harness.storage_engine.put_block(test_block2);
     try harness.storage_engine.put_block(test_block3);
-
-    // Clean up after storage operations are complete
-    defer allocator.free(test_block1.content);
-    defer allocator.free(test_block1.source_uri);
-    defer allocator.free(test_block1.metadata_json);
-    defer allocator.free(test_block2.content);
-    defer allocator.free(test_block2.source_uri);
-    defer allocator.free(test_block2.metadata_json);
-    defer allocator.free(test_block3.content);
-    defer allocator.free(test_block3.source_uri);
-    defer allocator.free(test_block3.metadata_json);
 
     // Create edge between blocks
     const test_edge = GraphEdge{

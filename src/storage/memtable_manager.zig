@@ -223,7 +223,7 @@ pub const MemtableManager = struct {
         defer wal_entry.deinit(self.backing_allocator);
         try self.wal.write_entry(wal_entry);
 
-        try self.block_index.put_block(block);
+        try self.block_index.put_block(block.*);
     }
 
     /// Get total memory usage of all data stored in the memtable.
@@ -364,8 +364,8 @@ pub const MemtableManager = struct {
                 defer temp_arena.deinit();
                 const temp_allocator = temp_arena.allocator();
 
-                const block = try entry.extract_block(temp_allocator);
-                try self.put_block(block);
+                const owned_block = try entry.extract_block(temp_allocator);
+                try self.put_block(owned_block.block);
             },
             .delete_block => {
                 const block_id = try entry.extract_block_id();

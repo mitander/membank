@@ -259,13 +259,16 @@ pub const SSTable = struct {
         const BlocksType = @TypeOf(blocks);
         const supported_block_write = switch (BlocksType) {
             []const ContextBlock => true,
+            []ContextBlock => true,
             []const SSTableBlock => true,
+            []SSTableBlock => true,
             []const OwnedBlock => true,
+            []OwnedBlock => true,
             else => false,
         };
 
         if (!supported_block_write) {
-            @compileError("write_blocks() accepts []const ContextBlock, []const SSTableBlock, or []const OwnedBlock only");
+            @compileError("write_blocks() accepts []const ContextBlock, []ContextBlock, []const SSTableBlock, []SSTableBlock, []const OwnedBlock, or []OwnedBlock only");
         }
         assert.assert_not_empty(blocks, "Cannot write empty blocks array", .{});
         assert.assert_fmt(blocks.len <= 1000000, "Too many blocks for single SSTable: {}", .{blocks.len});
@@ -522,7 +525,7 @@ pub const SSTable = struct {
         _ = try file.read(buffer);
 
         const block_data = try ContextBlock.deserialize(buffer, self.allocator);
-        return SSTableBlock.take_ownership(block_data, .sstable_read);
+        return SSTableBlock.init(block_data);
     }
 
     /// Get iterator for all blocks in sorted order
@@ -580,7 +583,7 @@ pub const SSTableIterator = struct {
         _ = try self.file.?.read(buffer);
 
         const block_data = try ContextBlock.deserialize(buffer, self.sstable.allocator);
-        return SSTableBlock.take_ownership(block_data, .sstable_iter);
+        return SSTableBlock.init(block_data);
     }
 };
 
@@ -625,12 +628,7 @@ pub const Compactor = struct {
         defer output_table.deinit();
 
         var all_blocks = std.ArrayList(SSTableBlock).init(self.allocator);
-        defer {
-            for (all_blocks.items) |*block| {
-                block.deinit(self.allocator);
-            }
-            all_blocks.deinit();
-        }
+        defer all_blocks.deinit();
 
         var total_capacity: u32 = 0;
         for (input_tables) |*table| {
@@ -648,12 +646,7 @@ pub const Compactor = struct {
         }
 
         const unique_blocks = try self.dedup_blocks(all_blocks.items);
-        defer {
-            for (unique_blocks) |*block| {
-                block.deinit(self.allocator);
-            }
-            self.allocator.free(unique_blocks);
-        }
+        defer self.allocator.free(unique_blocks);
 
         try output_table.write_blocks(unique_blocks);
 
@@ -674,8 +667,8 @@ pub const Compactor = struct {
         std.mem.sort(SSTableBlock, sorted, {}, struct {
             fn less_than(context: void, a: SSTableBlock, b: SSTableBlock) bool {
                 _ = context;
-                const a_data = a.read(.compaction_sort);
-                const b_data = b.read(.compaction_sort);
+                const a_data = a.read(.sstable_manager);
+                const b_data = b.read(.sstable_manager);
                 const order = std.mem.order(u8, &a_data.id.bytes, &b_data.id.bytes);
                 if (order == .eq) {
                     return a_data.version > b_data.version;
@@ -691,7 +684,7 @@ pub const Compactor = struct {
 
         var prev_id: ?BlockId = null;
         for (sorted) |block| {
-            const block_data = block.read(.compaction_dedup);
+            const block_data = block.read(.sstable_manager);
             if (prev_id == null or !block_data.id.eql(prev_id.?)) {
                 const cloned = ContextBlock{
                     .id = block_data.id,
@@ -700,7 +693,7 @@ pub const Compactor = struct {
                     .metadata_json = try self.allocator.dupe(u8, block_data.metadata_json),
                     .content = try self.allocator.dupe(u8, block_data.content),
                 };
-                const owned_block = SSTableBlock.take_ownership(cloned, .compaction_output);
+                const owned_block = SSTableBlock.init(cloned);
                 try unique.append(owned_block);
                 prev_id = block_data.id;
             }

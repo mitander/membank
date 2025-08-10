@@ -105,19 +105,11 @@ test "server config validation" {
         .{ .name = "high capacity", .config = ServerConfig{ .max_connections = 1000, .max_request_size = 1024 * 1024, .max_response_size = 16 * 1024 * 1024 }, .should_initialize = true },
     };
 
-    // Setup minimal storage infrastructure for server initialization
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "network_fault_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "network_fault_test");
+    defer harness.deinit();
 
     for (config_tests) |test_case| {
-        var server = Server.init(allocator, test_case.config, &storage_engine, &query_engine);
+        var server = Server.init(allocator, test_case.config, &harness.storage_engine, &harness.query_engine);
         defer server.deinit();
 
         if (test_case.should_initialize) {
@@ -160,7 +152,9 @@ test "deterministic server stress" {
         var prng = std.Random.DefaultPrng.init(seed);
         const random = prng.random();
 
-        // Setup isolated storage for each stress test
+        // Manual setup required because: Stress testing needs multiple isolated storage
+        // engines for each seed to validate deterministic behavior under different
+        // configurations. QueryHarness is designed for single-engine scenarios.
         var sim_vfs = try SimulationVFS.init(allocator);
         defer sim_vfs.deinit();
 
@@ -224,16 +218,8 @@ test "message type validation" {
 test "concurrent server configuration" {
     const allocator = testing.allocator;
 
-    // Test server configuration under concurrent stress scenarios
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "concurrent_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "concurrent_test");
+    defer harness.deinit();
 
     // Test various server configurations for robustness
     const configs = [_]ServerConfig{
@@ -243,7 +229,7 @@ test "concurrent server configuration" {
     };
 
     for (configs) |config| {
-        var server = Server.init(allocator, config, &storage_engine, &query_engine);
+        var server = Server.init(allocator, config, &harness.storage_engine, &harness.query_engine);
         defer server.deinit();
 
         // Verify server initializes correctly with different configurations

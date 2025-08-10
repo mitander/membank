@@ -34,23 +34,6 @@ const CorruptionTracker = corruption_tracker_mod.CorruptionTracker;
 const CORRUPTION_TEST_SEED = 0x12345678;
 const PERFORMANCE_ITERATIONS = 1000;
 
-fn create_test_block(allocator: std.mem.Allocator, id_suffix: u64) !ContextBlock {
-    var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
-    std.mem.writeInt(u64, id_bytes[0..8], id_suffix, .little);
-
-    const content = try std.fmt.allocPrint(allocator, "test content {}", .{id_suffix});
-    const source_uri = try std.fmt.allocPrint(allocator, "test://block_{}.zig", .{id_suffix});
-    const metadata = try allocator.dupe(u8, "{}");
-
-    return ContextBlock{
-        .id = BlockId{ .bytes = id_bytes },
-        .version = 1,
-        .source_uri = source_uri,
-        .metadata_json = metadata,
-        .content = content,
-    };
-}
-
 // ============================================================================
 // Phase 1: Memory Safety Fatal Assertion Tests
 // ============================================================================
@@ -72,8 +55,14 @@ test "arena allocator corruption detection" {
     try storage_engine.startup();
 
     // Test normal operation first
-    const block = try create_test_block(allocator, 1);
-    defer block.deinit(allocator);
+    const content = try std.fmt.allocPrint(allocator, "test content {}", .{1});
+    defer allocator.free(content);
+    const block = try TestData.create_test_block_with_content(allocator, 1, content);
+    defer {
+        allocator.free(block.source_uri);
+        allocator.free(block.metadata_json);
+        allocator.free(block.content);
+    }
 
     try storage_engine.put_block(block);
 
@@ -104,8 +93,14 @@ test "memory accounting validation" {
 
     // Put multiple blocks to exercise memory accounting
     for (1..10) |i| {
-        const block = try create_test_block(allocator, i);
-        defer block.deinit(allocator);
+        const content = try std.fmt.allocPrint(allocator, "test content {}", .{i});
+        defer allocator.free(content);
+        const block = try TestData.create_test_block_with_content(allocator, @intCast(i), content);
+        defer {
+            allocator.free(block.source_uri);
+            allocator.free(block.metadata_json);
+            allocator.free(block.content);
+        }
         try storage_engine.put_block(block);
     }
 
@@ -221,8 +216,14 @@ test "large file processing robustness" {
     const num_blocks = 100; // Smaller than the full test to keep it fast
 
     for (1..num_blocks + 1) |i| {
-        const block = try create_test_block(allocator, i);
-        defer block.deinit(allocator);
+        const content = try std.fmt.allocPrint(allocator, "test content {}", .{i});
+        defer allocator.free(content);
+        const block = try TestData.create_test_block_with_content(allocator, @intCast(i), content);
+        defer {
+            allocator.free(block.source_uri);
+            allocator.free(block.metadata_json);
+            allocator.free(block.content);
+        }
         try storage_engine.put_block(block);
     }
 
@@ -268,8 +269,14 @@ test "EOF handling in WAL streams" {
     try storage_engine.startup();
 
     // Write a single block
-    const block = try create_test_block(allocator, 42);
-    defer block.deinit(allocator);
+    const content = try std.fmt.allocPrint(allocator, "test content {}", .{42});
+    defer allocator.free(content);
+    const block = try TestData.create_test_block_with_content(allocator, 42, content);
+    defer {
+        allocator.free(block.source_uri);
+        allocator.free(block.metadata_json);
+        allocator.free(block.content);
+    }
     try storage_engine.put_block(block);
 
     // Immediately create recovery engine to test EOF handling
@@ -365,8 +372,14 @@ test "assertion overhead measurement" {
     var timer = std.time.Timer.start() catch unreachable;
 
     for (1..iterations + 1) |i| {
-        const block = try create_test_block(allocator, i);
-        defer block.deinit(allocator);
+        const content = try std.fmt.allocPrint(allocator, "test content {}", .{i});
+        defer allocator.free(content);
+        const block = try TestData.create_test_block_with_content(allocator, @intCast(i), content);
+        defer {
+            allocator.free(block.source_uri);
+            allocator.free(block.metadata_json);
+            allocator.free(block.content);
+        }
 
         // This exercises the assertion framework during normal operations
         try storage_engine.put_block(block);
@@ -459,8 +472,14 @@ test "graceful vs fail fast classification" {
     try testing.expect(result == null); // Should return null, not crash
 
     // Normal operations should work without any fatal assertions
-    const block = try create_test_block(allocator, 1);
-    defer block.deinit(allocator);
+    const content = try std.fmt.allocPrint(allocator, "test content {}", .{1});
+    defer allocator.free(content);
+    const block = try TestData.create_test_block_with_content(allocator, 1, content);
+    defer {
+        allocator.free(block.source_uri);
+        allocator.free(block.metadata_json);
+        allocator.free(block.content);
+    }
     try storage_engine.put_block(block);
 
     const retrieved = try storage_engine.find_block(block.id);
@@ -529,8 +548,14 @@ test "simulation framework compatibility" {
     try storage_engine.startup();
 
     // Test that deterministic behavior is maintained
-    const block = try create_test_block(allocator, 42);
-    defer block.deinit(allocator);
+    const content = try std.fmt.allocPrint(allocator, "test content {}", .{42});
+    defer allocator.free(content);
+    const block = try TestData.create_test_block_with_content(allocator, 42, content);
+    defer {
+        allocator.free(block.source_uri);
+        allocator.free(block.metadata_json);
+        allocator.free(block.content);
+    }
     try storage_engine.put_block(block);
 
     // Simulation should provide consistent, reproducible results

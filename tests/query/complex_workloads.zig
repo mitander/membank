@@ -154,15 +154,8 @@ test "query optimization strategy validation" {
     defer arena.deinit();
     const arena_allocator = arena.allocator();
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "optimization_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "optimization_test");
+    defer harness.deinit();
 
     // Create a large dataset to trigger optimization strategies
     const dataset_size = 500;
@@ -176,7 +169,7 @@ test "query optimization strategy validation" {
             .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"optimization_test\":{}}}", .{i}),
             .content = content,
         };
-        try storage_engine.put_block(block);
+        try harness.storage_engine().put_block(block);
     }
 
     // Test small query (should use direct strategy)
@@ -187,7 +180,7 @@ test "query optimization strategy validation" {
         },
     };
 
-    var small_result = try query.operations.execute_find_blocks(allocator, &storage_engine, small_query);
+    var small_result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), small_query);
     defer small_result.deinit();
 
     // Test large query (should use optimized strategy)
@@ -217,15 +210,8 @@ test "query performance under memory pressure" {
     defer arena.deinit();
     const arena_allocator = arena.allocator();
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "memory_pressure_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "large_scale_test");
+    defer harness.deinit();
 
     // Create dataset with varying block sizes
     var i: u32 = 0;
@@ -249,7 +235,7 @@ test "query performance under memory pressure" {
             .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"memory_pressure_test\":{}}}", .{i}),
             .content = owned_content,
         };
-        try storage_engine.put_block(block);
+        try harness.storage_engine().put_block(block);
     }
 
     // Perform multiple queries to test memory efficiency
@@ -269,7 +255,7 @@ test "query performance under memory pressure" {
             .block_ids = query_block_ids.items,
         };
 
-        var result = try query.operations.execute_find_blocks(allocator, &storage_engine, find_query);
+        var result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), find_query);
         defer result.deinit();
 
         // Consume results to test memory handling
@@ -290,15 +276,8 @@ test "complex filtering and search scenarios" {
     defer arena.deinit();
     const arena_allocator = arena.allocator();
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "filtering_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "concurrent_test");
+    defer harness.deinit();
 
     // Create blocks with different content patterns
     const content_patterns = [_][]const u8{
@@ -318,7 +297,7 @@ test "complex filtering and search scenarios" {
             .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"filtering_test\":{}}}", .{idx}),
             .content = owned_content,
         };
-        try storage_engine.put_block(block);
+        try harness.storage_engine().put_block(block);
     }
 
     // Test content-based queries (when filtering is implemented)
@@ -335,7 +314,7 @@ test "complex filtering and search scenarios" {
         .block_ids = all_block_ids.items,
     };
 
-    var result = try query.operations.execute_find_blocks(allocator, &storage_engine, find_query);
+    var result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), find_query);
     defer result.deinit();
 
     var found_count: u32 = 0;
@@ -350,15 +329,8 @@ test "complex filtering and search scenarios" {
 test "graph traversal with cycle detection" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "cycle_detection_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "edge_case_test");
+    defer harness.deinit();
 
     // Create blocks that form a cycle
     const block_a = ContextBlock{
@@ -368,7 +340,7 @@ test "graph traversal with cycle detection" {
         .metadata_json = "{\"test\":\"cycle_detection\",\"function\":\"A\"}",
         .content = "Function A calls B",
     };
-    try storage_engine.put_block(block_a);
+    try harness.storage_engine().put_block(block_a);
 
     const block_b = ContextBlock{
         .id = TestData.deterministic_block_id(2),
@@ -377,7 +349,7 @@ test "graph traversal with cycle detection" {
         .metadata_json = "{\"test\":\"cycle_detection\",\"function\":\"B\"}",
         .content = "Function B calls C",
     };
-    try storage_engine.put_block(block_b);
+    try harness.storage_engine().put_block(block_b);
 
     const block_c = ContextBlock{
         .id = TestData.deterministic_block_id(3),
@@ -386,7 +358,7 @@ test "graph traversal with cycle detection" {
         .metadata_json = "{\"test\":\"cycle_detection\",\"function\":\"C\"}",
         .content = "Function C calls A",
     };
-    try storage_engine.put_block(block_c);
+    try harness.storage_engine().put_block(block_c);
 
     // Create cycle: A -> B -> C -> A
     const edge = GraphEdge{
@@ -394,19 +366,19 @@ test "graph traversal with cycle detection" {
         .target_id = TestData.deterministic_block_id(2),
         .edge_type = EdgeType.calls,
     };
-    try storage_engine.put_edge(edge);
+    try harness.storage_engine().put_edge(edge);
     const edge2 = GraphEdge{
         .source_id = TestData.deterministic_block_id(2),
         .target_id = TestData.deterministic_block_id(3),
         .edge_type = EdgeType.calls,
     };
-    try storage_engine.put_edge(edge2);
+    try harness.storage_engine().put_edge(edge2);
     const edge3 = GraphEdge{
         .source_id = TestData.deterministic_block_id(3),
         .target_id = TestData.deterministic_block_id(1),
         .edge_type = EdgeType.calls,
     };
-    try storage_engine.put_edge(edge3);
+    try harness.storage_engine().put_edge(edge3);
 
     // Traversal should handle cycle gracefully
     const traversal_query = TraversalQuery{
@@ -418,7 +390,7 @@ test "graph traversal with cycle detection" {
         .max_results = 100,
     };
 
-    var result = try query_engine.execute_traversal(traversal_query);
+    var result = try harness.query_engine.execute_traversal(traversal_query);
     defer result.deinit();
 
     // Should find all blocks but not infinite loop
@@ -441,15 +413,8 @@ test "batch query operations and efficiency" {
     defer arena.deinit();
     const arena_allocator = arena.allocator();
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "batch_operations_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "memory_test");
+    defer harness.deinit();
 
     // Create a moderate dataset
     var i: u32 = 0;
@@ -462,7 +427,7 @@ test "batch query operations and efficiency" {
             .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"batch_test\":{}}}", .{i}),
             .content = content,
         };
-        try storage_engine.put_block(block);
+        try harness.storage_engine().put_block(block);
     }
 
     const start_time = std.time.nanoTimestamp();
@@ -484,7 +449,7 @@ test "batch query operations and efficiency" {
             .block_ids = batch_block_ids.items,
         };
 
-        var result = try query.operations.execute_find_blocks(allocator, &storage_engine, batch_query);
+        var result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), batch_query);
         defer result.deinit();
 
         // Verify batch results
@@ -507,15 +472,8 @@ test "batch query operations and efficiency" {
 test "query error handling and recovery" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "error_handling_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "integration_test");
+    defer harness.deinit();
 
     // Test query with non-existent blocks
     var nonexistent_ids = std.ArrayList(BlockId).init(allocator);
@@ -531,7 +489,7 @@ test "query error handling and recovery" {
         .block_ids = nonexistent_ids.items,
     };
 
-    var result = try query.operations.execute_find_blocks(allocator, &storage_engine, missing_query);
+    var result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), missing_query);
     defer result.deinit();
 
     // Should handle missing blocks gracefully (return empty results)
@@ -552,7 +510,7 @@ test "query error handling and recovery" {
         .max_results = 50,
     };
 
-    var traversal_result = try query_engine.execute_traversal(invalid_traversal);
+    var traversal_result = try harness.query_engine.execute_traversal(invalid_traversal);
     defer traversal_result.deinit();
 
     // Should handle gracefully
@@ -571,15 +529,8 @@ test "mixed query workload simulation" {
     defer arena.deinit();
     const arena_allocator = arena.allocator();
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "mixed_workload_test");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
-
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
-    defer query_engine.deinit();
+    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "workload_test");
+    defer harness.deinit();
 
     // Create diverse dataset
     var i: u32 = 0;
@@ -592,7 +543,7 @@ test "mixed query workload simulation" {
             .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"mixed_workload_test\":{},\"type\":\"{s}\"}}", .{ i, if (i % 2 == 0) "function" else "struct" }),
             .content = content,
         };
-        try storage_engine.put_block(block);
+        try harness.storage_engine().put_block(block);
 
         // Add some edges for traversal testing
         // Skip creating edge for first block (i==0) to avoid negative index
@@ -602,7 +553,7 @@ test "mixed query workload simulation" {
                 .target_id = TestData.deterministic_block_id(@intCast(i)),
                 .edge_type = EdgeType.calls,
             };
-            try storage_engine.put_edge(edge);
+            try harness.storage_engine().put_edge(edge);
         }
     }
 
@@ -615,7 +566,7 @@ test "mixed query workload simulation" {
             .block_ids = &[_]BlockId{single_id},
         };
 
-        var single_result = try query.operations.execute_find_blocks(allocator, &storage_engine, single_query);
+        var single_result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), single_query);
         defer single_result.deinit();
 
         // Batch lookup
@@ -645,7 +596,7 @@ test "mixed query workload simulation" {
             .max_results = 100,
         };
 
-        var traversal_result = try query_engine.execute_traversal(traversal_query);
+        var traversal_result = try harness.query_engine.execute_traversal(traversal_query);
         defer traversal_result.deinit();
 
         // Consume all results to test memory handling

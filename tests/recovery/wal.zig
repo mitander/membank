@@ -48,6 +48,9 @@ test "wal recovery with missing wal directory" {
 test "wal recovery single block recovery" {
     const allocator = testing.allocator;
 
+    // Manual setup required because: Recovery testing needs two separate
+    // StorageEngine instances sharing the same VFS to validate WAL recovery
+    // across engine lifecycle. StorageHarness is designed for single-engine scenarios.
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -71,7 +74,7 @@ test "wal recovery single block recovery" {
 
     try storage_engine1.put_block(test_block);
 
-    // Second storage engine: recover from WAL
+    // Second storage engine: recover from WAL using same VFS
     var storage_engine2 = try StorageEngine.init_default(
         allocator,
         sim_vfs.vfs(),
@@ -101,6 +104,9 @@ test "wal recovery single block recovery" {
 test "wal recovery multiple blocks and operations" {
     const allocator = testing.allocator;
 
+    // Manual setup required because: Recovery testing needs two separate
+    // StorageEngine instances sharing the same VFS to validate complex WAL
+    // operations (puts, edges, deletes) across engine restarts.
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -144,7 +150,7 @@ test "wal recovery multiple blocks and operations" {
     // Delete first block
     try storage_engine1.delete_block(block1.id);
 
-    // Second storage engine: recover from WAL
+    // Second storage engine: recover from WAL using same VFS
     var storage_engine2 = try StorageEngine.init_default(
         allocator,
         sim_vfs.vfs(),
@@ -169,6 +175,9 @@ test "wal recovery multiple blocks and operations" {
 test "wal recovery corruption with invalid checksum" {
     const allocator = testing.allocator;
 
+    // Manual setup required because: Corruption testing needs direct VFS
+    // file manipulation and two StorageEngine instances to validate recovery
+    // behavior when encountering corrupted WAL entries.
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -211,7 +220,7 @@ test "wal recovery corruption with invalid checksum" {
     _ = try corrupt_file.write(content);
     try corrupt_file.flush();
 
-    // Try to recover - should stop at corruption
+    // Try to recover from corrupted WAL using same VFS
     var storage_engine2 = try StorageEngine.init_default(
         allocator,
         sim_vfs.vfs(),
@@ -228,6 +237,9 @@ test "wal recovery corruption with invalid checksum" {
 test "wal recovery with large blocks" {
     const allocator = testing.allocator;
 
+    // Manual setup required because: Large block recovery testing needs
+    // precise memory management and two StorageEngine instances to validate
+    // WAL handling of blocks exceeding typical sizes.
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -247,21 +259,21 @@ test "wal recovery with large blocks" {
         .content = owned_content,
     };
 
-    // Write large block
+    // Write large block with first storage engine
     var storage_engine1 = try StorageEngine.init_default(
         allocator,
         sim_vfs.vfs(),
         "wal_large_data",
     );
-    // Note: storage_engine1.deinit() is called explicitly before recovery
+    // Note: storage_engine1.deinit() called explicitly before recovery
 
     try storage_engine1.startup();
     try storage_engine1.put_block(large_block);
 
-    // Explicitly close the first storage engine to ensure WAL files are properly closed
+    // Explicitly close first engine to ensure WAL files are properly closed
     storage_engine1.deinit();
 
-    // Recover large block
+    // Recover large block using same VFS
     var storage_engine2 = try StorageEngine.init_default(
         allocator,
         sim_vfs.vfs(),
@@ -280,13 +292,16 @@ test "wal recovery with large blocks" {
 test "wal recovery stress with many entries" {
     const allocator = testing.allocator;
 
+    // Manual setup required because: Stress testing needs two StorageEngine
+    // instances sharing the same VFS to validate WAL recovery performance
+    // and correctness with many entries across engine restarts.
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     // Use smaller count for test efficiency (was 25, now 10)
     const num_blocks = 10;
 
-    // Write many blocks
+    // Write many blocks with first storage engine
     var storage_engine1 = try StorageEngine.init_default(
         allocator,
         sim_vfs.vfs(),
@@ -316,7 +331,7 @@ test "wal recovery stress with many entries" {
 
         const block = ContextBlock{
             .id = TestData.deterministic_block_id(@intCast(i)),
-            .version = @intCast(i), // Fix: Use consistent version numbering
+            .version = @intCast(i),
             .source_uri = "test://wal_multiple_segments.zig",
             .metadata_json = "{\"test\":\"wal_multiple_segments\"}",
             .content = owned_content,
@@ -331,11 +346,11 @@ test "wal recovery stress with many entries" {
         // Create expected block copy with proper memory management
         const source_uri = try allocator.dupe(u8, block.source_uri);
         const metadata_json = try allocator.dupe(u8, block.metadata_json);
-        const content_copy = try allocator.dupe(u8, content); // Use original content, not freed memory
+        const content_copy = try allocator.dupe(u8, content);
 
         const block_copy = ContextBlock{
             .id = block.id,
-            .version = @intCast(i), // Fix: Use same version as stored block
+            .version = @intCast(i),
             .source_uri = source_uri,
             .metadata_json = metadata_json,
             .content = content_copy,
@@ -344,7 +359,7 @@ test "wal recovery stress with many entries" {
         try expected_blocks.append(block_copy); // tidy:ignore-perf - capacity pre-allocated line 304
     }
 
-    // Recover all blocks
+    // Recover all blocks using same VFS
     var storage_engine2 = try StorageEngine.init_default(
         allocator,
         sim_vfs.vfs(),

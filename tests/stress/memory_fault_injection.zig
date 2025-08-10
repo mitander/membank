@@ -92,6 +92,9 @@ test "allocation failure during memtable operations" {
         var failing_alloc = FailingAllocator.init(backing_allocator, fail_after);
         const failing_allocator = failing_alloc.allocator();
 
+        // Manual setup required because: Memory fault injection testing requires precise
+        // control over allocator behavior with FailingAllocator. Harnesses use arena
+        // allocation which would interfere with controlled allocation failure testing.
         // Use backing allocator for infrastructure to prevent leaks
         var sim_vfs = try SimulationVFS.init(backing_allocator);
         defer sim_vfs.deinit();
@@ -196,6 +199,9 @@ test "arena corruption detection" {
     }
     const allocator = gpa.allocator();
 
+    // Manual setup required because: Arena corruption detection requires
+    // GeneralPurposeAllocator with safety features enabled to detect memory
+    // corruption. Harness arena allocation would mask the corruption patterns.
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
@@ -332,8 +338,9 @@ test "sustained operations under memory pressure" {
     var failing_alloc = FailingAllocator.init(backing_allocator, 1000); // Fail after 1000 allocations
     const allocator = failing_alloc.allocator();
 
-    // Using backing allocator for simulation VFS
-
+    // Manual setup required because: Sustained memory pressure testing needs precise
+    // control over FailingAllocator behavior to test allocation failures at specific points.
+    // Harness arena allocation would interfere with controlled memory pressure simulation.
     var sim_vfs = try SimulationVFS.init(backing_allocator);
     defer sim_vfs.deinit();
 

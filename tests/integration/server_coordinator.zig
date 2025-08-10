@@ -136,7 +136,9 @@ test "coordinator error handling preserves system stability" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    // Setup with fault injection
+    // Manual setup required because: Test needs to enable I/O failures before storage engine
+    // startup to validate coordinator error handling. FaultInjectionHarness applies faults
+    // during startup(), which would prevent testing error recovery in coordinator initialization.
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 

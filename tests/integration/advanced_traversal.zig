@@ -320,12 +320,9 @@ test "large graph traversal with new algorithms" {
 test "edge type filtering integration" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "./test_edge_filtering");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
+    // Use StorageHarness for coordinated VFS and storage setup
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "test_edge_filtering");
+    defer harness.deinit();
 
     // Create blocks
     var i: u32 = 1;
@@ -337,7 +334,7 @@ test "edge type filtering integration" {
         defer allocator.free(block.source_uri);
         defer allocator.free(block.metadata_json);
         defer allocator.free(block.content);
-        try storage_engine.put_block(block);
+        try harness.storage_engine.put_block(block);
     }
 
     // Create mixed edge types
@@ -351,7 +348,7 @@ test "edge type filtering integration" {
 
     for (mixed_edges) |edge_info| {
         const edge = TestData.create_test_edge_from_indices(edge_info.from, edge_info.to, edge_info.edge_type);
-        try storage_engine.put_edge(edge);
+        try harness.storage_engine.put_edge(edge);
     }
 
     const start_id = TestData.deterministic_block_id(1);
@@ -366,7 +363,7 @@ test "edge type filtering integration" {
         .edge_filter = .{ .only_type = .calls },
     };
 
-    const calls_result = try execute_traversal(allocator, &storage_engine, calls_query);
+    const calls_result = try execute_traversal(allocator, harness.storage_engine, calls_query);
     defer calls_result.deinit();
 
     // Should find blocks 1, 2, 4 (connected by calls edges)
@@ -382,7 +379,7 @@ test "edge type filtering integration" {
         .edge_filter = .{ .only_type = .imports },
     };
 
-    const imports_result = try execute_traversal(allocator, &storage_engine, imports_query);
+    const imports_result = try execute_traversal(allocator, harness.storage_engine, imports_query);
     defer imports_result.deinit();
 
     // Should find blocks 1, 3, 6 (connected by imports edges)
@@ -394,12 +391,9 @@ test "edge type filtering integration" {
 test "memory safety under stress with new algorithms" {
     const allocator = testing.allocator;
 
-    var sim_vfs = try SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
-
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "./test_memory_safety");
-    defer storage_engine.deinit();
-    try storage_engine.startup();
+    // Use StorageHarness for coordinated VFS and storage setup
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "test_memory_safety");
+    defer harness.deinit();
 
     // Create a moderate graph
     const stress_graph_size = 50;
@@ -412,7 +406,7 @@ test "memory safety under stress with new algorithms" {
         defer allocator.free(block.source_uri);
         defer allocator.free(block.metadata_json);
         defer allocator.free(block.content);
-        try storage_engine.put_block(block);
+        try harness.storage_engine.put_block(block);
     }
 
     // Create edges
@@ -423,7 +417,7 @@ test "memory safety under stress with new algorithms" {
             .target_id = TestData.deterministic_block_id(i + 1),
             .edge_type = .calls,
         };
-        try storage_engine.put_edge(edge);
+        try harness.storage_engine.put_edge(edge);
 
         // Add some cross-links
         if (i % 3 == 0 and i + 3 <= stress_graph_size) {
@@ -432,7 +426,7 @@ test "memory safety under stress with new algorithms" {
                 .target_id = TestData.deterministic_block_id(i + 3),
                 .edge_type = .references,
             };
-            try storage_engine.put_edge(cross_edge);
+            try harness.storage_engine.put_edge(cross_edge);
         }
     }
 
@@ -453,7 +447,7 @@ test "memory safety under stress with new algorithms" {
                 .edge_filter = .all_types,
             };
 
-            const result = try execute_traversal(allocator, &storage_engine, traversal_query);
+            const result = try execute_traversal(allocator, harness.storage_engine, traversal_query);
             defer result.deinit();
 
             // Verify results are valid

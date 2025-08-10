@@ -99,6 +99,9 @@ test "cross level compaction with realistic SSTable sizes" {
 test "compaction memory efficiency under large datasets" {
     const allocator = testing.allocator;
 
+    // Manual setup required because: Memory efficiency testing needs direct access to
+    // memtable_manager.memory_usage() for precise measurement. StorageHarness arena
+    // allocation would interfere with accurate memory usage tracking during compaction.
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 

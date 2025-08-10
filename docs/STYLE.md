@@ -416,6 +416,156 @@ test "compaction merges overlapping SSTables" {
 }
 ```
 
+### Test Setup Patterns
+
+**Harness-First Rule**: Tests MUST use standardized harnesses unless manual setup is technically required.
+
+**Preferred Pattern**:
+
+```zig
+test "storage operations" {
+    const allocator = testing.allocator;
+
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "test_db");
+    defer harness.deinit();
+
+    try harness.storage_engine.put_block(test_block);
+}
+```
+
+**Manual Setup Justification**: When harnesses cannot be used, provide explicit justification:
+
+```zig
+// Manual setup required because: [specific technical reason]
+// [Additional context explaining why harness doesn't work]
+var sim_vfs = try SimulationVFS.init(allocator);
+defer sim_vfs.deinit();
+```
+
+**Required Justification Patterns**:
+
+**Recovery Testing**:
+
+```zig
+// Manual setup required because: Recovery testing needs two separate
+// StorageEngine instances sharing the same VFS to validate WAL recovery
+// across engine lifecycle. StorageHarness is designed for single-engine scenarios.
+```
+
+**Fault Injection Timing**:
+
+```zig
+// Manual setup required because: Test needs to insert data first, then enable
+// I/O failures to simulate corruption during reads. FaultInjectionHarness
+// applies faults during startup(), which would prevent initial data insertion.
+```
+
+**Performance Measurement**:
+
+```zig
+// Manual setup required because: Performance tests need specific allocator
+// configurations for measurement isolation. Harness arena allocation would
+// interfere with accurate memory usage tracking.
+```
+
+**Memory Safety Testing**:
+
+```zig
+// Manual setup required because: Memory safety validation requires
+// GeneralPurposeAllocator with safety features enabled to detect
+// buffer overflows and use-after-free errors.
+```
+
+**Good vs Bad Test Patterns**:
+
+**BAD: Manual setup without justification**:
+
+```zig
+test "block operations" {
+    const allocator = testing.allocator;
+
+    // BAD: Manual VFS/StorageEngine setup without justification
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_db");
+    defer storage_engine.deinit();
+    try storage_engine.startup();
+
+    // BAD: Custom block creation instead of TestData utilities
+    const content = try std.fmt.allocPrint(allocator, "test content {}", .{42});
+    defer allocator.free(content);
+    const block = ContextBlock{
+        .id = TestData.deterministic_block_id(42),
+        .version = 1,
+        .source_uri = "test://example.zig",
+        .metadata_json = "{}",
+        .content = content,
+    };
+
+    try storage_engine.put_block(block);
+}
+```
+
+**GOOD: Harness usage with standardized utilities**:
+
+```zig
+test "block operations" {
+    const allocator = testing.allocator;
+
+    // GOOD: Use StorageHarness for coordinated setup
+    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "test_db");
+    defer harness.deinit();
+
+    // GOOD: Use standardized TestData utilities
+    const content = try std.fmt.allocPrint(allocator, "test content {}", .{42});
+    defer allocator.free(content);
+    const block = try TestData.create_test_block_with_content(allocator, 42, content);
+    defer {
+        allocator.free(block.source_uri);
+        allocator.free(block.metadata_json);
+        allocator.free(block.content);
+    }
+
+    try harness.storage_engine.put_block(block);
+}
+```
+
+**ACCEPTABLE: Manual setup with proper justification**:
+
+```zig
+test "wal recovery across storage engines" {
+    const allocator = testing.allocator;
+
+    // Manual setup required because: Recovery testing needs two separate
+    // StorageEngine instances sharing the same VFS to validate WAL recovery
+    // across engine lifecycle. StorageHarness is designed for single-engine scenarios.
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    // First engine writes data
+    var storage_engine1 = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_db");
+    defer storage_engine1.deinit();
+    try storage_engine1.startup();
+
+    const block = try TestData.create_test_block(allocator, 42);
+    defer {
+        allocator.free(block.source_uri);
+        allocator.free(block.metadata_json);
+        allocator.free(block.content);
+    }
+    try storage_engine1.put_block(block);
+
+    // Second engine recovers data using same VFS
+    var storage_engine2 = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_db");
+    defer storage_engine2.deinit();
+    try storage_engine2.startup();
+
+    const recovered = try storage_engine2.find_block(block.id);
+    try testing.expect(recovered != null);
+}
+```
+
 ## 9. Commit Message Standards
 
 Follow Conventional Commits format:

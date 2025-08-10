@@ -35,6 +35,9 @@ fn create_test_server(allocator: std.mem.Allocator, config: TestServerConfig) !s
     query: QueryEngine,
     server: Server,
 } {
+    // Manual setup required because: Fault injection testing needs precise control over
+    // server component initialization to test failure scenarios. Harnesses coordinate
+    // components automatically, preventing fault injection at specific lifecycle points.
     var sim_vfs = try SimulationVFS.init(allocator);
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "coordinator_test");
     try storage_engine.startup();
