@@ -9,6 +9,7 @@
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const assert_fmt = @import("../core/assert.zig").assert_fmt;
+const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const vfs = @import("../core/vfs.zig");
 const context_block = @import("../core/types.zig");
 const concurrency = @import("../core/concurrency.zig");
@@ -101,10 +102,24 @@ pub const SSTableManager = struct {
         block_id: BlockId,
         query_cache: std.mem.Allocator,
     ) !?ContextBlock {
+        // Comprehensive corruption detection for SSTable paths array
+        fatal_assert(@intFromPtr(&self.sstable_paths) != 0, "SSTable paths ArrayList structure corrupted - null pointer", .{});
+        fatal_assert(@intFromPtr(self.sstable_paths.items.ptr) != 0 or self.sstable_paths.items.len == 0, "SSTable paths array has null pointer with non-zero length: {} - heap corruption detected", .{self.sstable_paths.items.len});
+        fatal_assert(self.sstable_paths.capacity >= self.sstable_paths.items.len, "SSTable paths capacity {} < length {} - ArrayList corruption", .{ self.sstable_paths.capacity, self.sstable_paths.items.len });
+
         var i: usize = self.sstable_paths.items.len;
         while (i > 0) {
             i -= 1;
+
+            // Validate array bounds and pointer consistency before each access
+            fatal_assert(i < self.sstable_paths.items.len, "SSTable index out of bounds: {} >= {} - memory corruption detected", .{ i, self.sstable_paths.items.len });
+            fatal_assert(@intFromPtr(self.sstable_paths.items.ptr) != 0, "SSTable paths array pointer became null during iteration", .{});
+
             const sstable_path = self.sstable_paths.items[i];
+
+            // Validate the path string itself
+            fatal_assert(@intFromPtr(sstable_path.ptr) != 0 or sstable_path.len == 0, "SSTable path[{}] has null pointer with length {} - string corruption", .{ i, sstable_path.len });
+            fatal_assert(sstable_path.len < 4096, "SSTable path[{}] has suspicious length {} - possible corruption", .{ i, sstable_path.len });
 
             var sstable_file = SSTable.init(query_cache, self.vfs, sstable_path);
             sstable_file.read_index() catch continue; // Skip corrupted SSTables

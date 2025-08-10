@@ -31,6 +31,7 @@ const block_index_mod = @import("block_index.zig");
 const sstable = @import("sstable.zig");
 const tiered_compaction = @import("tiered_compaction.zig");
 const wal = @import("wal.zig");
+const ownership = @import("../core/ownership.zig");
 
 const VFS = vfs.VFS;
 const ContextBlock = context_block.ContextBlock;

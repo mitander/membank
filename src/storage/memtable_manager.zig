@@ -30,17 +30,18 @@ const EdgeType = context_block.EdgeType;
 const VFS = vfs.VFS;
 const WAL = wal.WAL;
 const WALEntry = wal.WALEntry;
+const OwnedBlock = ownership.OwnedBlock;
+const BlockOwnership = ownership.BlockOwnership;
 
 /// Iterator for all blocks in the memtable, used during SSTable flush operations.
 /// Provides ordered iteration over all blocks to enable deterministic SSTable creation.
 pub const BlockIterator = struct {
     block_index: *const BlockIndex,
-    hash_map_iterator: std.HashMap(BlockId, ownership.OwnedBlock, BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage).Iterator,
+    hash_map_iterator: std.HashMap(BlockId, OwnedBlock, BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage).Iterator,
 
     pub fn next(self: *BlockIterator) ?ContextBlock {
         if (self.hash_map_iterator.next()) |entry| {
-            // Return the actual ContextBlock from the OwnedBlock
-            return entry.value_ptr.read_immutable().*;
+            return entry.value_ptr.block;
         }
         return null;
     }

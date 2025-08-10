@@ -212,6 +212,8 @@ pub const TraversalResult = struct {
     max_depth_reached: u32,
     /// Allocator used for result memory
     allocator: std.mem.Allocator,
+    /// Arena allocator for O(1) cleanup of all query results
+    query_arena: std.heap.ArenaAllocator,
 
     /// Create traversal result
     pub fn init(
@@ -229,24 +231,14 @@ pub const TraversalResult = struct {
             .blocks_traversed = blocks_traversed,
             .max_depth_reached = max_depth_reached,
             .allocator = allocator,
+            .query_arena = std.heap.ArenaAllocator.init(allocator), // Initialize empty arena
         };
     }
 
     /// Free allocated memory for traversal results
+    /// Uses O(1) arena deallocation for optimal performance
     pub fn deinit(self: TraversalResult) void {
-        for (self.blocks) |block| {
-            self.allocator.free(block.source_uri);
-            self.allocator.free(block.metadata_json);
-            self.allocator.free(block.content);
-        }
-        self.allocator.free(self.blocks);
-
-        for (self.paths) |path| {
-            self.allocator.free(path);
-        }
-        self.allocator.free(self.paths);
-
-        self.allocator.free(self.depths);
+        self.query_arena.deinit();
     }
 
     /// Get number of blocks in traversal result
@@ -286,6 +278,7 @@ pub const TraversalResult = struct {
             .blocks_traversed = self.blocks_traversed,
             .max_depth_reached = self.max_depth_reached,
             .allocator = allocator,
+            .query_arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
 };
@@ -294,20 +287,27 @@ pub const TraversalResult = struct {
 /// Time complexity: O(V + E) where V is vertices and E is edges traversed
 /// Space complexity: O(V) for visited tracking and result storage
 pub fn execute_traversal(
-    allocator: std.mem.Allocator,
+    backing_allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
     query: TraversalQuery,
 ) !TraversalResult {
+    // Use arena allocator for all query results - O(1) cleanup
+    var query_arena = std.heap.ArenaAllocator.init(backing_allocator);
+    const allocator = query_arena.allocator();
     try query.validate();
 
-    switch (query.algorithm) {
-        .breadth_first => return traverse_breadth_first(allocator, storage_engine, query),
-        .depth_first => return traverse_depth_first(allocator, storage_engine, query),
-        .astar_search => return traverse_astar_search(allocator, storage_engine, query),
-        .bidirectional_search => return traverse_bidirectional_search(allocator, storage_engine, query),
-        .strongly_connected => return traverse_strongly_connected(allocator, storage_engine, query),
-        .topological_sort => return traverse_topological_sort(allocator, storage_engine, query),
-    }
+    var result = switch (query.algorithm) {
+        .breadth_first => try traverse_breadth_first(allocator, storage_engine, query),
+        .depth_first => try traverse_depth_first(allocator, storage_engine, query),
+        .astar_search => try traverse_astar_search(allocator, storage_engine, query),
+        .bidirectional_search => try traverse_bidirectional_search(allocator, storage_engine, query),
+        .strongly_connected => try traverse_strongly_connected(allocator, storage_engine, query),
+        .topological_sort => try traverse_topological_sort(allocator, storage_engine, query),
+    };
+
+    // Transfer arena ownership to result
+    result.query_arena = query_arena;
+    return result;
 }
 
 /// Perform breadth-first traversal of the knowledge graph
@@ -404,7 +404,7 @@ fn traverse_breadth_first(
         owned_blocks,
         owned_paths,
         owned_depths,
-        blocks_traversed,
+        @intCast(owned_blocks.len),
         max_depth_reached,
     );
 }
@@ -507,20 +507,20 @@ fn traverse_depth_first(
         owned_blocks,
         owned_paths,
         owned_depths,
-        blocks_traversed,
+        @intCast(owned_blocks.len),
         max_depth_reached,
     );
 }
 
 /// Clone a block for query results with owned memory
 /// Creates copies of all strings to avoid issues with arena-allocated source blocks
-fn clone_block(allocator: std.mem.Allocator, block: ContextBlock) !ContextBlock {
+fn clone_block(arena_allocator: std.mem.Allocator, block: ContextBlock) !ContextBlock {
     return ContextBlock{
         .id = block.id,
         .version = block.version,
-        .source_uri = try allocator.dupe(u8, block.source_uri),
-        .metadata_json = try allocator.dupe(u8, block.metadata_json),
-        .content = try allocator.dupe(u8, block.content),
+        .source_uri = try arena_allocator.dupe(u8, block.source_uri),
+        .metadata_json = try arena_allocator.dupe(u8, block.metadata_json),
+        .content = try arena_allocator.dupe(u8, block.content),
     };
 }
 
@@ -743,7 +743,7 @@ fn traverse_astar_search(
         owned_blocks,
         owned_paths,
         owned_depths,
-        blocks_traversed,
+        @intCast(owned_blocks.len),
         max_depth_reached,
     );
 }
@@ -916,7 +916,7 @@ fn traverse_bidirectional_search(
         owned_blocks,
         owned_paths,
         owned_depths,
-        blocks_traversed,
+        @intCast(owned_blocks.len),
         max_depth_reached,
     );
 }

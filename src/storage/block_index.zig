@@ -125,13 +125,9 @@ pub const BlockIndex = struct {
             fatal_assert(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "Arena failed to clone content - returned original pointer, heap corruption detected", .{});
         }
 
-        // Create owned block with memtable ownership
-        const owned_block = OwnedBlock.init(cloned_block, .memtable_manager, null);
-
         // Adjust memory accounting for replacement case
-        if (self.blocks.get(block.id)) |existing_owned_block| {
-            const existing_block = existing_owned_block.read_immutable();
-            const old_memory = existing_block.source_uri.len + existing_block.metadata_json.len + existing_block.content.len;
+        if (self.blocks.get(cloned_block.id)) |existing_block| {
+            const old_memory = existing_block.block.source_uri.len + existing_block.block.metadata_json.len + existing_block.block.content.len;
             fatal_assert(self.memory_used >= old_memory, "Memory accounting underflow: tracked={} removing={} - indicates heap corruption", .{ self.memory_used, old_memory });
             self.memory_used -= old_memory;
         }
@@ -139,14 +135,16 @@ pub const BlockIndex = struct {
         const new_memory = block.source_uri.len + block.metadata_json.len + block.content.len;
         self.memory_used += new_memory;
 
-        try self.blocks.put(block.id, owned_block);
+        const owned_block = OwnedBlock.init(cloned_block, .memtable_manager, &self.block_arena.arena);
+        try self.blocks.put(cloned_block.id, owned_block);
     }
 
     /// Find a block by ID with ownership validation.
-    /// Returns pointer to the owned block for safe access with ownership tracking.
+    /// Returns pointer to the block if found and accessor has valid ownership.
     pub fn find_block(self: *const BlockIndex, block_id: BlockId, accessor: BlockOwnership) ?*const ContextBlock {
-        if (self.blocks.get(block_id)) |owned_block| {
-            return owned_block.read(accessor);
+        if (self.blocks.getPtr(block_id)) |owned_block_ptr| {
+            // Validate ownership access through OwnedBlock
+            return owned_block_ptr.read(accessor);
         }
         return null;
     }
@@ -155,9 +153,8 @@ pub const BlockIndex = struct {
     /// Memory is not immediately freed (arena handles bulk deallocation),
     /// but accounting is updated for accurate memory usage tracking.
     pub fn remove_block(self: *BlockIndex, block_id: BlockId) void {
-        if (self.blocks.get(block_id)) |existing_owned_block| {
-            const existing_block = existing_owned_block.read_immutable();
-            const old_memory = existing_block.source_uri.len + existing_block.metadata_json.len + existing_block.content.len;
+        if (self.blocks.get(block_id)) |existing_block| {
+            const old_memory = existing_block.block.source_uri.len + existing_block.block.metadata_json.len + existing_block.block.content.len;
             fatal_assert(self.memory_used >= old_memory, "Memory accounting underflow during removal: tracked={} removing={} - indicates heap corruption", .{ self.memory_used, old_memory });
             self.memory_used -= old_memory;
         }
