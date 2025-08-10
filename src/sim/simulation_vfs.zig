@@ -58,51 +58,47 @@ comptime {
     assert(SIMULATION_FILE_MAGIC != std.math.maxInt(u64));
 }
 
-/// Type-safe file storage with state machine validation.
+/// Type-safe file storage with state machine validation using TypedFileHandle.
 const FileStorage = struct {
     data: SimulationFileData,
-    path: []const u8,
-    handle_id: FileHandleId,
-    state: MachineFileState,
-    access_mode: FileAccessMode,
-    position: u64,
+    handle: TypedFileHandle,
     active: bool,
 
     const Self = @This();
 
-    /// Create new file storage with initial state.
+    /// Create new file storage with TypedFileHandle integration.
     pub fn init(data: SimulationFileData, path: []const u8, handle_id: FileHandleId, access_mode: FileAccessMode) Self {
+        var handle = TypedFileHandle.init(handle_id, path, access_mode);
+        handle.file_size = data.content.items.len;
+
         return Self{
             .data = data,
-            .path = path,
-            .handle_id = handle_id,
-            .state = access_mode.to_file_state(),
-            .access_mode = access_mode,
-            .position = 0,
+            .handle = handle,
+            .active = true,
         };
     }
 
-    /// Validate file can perform read operation.
+    /// Validate file can perform read operation using TypedFileHandle.
     pub fn validate_read(self: *const Self) void {
-        self.state.assert_can_read();
-        fatal_assert(self.access_mode.can_read(), "File not opened for reading", .{});
+        self.handle.state.assert_can_read();
+        fatal_assert(self.handle.access_mode.can_read(), "File not opened for reading", .{});
     }
 
-    /// Validate file can perform write operation.
+    /// Validate file can perform write operation using TypedFileHandle.
     pub fn validate_write(self: *const Self) void {
-        self.state.assert_can_write();
-        fatal_assert(self.access_mode.can_write(), "File not opened for writing", .{});
+        self.handle.state.assert_can_write();
+        fatal_assert(self.handle.access_mode.can_write(), "File not opened for writing", .{});
     }
 
     /// Close file and transition to closed state.
     pub fn close(self: *Self) void {
-        self.state.transition(.closed);
-        self.position = 0;
+        self.handle.state.transition(.closed);
+        self.handle.position = 0;
     }
 
     /// Check if file is active (not closed or deleted).
     pub fn is_active(self: *const Self) bool {
-        return self.state != .closed and self.state != .deleted;
+        return self.handle.state != .closed and self.handle.state != .deleted and self.active;
     }
 };
 
@@ -361,22 +357,58 @@ pub const SimulationVFS = struct {
     /// Retrieve stable pointer to file data by handle
     fn file_data_by_handle(self: *SimulationVFS, handle: FileHandleId) ?*SimulationFileData {
         for (self.file_storage.items) |*storage| {
-            if (storage.handle_id.eql(handle) and storage.active) {
+            if (storage.handle.id.eql(handle) and storage.active) {
                 return &storage.data;
             }
         }
         return null;
     }
 
-    /// Retrieve file data by handle for VFile operations
-    /// Returns null if handle is invalid or file was deleted
+    /// Retrieve FileStorage with state validation for operations
+    fn file_storage_by_handle(self: *SimulationVFS, handle: FileHandleId) ?*FileStorage {
+        for (self.file_storage.items) |*storage| {
+            if (storage.handle.id.eql(handle) and storage.active) {
+                return storage;
+            }
+        }
+        return null;
+    }
+
+    /// Retrieve file data by handle for VFile read operations with state validation
+    /// Returns null if handle is invalid, file was deleted, or state is invalid for reading
     fn file_data_fn(vfs_ptr: *anyopaque, handle: u32) ?*SimulationFileData {
         assert(@intFromPtr(vfs_ptr) >= 0x1000); // Pointer sanity check
         assert(handle > 0); // Valid handle check
 
         const self: *SimulationVFS = @ptrCast(@alignCast(vfs_ptr));
         const handle_id = FileHandleId.init(handle, 1);
-        return self.file_data_by_handle(handle_id);
+
+        // Get FileStorage with state validation
+        const storage = self.file_storage_by_handle(handle_id) orelse return null;
+
+        // State machine validation for read operations - must be active and readable
+        if (!storage.is_active()) return null;
+        storage.validate_read(); // This will assert if state doesn't allow reading
+
+        return &storage.data;
+    }
+
+    /// Retrieve file storage for write operations with comprehensive state validation
+    fn file_storage_for_write(vfs_ptr: *anyopaque, handle: u32) ?*FileStorage {
+        assert(@intFromPtr(vfs_ptr) >= 0x1000); // Pointer sanity check
+        assert(handle > 0); // Valid handle check
+
+        const self: *SimulationVFS = @ptrCast(@alignCast(vfs_ptr));
+        const handle_id = FileHandleId.init(handle, 1);
+
+        // Get FileStorage with state validation
+        const storage = self.file_storage_by_handle(handle_id) orelse return null;
+
+        // State machine validation for write operations - must be active and writable
+        if (!storage.is_active()) return null;
+        storage.validate_write(); // This will assert if state doesn't allow writing
+
+        return storage;
     }
 
     /// Retrieve current deterministic time for VFile timestamp operations
@@ -418,15 +450,8 @@ pub const SimulationVFS = struct {
         const handle_id = FileHandleId.init(handle_num, 1);
         const path_copy = try self.file_arena.allocator().dupe(u8, path);
 
-        try self.file_storage.append(FileStorage{
-            .data = data,
-            .path = path_copy,
-            .handle_id = handle_id,
-            .state = .closed,
-            .access_mode = .read_write,
-            .position = 0,
-            .active = true,
-        });
+        const file_storage = FileStorage.init(data, path_copy, handle_id, .read_write);
+        try self.file_storage.append(file_storage);
 
         return handle_id;
     }
@@ -434,7 +459,7 @@ pub const SimulationVFS = struct {
     /// Remove file storage entry
     fn remove_file_storage(self: *SimulationVFS, handle: FileHandleId) void {
         for (self.file_storage.items) |*storage| {
-            if (storage.handle_id.eql(handle) and storage.active) {
+            if (storage.handle.id.eql(handle) and storage.active) {
                 storage.active = false;
                 break;
             }

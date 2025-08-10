@@ -13,6 +13,8 @@ const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const vfs = @import("../core/vfs.zig");
 const context_block = @import("../core/types.zig");
 const concurrency = @import("../core/concurrency.zig");
+const arena = @import("../core/arena.zig");
+const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
 
@@ -25,11 +27,15 @@ const BlockId = context_block.BlockId;
 const SSTable = sstable.SSTable;
 const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const TypedArenaType = arena.TypedArenaType;
+const ArenaOwnership = arena.ArenaOwnership;
+const OwnedBlock = ownership.OwnedBlock;
+const BlockOwnership = ownership.BlockOwnership;
 
-/// Manages the complete collection of on-disk SSTable files.
+/// Manages the complete collection of on-disk SSTable files with type-safe ownership.
 /// Provides single ownership boundary for all persistent storage state
 /// including discovery, read coordination, and compaction management.
-/// Uses two-phase initialization to separate object creation from I/O.
+/// Uses TypedArena for safe memory management and OwnedBlock for access control.
 pub const SSTableManager = struct {
     backing_allocator: std.mem.Allocator,
     vfs: VFS,
@@ -37,10 +43,9 @@ pub const SSTableManager = struct {
     sstable_paths: std.ArrayList([]const u8),
     next_sstable_id: u32,
     compaction_manager: TieredCompactionManager,
+    block_arena: TypedArenaType(ContextBlock, SSTableManager),
 
-    /// Phase 1: Create SSTable manager without I/O operations.
-    /// Initializes data structures and prepares for startup phase.
-    /// Follows KausalDB two-phase initialization pattern for testability.
+    /// Initialize SSTable manager with TypedArena for type-safe block management.
     pub fn init(
         allocator: std.mem.Allocator,
         filesystem: VFS,
@@ -57,12 +62,10 @@ pub const SSTableManager = struct {
                 filesystem,
                 data_dir,
             ),
+            .block_arena = TypedArenaType(ContextBlock, SSTableManager).init(allocator, .sstable_manager),
         };
     }
 
-    /// Clean up all SSTable manager resources including path strings.
-    /// Must be called to prevent memory leaks. Coordinates cleanup of
-    /// compaction manager and owned SSTable path strings.
     pub fn deinit(self: *SSTableManager) void {
         concurrency.assert_main_thread();
 
@@ -72,11 +75,10 @@ pub const SSTableManager = struct {
         self.sstable_paths.deinit();
 
         self.compaction_manager.deinit();
+        self.block_arena.deinit();
     }
 
-    /// Phase 2: Perform I/O operations to discover existing SSTables.
-    /// Scans the SSTable directory and registers all existing files with
-    /// the compaction manager. Creates directory structure if needed.
+    /// Discover existing SSTables and register with compaction manager.
     pub fn startup(self: *SSTableManager) !void {
         concurrency.assert_main_thread();
 
@@ -93,15 +95,13 @@ pub const SSTableManager = struct {
         try self.discover_existing_sstables();
     }
 
-    /// Find a block by searching all managed SSTables from newest to oldest.
-    /// Implements LSM-tree read semantics by checking SSTables in reverse
-    /// chronological order to ensure most recent version is returned.
-    /// Uses query cache allocator for temporary SSTable operations.
+    /// Find a block by searching all managed SSTables with ownership validation.
     pub fn find_block_in_sstables(
         self: *SSTableManager,
         block_id: BlockId,
+        accessor: BlockOwnership,
         query_cache: std.mem.Allocator,
-    ) !?ContextBlock {
+    ) !?OwnedBlock {
         // Comprehensive corruption detection for SSTable paths array
         fatal_assert(@intFromPtr(&self.sstable_paths) != 0, "SSTable paths ArrayList structure corrupted - null pointer", .{});
         fatal_assert(@intFromPtr(self.sstable_paths.items.ptr) != 0 or self.sstable_paths.items.len == 0, "SSTable paths array has null pointer with non-zero length: {} - heap corruption detected", .{self.sstable_paths.items.len});
@@ -126,31 +126,63 @@ pub const SSTableManager = struct {
             defer sstable_file.deinit();
 
             if (try sstable_file.find_block(block_id)) |block| {
-                return block;
+                const arena_allocator = self.block_arena.allocator();
+                const cloned_block = ContextBlock{
+                    .id = block.id,
+                    .version = block.version,
+                    .source_uri = try arena_allocator.dupe(u8, block.source_uri),
+                    .metadata_json = try arena_allocator.dupe(u8, block.metadata_json),
+                    .content = try arena_allocator.dupe(u8, block.content),
+                };
+                const owned_block = OwnedBlock.init(cloned_block, accessor, &self.block_arena.arena);
+                return owned_block;
             }
         }
 
         return null;
     }
 
-    /// Create a new SSTable from a collection of blocks (memtable flush).
-    /// Sorts blocks by ID for optimal SSTable layout and registers the new
-    /// file with the compaction manager. Generates unique SSTable filename.
-    pub fn create_new_sstable(self: *SSTableManager, blocks: []const ContextBlock) !void {
+    /// Create a new SSTable from memtable flush with implicit ownership validation.
+    pub fn create_new_sstable_from_memtable(self: *SSTableManager, owned_blocks: []const OwnedBlock) !void {
         concurrency.assert_main_thread();
 
-        if (blocks.len == 0) return; // Nothing to flush
+        if (owned_blocks.len == 0) return; // Nothing to flush
 
+        // Validate that blocks can be read for SSTable creation from memtable
+        for (owned_blocks) |*owned_block| {
+            _ = owned_block.read(.memtable_manager);
+        }
+
+        return self.create_new_sstable_internal(owned_blocks);
+    }
+
+    /// Create a new SSTable from owned blocks with explicit access validation.
+    pub fn create_new_sstable(self: *SSTableManager, owned_blocks: []const OwnedBlock, accessor: BlockOwnership) !void {
+        concurrency.assert_main_thread();
+
+        if (owned_blocks.len == 0) return; // Nothing to flush
+        for (owned_blocks) |*owned_block| {
+            _ = owned_block.read(accessor); // Validates access permission
+        }
+
+        return self.create_new_sstable_internal(owned_blocks);
+    }
+
+    fn create_new_sstable_internal(self: *SSTableManager, owned_blocks: []const OwnedBlock) !void {
         const sstable_filename = try std.fmt.allocPrint(
             self.backing_allocator,
             "{s}/sst/sstable_{:04}.sst",
             .{ self.data_dir, self.next_sstable_id },
         );
+        // Ensure string is properly managed by storing it immediately
+        errdefer self.backing_allocator.free(sstable_filename);
         self.next_sstable_id += 1;
 
-        const sorted_blocks = try self.backing_allocator.alloc(ContextBlock, blocks.len);
+        const sorted_blocks = try self.backing_allocator.alloc(ContextBlock, owned_blocks.len);
         defer self.backing_allocator.free(sorted_blocks);
-        @memcpy(sorted_blocks, blocks);
+        for (owned_blocks, 0..) |*owned_block, i| {
+            sorted_blocks[i] = owned_block.read(.memtable_manager).*;
+        }
 
         std.sort.pdq(ContextBlock, sorted_blocks, {}, struct {
             fn less_than(_: void, a: ContextBlock, b: ContextBlock) bool {
@@ -167,12 +199,16 @@ pub const SSTableManager = struct {
         }
         try new_sstable.write_blocks(sorted_blocks);
 
-        try self.sstable_paths.append(sstable_filename);
+        // Add to compaction manager first (which duplicates the path)
         try self.compaction_manager.add_sstable(
             sstable_filename,
             try self.read_file_size(sstable_filename),
             0, // Level 0 for new SSTables
         );
+
+        // Store our own copy in sstable_paths
+        try self.sstable_paths.ensureTotalCapacity(self.sstable_paths.items.len + 1);
+        try self.sstable_paths.append(sstable_filename);
     }
 
     /// Check if compaction is beneficial based on SSTable collection state.
@@ -306,7 +342,7 @@ test "SSTableManager two-phase initialization" {
     try testing.expectEqual(@as(u32, 0), manager.sstable_count());
 }
 
-test "SSTableManager creates new SSTable from blocks" {
+test "SSTableManager creates new SSTable from owned blocks" {
     const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
@@ -325,14 +361,15 @@ test "SSTableManager creates new SSTable from blocks" {
         .content = "test content 1",
     };
 
-    const blocks = [_]ContextBlock{block1};
-    try manager.create_new_sstable(&blocks);
+    const owned_block1 = OwnedBlock.init(block1, .simulation_test, null);
+    const owned_blocks = [_]OwnedBlock{owned_block1};
+    try manager.create_new_sstable(&owned_blocks, .simulation_test);
 
     try testing.expectEqual(@as(u32, 1), manager.sstable_count());
     try testing.expectEqual(@as(u32, 1), manager.next_id());
 }
 
-test "SSTableManager finds blocks in SSTables" {
+test "SSTableManager finds owned blocks in SSTables" {
     const allocator = testing.allocator;
 
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
@@ -352,15 +389,18 @@ test "SSTableManager finds blocks in SSTables" {
         .content = "test content",
     };
 
-    const blocks = [_]ContextBlock{block};
-    try manager.create_new_sstable(&blocks);
+    const owned_block = OwnedBlock.init(block, .simulation_test, null);
+    const owned_blocks = [_]OwnedBlock{owned_block};
+    try manager.create_new_sstable(&owned_blocks, .simulation_test);
 
     var query_arena = std.heap.ArenaAllocator.init(allocator);
     defer query_arena.deinit();
 
-    const found_block = try manager.find_block_in_sstables(block_id, query_arena.allocator());
-    try testing.expect(found_block != null);
-    try testing.expectEqualStrings("test content", found_block.?.content);
-    const missing_block = try manager.find_block_in_sstables(BlockId.generate(), query_arena.allocator());
+    const found_owned_block = try manager.find_block_in_sstables(block_id, .simulation_test, query_arena.allocator());
+    try testing.expect(found_owned_block != null);
+    const found_block = found_owned_block.?.read(.simulation_test);
+    try testing.expectEqualStrings("test content", found_block.content);
+
+    const missing_block = try manager.find_block_in_sstables(BlockId.generate(), .simulation_test, query_arena.allocator());
     try testing.expect(missing_block == null);
 }

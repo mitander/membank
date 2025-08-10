@@ -548,6 +548,7 @@ test "assertion framework consistency under load" {
 
         const timer = Timer.startup();
 
+        var prev_block_id: ?BlockId = null;
         for (0..config.iterations) |i| {
             const block = try create_benchmark_block(arena_allocator, @intCast(i));
             try engine.put_block(block);
@@ -557,18 +558,18 @@ test "assertion framework consistency under load" {
             try testing.expect(retrieved != null);
 
             // Add graph edge with assertion validation
-            if (i > 0) {
-                const prev_block = try create_benchmark_block(arena_allocator, @intCast(i - 1));
+            if (prev_block_id) |prev_id| {
                 const edge = GraphEdge{
-                    .source_id = prev_block.id,
+                    .source_id = prev_id,
                     .target_id = block.id,
                     .edge_type = EdgeType.calls,
                 };
                 try engine.put_edge(edge);
             }
+            prev_block_id = block.id;
         }
 
-        try load_samples.append(timer.elapsed_ns());
+        try load_samples.append(timer.elapsed_ns()); // tidy:ignore-perf ensureCapacity called with 1000 capacity
     }
 
     const load_result = try PerformanceResult.from_samples(load_samples.items);

@@ -9,35 +9,56 @@
 const std = @import("std");
 const assert = @import("../core/assert.zig");
 const context_block = @import("../core/types.zig");
+const arena = @import("../core/arena.zig");
+const ownership = @import("../core/ownership.zig");
 
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 const EdgeType = context_block.EdgeType;
+const TypedArenaType = arena.TypedArenaType;
+const ArenaOwnership = arena.ArenaOwnership;
+const BlockOwnership = ownership.BlockOwnership;
 
-/// In-memory graph edge index for fast bidirectional traversal.
-/// Maintains separate indexes for outgoing and incoming edges to enable
-/// efficient graph operations in both directions. Uses arena allocation
-/// for edge lists to provide O(1) bulk cleanup when clearing the index.
+pub const OwnedGraphEdge = struct {
+    edge: GraphEdge,
+    ownership: BlockOwnership,
+
+    pub fn init(edge: GraphEdge, owner: BlockOwnership) OwnedGraphEdge {
+        return OwnedGraphEdge{
+            .edge = edge,
+            .ownership = owner,
+        };
+    }
+
+    pub fn read(self: *const OwnedGraphEdge, accessor: BlockOwnership) *const GraphEdge {
+        if (accessor != self.ownership and accessor != .temporary) {
+            assert.fatal_assert(false, "Edge access violation: {s} cannot read {s}-owned edge", .{ accessor.name(), self.ownership.name() });
+        }
+        return &self.edge;
+    }
+
+    /// Get underlying GraphEdge for query operations (returns by value, no pointer access)
+    pub fn as_edge(self: *const OwnedGraphEdge) GraphEdge {
+        return self.edge;
+    }
+};
+
 pub const GraphEdgeIndex = struct {
-    /// Outgoing edges indexed by source_id for forward traversal
     outgoing_edges: std.HashMap(
         BlockId,
-        std.ArrayList(GraphEdge),
+        std.ArrayList(OwnedGraphEdge),
         BlockIdContext,
         std.hash_map.default_max_load_percentage,
     ),
-    /// Incoming edges indexed by target_id for backward traversal
     incoming_edges: std.HashMap(
         BlockId,
-        std.ArrayList(GraphEdge),
+        std.ArrayList(OwnedGraphEdge),
         BlockIdContext,
         std.hash_map.default_max_load_percentage,
     ),
-    arena: std.heap.ArenaAllocator,
+    edge_arena: TypedArenaType(GraphEdge, GraphEdgeIndex),
     backing_allocator: std.mem.Allocator,
 
-    /// Hash context for BlockId keys in HashMap.
-    /// Uses Wyhash for performance with cryptographically strong distribution.
     const BlockIdContext = struct {
         pub fn hash(self: @This(), block_id: BlockId) u64 {
             _ = self;
@@ -52,48 +73,46 @@ pub const GraphEdgeIndex = struct {
         }
     };
 
-    /// Initialize empty graph edge index with dedicated arena for edge lists.
-    /// HashMaps use stable backing allocator while edge ArrayLists use arena
-    /// to enable O(1) bulk deallocation without affecting HashMap structure.
     pub fn init(allocator: std.mem.Allocator) GraphEdgeIndex {
-        const arena = std.heap.ArenaAllocator.init(allocator);
-
         return GraphEdgeIndex{
             .outgoing_edges = std.HashMap(
                 BlockId,
-                std.ArrayList(GraphEdge),
+                std.ArrayList(OwnedGraphEdge),
                 BlockIdContext,
                 std.hash_map.default_max_load_percentage,
-            ).init(allocator), // HashMap uses stable backing allocator
+            ).init(allocator),
             .incoming_edges = std.HashMap(
                 BlockId,
-                std.ArrayList(GraphEdge),
+                std.ArrayList(OwnedGraphEdge),
                 BlockIdContext,
                 std.hash_map.default_max_load_percentage,
-            ).init(allocator), // HashMap uses stable backing allocator
-            .arena = arena,
+            ).init(allocator),
+            .edge_arena = TypedArenaType(GraphEdge, GraphEdgeIndex).init(allocator, .memtable_manager),
             .backing_allocator = allocator,
         };
     }
 
-    /// Clean up all resources including HashMaps and arena.
-    /// ArrayLists use arena allocator so they don't need individual deinit() calls.
-    /// The arena cleanup handles all ArrayList memory automatically.
     pub fn deinit(self: *GraphEdgeIndex) void {
-        // HashMaps use backing allocator, so they need explicit cleanup
+        var outgoing_iterator = self.outgoing_edges.valueIterator();
+        while (outgoing_iterator.next()) |edge_list| {
+            edge_list.deinit();
+        }
+        var incoming_iterator = self.incoming_edges.valueIterator();
+        while (incoming_iterator.next()) |edge_list| {
+            edge_list.deinit();
+        }
         self.outgoing_edges.deinit();
         self.incoming_edges.deinit();
 
-        self.arena.deinit();
+        self.edge_arena.deinit();
     }
 
-    /// Add an edge to both outgoing and incoming indexes.
-    /// Creates new ArrayLists as needed using arena allocator for efficient
-    /// bulk cleanup. Edges are stored in both directions to enable fast
-    /// traversal regardless of direction.
+    /// Add a directed edge to the index with bidirectional lookup support.
+    /// Updates both outgoing and incoming edge collections for efficient traversal.
+    /// Uses arena allocation for O(1) bulk cleanup during index reset operations.
     pub fn put_edge(self: *GraphEdgeIndex, edge: GraphEdge) !void {
         assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
-        assert.assert_fmt(@intFromPtr(&self.arena) != 0, "GraphEdgeIndex arena pointer cannot be null", .{});
+        assert.assert_fmt(@intFromPtr(&self.edge_arena) != 0, "GraphEdgeIndex arena pointer cannot be null", .{});
 
         var source_non_zero: u32 = 0;
         var target_non_zero: u32 = 0;
@@ -107,29 +126,33 @@ pub const GraphEdgeIndex = struct {
         assert.assert_fmt(target_non_zero > 0, "Edge target_id cannot be all zeros", .{});
         assert.assert_fmt(!std.mem.eql(u8, &edge.source_id.bytes, &edge.target_id.bytes), "Edge cannot be self-referential", .{});
 
-        const arena_allocator = self.arena.allocator();
+        const owned_edge = OwnedGraphEdge.init(edge, .memtable_manager);
 
         var outgoing_result = try self.outgoing_edges.getOrPut(edge.source_id);
         if (!outgoing_result.found_existing) {
-            outgoing_result.value_ptr.* = std.ArrayList(GraphEdge).init(arena_allocator);
+            outgoing_result.value_ptr.* = std.ArrayList(OwnedGraphEdge).init(self.backing_allocator);
         }
         const outgoing_before = outgoing_result.value_ptr.items.len;
-        try outgoing_result.value_ptr.append(edge); // tidy:ignore-perf - incremental edge building, size unknown
+        try outgoing_result.value_ptr.append(owned_edge); // tidy:ignore-perf dynamic edge collection size
         assert.assert_fmt(outgoing_result.value_ptr.items.len == outgoing_before + 1, "Outgoing edge append failed", .{});
 
         var incoming_result = try self.incoming_edges.getOrPut(edge.target_id);
         if (!incoming_result.found_existing) {
-            incoming_result.value_ptr.* = std.ArrayList(GraphEdge).init(arena_allocator);
+            incoming_result.value_ptr.* = std.ArrayList(OwnedGraphEdge).init(self.backing_allocator);
         }
         const incoming_before = incoming_result.value_ptr.items.len;
-        try incoming_result.value_ptr.append(edge); // tidy:ignore-perf - incremental edge building, size unknown
+        try incoming_result.value_ptr.append(owned_edge); // tidy:ignore-perf dynamic edge collection size
         assert.assert_fmt(incoming_result.value_ptr.items.len == incoming_before + 1, "Incoming edge append failed", .{});
     }
 
-    /// Find outgoing edges from a source block.
-    /// Returns slice into ArrayList storage for zero-copy access.
-    /// Used for forward graph traversal operations.
-    pub fn find_outgoing_edges(self: *const GraphEdgeIndex, source_id: BlockId) ?[]const GraphEdge {
+    /// Find all outgoing edges from a source block with ownership validation.
+    /// Returns owned edge collection that can be safely accessed by the specified accessor.
+    /// Used for graph traversal operations that need ownership-validated edge access.
+    pub fn find_outgoing_edges_with_ownership(
+        self: *const GraphEdgeIndex,
+        source_id: BlockId,
+        accessor: BlockOwnership,
+    ) ?[]const OwnedGraphEdge {
         assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
 
         var non_zero_bytes: u32 = 0;
@@ -138,17 +161,27 @@ pub const GraphEdgeIndex = struct {
         }
         assert.assert_fmt(non_zero_bytes > 0, "Source block ID cannot be all zeros", .{});
 
-        if (self.outgoing_edges.getPtr(source_id)) |edge_list| {
-            assert.assert_fmt(@intFromPtr(edge_list.items.ptr) != 0 or edge_list.items.len == 0, "Edge list has null pointer with non-zero length", .{});
-            return edge_list.items;
+        if (self.outgoing_edges.getPtr(source_id)) |owned_edge_list| {
+            assert.assert_fmt(@intFromPtr(owned_edge_list.items.ptr) != 0 or owned_edge_list.items.len == 0, "Edge list has null pointer with non-zero length", .{});
+
+            const owned_edges = owned_edge_list.items;
+            if (owned_edges.len == 0) return &[_]OwnedGraphEdge{};
+
+            _ = owned_edges[0].read(accessor);
+
+            return owned_edges;
         }
         return null;
     }
 
-    /// Find incoming edges to a target block.
-    /// Returns slice into ArrayList storage for zero-copy access.
-    /// Used for backward graph traversal operations.
-    pub fn find_incoming_edges(self: *const GraphEdgeIndex, target_id: BlockId) ?[]const GraphEdge {
+    /// Find all incoming edges to a target block with ownership validation.
+    /// Returns owned edge collection that can be safely accessed by the specified accessor.
+    /// Used for reverse graph traversal operations that need ownership-validated edge access.
+    pub fn find_incoming_edges_with_ownership(
+        self: *const GraphEdgeIndex,
+        target_id: BlockId,
+        accessor: BlockOwnership,
+    ) ?[]const OwnedGraphEdge {
         assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
 
         var non_zero_bytes: u32 = 0;
@@ -157,9 +190,15 @@ pub const GraphEdgeIndex = struct {
         }
         assert.assert_fmt(non_zero_bytes > 0, "Target block ID cannot be all zeros", .{});
 
-        if (self.incoming_edges.getPtr(target_id)) |edge_list| {
-            assert.assert_fmt(@intFromPtr(edge_list.items.ptr) != 0 or edge_list.items.len == 0, "Edge list has null pointer with non-zero length", .{});
-            return edge_list.items;
+        if (self.incoming_edges.getPtr(target_id)) |owned_edge_list| {
+            assert.assert_fmt(@intFromPtr(owned_edge_list.items.ptr) != 0 or owned_edge_list.items.len == 0, "Edge list has null pointer with non-zero length", .{});
+
+            const owned_edges = owned_edge_list.items;
+            if (owned_edges.len == 0) return &[_]OwnedGraphEdge{};
+
+            _ = owned_edges[0].read(accessor);
+
+            return owned_edges;
         }
         return null;
     }
@@ -168,9 +207,16 @@ pub const GraphEdgeIndex = struct {
     /// Cleans up both outgoing and incoming edge lists to maintain consistency.
     /// Note: This removes only direct edges; graph traversal cleanup for
     /// indirect references requires separate handling.
-    /// ArrayLists use arena allocator so individual deinit() not needed.
+    /// Must deinitialize ArrayLists to prevent memory leaks.
     pub fn remove_block_edges(self: *GraphEdgeIndex, block_id: BlockId) void {
-        // Remove from HashMaps - arena will handle ArrayList memory
+        // Deinitialize ArrayList before removing to prevent memory leak
+        if (self.outgoing_edges.getPtr(block_id)) |edge_list| {
+            edge_list.deinit();
+        }
+        if (self.incoming_edges.getPtr(block_id)) |edge_list| {
+            edge_list.deinit();
+        }
+
         _ = self.outgoing_edges.remove(block_id);
         _ = self.incoming_edges.remove(block_id);
     }
@@ -232,12 +278,20 @@ pub const GraphEdgeIndex = struct {
     /// Clear all edges and reset arena for O(1) bulk deallocation.
     /// Retains HashMap capacity for efficient reuse after clearing.
     pub fn clear(self: *GraphEdgeIndex) void {
-        // Clear HashMaps but retain capacity for reuse
+        // Deinit all ArrayLists before clearing to prevent memory leaks
+        var outgoing_iterator = self.outgoing_edges.valueIterator();
+        while (outgoing_iterator.next()) |edge_list| {
+            edge_list.deinit();
+        }
+        var incoming_iterator = self.incoming_edges.valueIterator();
+        while (incoming_iterator.next()) |edge_list| {
+            edge_list.deinit();
+        }
+
         self.outgoing_edges.clearRetainingCapacity();
         self.incoming_edges.clearRetainingCapacity();
 
-        // Arena reset handles all ArrayList memory automatically
-        _ = self.arena.reset(.retain_capacity);
+        self.edge_arena.reset();
     }
 };
 

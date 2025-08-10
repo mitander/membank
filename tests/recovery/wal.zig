@@ -40,7 +40,7 @@ test "wal recovery with missing wal directory" {
     defer harness.deinit();
 
     // Don't call startup() to avoid creating WAL directory
-    harness.storage_engine.initialized = true;
+    // Engine is already in initialized state after harness creation
 
     try testing.expectEqual(@as(u32, 0), harness.storage_engine.block_count());
 }

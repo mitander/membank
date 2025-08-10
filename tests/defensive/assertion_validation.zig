@@ -104,7 +104,7 @@ test "storage engine defensive programming validation" {
     // Test edge retrieval
     const outgoing_edges = engine.find_outgoing_edges(valid_block.id);
     try testing.expect(outgoing_edges.len > 0);
-    try testing.expectEqual(valid_edge.edge_type, outgoing_edges[0].edge_type);
+    try testing.expectEqual(valid_edge.edge_type, outgoing_edges[0].as_edge().edge_type);
 
     // Test metrics access
     const metrics = engine.metrics();
@@ -254,7 +254,8 @@ test "graph edge defensive programming validation" {
         // Verify edge retrieval
         const outgoing = engine.find_outgoing_edges(source_block.id);
         var found_edge = false;
-        for (outgoing) |edge| {
+        for (outgoing) |owned_edge| {
+            const edge = owned_edge.as_edge();
             if (edge.edge_type == edge_type and
                 std.mem.eql(u8, &edge.target_id.bytes, &target_block.id.bytes))
             {
@@ -267,7 +268,8 @@ test "graph edge defensive programming validation" {
         // Verify incoming edges
         const incoming = engine.find_incoming_edges(target_block.id);
         found_edge = false;
-        for (incoming) |edge| {
+        for (incoming) |owned_edge| {
+            const edge = owned_edge.as_edge();
             if (edge.edge_type == edge_type and
                 std.mem.eql(u8, &edge.source_id.bytes, &source_block.id.bytes))
             {

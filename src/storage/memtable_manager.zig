@@ -20,28 +20,28 @@ const ownership = @import("../core/ownership.zig");
 
 const SSTableManager = @import("sstable_manager.zig").SSTableManager;
 const BlockIndex = @import("block_index.zig").BlockIndex;
-const GraphEdgeIndex = @import("graph_edge_index.zig").GraphEdgeIndex;
+const graph_edge_index = @import("graph_edge_index.zig");
+const GraphEdgeIndex = graph_edge_index.GraphEdgeIndex;
 const wal = @import("wal.zig");
 
 const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 const EdgeType = context_block.EdgeType;
+const OwnedGraphEdge = graph_edge_index.OwnedGraphEdge;
 const VFS = vfs.VFS;
 const WAL = wal.WAL;
 const WALEntry = wal.WALEntry;
 const OwnedBlock = ownership.OwnedBlock;
 const BlockOwnership = ownership.BlockOwnership;
 
-/// Iterator for all blocks in the memtable, used during SSTable flush operations.
-/// Provides ordered iteration over all blocks to enable deterministic SSTable creation.
 pub const BlockIterator = struct {
     block_index: *const BlockIndex,
     hash_map_iterator: std.HashMap(BlockId, OwnedBlock, BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage).Iterator,
 
-    pub fn next(self: *BlockIterator) ?ContextBlock {
+    pub fn next(self: *BlockIterator) ?*const OwnedBlock {
         if (self.hash_map_iterator.next()) |entry| {
-            return entry.value_ptr.block;
+            return entry.value_ptr;
         }
         return null;
     }
@@ -238,20 +238,14 @@ pub const MemtableManager = struct {
         return @intCast(self.block_index.blocks.count());
     }
 
-    /// Find all outgoing edges from a source block.
-    /// Returns empty slice if no edges found. Used for graph traversal queries.
-    pub fn find_outgoing_edges(self: *const MemtableManager, source_id: BlockId) []const GraphEdge {
-        return self.graph_index.find_outgoing_edges(source_id) orelse &[_]GraphEdge{};
+    pub fn find_outgoing_edges(self: *const MemtableManager, source_id: BlockId) []const OwnedGraphEdge {
+        return self.graph_index.find_outgoing_edges_with_ownership(source_id, .memtable_manager) orelse &[_]OwnedGraphEdge{};
     }
 
-    /// Find all incoming edges to a target block.
-    /// Returns empty slice if no edges found. Used for reverse graph traversal.
-    pub fn find_incoming_edges(self: *const MemtableManager, target_id: BlockId) []const GraphEdge {
-        return self.graph_index.find_incoming_edges(target_id) orelse &[_]GraphEdge{};
+    pub fn find_incoming_edges(self: *const MemtableManager, target_id: BlockId) []const OwnedGraphEdge {
+        return self.graph_index.find_incoming_edges_with_ownership(target_id, .memtable_manager) orelse &[_]OwnedGraphEdge{};
     }
 
-    /// Get edge count in graph index for metrics.
-    /// Exposes graph index count through the memtable manager interface.
     pub fn edge_count(self: *const MemtableManager) u32 {
         return self.graph_index.edge_count();
     }
@@ -288,8 +282,6 @@ pub const MemtableManager = struct {
     pub fn flush_wal(self: *MemtableManager) !void {
         concurrency.assert_main_thread();
 
-        // WAL entries are auto-flushed on write, but this ensures
-        // any OS-level buffering is synchronized to storage
         if (self.wal.active_file) |*file| {
             file.flush() catch return error.IoError;
         }
@@ -304,30 +296,26 @@ pub const MemtableManager = struct {
     }
 
     /// Orchestrates atomic transition from write-optimized to read-optimized storage.
-    /// Maintains LSM-tree performance characteristics by ensuring memtable state
-    /// remains consistent throughout the flush operation. Prevents partial flushes
-    /// that could compromise durability guarantees or create inconsistent views.
+    /// Maintains LSM-tree performance characteristics with proper ownership transfer.
+    /// Creates OwnedBlock collection for SSTableManager with validated ownership.
     pub fn flush_to_sstable(self: *MemtableManager, sstable_manager: anytype) !void {
         concurrency.assert_main_thread();
 
         if (self.block_count() == 0) return;
 
-        // Snapshot current state to ensure atomic flush semantics
-        var blocks = std.ArrayList(ContextBlock).init(self.backing_allocator);
-        defer blocks.deinit();
+        var owned_blocks = std.ArrayList(OwnedBlock).init(self.backing_allocator);
+        defer owned_blocks.deinit();
 
         var block_iterator = self.iterator();
-        while (block_iterator.next()) |block| {
-            try blocks.append(block);
+        while (block_iterator.next()) |owned_block_ptr| {
+            try owned_blocks.append(owned_block_ptr.*);
         }
 
-        // Maintain responsibility boundaries - SSTable creation is not memtable concern
-        try sstable_manager.create_new_sstable(blocks.items);
+        try sstable_manager.create_new_sstable_from_memtable(owned_blocks.items);
 
-        // Only clear after successful persistence to maintain durability guarantees
         self.clear();
 
-        // WAL entries now redundant since data persisted to durable SSTable storage
+        // Clean up old WAL segments after successful SSTable creation
         try self.cleanup_old_wal_segments();
     }
 
@@ -341,15 +329,15 @@ pub const MemtableManager = struct {
                 const temp_allocator = temp_arena.allocator();
 
                 const block = try entry.extract_block(temp_allocator);
-                try self.put_block(block); // Non-durable version for recovery
+                try self.put_block(block);
             },
             .delete_block => {
                 const block_id = try entry.extract_block_id();
-                self.delete_block(block_id); // Non-durable version for recovery
+                self.delete_block(block_id);
             },
             .put_edge => {
                 const edge = try entry.extract_edge();
-                try self.put_edge(edge); // Non-durable version for recovery
+                try self.put_edge(edge);
             },
         }
     }

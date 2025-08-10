@@ -18,6 +18,7 @@ const vfs = kausaldb.vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
 const types = kausaldb.types;
+const ownership = kausaldb.ownership;
 const stdx = kausaldb.stdx;
 
 const StorageEngine = storage.StorageEngine;
@@ -256,7 +257,7 @@ test "WAL cleanup isolated memtable manager fault injection" {
     const MockSSTableManager = struct {
         call_count: u32 = 0,
 
-        pub fn create_new_sstable(self: *@This(), blocks: []const ContextBlock) !void {
+        pub fn create_new_sstable_from_memtable(self: *@This(), blocks: []const ownership.OwnedBlock) !void {
             _ = blocks; // Unused in mock
             self.call_count += 1;
         }

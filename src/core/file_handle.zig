@@ -84,7 +84,7 @@ pub const FileAccessMode = enum {
 /// Type-safe file handle with state tracking and operation validation.
 /// Replaces raw file descriptors with type-safe abstractions.
 pub const TypedFileHandle = struct {
-    handle_id: FileHandleId,
+    id: FileHandleId,
     path: []const u8,
     access_mode: FileAccessMode,
     state: FileState,
@@ -99,7 +99,7 @@ pub const TypedFileHandle = struct {
         fatal_assert(path.len <= 4096, "File path too long: {}", .{path.len});
 
         return TypedFileHandle{
-            .handle_id = handle_id,
+            .id = handle_id,
             .path = path,
             .access_mode = access_mode,
             .state = access_mode.to_file_state(),
@@ -207,7 +207,7 @@ pub const TypedFileHandle = struct {
 
     /// Check if handle is valid and file is open.
     pub fn is_open(self: *const TypedFileHandle) bool {
-        return self.handle_id.is_valid() and self.state.is_open();
+        return self.id.is_valid() and self.state.is_open();
     }
 
     /// Force update file size (for VFS implementations).
@@ -221,7 +221,7 @@ pub const TypedFileHandle = struct {
     /// Validate file handle consistency in debug builds.
     pub fn validate_consistency(self: *const TypedFileHandle) void {
         if (builtin.mode == .Debug) {
-            assert_fmt(self.handle_id.is_valid(), "Invalid file handle for {s}", .{self.path});
+            assert_fmt(self.id.is_valid(), "Invalid file handle for {s}", .{self.path});
             assert_fmt(self.position <= self.file_size, "Position beyond EOF: {} > {} for {s}", .{ self.position, self.file_size, self.path });
             assert_fmt(self.path.len > 0, "Empty file path", .{});
 

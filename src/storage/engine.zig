@@ -19,6 +19,7 @@ const vfs = @import("../core/vfs.zig");
 const context_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
 const concurrency = @import("../core/concurrency.zig");
+const state_machines = @import("../core/state_machines.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
 
@@ -32,12 +33,16 @@ const sstable = @import("sstable.zig");
 const tiered_compaction = @import("tiered_compaction.zig");
 const wal = @import("wal.zig");
 const ownership = @import("../core/ownership.zig");
+const graph_edge_index = @import("graph_edge_index.zig");
 
 const VFS = vfs.VFS;
 const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const StorageState = state_machines.StorageState;
+const BlockOwnership = ownership.BlockOwnership;
+const OwnedGraphEdge = graph_edge_index.OwnedGraphEdge;
 
 const BlockHashMap = std.HashMap(BlockId, ContextBlock, block_index_mod.BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage);
 const BlockHashMapIterator = BlockHashMap.Iterator;
@@ -65,12 +70,12 @@ pub const StorageError = error{
     NotInitialized,
 } || config_mod.ConfigError || wal.WALError || vfs.VFSError || vfs.VFileError;
 
-/// Main storage engine coordinating all storage subsystems.
+/// Main storage engine coordinating all storage subsystems with state machine validation.
 /// Implements LSM-tree architecture with WAL durability, in-memory
 /// memtable management, immutable SSTables, and background compaction.
 /// Follows state-oriented decomposition with MemtableManager for in-memory
 /// state (including WAL ownership) and SSTableManager for on-disk state.
-/// True coordinator pattern with clear ownership boundaries.
+/// Uses StorageState enum to prevent invalid operations and ensure correct lifecycle.
 pub const StorageEngine = struct {
     backing_allocator: std.mem.Allocator,
     vfs: VFS,
@@ -78,7 +83,7 @@ pub const StorageEngine = struct {
     config: Config,
     memtable_manager: MemtableManager,
     sstable_manager: SSTableManager,
-    initialized: bool,
+    state: StorageState,
     storage_metrics: StorageMetrics,
     query_cache_arena: std.heap.ArenaAllocator,
 
@@ -125,7 +130,7 @@ pub const StorageEngine = struct {
                 return err;
             },
             .sstable_manager = SSTableManager.init(allocator, filesystem, owned_data_dir),
-            .initialized = false,
+            .state = .initialized,
             .storage_metrics = StorageMetrics.init(),
             .query_cache_arena = std.heap.ArenaAllocator.init(allocator),
         };
@@ -133,12 +138,50 @@ pub const StorageEngine = struct {
         return engine;
     }
 
-    /// Clean up all storage engine resources.
+    /// Gracefully shutdown the storage engine with pending operation flush.
+    pub fn shutdown(self: *StorageEngine) !void {
+        concurrency.assert_main_thread();
+
+        if (self.state == .stopped) return;
+
+        // Only attempt flush operations if engine is in a running state
+        if (self.state.can_write()) {
+            // Flush any pending memtable data before shutdown
+            if (self.memtable_manager.block_count() > 0) {
+                try self.coordinate_memtable_flush();
+            }
+
+            try self.flush_wal();
+        }
+
+        // Transition to stopped from any valid state
+        if (self.state == .initialized) {
+            // From initialized, can only go directly to stopped
+            self.state.transition(.stopped);
+        } else if (self.state != .stopping and self.state != .stopped) {
+            // From running/compacting/flushing, go through stopping first
+            self.state.transition(.stopping);
+            self.state.transition(.stopped);
+        } else if (self.state == .stopping) {
+            self.state.transition(.stopped);
+        }
+        // If already stopped, do nothing
+    }
+
+    /// Clean up all storage engine resources after shutdown.
     /// Must be called to prevent memory leaks and ensure proper cleanup.
     pub fn deinit(self: *StorageEngine) void {
         concurrency.assert_main_thread();
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
         fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted during cleanup - heap corruption detected", .{});
+
+        // Graceful shutdown if not already stopped
+        if (self.state != .stopped) {
+            self.shutdown() catch |err| {
+                // Log error but continue cleanup to prevent resource leaks
+                error_context.log_storage_error(err, error_context.StorageContext{ .operation = "shutdown_during_deinit" });
+            };
+        }
 
         self.memtable_manager.deinit();
         self.sstable_manager.deinit();
@@ -153,7 +196,9 @@ pub const StorageEngine = struct {
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
         fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir is empty - heap corruption detected", .{});
 
-        if (self.initialized) return StorageError.AlreadyInitialized;
+        if (self.state != .initialized) {
+            fatal_assert(false, "create_storage_directories called in invalid state: {}", .{self.state});
+        }
 
         if (!self.vfs.exists(self.data_dir)) {
             self.vfs.mkdir(self.data_dir) catch |err| switch (err) {
@@ -165,12 +210,10 @@ pub const StorageEngine = struct {
             };
         }
 
-        self.initialized = true;
+        // State remains .initialized until startup() transitions to .running
     }
 
-    /// Phase 2 initialization: Complete startup by performing storage initialization and WAL recovery.
-    /// This is the primary entry point for bringing StorageEngine from cold to hot state.
-    /// Performs I/O operations including directory creation, SSTable discovery, and WAL recovery.
+    /// Transition from initialized to running state with I/O operations.
     pub fn startup(self: *StorageEngine) !void {
         self.create_storage_directories() catch |err| {
             error_context.log_storage_error(err, error_context.file_context("create_storage_directories", self.data_dir));
@@ -188,11 +231,11 @@ pub const StorageEngine = struct {
             error_context.log_storage_error(err, error_context.file_context("wal_recovery", self.data_dir));
             return err;
         };
+
+        self.state.transition(.running);
     }
 
     /// Write a Context Block to storage with full durability guarantees.
-    /// Pure coordinator that delegates block storage and orchestrates flush operations.
-    /// All business logic handled by MemtableManager and SSTableManager.
     pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
         concurrency.assert_main_thread();
 
@@ -206,7 +249,7 @@ pub const StorageEngine = struct {
         assert.assert_fmt(block.metadata_json.len < 1024 * 1024, "Block metadata_json too large: {} bytes", .{block.metadata_json.len});
         assert.assert_fmt(block.version > 0, "Block version must be positive: {}", .{block.version});
 
-        if (!self.initialized) return StorageError.NotInitialized;
+        self.state.assert_can_write();
 
         const start_time = std.time.nanoTimestamp();
         assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
@@ -233,8 +276,6 @@ pub const StorageEngine = struct {
     }
 
     /// Find a Context Block by ID with LSM-tree read semantics.
-    /// Checks memtable first, then SSTables in reverse chronological order
-    /// to ensure most recent version is returned.
     pub fn find_block(self: *StorageEngine, block_id: BlockId) !?ContextBlock {
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
         fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
@@ -245,7 +286,7 @@ pub const StorageEngine = struct {
         }
         assert.assert_fmt(non_zero_bytes > 0, "Block ID cannot be all zeros", .{});
 
-        if (!self.initialized) return StorageError.NotInitialized;
+        self.state.assert_can_read();
 
         const start_time = std.time.nanoTimestamp();
         assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
@@ -271,11 +312,12 @@ pub const StorageEngine = struct {
             return block_ptr.*;
         }
 
-        const sstable_result = self.sstable_manager.find_block_in_sstables(block_id, self.query_cache_arena.allocator()) catch |err| {
+        const sstable_result = self.sstable_manager.find_block_in_sstables(block_id, .storage_engine, self.query_cache_arena.allocator()) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("find_block_in_sstables", block_id));
             return err;
         };
-        if (sstable_result) |block| {
+        if (sstable_result) |owned_block| {
+            const block = owned_block.read(.storage_engine); // StorageEngine accessing SSTableManager block
             const end_time = std.time.nanoTimestamp();
             self.storage_metrics.blocks_read.incr();
             self.storage_metrics.sstable_reads.incr();
@@ -284,18 +326,16 @@ pub const StorageEngine = struct {
 
             self.maybe_clear_query_cache();
 
-            return block;
+            return block.*; // Return the actual ContextBlock
         }
 
         return null;
     }
 
     /// Delete a Context Block by ID with tombstone semantics.
-    /// Delegates to MemtableManager for WAL-first durability pattern.
-    /// Actual space reclamation occurs during SSTable compaction.
     pub fn delete_block(self: *StorageEngine, block_id: BlockId) !void {
         concurrency.assert_main_thread();
-        if (!self.initialized) return StorageError.NotInitialized;
+        self.state.assert_can_write();
 
         self.memtable_manager.delete_block_durable(block_id) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("delete_block_durable", block_id));
@@ -306,7 +346,6 @@ pub const StorageEngine = struct {
     }
 
     /// Add a graph edge with durability guarantees.
-    /// Delegates to MemtableManager for WAL-first durability pattern.
     pub fn put_edge(self: *StorageEngine, edge: GraphEdge) !void {
         concurrency.assert_main_thread();
 
@@ -325,7 +364,7 @@ pub const StorageEngine = struct {
         assert.assert_fmt(target_non_zero > 0, "Edge target_id cannot be all zeros", .{});
         assert.assert_fmt(!std.mem.eql(u8, &edge.source_id.bytes, &edge.target_id.bytes), "Edge cannot be self-referential", .{});
 
-        if (!self.initialized) return StorageError.NotInitialized;
+        self.state.assert_can_write();
 
         const start_time = std.time.nanoTimestamp();
         assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
@@ -344,10 +383,9 @@ pub const StorageEngine = struct {
     }
 
     /// Force synchronization of all WAL operations to durable storage.
-    /// Delegates to MemtableManager for WAL ownership boundary.
     pub fn flush_wal(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
-        if (!self.initialized) return StorageError.NotInitialized;
+        self.state.assert_can_write();
 
         self.memtable_manager.flush_wal() catch |err| {
             error_context.log_storage_error(err, error_context.StorageContext{ .operation = "flush_wal" });
@@ -384,7 +422,7 @@ pub const StorageEngine = struct {
 
     /// Find all outgoing edges from a source block.
     /// Delegates to memtable manager for graph traversal operations.
-    pub fn find_outgoing_edges(self: *const StorageEngine, source_id: BlockId) []const GraphEdge {
+    pub fn find_outgoing_edges(self: *const StorageEngine, source_id: BlockId) []const OwnedGraphEdge {
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
         fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
 
@@ -400,7 +438,7 @@ pub const StorageEngine = struct {
 
         if (edges.len > 0) {
             fatal_assert(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length - heap corruption detected", .{});
-            fatal_assert(std.mem.eql(u8, &edges[0].source_id.bytes, &source_id.bytes), "First edge has wrong source_id - index corruption detected", .{});
+            fatal_assert(std.mem.eql(u8, &edges[0].edge.source_id.bytes, &source_id.bytes), "First edge has wrong source_id - index corruption detected", .{});
         }
 
         return edges;
@@ -408,7 +446,7 @@ pub const StorageEngine = struct {
 
     /// Find all incoming edges to a target block.
     /// Delegates to memtable manager for reverse graph traversal operations.
-    pub fn find_incoming_edges(self: *const StorageEngine, target_id: BlockId) []const GraphEdge {
+    pub fn find_incoming_edges(self: *const StorageEngine, target_id: BlockId) []const OwnedGraphEdge {
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
         fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
 
@@ -424,7 +462,7 @@ pub const StorageEngine = struct {
 
         if (edges.len > 0) {
             fatal_assert(@intFromPtr(edges.ptr) != 0, "MemtableManager returned null edges pointer with non-zero length - heap corruption detected", .{});
-            fatal_assert(std.mem.eql(u8, &edges[0].target_id.bytes, &target_id.bytes), "First edge has wrong target_id - index corruption detected", .{});
+            fatal_assert(std.mem.eql(u8, &edges[0].edge.target_id.bytes, &target_id.bytes), "First edge has wrong target_id - index corruption detected", .{});
         }
 
         return edges;
@@ -482,16 +520,24 @@ pub const StorageEngine = struct {
     fn flush_memtable(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
 
+        // Transition to flushing state during operation
+        self.state.transition(.flushing);
+        defer self.state.transition(.running); // Always return to running
+
         self.memtable_manager.flush_to_sstable(&self.sstable_manager) catch |err| {
             error_context.log_storage_error(err, error_context.StorageContext{ .operation = "flush_to_sstable" });
             return err;
         };
 
         if (self.sstable_manager.should_compact()) {
+            // First transition back to running, then to compacting (required by state machine)
+            self.state.transition(.running);
+            self.state.transition(.compacting);
             self.sstable_manager.execute_compaction() catch |err| {
                 error_context.log_storage_error(err, error_context.StorageContext{ .operation = "post_flush_compaction" });
                 return err;
             };
+            // State will be transitioned back to running by defer
         }
 
         self.storage_metrics.sstable_writes.incr();
@@ -577,7 +623,7 @@ test "storage engine initialization and cleanup" {
     var engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "/test/data");
     defer engine.deinit();
 
-    try testing.expect(!engine.initialized);
+    try testing.expect(engine.state == .initialized);
     try testing.expectEqual(@as(u32, 0), engine.block_count());
 }
 
@@ -591,7 +637,7 @@ test "storage engine startup and basic operations" {
     defer engine.deinit();
 
     try engine.startup();
-    try testing.expect(engine.initialized);
+    try testing.expect(engine.state == .running);
 
     const block_id = BlockId.generate();
     const block = ContextBlock{
