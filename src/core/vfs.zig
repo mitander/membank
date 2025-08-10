@@ -14,6 +14,7 @@ const custom_assert = @import("assert.zig");
 const assert = custom_assert.assert;
 const fatal_assert = custom_assert.fatal_assert;
 const testing = std.testing;
+const file_handle = @import("file_handle.zig");
 
 /// Maximum path length for defensive validation across platforms
 const MAX_PATH_LENGTH = 4096;
@@ -271,11 +272,11 @@ pub const VFile = struct {
 
     const SimulationFileImpl = struct {
         vfs_ptr: *anyopaque,
-        handle: u32,
+        handle_id: file_handle.FileHandleId,
         position: u64,
         mode: VFS.OpenMode,
         closed: bool,
-        file_data_fn: *const fn (*anyopaque, u32) ?*SimulationFileData,
+        file_data_fn: *const fn (*anyopaque, file_handle.FileHandleId) ?*SimulationFileData,
         current_time_fn: *const fn (*anyopaque) i64,
         fault_injection_fn: *const fn (*anyopaque, usize) VFileError!usize,
     };
@@ -304,10 +305,10 @@ pub const VFile = struct {
                 if (sim.closed) return VFileError.FileClosed;
                 if (!sim.mode.can_read()) return VFileError.ReadError;
 
-                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
+                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle_id.is_valid(), "VFS handle corruption detected: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle_id.id });
                 fatal_assert(!sim.closed, "VFS file handle used after close - use-after-free detected", .{});
 
-                const data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                const data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.FileClosed;
 
                 const available = @min(buffer.len, data.content.items.len - sim.position);
                 if (available == 0) break :blk 0;
@@ -339,7 +340,7 @@ pub const VFile = struct {
                 if (sim.closed) return VFileError.FileClosed;
                 if (!sim.mode.can_write()) return VFileError.WriteError;
 
-                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in write: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
+                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle_id.is_valid(), "VFS handle corruption detected in write: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle_id.id });
                 assert(data.len > 0);
 
                 const actual_write_size = sim.fault_injection_fn(sim.vfs_ptr, data.len) catch |err| {
@@ -347,7 +348,7 @@ pub const VFile = struct {
                 };
 
                 {
-                    const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                    const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.FileClosed;
                     if (sim.position + actual_write_size > file_data.content.items.len) {
                         const old_len = file_data.content.items.len;
                         const new_len = sim.position + actual_write_size;
@@ -355,7 +356,7 @@ pub const VFile = struct {
                         // ensureTotalCapacity preserves existing data automatically
                         try file_data.content.ensureTotalCapacity(new_len);
 
-                        const fresh_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                        const fresh_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.FileClosed;
 
                         fresh_file_data.content.items.len = new_len;
 
@@ -372,12 +373,12 @@ pub const VFile = struct {
                     }
                 }
 
-                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.FileClosed;
                 @memcpy(file_data.content.items[sim.position .. sim.position + actual_write_size], data[0..actual_write_size]);
                 sim.position += actual_write_size;
 
                 const write_start_pos = sim.position - actual_write_size;
-                const verify_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                const verify_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.FileClosed;
                 const written_slice = verify_file_data.content.items[write_start_pos..sim.position];
 
                 if (false) {
@@ -393,7 +394,7 @@ pub const VFile = struct {
                     }
                     std.debug.print("\n", .{});
 
-                    const debug_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                    const debug_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.FileClosed;
                     std.debug.print("=== FULL FILE CONTENT (first 64 bytes) ===\n", .{});
                     for (debug_file_data.content.items[0..@min(64, debug_file_data.content.items.len)], 0..) |byte, i| {
                         std.debug.print("{}:0x{X} ", .{ i, byte });
@@ -412,7 +413,7 @@ pub const VFile = struct {
                     return VFileError.IoError;
                 }
 
-                const time_update_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                const time_update_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.FileClosed;
                 time_update_file_data.modified_time = sim.current_time_fn(sim.vfs_ptr);
                 break :blk actual_write_size;
             },
@@ -446,14 +447,14 @@ pub const VFile = struct {
                 if (sim.closed) return VFileError.FileClosed;
                 if (!sim.mode.can_write()) return VFileError.WriteError;
 
-                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in write_at: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
+                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle_id.is_valid(), "VFS handle corruption detected in write_at: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle_id.id });
                 assert(data.len > 0);
 
                 const actual_write_size = sim.fault_injection_fn(sim.vfs_ptr, data.len) catch |err| {
                     return err;
                 };
 
-                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.IoError;
+                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.IoError;
                 const required_size = offset + actual_write_size;
                 if (file_data.content.items.len < required_size) {
                     file_data.content.resize(required_size) catch return VFileError.WriteError;
@@ -497,10 +498,10 @@ pub const VFile = struct {
             .simulation => |*sim| blk: {
                 if (sim.closed) return VFileError.FileClosed;
 
-                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in seek: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
+                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle_id.is_valid(), "VFS handle corruption detected in seek: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle_id.id });
                 fatal_assert(!sim.closed, "VFS file handle used after close in seek - use-after-free detected", .{});
 
-                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.FileClosed;
 
                 const target_pos = switch (whence) {
                     .start => pos,
@@ -595,10 +596,10 @@ pub const VFile = struct {
             .simulation => |*sim| blk: {
                 if (sim.closed) return VFileError.FileClosed;
 
-                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle > 0, "VFS handle corruption detected in file_size: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle });
+                fatal_assert(@intFromPtr(sim.vfs_ptr) >= 0x1000 and sim.handle_id.is_valid(), "VFS handle corruption detected in file_size: ptr=0x{X} handle={} - memory safety violation", .{ @intFromPtr(sim.vfs_ptr), sim.handle_id.id });
                 fatal_assert(!sim.closed, "VFS file handle used after close in file_size - use-after-free detected", .{});
 
-                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle) orelse return VFileError.FileClosed;
+                const file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.FileClosed;
                 break :blk file_data.content.items.len;
             },
         };

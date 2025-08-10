@@ -68,6 +68,8 @@ pub const StorageError = error{
     AlreadyInitialized,
     /// Storage not initialized
     NotInitialized,
+    /// Storage engine has been deinitialized
+    StorageEngineDeinitialized,
 } || config_mod.ConfigError || wal.WALError || vfs.VFSError || vfs.VFileError;
 
 /// Main storage engine coordinating all storage subsystems with state machine validation.
@@ -173,7 +175,11 @@ pub const StorageEngine = struct {
     pub fn deinit(self: *StorageEngine) void {
         concurrency.assert_main_thread();
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
-        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted during cleanup - heap corruption detected", .{});
+
+        // Prevent double-free by checking if data_dir is already freed
+        if (self.data_dir.len == 0) {
+            return; // Already deinitialized
+        }
 
         // Graceful shutdown if not already stopped
         if (self.state != .stopped) {
@@ -187,6 +193,8 @@ pub const StorageEngine = struct {
         self.sstable_manager.deinit();
         self.query_cache_arena.deinit();
         self.backing_allocator.free(self.data_dir);
+        // Mark as deinitialized to prevent double-free
+        self.data_dir = "";
     }
 
     /// Create directory structure and discover existing data files.
@@ -194,7 +202,10 @@ pub const StorageEngine = struct {
     fn create_storage_directories(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
-        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir is empty - heap corruption detected", .{});
+
+        if (self.data_dir.len == 0) {
+            return error.StorageEngineDeinitialized;
+        }
 
         if (self.state != .initialized) {
             fatal_assert(false, "create_storage_directories called in invalid state: {}", .{self.state});
@@ -240,7 +251,10 @@ pub const StorageEngine = struct {
         concurrency.assert_main_thread();
 
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
-        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
+
+        if (self.data_dir.len == 0) {
+            return error.StorageEngineDeinitialized;
+        }
 
         assert.assert_not_empty(block.content, "Block content cannot be empty", .{});
         assert.assert_not_empty(block.source_uri, "Block source_uri cannot be empty", .{});
@@ -278,7 +292,11 @@ pub const StorageEngine = struct {
     /// Find a Context Block by ID with LSM-tree read semantics.
     pub fn find_block(self: *StorageEngine, block_id: BlockId) !?ContextBlock {
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
-        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
+
+        // Check if StorageEngine has been deinitialized
+        if (self.data_dir.len == 0) {
+            return error.StorageEngineDeinitialized;
+        }
 
         var non_zero_bytes: u32 = 0;
         for (block_id.bytes) |byte| {
@@ -350,7 +368,10 @@ pub const StorageEngine = struct {
         concurrency.assert_main_thread();
 
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
-        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
+
+        if (self.data_dir.len == 0) {
+            return error.StorageEngineDeinitialized;
+        }
 
         var source_non_zero: u32 = 0;
         var target_non_zero: u32 = 0;
@@ -424,7 +445,10 @@ pub const StorageEngine = struct {
     /// Delegates to memtable manager for graph traversal operations.
     pub fn find_outgoing_edges(self: *const StorageEngine, source_id: BlockId) []const OwnedGraphEdge {
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
-        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
+
+        if (self.data_dir.len == 0) {
+            return &[_]OwnedGraphEdge{}; // Return empty slice if deinitialized
+        }
 
         var non_zero_bytes: u32 = 0;
         for (source_id.bytes) |byte| {
@@ -448,7 +472,10 @@ pub const StorageEngine = struct {
     /// Delegates to memtable manager for reverse graph traversal operations.
     pub fn find_incoming_edges(self: *const StorageEngine, target_id: BlockId) []const OwnedGraphEdge {
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
-        fatal_assert(self.data_dir.len > 0, "StorageEngine data_dir corrupted - heap corruption detected", .{});
+
+        if (self.data_dir.len == 0) {
+            return &[_]OwnedGraphEdge{}; // Return empty slice if deinitialized
+        }
 
         var non_zero_bytes: u32 = 0;
         for (target_id.bytes) |byte| {

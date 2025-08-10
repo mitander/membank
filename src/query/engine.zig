@@ -10,6 +10,7 @@ const stdx = @import("../core/stdx.zig");
 const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
+const ownership = @import("../core/ownership.zig");
 const operations = @import("operations.zig");
 const traversal = @import("traversal.zig");
 const filtering = @import("filtering.zig");
@@ -21,6 +22,8 @@ const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const OwnedBlock = ownership.OwnedBlock;
+const BlockOwnership = ownership.BlockOwnership;
 
 pub const QueryError = operations.QueryError;
 pub const QueryResult = operations.QueryResult;
