@@ -19,6 +19,7 @@ const concurrency = @import("../core/concurrency.zig");
 const storage = @import("../storage/engine.zig");
 const query_engine = @import("../query/engine.zig");
 const ctx_block = @import("../core/types.zig");
+const ownership = @import("../core/ownership.zig");
 const error_context = @import("../core/error_context.zig");
 
 const conn = @import("connection.zig");
@@ -309,7 +310,7 @@ pub const Server = struct {
             return;
         }
 
-        var found_blocks = std.ArrayList(ctx_block.ContextBlock).init(allocator);
+        var found_blocks = std.ArrayList(ownership.QueryEngineBlock).init(allocator);
         defer found_blocks.deinit();
 
         for (0..block_count) |i| {
@@ -391,7 +392,7 @@ pub const Server = struct {
         const start_id_bytes = payload[4..20];
         const start_id = ctx_block.BlockId{ .bytes = start_id_bytes[0..16].* };
 
-        var result_blocks = std.ArrayList(ContextBlock).init(allocator);
+        var result_blocks = std.ArrayList(ownership.QueryEngineBlock).init(allocator);
         defer result_blocks.deinit();
 
         const start_block = (try self.storage_engine.find_block(start_id)) orelse {
@@ -404,7 +405,8 @@ pub const Server = struct {
         try result_blocks.append(start_block);
         const block_ids = try allocator.alloc(BlockId, result_blocks.items.len);
         for (result_blocks.items, 0..) |block, i| {
-            block_ids[i] = block.id;
+            const block_data = block.read(.query_engine);
+            block_ids[i] = block_data.id;
         }
         const common_result = QueryResult.init_with_owned_ids(allocator, self.storage_engine, block_ids);
         var mutable_result = common_result;
@@ -468,15 +470,16 @@ pub const Server = struct {
     fn serialize_blocks_array(
         _: *Server,
         allocator: std.mem.Allocator,
-        blocks: []const ctx_block.ContextBlock,
+        blocks: []const ownership.QueryEngineBlock,
     ) ![]u8 {
         var total_size: usize = 4; // 4 bytes for block count
 
         for (blocks) |block| {
+            const block_data = block.read(.query_engine);
             total_size += 16; // Block ID
-            total_size += 4 + block.source_uri.len;
-            total_size += 4 + block.metadata_json.len;
-            total_size += 4 + block.content.len;
+            total_size += 4 + block_data.source_uri.len;
+            total_size += 4 + block_data.metadata_json.len;
+            total_size += 4 + block_data.content.len;
         }
 
         const buffer = try allocator.alloc(u8, total_size);
@@ -486,23 +489,24 @@ pub const Server = struct {
         offset += 4;
 
         for (blocks) |block| {
-            @memcpy(buffer[offset .. offset + 16], &block.id.bytes);
+            const block_data = block.read(.query_engine);
+            @memcpy(buffer[offset .. offset + 16], &block_data.id.bytes);
             offset += 16;
 
-            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.source_uri.len), .little);
+            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block_data.source_uri.len), .little);
             offset += 4;
-            @memcpy(buffer[offset .. offset + block.source_uri.len], block.source_uri);
-            offset += block.source_uri.len;
+            @memcpy(buffer[offset .. offset + block_data.source_uri.len], block_data.source_uri);
+            offset += block_data.source_uri.len;
 
-            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.metadata_json.len), .little);
+            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block_data.metadata_json.len), .little);
             offset += 4;
-            @memcpy(buffer[offset .. offset + block.metadata_json.len], block.metadata_json);
-            offset += block.metadata_json.len;
+            @memcpy(buffer[offset .. offset + block_data.metadata_json.len], block_data.metadata_json);
+            offset += block_data.metadata_json.len;
 
-            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.content.len), .little);
+            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block_data.content.len), .little);
             offset += 4;
-            @memcpy(buffer[offset .. offset + block.content.len], block.content);
-            offset += block.content.len;
+            @memcpy(buffer[offset .. offset + block_data.content.len], block_data.content);
+            offset += block_data.content.len;
         }
 
         assert(offset == total_size);
