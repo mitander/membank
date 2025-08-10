@@ -16,6 +16,7 @@ const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const context_block = @import("../core/types.zig");
 const concurrency = @import("../core/concurrency.zig");
 const vfs = @import("../core/vfs.zig");
+const ownership = @import("../core/ownership.zig");
 
 const SSTableManager = @import("sstable_manager.zig").SSTableManager;
 const BlockIndex = @import("block_index.zig").BlockIndex;
@@ -34,11 +35,12 @@ const WALEntry = wal.WALEntry;
 /// Provides ordered iteration over all blocks to enable deterministic SSTable creation.
 pub const BlockIterator = struct {
     block_index: *const BlockIndex,
-    hash_map_iterator: std.HashMap(BlockId, ContextBlock, BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage).Iterator,
+    hash_map_iterator: std.HashMap(BlockId, ownership.OwnedBlock, BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage).Iterator,
 
     pub fn next(self: *BlockIterator) ?ContextBlock {
         if (self.hash_map_iterator.next()) |entry| {
-            return entry.value_ptr.*;
+            // Return the actual ContextBlock from the OwnedBlock
+            return entry.value_ptr.read_immutable().*;
         }
         return null;
     }
@@ -184,7 +186,7 @@ pub const MemtableManager = struct {
     /// Returns a pointer to the block if found, null otherwise.
     /// Used by the storage engine for LSM-tree read path (memtable first).
     pub fn find_block_in_memtable(self: *const MemtableManager, id: BlockId) ?*const ContextBlock {
-        return self.block_index.find_block(id);
+        return self.block_index.find_block(id, .memtable_manager);
     }
 
     /// Get total memory usage of all data stored in the memtable.
