@@ -255,7 +255,14 @@ pub const StorageEngine = struct {
     }
 
     /// Write a Context Block to storage with full durability guarantees.
-    pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
+    /// Uses zero-cost ownership for safety without performance overhead.
+    /// Accepts either OwnedBlock (preferred) or ContextBlock (wrapped automatically).
+    pub fn put_block(self: *StorageEngine, block: anytype) !void {
+        const owned_block = switch (@TypeOf(block)) {
+            OwnedBlock => block,
+            ContextBlock => OwnedBlock.take_ownership(block, .temporary),
+            else => @compileError("put_block() accepts OwnedBlock or ContextBlock only"),
+        };
         concurrency.assert_main_thread();
 
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
@@ -264,115 +271,40 @@ pub const StorageEngine = struct {
             return error.StorageEngineDeinitialized;
         }
 
-        assert.assert_not_empty(block.content, "Block content cannot be empty", .{});
-        assert.assert_not_empty(block.source_uri, "Block source_uri cannot be empty", .{});
-        assert.assert_fmt(block.content.len < 100 * 1024 * 1024, "Block content too large: {} bytes", .{block.content.len});
-        assert.assert_fmt(block.source_uri.len < 2048, "Block source_uri too long: {} bytes", .{block.source_uri.len});
-        assert.assert_fmt(block.metadata_json.len < 1024 * 1024, "Block metadata_json too large: {} bytes", .{block.metadata_json.len});
-        assert.assert_fmt(block.version > 0, "Block version must be positive: {}", .{block.version});
+        // Extract block for validation and storage
+        const block_data = owned_block.read(.storage_engine);
+
+        assert.assert_fmt(block_data.content.len > 0, "Block content cannot be empty", .{});
+        assert.assert_fmt(block_data.source_uri.len > 0, "Block source_uri cannot be empty", .{});
+        assert.assert_fmt(block_data.content.len < 100 * 1024 * 1024, "Block content too large: {} bytes", .{block_data.content.len});
+        assert.assert_fmt(block_data.source_uri.len < 2048, "Block source_uri too long: {} bytes", .{block_data.source_uri.len});
+        assert.assert_fmt(block_data.metadata_json.len < 1024 * 1024, "Block metadata_json too large: {} bytes", .{block_data.metadata_json.len});
+        assert.assert_fmt(block_data.version > 0, "Block version must be positive: {}", .{block_data.version});
 
         self.state.assert_can_write();
 
         const start_time = std.time.nanoTimestamp();
         assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
 
-        block.validate(self.backing_allocator) catch |err| {
-            error_context.log_storage_error(err, error_context.block_context("block_validation", block.id));
+        block_data.validate(self.backing_allocator) catch |err| {
+            error_context.log_storage_error(err, error_context.block_context("block_validation", block_data.id));
             return err;
         };
 
         fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
-        self.memtable_manager.put_block_durable(block) catch |err| {
-            error_context.log_storage_error(err, error_context.block_context("put_block_durable", block.id));
+        self.memtable_manager.put_block_durable_owned(owned_block) catch |err| {
+            error_context.log_storage_error(err, error_context.block_context("put_block_durable_owned", block_data.id));
             return err;
         };
 
         if (self.memtable_manager.should_flush()) {
             self.coordinate_memtable_flush() catch |err| {
-                error_context.log_storage_error(err, error_context.block_context("coordinate_memtable_flush", block.id));
+                error_context.log_storage_error(err, error_context.block_context("coordinate_memtable_flush", block_data.id));
                 return err;
             };
         }
 
-        self.track_write_metrics(start_time, block.content.len);
-    }
-
-    /// Write an owned block to storage with full durability guarantees.
-    /// Accepts OwnedBlock for ownership-aware subsystems like query engine.
-    /// Extracts ContextBlock and delegates to standard put_block implementation.
-    pub fn put_block_with_ownership(self: *StorageEngine, owned_block: OwnedBlock) !void {
-        concurrency.assert_main_thread();
-
-        // Extract block for storage - StorageEngine accessing owned block for persistence
-        const block = owned_block.read(.storage_engine);
-
-        // Delegate to existing put_block implementation to avoid code duplication
-        try self.memtable_manager.put_block_durable_owned(owned_block);
-
-        // Update metrics using extracted block
-        const start_time = std.time.nanoTimestamp();
-        self.track_write_metrics(start_time, block.content.len);
-    }
-
-    /// Find a Context Block by ID with LSM-tree read semantics.
-    pub fn find_block(self: *StorageEngine, block_id: BlockId) !?ContextBlock {
-        fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
-
-        // Check if StorageEngine has been deinitialized
-        if (self.data_dir.len == 0) {
-            return error.StorageEngineDeinitialized;
-        }
-
-        var non_zero_bytes: u32 = 0;
-        for (block_id.bytes) |byte| {
-            if (byte != 0) non_zero_bytes += 1;
-        }
-        assert.assert_fmt(non_zero_bytes > 0, "Block ID cannot be all zeros", .{});
-
-        self.state.assert_can_read();
-
-        const start_time = std.time.nanoTimestamp();
-        assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
-
-        fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
-
-        if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
-            // and data corruption that could cause silent data loss or crashes.
-            fatal_assert(@intFromPtr(block_ptr) != 0, "MemtableManager returned null block pointer - heap corruption detected", .{});
-            fatal_assert(block_ptr.content.len > 0, "MemtableManager returned block with empty content - data corruption detected", .{});
-            fatal_assert(std.mem.eql(u8, &block_ptr.id.bytes, &block_id.bytes), "MemtableManager returned wrong block ID - index corruption detected", .{});
-
-            const end_time = std.time.nanoTimestamp();
-            assert.assert_fmt(end_time >= start_time, "Invalid timestamp sequence: {} < {}", .{ end_time, start_time });
-
-            const blocks_before = self.storage_metrics.blocks_read.load();
-            self.storage_metrics.blocks_read.incr();
-            self.storage_metrics.total_read_time_ns.add(@intCast(end_time - start_time));
-            self.storage_metrics.total_bytes_read.add(block_ptr.content.len);
-
-            fatal_assert(self.storage_metrics.blocks_read.load() == blocks_before + 1, "Blocks read counter update failed - metrics corruption detected", .{});
-
-            return block_ptr.*;
-        }
-
-        const sstable_result = self.sstable_manager.find_block_in_sstables(block_id, .storage_engine, self.query_cache_arena.allocator()) catch |err| {
-            error_context.log_storage_error(err, error_context.block_context("find_block_in_sstables", block_id));
-            return err;
-        };
-        if (sstable_result) |owned_block| {
-            const block = owned_block.read(.storage_engine); // StorageEngine accessing SSTableManager block
-            const end_time = std.time.nanoTimestamp();
-            self.storage_metrics.blocks_read.incr();
-            self.storage_metrics.sstable_reads.incr();
-            self.storage_metrics.total_read_time_ns.add(@intCast(end_time - start_time));
-            self.storage_metrics.total_bytes_read.add(block.content.len);
-
-            self.maybe_clear_query_cache();
-
-            return block.*; // Return the actual ContextBlock
-        }
-
-        return null;
+        self.track_write_metrics(start_time, block_data.content.len);
     }
 
     /// Find a Context Block by ID with ownership-aware semantics.
@@ -490,7 +422,8 @@ pub const StorageEngine = struct {
 
     /// Zero-cost query engine block lookup for cross-subsystem access.
     /// Enables fast block transfer to query engine with compile-time safety.
-    pub fn find_query_block_fast(self: *StorageEngine, block_id: BlockId) !?QueryEngineBlock {
+    /// Find a Context Block by ID with zero-cost ownership for query operations
+    pub fn find_block(self: *StorageEngine, block_id: BlockId) !?QueryEngineBlock {
         if (comptime builtin.mode == .Debug) {
             fatal_assert(@intFromPtr(self) != 0, "StorageEngine corrupted", .{});
         }
@@ -686,6 +619,7 @@ pub const StorageEngine = struct {
     pub const BlockIterator = struct {
         memtable_iterator: BlockHashMapIterator,
 
+        /// @deprecated Use ownership-aware iteration methods for zero-cost ownership
         pub fn next(self: *BlockIterator) ?ContextBlock {
             if (self.memtable_iterator.next()) |entry| {
                 return entry.value_ptr.*;
