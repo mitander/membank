@@ -60,7 +60,7 @@ test "streaming query results with large datasets" {
     // Verify streaming behavior with memory efficiency
     var count: usize = 0;
     while (try result.next()) |block| {
-        try testing.expect(block.content.len == 41); // Actual content: "Streaming optimization test block content"
+        try testing.expect(block.read(.query_engine).content.len == 41); // Actual content: "Streaming optimization test block content"
         count += 1;
     }
 
@@ -387,8 +387,8 @@ test "streaming result pagination and memory bounds" {
         }
 
         // Verify block integrity
-        try testing.expect(block.content.len > 0);
-        try testing.expect(block.source_uri.len > 0);
+        try testing.expect(block.read(.query_engine).content.len > 0);
+        try testing.expect(block.read(.query_engine).source_uri.len > 0);
     }
 
     try testing.expectEqual(total_blocks, streamed_count);

@@ -100,8 +100,8 @@ test "A* search integration with storage engine" {
     // Verify all found blocks are valid
     var found_main = false;
     for (result.blocks) |block| {
-        try testing.expect(block.content.len > 0);
-        if (block.id.eql(start_id)) {
+        try testing.expect(block.read(.query_engine).content.len > 0);
+        if (block.read(.query_engine).id.eql(start_id)) {
             found_main = true;
         }
     }
@@ -459,8 +459,8 @@ test "memory safety under stress with new algorithms" {
             // Verify results are valid
             try testing.expect(result.count() > 0);
             for (result.blocks) |block| {
-                try testing.expect(block.content.len > 0);
-                try testing.expect(block.source_uri.len > 0);
+                try testing.expect(block.read(.query_engine).content.len > 0);
+                try testing.expect(block.read(.query_engine).source_uri.len > 0);
             }
         }
     }

@@ -8,6 +8,7 @@ const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
+const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
 
@@ -17,6 +18,8 @@ const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 const EdgeType = context_block.EdgeType;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const QueryEngineBlock = ownership.QueryEngineBlock;
+const BlockOwnership = ownership.BlockOwnership;
 
 /// Hash context for BlockId HashMap operations
 const BlockIdHashContext = struct {
@@ -200,8 +203,8 @@ pub const TraversalQuery = struct {
 
 /// Result from graph traversal containing blocks and path information
 pub const TraversalResult = struct {
-    /// Retrieved context blocks in traversal order
-    blocks: []const ContextBlock,
+    /// Retrieved context blocks in traversal order with zero-cost ownership
+    blocks: []const QueryEngineBlock,
     /// Paths from start block to each result block
     paths: []const []const BlockId,
     /// Depths of each block from start block
@@ -218,7 +221,7 @@ pub const TraversalResult = struct {
     /// Create traversal result
     pub fn init(
         allocator: std.mem.Allocator,
-        blocks: []const ContextBlock,
+        blocks: []const QueryEngineBlock,
         paths: []const []const BlockId,
         depths: []const u32,
         blocks_traversed: u32,
@@ -253,15 +256,17 @@ pub const TraversalResult = struct {
 
     /// Clone traversal result for caching
     pub fn clone(self: TraversalResult, allocator: std.mem.Allocator) !TraversalResult {
-        const cloned_blocks = try allocator.alloc(ContextBlock, self.blocks.len);
+        const cloned_blocks = try allocator.alloc(QueryEngineBlock, self.blocks.len);
         for (self.blocks, 0..) |block, i| {
-            cloned_blocks[i] = ContextBlock{
-                .id = block.id,
-                .version = block.version,
-                .source_uri = try allocator.dupe(u8, block.source_uri),
-                .metadata_json = try allocator.dupe(u8, block.metadata_json),
-                .content = try allocator.dupe(u8, block.content),
+            const ctx_block = block.read(.query_engine);
+            const cloned_ctx_block = ContextBlock{
+                .id = ctx_block.id,
+                .version = ctx_block.version,
+                .source_uri = try allocator.dupe(u8, ctx_block.source_uri),
+                .metadata_json = try allocator.dupe(u8, ctx_block.metadata_json),
+                .content = try allocator.dupe(u8, ctx_block.content),
             };
+            cloned_blocks[i] = QueryEngineBlock.init(cloned_ctx_block);
         }
 
         const cloned_paths = try allocator.alloc([]const BlockId, self.paths.len);
@@ -319,7 +324,7 @@ fn traverse_breadth_first(
     var visited = BlockIdHashMap.init(allocator);
     defer visited.deinit();
 
-    var result_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
     defer result_blocks.deinit();
 
@@ -367,12 +372,11 @@ fn traverse_breadth_first(
         blocks_traversed += 1;
         max_depth_reached = @max(max_depth_reached, current.depth);
 
-        const current_block = (try storage_engine.find_block(
+        const current_block = (try storage_engine.find_query_block_fast(
             current.block_id,
         )) orelse continue;
 
-        const cloned_block = try clone_block(allocator, current_block);
-        try result_blocks.append(cloned_block); // tidy:ignore-perf ensureCapacity called with query.max_results
+        try result_blocks.append(current_block); // tidy:ignore-perf ensureCapacity called with query.max_results
 
         const cloned_path = try allocator.dupe(BlockId, current.path);
         try result_paths.append(cloned_path); // tidy:ignore-perf ensureCapacity called with query.max_results
@@ -418,7 +422,7 @@ fn traverse_depth_first(
     var visited = BlockIdHashMap.init(allocator);
     defer visited.deinit();
 
-    var result_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
     defer result_blocks.deinit();
 
@@ -470,12 +474,11 @@ fn traverse_depth_first(
         blocks_traversed += 1;
         max_depth_reached = @max(max_depth_reached, current.depth);
 
-        const current_block = (try storage_engine.find_block(
+        const current_block = (try storage_engine.find_query_block_fast(
             current.block_id,
         )) orelse continue;
 
-        const cloned_block = try clone_block(allocator, current_block);
-        try result_blocks.append(cloned_block); // tidy:ignore-perf ensureCapacity called with query.max_results
+        try result_blocks.append(current_block); // tidy:ignore-perf ensureCapacity called with query.max_results
 
         const cloned_path = try allocator.dupe(BlockId, current.path);
         try result_paths.append(cloned_path); // tidy:ignore-perf ensureCapacity called with query.max_results
@@ -514,16 +517,6 @@ fn traverse_depth_first(
 
 /// Clone a block for query results with owned memory
 /// Creates copies of all strings to avoid issues with arena-allocated source blocks
-fn clone_block(arena_allocator: std.mem.Allocator, block: ContextBlock) !ContextBlock {
-    return ContextBlock{
-        .id = block.id,
-        .version = block.version,
-        .source_uri = try arena_allocator.dupe(u8, block.source_uri),
-        .metadata_json = try arena_allocator.dupe(u8, block.metadata_json),
-        .content = try arena_allocator.dupe(u8, block.content),
-    };
-}
-
 /// Add neighbors to BFS queue
 fn add_neighbors_to_queue(
     allocator: std.mem.Allocator,
@@ -650,7 +643,7 @@ fn traverse_astar_search(
     var visited = BlockIdHashMap.init(allocator);
     defer visited.deinit();
 
-    var result_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
     defer result_blocks.deinit();
 
@@ -708,12 +701,11 @@ fn traverse_astar_search(
         blocks_traversed += 1;
         max_depth_reached = @max(max_depth_reached, current.depth);
 
-        const current_block = (try storage_engine.find_block(
+        const current_block = (try storage_engine.find_query_block_fast(
             current.block_id,
         )) orelse continue;
 
-        const cloned_block = try clone_block(allocator, current_block);
-        try result_blocks.append(cloned_block); // tidy:ignore-perf ensureCapacity called with query.max_results
+        try result_blocks.append(current_block); // tidy:ignore-perf ensureCapacity called with query.max_results
 
         const cloned_path = try allocator.dupe(BlockId, current.path);
         try result_paths.append(cloned_path); // tidy:ignore-perf ensureCapacity called with query.max_results
@@ -764,7 +756,7 @@ fn traverse_bidirectional_search(
     var visited_backward = BlockIdHashMap.init(allocator);
     defer visited_backward.deinit();
 
-    var result_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
     defer result_blocks.deinit();
 
@@ -841,12 +833,11 @@ fn traverse_bidirectional_search(
             blocks_traversed += 1;
             max_depth_reached = @max(max_depth_reached, current.depth);
 
-            const current_block = (try storage_engine.find_block(
+            const current_block = (try storage_engine.find_query_block_fast(
                 current.block_id,
             )) orelse continue;
 
-            const cloned_block = try clone_block(allocator, current_block);
-            try result_blocks.append(cloned_block); // tidy:ignore-perf ensureCapacity called with query.max_results
+            try result_blocks.append(current_block); // tidy:ignore-perf ensureCapacity called with query.max_results
 
             const cloned_path = try allocator.dupe(BlockId, current.path);
             try result_paths.append(cloned_path); // tidy:ignore-perf ensureCapacity called with query.max_results
@@ -881,12 +872,11 @@ fn traverse_bidirectional_search(
                 continue;
             }
 
-            const current_block = (try storage_engine.find_block(
+            const current_block = (try storage_engine.find_query_block_fast(
                 current.block_id,
             )) orelse continue;
 
-            const cloned_block = try clone_block(allocator, current_block);
-            try result_blocks.append(cloned_block); // tidy:ignore-perf ensureCapacity called with query.max_results
+            try result_blocks.append(current_block); // tidy:ignore-perf ensureCapacity called with query.max_results
 
             const cloned_path = try allocator.dupe(BlockId, current.path);
             try result_paths.append(cloned_path); // tidy:ignore-perf ensureCapacity called with query.max_results
@@ -940,7 +930,7 @@ fn traverse_topological_sort(
     storage_engine: *StorageEngine,
     query: TraversalQuery,
 ) !TraversalResult {
-    var result_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results); // Pre-allocate for expected result size
     defer result_blocks.deinit();
 
@@ -1070,7 +1060,7 @@ fn traverse_topological_sort(
     if (path.items.len > 0) {
         for (path.items, 0..) |block_id, i| {
             // Try to find the block
-            if (storage_engine.find_block(block_id) catch null) |block| {
+            if (storage_engine.find_query_block_fast(block_id) catch null) |block| {
                 try result_blocks.append(block); // tidy:ignore-perf ensureTotalCapacity called at function start
 
                 // Create path slice for this block (just itself in topological order)

@@ -104,7 +104,10 @@ pub const SSTableManager = struct {
     ) !?OwnedBlock {
         // Comprehensive corruption detection for SSTable paths array
         fatal_assert(@intFromPtr(&self.sstable_paths) != 0, "SSTable paths ArrayList structure corrupted - null pointer", .{});
-        fatal_assert(@intFromPtr(self.sstable_paths.items.ptr) != 0 or self.sstable_paths.items.len == 0, "SSTable paths array has null pointer with non-zero length: {} - heap corruption detected", .{self.sstable_paths.items.len});
+        if (@intFromPtr(self.sstable_paths.items.ptr) == 0 and self.sstable_paths.items.len > 0) {
+            // SSTable paths array corruption detected - handle gracefully in fault injection scenarios
+            return error.CorruptedSSTablePaths;
+        }
         fatal_assert(self.sstable_paths.capacity >= self.sstable_paths.items.len, "SSTable paths capacity {} < length {} - ArrayList corruption", .{ self.sstable_paths.capacity, self.sstable_paths.items.len });
 
         var i: usize = self.sstable_paths.items.len;

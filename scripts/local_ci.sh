@@ -428,6 +428,9 @@ run_parallel_jobs() {
     local jobs=()
     local temp_dir=$(mktemp -d)
 
+    # Set environment variable to indicate parallel execution for performance tier detection
+    export KAUSALDB_PARALLEL_TESTS=true
+
     # Start compatible jobs in parallel
     if should_run_job "build"; then
         jobs+=("build")
@@ -471,6 +474,9 @@ run_parallel_jobs() {
     # Cleanup
     rm -rf "$temp_dir"
 
+    # Clean up environment variable
+    unset KAUSALDB_PARALLEL_TESTS
+
     if [[ "$all_success" == "true" ]]; then
         return 0
     else
@@ -498,14 +504,79 @@ main() {
 
     # Run test job first (core functionality)
     if should_run_job "test"; then
+        # Set environment variable for parallel execution if parallel mode is enabled
+        if [[ "$PARALLEL" == "true" ]]; then
+            export KAUSALDB_PARALLEL_TESTS=true
+        fi
+
         run_job "Test" test_job || exit 1
         run_job "Coverage" coverage_job || exit 1
+
+        # Clean up environment variable
+        if [[ "$PARALLEL" == "true" ]]; then
+            unset KAUSALDB_PARALLEL_TESTS
+        fi
     fi
 
     # Run other jobs
     if [[ "$PARALLEL" == "true" ]] && [[ "$JOBS" != "test" ]]; then
-        log_section "Running parallel jobs"
-        run_parallel_jobs || exit 1
+        log_section "Running parallel jobs (excluding performance)"
+
+        # Set environment variable for performance tier detection
+        export KAUSALDB_PARALLEL_TESTS=true
+
+        # Run parallel jobs excluding performance tests
+        local pids=()
+        local jobs=()
+        local temp_dir=$(mktemp -d)
+
+        # Start compatible jobs in parallel (excluding performance)
+        if should_run_job "build"; then
+            jobs+=("build")
+            (run_job "Build Matrix" build_job > "$temp_dir/build.log" 2>&1; echo $? > "$temp_dir/build.exit") &
+            pids+=($!)
+        fi
+
+        if should_run_job "lint"; then
+            jobs+=("lint")
+            (run_job "Lint" lint_job > "$temp_dir/lint.log" 2>&1; echo $? > "$temp_dir/lint.exit") &
+            pids+=($!)
+        fi
+
+        if should_run_job "security"; then
+            jobs+=("security")
+            (run_job "Security" security_job > "$temp_dir/security.log" 2>&1; echo $? > "$temp_dir/security.exit") &
+            pids+=($!)
+        fi
+
+        # Wait for all parallel jobs to complete
+        local all_success=true
+        for i in "${!pids[@]}"; do
+            wait "${pids[$i]}"
+            local job_name="${jobs[$i]}"
+
+            # Display results
+            cat "$temp_dir/$job_name.log"
+
+            local exit_code=$(cat "$temp_dir/$job_name.exit")
+            if [[ "$exit_code" != "0" ]]; then
+                all_success=false
+            fi
+        done
+
+        # Cleanup
+        rm -rf "$temp_dir"
+        unset KAUSALDB_PARALLEL_TESTS
+
+        if [[ "$all_success" != "true" ]]; then
+            exit 1
+        fi
+
+        # Run performance tests separately to avoid resource contention
+        if should_run_job "performance"; then
+            log_section "Running performance tests (isolated)"
+            run_job "Performance" performance_job || exit 1
+        fi
     else
         # Sequential execution
         if should_run_job "build"; then

@@ -440,9 +440,9 @@ pub const SimulationVFS = struct {
 
     /// Create new file storage entry using proper handle registry
     fn create_file_storage(
-        self: *SimulationVFS, 
-        path: []const u8, 
-        data: SimulationFileData, 
+        self: *SimulationVFS,
+        path: []const u8,
+        data: SimulationFileData,
         access_mode: FileAccessMode,
     ) !FileHandleId {
         // Register the handle through the proper registry

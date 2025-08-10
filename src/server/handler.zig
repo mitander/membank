@@ -425,9 +425,10 @@ pub const Server = struct {
         while (try result_ptr.next()) |block| {
             block_count += 1;
             total_size += 16;
-            total_size += 4 + block.source_uri.len;
-            total_size += 4 + block.metadata_json.len;
-            total_size += 4 + block.content.len;
+            const context_block = block.read(.query_engine);
+            total_size += 4 + context_block.source_uri.len;
+            total_size += 4 + context_block.metadata_json.len;
+            total_size += 4 + context_block.content.len;
         }
 
         const buffer = try allocator.alloc(u8, total_size);
@@ -439,23 +440,24 @@ pub const Server = struct {
         result_ptr.reset();
 
         while (try result_ptr.next()) |block| {
-            @memcpy(buffer[offset .. offset + 16], &block.id.bytes);
+            const context_block = block.read(.query_engine);
+            @memcpy(buffer[offset .. offset + 16], &context_block.id.bytes);
             offset += 16;
 
-            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.source_uri.len), .little);
+            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(context_block.source_uri.len), .little);
             offset += 4;
-            @memcpy(buffer[offset .. offset + block.source_uri.len], block.source_uri);
-            offset += block.source_uri.len;
+            @memcpy(buffer[offset .. offset + context_block.source_uri.len], context_block.source_uri);
+            offset += context_block.source_uri.len;
 
-            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.metadata_json.len), .little);
+            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(context_block.metadata_json.len), .little);
             offset += 4;
-            @memcpy(buffer[offset .. offset + block.metadata_json.len], block.metadata_json);
-            offset += block.metadata_json.len;
+            @memcpy(buffer[offset .. offset + context_block.metadata_json.len], context_block.metadata_json);
+            offset += context_block.metadata_json.len;
 
-            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(block.content.len), .little);
+            std.mem.writeInt(u32, buffer[offset .. offset + 4][0..4], @intCast(context_block.content.len), .little);
             offset += 4;
-            @memcpy(buffer[offset .. offset + block.content.len], block.content);
-            offset += block.content.len;
+            @memcpy(buffer[offset .. offset + context_block.content.len], context_block.content);
+            offset += context_block.content.len;
         }
 
         assert(offset == total_size);

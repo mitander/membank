@@ -12,10 +12,13 @@ const coordinator = @import("../benchmark.zig");
 const storage = kausaldb.storage;
 const context_block = kausaldb.types;
 const simulation_vfs = kausaldb.simulation_vfs;
+const ownership = kausaldb.ownership;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
+const StorageEngineBlock = ownership.StorageEngineBlock;
+const OwnedBlock = ownership.OwnedBlock;
 
 const BLOCK_WRITE_THRESHOLD_NS = 100_000; // measured 21µs → 100µs (4.7x margin)
 const BLOCK_READ_THRESHOLD_NS = 1_000; // measured 0.06µs → 1µs (17x margin)
@@ -44,6 +47,7 @@ pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
     try results.append(try run_block_updates(allocator));
     try results.append(try run_block_deletes(allocator));
     try results.append(try run_wal_flush(allocator));
+    try results.append(try run_zero_cost_ownership(allocator));
     return results;
 }
 
@@ -120,6 +124,18 @@ pub fn run_wal_flush(allocator: std.mem.Allocator) !BenchmarkResult {
     try storage_engine.startup();
 
     return benchmark_wal_flush(&storage_engine, allocator);
+}
+
+/// Run zero-cost ownership benchmark comparing compile-time vs runtime validation
+pub fn run_zero_cost_ownership(allocator: std.mem.Allocator) !BenchmarkResult {
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_ownership");
+    defer storage_engine.deinit();
+    try storage_engine.startup();
+
+    return benchmark_zero_cost_ownership(&storage_engine, allocator);
 }
 
 fn benchmark_block_writes(storage_engine: *StorageEngine, allocator: std.mem.Allocator) !BenchmarkResult {
@@ -362,6 +378,90 @@ fn benchmark_wal_flush(storage_engine: *StorageEngine, allocator: std.mem.Alloca
         .peak_memory_bytes = peak_memory,
         .memory_growth_bytes = memory_growth,
         .memory_efficient = peak_memory <= MAX_PEAK_MEMORY_BYTES and memory_growth <= (MAX_MEMORY_GROWTH_PER_OP * ITERATIONS),
+    };
+
+    return result;
+}
+
+fn benchmark_zero_cost_ownership(storage_engine: *StorageEngine, allocator: std.mem.Allocator) !BenchmarkResult {
+    // Setup test data - populate storage with blocks for reading
+    const block_ids = try setup_read_test_blocks(storage_engine, allocator);
+    defer allocator.free(block_ids);
+
+    const initial_memory = kausaldb.profiler.query_current_rss_memory();
+    var zero_cost_timings = try allocator.alloc(u64, ITERATIONS);
+    var runtime_timings = try allocator.alloc(u64, ITERATIONS);
+    defer allocator.free(zero_cost_timings);
+    defer allocator.free(runtime_timings);
+
+    // Warmup for zero-cost approach
+    for (0..WARMUP_ITERATIONS) |i| {
+        const block_id = block_ids[i % block_ids.len];
+        _ = try storage_engine.find_storage_block_fast(block_id);
+    }
+
+    // Benchmark zero-cost compile-time ownership
+    for (0..ITERATIONS) |i| {
+        const block_id = block_ids[i % block_ids.len];
+        const start_time = std.time.nanoTimestamp();
+        _ = try storage_engine.find_storage_block_fast(block_id);
+        const end_time = std.time.nanoTimestamp();
+        zero_cost_timings[i] = @intCast(end_time - start_time);
+    }
+
+    // Warmup for runtime approach
+    for (0..WARMUP_ITERATIONS) |i| {
+        const block_id = block_ids[i % block_ids.len];
+        _ = try storage_engine.find_block_with_ownership(block_id, .storage_engine);
+    }
+
+    // Benchmark runtime ownership validation
+    for (0..ITERATIONS) |i| {
+        const block_id = block_ids[i % block_ids.len];
+        const start_time = std.time.nanoTimestamp();
+        _ = try storage_engine.find_block_with_ownership(block_id, .storage_engine);
+        const end_time = std.time.nanoTimestamp();
+        runtime_timings[i] = @intCast(end_time - start_time);
+    }
+
+    const peak_memory = kausaldb.profiler.query_current_rss_memory();
+    const memory_growth = peak_memory - initial_memory;
+
+    const zero_cost_stats = analyze_timings(zero_cost_timings);
+    const runtime_stats = analyze_timings(runtime_timings);
+
+    // Calculate performance improvement
+    const improvement_ratio = @as(f64, @floatFromInt(runtime_stats.mean)) / @as(f64, @floatFromInt(zero_cost_stats.mean));
+    const throughput = @as(f64, @floatFromInt(ITERATIONS)) / (@as(f64, @floatFromInt(zero_cost_stats.total_time_ns)) / 1_000_000_000.0);
+
+    // Verify zero-cost approach is faster (should be at least 10% improvement)
+    const performance_improved = zero_cost_stats.mean < runtime_stats.mean;
+    const significant_improvement = improvement_ratio >= 1.1;
+
+    // Log comparison results
+    if (builtin.mode == .Debug) {
+        std.log.info("Zero-cost ownership benchmark:", .{});
+        std.log.info("  Zero-cost mean: {}ns", .{zero_cost_stats.mean});
+        std.log.info("  Runtime mean: {}ns", .{runtime_stats.mean});
+        std.log.info("  Improvement ratio: {d:.2}x", .{improvement_ratio});
+        std.log.info("  Performance improved: {}", .{performance_improved});
+    }
+
+    const result = BenchmarkResult{
+        .operation_name = "Zero-Cost Ownership Read",
+        .iterations = ITERATIONS,
+        .total_time_ns = zero_cost_stats.total_time_ns,
+        .min_ns = zero_cost_stats.min,
+        .max_ns = zero_cost_stats.max,
+        .mean_ns = zero_cost_stats.mean,
+        .median_ns = zero_cost_stats.median,
+        .stddev_ns = zero_cost_stats.stddev,
+        .throughput_ops_per_sec = throughput,
+        .passed_threshold = zero_cost_stats.mean <= BLOCK_READ_THRESHOLD_NS and significant_improvement,
+        .threshold_ns = BLOCK_READ_THRESHOLD_NS,
+        .peak_memory_bytes = peak_memory,
+        .memory_growth_bytes = memory_growth,
+        .memory_efficient = peak_memory <= MAX_PEAK_MEMORY_BYTES and memory_growth <= (MAX_MEMORY_GROWTH_PER_OP * ITERATIONS * 2),
     };
 
     return result;

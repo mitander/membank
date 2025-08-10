@@ -111,18 +111,17 @@ pub const BlockIndex = struct {
             .content = try arena_allocator.dupe(u8, block.content),
         };
 
-        // CRITICAL: Verify that the arena allocator *actually* cloned the strings and
-        // did not return an aliased pointer. An alias here would be a catastrophic
-        // memory safety violation, leading to a use-after-free when this arena is reset
-        // on memtable flush. This fatal assertion makes our safety contract explicit.
+        // Debug-time validation that arena allocator correctly clones strings.
+        // These checks ensure memory safety during development but compile to no-ops
+        // in release builds for zero-overhead production performance.
         if (block.source_uri.len > 0) {
-            fatal_assert(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "Arena failed to clone source_uri - returned original pointer, heap corruption detected", .{});
+            assert_fmt(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "Arena failed to clone source_uri - returned original pointer", .{});
         }
         if (block.metadata_json.len > 0) {
-            fatal_assert(@intFromPtr(cloned_block.metadata_json.ptr) != @intFromPtr(block.metadata_json.ptr), "Arena failed to clone metadata_json - returned original pointer, heap corruption detected", .{});
+            assert_fmt(@intFromPtr(cloned_block.metadata_json.ptr) != @intFromPtr(block.metadata_json.ptr), "Arena failed to clone metadata_json - returned original pointer", .{});
         }
         if (block.content.len > 0) {
-            fatal_assert(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "Arena failed to clone content - returned original pointer, heap corruption detected", .{});
+            assert_fmt(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "Arena failed to clone content - returned original pointer", .{});
         }
 
         // Adjust memory accounting for replacement case
@@ -144,7 +143,19 @@ pub const BlockIndex = struct {
     pub fn find_block(self: *const BlockIndex, block_id: BlockId, accessor: BlockOwnership) ?*const ContextBlock {
         if (self.blocks.getPtr(block_id)) |owned_block_ptr| {
             // Validate ownership access through OwnedBlock
-            return owned_block_ptr.read(accessor);
+            return owned_block_ptr.read_runtime(accessor);
+        }
+        return null;
+    }
+
+    /// Find a block by ID and return the OwnedBlock for ownership operations.
+    /// Returns pointer to the OwnedBlock if found, allowing access to ownership metadata.
+    /// Used during transition from runtime to compile-time ownership validation.
+    pub fn find_block_runtime(self: *const BlockIndex, block_id: BlockId, accessor: BlockOwnership) ?*const OwnedBlock {
+        if (self.blocks.getPtr(block_id)) |owned_block_ptr| {
+            // Validate ownership access but return the full OwnedBlock
+            _ = owned_block_ptr.read_runtime(accessor);
+            return owned_block_ptr;
         }
         return null;
     }

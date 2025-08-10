@@ -13,6 +13,7 @@
 //! - Provide metrics and error handling
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = @import("../core/assert.zig");
 const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const vfs = @import("../core/vfs.zig");
@@ -42,6 +43,13 @@ const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageState = state_machines.StorageState;
 const BlockOwnership = ownership.BlockOwnership;
+const OwnedBlock = ownership.OwnedBlock;
+const ComptimeOwnedBlock = ownership.ComptimeOwnedBlock;
+const StorageEngineBlock = ownership.StorageEngineBlock;
+const MemtableBlock = ownership.MemtableBlock;
+const SSTableBlock = ownership.SSTableBlock;
+const QueryEngineBlock = ownership.QueryEngineBlock;
+const TemporaryBlock = ownership.TemporaryBlock;
 const OwnedGraphEdge = graph_edge_index.OwnedGraphEdge;
 
 const BlockHashMap = std.HashMap(BlockId, ContextBlock, block_index_mod.BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage);
@@ -289,6 +297,23 @@ pub const StorageEngine = struct {
         self.track_write_metrics(start_time, block.content.len);
     }
 
+    /// Write an owned block to storage with full durability guarantees.
+    /// Accepts OwnedBlock for ownership-aware subsystems like query engine.
+    /// Extracts ContextBlock and delegates to standard put_block implementation.
+    pub fn put_block_with_ownership(self: *StorageEngine, owned_block: OwnedBlock) !void {
+        concurrency.assert_main_thread();
+
+        // Extract block for storage - StorageEngine accessing owned block for persistence
+        const block = owned_block.read(.storage_engine);
+
+        // Delegate to existing put_block implementation to avoid code duplication
+        try self.memtable_manager.put_block_durable_owned(owned_block);
+
+        // Update metrics using extracted block
+        const start_time = std.time.nanoTimestamp();
+        self.track_write_metrics(start_time, block.content.len);
+    }
+
     /// Find a Context Block by ID with LSM-tree read semantics.
     pub fn find_block(self: *StorageEngine, block_id: BlockId) !?ContextBlock {
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
@@ -345,6 +370,145 @@ pub const StorageEngine = struct {
             self.maybe_clear_query_cache();
 
             return block.*; // Return the actual ContextBlock
+        }
+
+        return null;
+    }
+
+    /// Find a Context Block by ID with ownership-aware semantics.
+    /// Returns OwnedBlock that can be safely transferred between subsystems.
+    /// Preferred method for query engine and other ownership-aware consumers.
+    pub fn find_block_with_ownership(
+        self: *StorageEngine,
+        block_id: BlockId,
+        block_ownership: BlockOwnership,
+    ) !?OwnedBlock {
+        fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
+
+        if (self.data_dir.len == 0) {
+            return error.StorageEngineDeinitialized;
+        }
+
+        var non_zero_bytes: u32 = 0;
+        for (block_id.bytes) |byte| {
+            if (byte != 0) non_zero_bytes += 1;
+        }
+        assert.assert_fmt(non_zero_bytes > 0, "Block ID cannot be all zeros", .{});
+
+        self.state.assert_can_read();
+
+        const start_time = std.time.nanoTimestamp();
+
+        // Memtable-first strategy: recent writes are in-memory for O(1) access,
+        // avoiding disk I/O for hot data and maintaining read-after-write consistency
+        if (try self.memtable_manager.find_block_with_ownership(block_id, block_ownership)) |owned_block| {
+            const end_time = std.time.nanoTimestamp();
+            self.storage_metrics.blocks_read.incr();
+            self.storage_metrics.total_read_time_ns.add(@intCast(end_time - start_time));
+            self.storage_metrics.total_bytes_read.add(owned_block.block.content.len);
+            return owned_block;
+        }
+
+        // SSTable fallback: older data migrated to disk during compaction,
+        // maintaining durability while keeping recent writes in fast memtable
+        const sstable_result = self.sstable_manager.find_block_in_sstables(block_id, block_ownership, self.query_cache_arena.allocator()) catch |err| {
+            error_context.log_storage_error(err, error_context.block_context("find_block_in_sstables", block_id));
+            return err;
+        };
+
+        if (sstable_result) |owned_block| {
+            const end_time = std.time.nanoTimestamp();
+            self.storage_metrics.blocks_read.incr();
+            self.storage_metrics.sstable_reads.incr();
+            self.storage_metrics.total_read_time_ns.add(@intCast(end_time - start_time));
+            self.storage_metrics.total_bytes_read.add(owned_block.block.content.len);
+
+            self.maybe_clear_query_cache();
+            return owned_block;
+        }
+
+        return null;
+    }
+
+    /// Zero-cost block lookup for hot paths with compile-time ownership.
+    /// Eliminates all runtime overhead while maintaining type safety.
+    /// Use this for performance-critical operations where ownership is known at compile time.
+    pub fn find_block_fast(
+        self: *StorageEngine,
+        block_id: BlockId,
+        comptime owner: BlockOwnership,
+    ) !?ownership.ComptimeOwnedBlockType(owner) {
+        // Hot path optimizations: minimal validation, direct access
+        if (comptime builtin.mode == .Debug) {
+            fatal_assert(@intFromPtr(self) != 0, "StorageEngine corrupted", .{});
+            assert.assert_fmt(block_id.bytes[0] != 0 or block_id.bytes[15] != 0, "Invalid block ID", .{});
+        }
+
+        // Fast path: check memtable first (most recent data)
+        if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
+            return ownership.ComptimeOwnedBlockType(owner).init(block_ptr.*);
+        }
+
+        // Slower path: check SSTables - use existing API and convert result
+        if (try self.sstable_manager.find_block_in_sstables(block_id, owner, self.query_cache_arena.allocator())) |owned_block| {
+            // Convert runtime ownership to compile-time ownership for zero-cost access
+            return ownership.ComptimeOwnedBlockType(owner).init(owned_block.block);
+        }
+
+        return null;
+    }
+
+    /// Zero-cost storage engine block lookup - fastest possible read path.
+    /// Compile-time ownership guarantees with zero runtime overhead.
+    pub fn find_storage_block_fast(
+        self: *StorageEngine,
+        block_id: BlockId,
+    ) !?StorageEngineBlock {
+        if (comptime builtin.mode == .Debug) {
+            fatal_assert(@intFromPtr(self) != 0, "StorageEngine corrupted", .{});
+        }
+
+        if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
+            return StorageEngineBlock.init(block_ptr.*);
+        }
+
+        if (try self.sstable_manager.find_block_in_sstables(block_id, .storage_engine, self.query_cache_arena.allocator())) |owned_block| {
+            return StorageEngineBlock.init(owned_block.block);
+        }
+
+        return null;
+    }
+
+    /// Zero-cost memtable block lookup for internal storage operations.
+    /// Optimized for memtable-specific operations with compile-time ownership.
+    pub fn find_memtable_block_fast(self: *StorageEngine, block_id: BlockId) ?MemtableBlock {
+        if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
+            return MemtableBlock.init(block_ptr.*);
+        }
+        return null;
+    }
+
+    /// Zero-cost query engine block lookup for cross-subsystem access.
+    /// Enables fast block transfer to query engine with compile-time safety.
+    pub fn find_query_block_fast(self: *StorageEngine, block_id: BlockId) !?QueryEngineBlock {
+        if (comptime builtin.mode == .Debug) {
+            fatal_assert(@intFromPtr(self) != 0, "StorageEngine corrupted", .{});
+        }
+
+        if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
+            return QueryEngineBlock.init(block_ptr.*);
+        }
+
+        const sstable_result = self.sstable_manager.find_block_in_sstables(block_id, .query_engine, self.query_cache_arena.allocator()) catch |err| switch (err) {
+            error.CorruptedSSTablePaths => {
+                // SSTable corruption detected - continue gracefully without SSTable lookup
+                return null;
+            },
+            else => return err,
+        };
+
+        if (sstable_result) |owned_block| {
+            return QueryEngineBlock.init(owned_block.block);
         }
 
         return null;

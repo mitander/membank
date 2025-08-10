@@ -98,7 +98,7 @@ test "memory efficiency during large dataset operations" {
             peak_memory = @max(peak_memory, current_memory);
 
             // Verify block integrity
-            try testing.expect(block.content.len > 0);
+            try testing.expect(block.read(.query_engine).content.len > 0);
         }
 
         const end_time = std.time.nanoTimestamp();
@@ -351,7 +351,7 @@ test "streaming query result formatting performance" {
         var formatted_count: usize = 0;
         while (try result.next()) |block| {
             // Simulate LLM formatting overhead
-            const formatted = try std.fmt.allocPrint(allocator, "Formatted: {s}", .{block.content});
+            const formatted = try std.fmt.allocPrint(allocator, "Formatted: {s}", .{block.read(.query_engine).content});
             defer allocator.free(formatted);
 
             try testing.expect(formatted.len > 0);

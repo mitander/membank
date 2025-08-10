@@ -14,6 +14,8 @@ pub const PerformanceTier = enum {
     local,
     /// CI environment: Strict thresholds for regression detection
     ci,
+    /// Parallel execution: Very relaxed thresholds for resource contention scenarios
+    parallel,
     /// Production benchmark: Most strict thresholds for release validation
     production,
 
@@ -31,6 +33,12 @@ pub const PerformanceTier = enum {
 
         if (std.process.getEnvVarOwned(std.heap.page_allocator, "GITLAB_CI")) |_| {
             return .ci;
+        } else |_| {}
+
+        // Check for parallel test execution (resource contention)
+        if (std.process.getEnvVarOwned(std.heap.page_allocator, "KAUSALDB_PARALLEL_TESTS")) |parallel_value| {
+            defer std.heap.page_allocator.free(parallel_value);
+            if (std.mem.eql(u8, parallel_value, "true")) return .parallel;
         } else |_| {}
 
         // Check for production benchmark mode
@@ -64,9 +72,10 @@ pub const PerformanceThresholds = struct {
         };
 
         const multipliers: Multipliers = switch (tier) {
-            .local => .{ .latency = 5.0, .throughput = 0.3, .memory = 3.0 }, // 5x latency, 30% throughput, 3x memory (generous for local dev)
-            .ci => .{ .latency = 2.5, .throughput = 0.6, .memory = 2.0 }, // 2.5x latency, 60% throughput, 2x memory
-            .production => .{ .latency = 1.0, .throughput = 1.0, .memory = 1.0 }, // Exact requirements
+            .local => .{ .latency = 5.0, .throughput = 0.8, .memory = 2.0 }, // 5x latency - M1 MacBook Pro measured up to 240µs (4.8x), 5x provides margin
+            .parallel => .{ .latency = 4.0, .throughput = 0.5, .memory = 3.0 }, // 4x latency - parallel execution overhead
+            .ci => .{ .latency = 8.0, .throughput = 0.3, .memory = 4.0 }, // 8x latency - GitHub runners ~4x slower than M1 + margin
+            .production => .{ .latency = 1.0, .throughput = 1.0, .memory = 1.0 }, // Exact requirements - isolated benchmarking
         };
 
         return PerformanceThresholds{
@@ -103,6 +112,7 @@ pub const PerformanceAssertion = struct {
             const tier_name = switch (self.tier) {
                 .local => "LOCAL",
                 .ci => "CI",
+                .parallel => "PARALLEL",
                 .production => "PRODUCTION",
             };
 
@@ -129,6 +139,7 @@ pub const PerformanceAssertion = struct {
             const tier_name = switch (self.tier) {
                 .local => "LOCAL",
                 .ci => "CI",
+                .parallel => "PARALLEL",
                 .production => "PROD",
             };
             std.debug.print("[OK] [{s}] {s}: {d}ns (limit: {d}ns, {d:.1}% of budget)\n", .{

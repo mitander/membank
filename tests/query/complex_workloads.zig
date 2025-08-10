@@ -141,7 +141,7 @@ test "complex graph traversal scenarios" {
     defer found_blocks.deinit();
 
     for (result.blocks) |block| {
-        try found_blocks.append(block.id);
+        try found_blocks.append(block.read(.query_engine).id);
     }
 
     try testing.expect(found_blocks.items.len >= 5); // Should find most functions
@@ -275,7 +275,7 @@ test "query performance under memory pressure" {
         // Consume results to test memory handling
         while (try result.next()) |block| {
             // Verify block is valid
-            try testing.expect(block.content.len > 0);
+            try testing.expect(block.read(.query_engine).content.len > 0);
         }
     }
 
@@ -341,7 +341,7 @@ test "complex filtering and search scenarios" {
     var found_count: u32 = 0;
     while (try result.next()) |block| {
         found_count += 1;
-        try testing.expect(block.content.len > 0);
+        try testing.expect(block.read(.query_engine).content.len > 0);
     }
 
     try testing.expectEqual(@as(u32, content_patterns.len), found_count);
@@ -427,7 +427,7 @@ test "graph traversal with cycle detection" {
     defer found_blocks.deinit();
 
     for (result.blocks) |block| {
-        try found_blocks.append(block.id);
+        try found_blocks.append(block.read(.query_engine).id);
     }
 
     // Should find all 3 blocks exactly once

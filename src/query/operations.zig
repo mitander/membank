@@ -8,6 +8,7 @@ const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
+const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
 
@@ -15,6 +16,9 @@ const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const QueryEngineBlock = ownership.QueryEngineBlock;
+const TemporaryBlock = ownership.TemporaryBlock;
+const BlockOwnership = ownership.BlockOwnership;
 
 /// Basic query operation errors
 pub const QueryError = error{
@@ -96,21 +100,17 @@ pub const QueryResult = struct {
     }
 
     /// Get next block from the result set. Returns null when exhausted.
-    /// Returns const pointer to block data - no cleanup required.
+    /// Returns zero-cost owned block - no cleanup required.
     /// Block reference valid until next call to next() or deinit().
-    pub fn next(self: *QueryResult) QueryError!?*const ContextBlock {
+    pub fn next(self: *QueryResult) QueryError!?QueryEngineBlock {
         // Reset arena every 100 iterations to prevent unbounded growth
         if (self.consumed_count % 100 == 0 and self.consumed_count > 0) {
             _ = self.temp_arena.reset(.retain_capacity);
         }
 
-        if (self.iterator.next()) |block| {
+        if (try self.iterator.next()) |owned_block| {
             self.consumed_count += 1;
-            // Store block in arena and return pointer to avoid cloning
-            const arena_allocator = self.temp_arena.allocator();
-            const arena_block = arena_allocator.create(ContextBlock) catch return QueryError.OutOfMemory;
-            arena_block.* = block;
-            return arena_block;
+            return owned_block;
         }
         return null;
     }
@@ -171,13 +171,13 @@ const QueryBlockIterator = struct {
         };
     }
 
-    fn next(self: *QueryBlockIterator) ?ContextBlock {
+    fn next(self: *QueryBlockIterator) QueryError!?QueryEngineBlock {
         while (self.current_index < self.block_ids.len) {
             const block_id = self.block_ids[self.current_index];
             self.current_index += 1;
 
-            if (self.storage_engine.find_block(block_id) catch null) |block| {
-                return block;
+            if (self.storage_engine.find_query_block_fast(block_id) catch null) |owned_block| {
+                return owned_block;
             }
         }
         return null;
@@ -215,7 +215,7 @@ pub const SemanticQuery = struct {
 
 /// Single result from semantic search with similarity score
 pub const SemanticResult = struct {
-    block: ContextBlock,
+    block: QueryEngineBlock,
     similarity_score: f32,
 };
 

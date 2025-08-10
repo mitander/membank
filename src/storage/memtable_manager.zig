@@ -187,7 +187,43 @@ pub const MemtableManager = struct {
     /// Returns a pointer to the block if found, null otherwise.
     /// Used by the storage engine for LSM-tree read path (memtable first).
     pub fn find_block_in_memtable(self: *const MemtableManager, id: BlockId) ?*const ContextBlock {
-        return self.block_index.find_block(id, .memtable_manager);
+        if (self.block_index.find_block_runtime(id, .memtable_manager)) |owned_block_ptr| {
+            return &owned_block_ptr.block;
+        }
+        return null;
+    }
+
+    /// Find a block in memtable and clone it with specified ownership.
+    /// Creates a new OwnedBlock that can be safely transferred between subsystems.
+    /// Used by StorageEngine to provide ownership-aware block access.
+    pub fn find_block_with_ownership(
+        self: *const MemtableManager,
+        id: BlockId,
+        block_ownership: BlockOwnership,
+    ) !?OwnedBlock {
+        if (self.block_index.find_block(id, .memtable_manager)) |block_ptr| {
+            // Create temporary owned block for cloning
+            const temp_owned = OwnedBlock.init(block_ptr.*, .memtable_manager, null);
+            // Clone with new ownership for safe transfer between subsystems
+            return try temp_owned.clone_with_ownership(self.backing_allocator, block_ownership, null);
+        }
+        return null;
+    }
+
+    /// Write an owned block to storage with full durability guarantees.
+    /// Extracts ContextBlock from ownership wrapper for WAL and memtable storage.
+    /// Used by StorageEngine when accepting ownership-aware block operations.
+    pub fn put_block_durable_owned(self: *MemtableManager, owned_block: OwnedBlock) !void {
+        concurrency.assert_main_thread();
+
+        // Extract block for storage - MemtableManager accessing owned block for persistence
+        const block = owned_block.read(.memtable_manager);
+
+        const wal_entry = try WALEntry.create_put_block(block, self.backing_allocator);
+        defer wal_entry.deinit(self.backing_allocator);
+        try self.wal.write_entry(wal_entry);
+
+        try self.block_index.put_block(block);
     }
 
     /// Get total memory usage of all data stored in the memtable.
