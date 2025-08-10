@@ -17,9 +17,9 @@ const file_handle_mod = kausaldb.file_handle;
 const bounded_mod = kausaldb.bounded;
 const core_types = kausaldb.core_types;
 
-const TypedArena = arena_mod.TypedArena;
+const TypedArenaType = arena_mod.TypedArenaType;
 const ArenaOwnership = arena_mod.ArenaOwnership;
-const OwnedPtr = arena_mod.OwnedPtr;
+const OwnedPtrType = arena_mod.OwnedPtrType;
 const BlockOwnership = ownership_mod.BlockOwnership;
 const OwnedBlock = ownership_mod.OwnedBlock;
 const OwnedBlockCollection = ownership_mod.OwnedBlockCollection;
@@ -30,7 +30,7 @@ const StorageState = state_machines_mod.StorageState;
 const TypedFileHandle = file_handle_mod.TypedFileHandle;
 const FileHandleId = file_handle_mod.FileHandleId;
 const FileAccessMode = file_handle_mod.FileAccessMode;
-const BoundedArray = bounded_mod.BoundedArray;
+const BoundedArrayType = bounded_mod.BoundedArrayType;
 const validate_no_raw_pointers = arena_mod.validate_no_raw_pointers;
 const validate_ownership_usage = ownership_mod.validate_ownership_usage;
 const ContextBlock = core_types.ContextBlock;
@@ -45,10 +45,10 @@ test "CORRUPTION PREVENTION: Cross-arena pointer access caught at runtime" {
     // This test simulates the bug where pointers from one arena were
     // accidentally used after another arena was reset, causing use-after-free
 
-    var memtable_arena = TypedArena(ContextBlock, MemtableSubsystem).init(testing.allocator, .memtable_manager);
+    var memtable_arena = TypedArenaType(ContextBlock, MemtableSubsystem).init(testing.allocator, .memtable_manager);
     defer memtable_arena.deinit();
 
-    var sstable_arena = TypedArena(ContextBlock, SSTableSubsystem).init(testing.allocator, .sstable_manager);
+    var sstable_arena = TypedArenaType(ContextBlock, SSTableSubsystem).init(testing.allocator, .sstable_manager);
     defer sstable_arena.deinit();
 
     // Allocate block in memtable arena
@@ -150,7 +150,7 @@ test "CORRUPTION PREVENTION: Bounds checking prevents buffer overflows" {
     // This test demonstrates compile-time bounds checking that prevents
     // runtime buffer overflows that were common with raw arrays
 
-    var bounded_list = BoundedArray(u32, 3){};
+    var bounded_list = BoundedArrayType(u32, 3){};
 
     // Fill to capacity
     try bounded_list.append(100);
@@ -181,7 +181,7 @@ test "CORRUPTION PREVENTION: File handle validation prevents use-after-close" {
 
     // Normal operation
     try test_file_handle.write("test data");
-    try testing.expect(test_file_handle.get_size() == 9);
+    try testing.expect(test_file_handle.query_size() == 9);
 
     // Close file
     test_file_handle.close();
@@ -202,7 +202,7 @@ test "CORRUPTION PREVENTION: Arena reset safety with memory accounting" {
     // This test demonstrates memory accounting that prevents the accounting
     // underflow bugs that indicated heap corruption
 
-    var test_arena = TypedArena(u8, MemtableSubsystem).init(testing.allocator, .memtable_manager);
+    var test_arena = TypedArenaType(u8, MemtableSubsystem).init(testing.allocator, .memtable_manager);
     defer test_arena.deinit();
 
     // Simulate memory accounting like in BlockIndex
@@ -323,8 +323,8 @@ test "CORRUPTION PREVENTION: Compile-time validation catches design errors" {
 
     // Validate our arena naming conventions
     const GoodStruct = struct {
-        data_arena: TypedArena(u32, @This()),
-        values_arena: TypedArena([]u8, @This()),
+        values_data_arena: TypedArenaType(u32, @This()),
+        values_arena: TypedArenaType([]u8, @This()),
         normal_field: u64,
     };
 
@@ -396,13 +396,13 @@ test "CORRUPTION PREVENTION: Memory safety integration test" {
     // have been vulnerable to corruption in the old system
 
     // Set up multiple subsystems with type-safe arenas
-    var memtable_arena = TypedArena(ContextBlock, MemtableSubsystem).init(testing.allocator, .memtable_manager);
+    var memtable_arena = TypedArenaType(ContextBlock, MemtableSubsystem).init(testing.allocator, .memtable_manager);
     defer memtable_arena.deinit();
 
-    var sstable_arena = TypedArena(ContextBlock, SSTableSubsystem).init(testing.allocator, .sstable_manager);
+    var sstable_arena = TypedArenaType(ContextBlock, SSTableSubsystem).init(testing.allocator, .sstable_manager);
     defer sstable_arena.deinit();
 
-    var query_arena = TypedArena(u32, QuerySubsystem).init(testing.allocator, .query_engine);
+    var query_arena = TypedArenaType(u32, QuerySubsystem).init(testing.allocator, .query_engine);
     defer query_arena.deinit();
 
     // Create test blocks

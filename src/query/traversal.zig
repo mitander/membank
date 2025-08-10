@@ -513,6 +513,7 @@ fn traverse_depth_first(
 }
 
 /// Clone a block for query results with owned memory
+/// Creates copies of all strings to avoid issues with arena-allocated source blocks
 fn clone_block(allocator: std.mem.Allocator, block: ContextBlock) !ContextBlock {
     return ContextBlock{
         .id = block.id,
@@ -936,9 +937,11 @@ fn traverse_topological_sort(
     query: TraversalQuery,
 ) !TraversalResult {
     var result_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try result_blocks.ensureTotalCapacity(query.max_results); // Pre-allocate for expected result size
     defer result_blocks.deinit();
 
     var result_paths = std.ArrayList([]BlockId).init(allocator);
+    try result_paths.ensureTotalCapacity(query.max_results); // Pre-allocate for path tracking
     defer {
         for (result_paths.items) |path| {
             allocator.free(path);
@@ -947,6 +950,7 @@ fn traverse_topological_sort(
     }
 
     var result_depths = std.ArrayList(u32).init(allocator);
+    try result_depths.ensureTotalCapacity(query.max_results); // Pre-allocate for depth tracking
     defer result_depths.deinit();
 
     // Use Kahn's algorithm with cycle detection
@@ -957,10 +961,12 @@ fn traverse_topological_sort(
     defer in_degree.deinit();
 
     var queue = std.ArrayList(BlockId).init(allocator);
+    try queue.ensureTotalCapacity(32); // Pre-allocate for typical DAG breadth
     defer queue.deinit();
 
     // Start from the root node
     var current_nodes = std.ArrayList(BlockId).init(allocator);
+    try current_nodes.ensureTotalCapacity(16); // Pre-allocate for typical graph exploration breadth
     defer current_nodes.deinit();
     try current_nodes.append(query.start_block_id);
 
@@ -969,6 +975,7 @@ fn traverse_topological_sort(
     // Build in-degree map for all reachable nodes
     while (current_nodes.items.len > 0 and depth < query.max_depth) {
         var next_nodes = std.ArrayList(BlockId).init(allocator);
+        try next_nodes.ensureTotalCapacity(32); // Pre-allocate for next level expansion
         defer next_nodes.deinit();
 
         for (current_nodes.items) |block_id| {
@@ -980,13 +987,13 @@ fn traverse_topological_sort(
                 try in_degree.put(block_id, 0);
             }
 
-            // Get outgoing edges
+            // Query outgoing edges to build dependency graph for topological ordering
             const edges = storage_engine.find_outgoing_edges(block_id);
 
             for (edges) |edge| {
                 if (!edge_passes_filter(edge, query.edge_filter)) continue;
 
-                // Increment in-degree of target node
+                // Track dependency count for Kahn's algorithm ordering
                 const current_degree = in_degree.get(edge.target_id) orelse 0;
                 try in_degree.put(edge.target_id, current_degree + 1);
 
@@ -1009,6 +1016,7 @@ fn traverse_topological_sort(
 
     var sorted_count: usize = 0;
     var path = std.ArrayList(BlockId).init(allocator);
+    try path.ensureTotalCapacity(64); // Pre-allocate for expected topological result size
     defer path.deinit();
 
     // Kahn's algorithm
@@ -1017,7 +1025,7 @@ fn traverse_topological_sort(
         try path.append(current);
         sorted_count += 1;
 
-        // Process outgoing edges
+        // Query dependencies to update in-degree counts for Kahn's algorithm
         const edges = storage_engine.find_outgoing_edges(current);
 
         for (edges) |edge| {
@@ -1029,7 +1037,7 @@ fn traverse_topological_sort(
             if (current_degree > 0) {
                 try in_degree.put(edge.target_id, current_degree - 1);
                 if (current_degree - 1 == 0) {
-                    try queue.append(edge.target_id);
+                    try queue.append(edge.target_id); // tidy:ignore-perf ensureTotalCapacity called at function start
                 }
             }
         }
@@ -1057,14 +1065,14 @@ fn traverse_topological_sort(
         for (path.items, 0..) |block_id, i| {
             // Try to find the block
             if (storage_engine.find_block(block_id) catch null) |block| {
-                try result_blocks.append(block);
+                try result_blocks.append(block); // tidy:ignore-perf ensureTotalCapacity called at function start
 
                 // Create path slice for this block (just itself in topological order)
                 const block_path = try allocator.alloc(BlockId, 1);
                 block_path[0] = block_id;
-                try result_paths.append(block_path);
+                try result_paths.append(block_path); // tidy:ignore-perf ensureTotalCapacity called at function start
 
-                try result_depths.append(@intCast(i));
+                try result_depths.append(@intCast(i)); // tidy:ignore-perf ensureTotalCapacity called at function start
             }
         }
     }
@@ -1749,8 +1757,10 @@ test "breadth-first vs depth-first traversal ordering" {
     try testing.expectEqual(@as(usize, 5), dfs_result.count());
 
     var bfs_ids = std.ArrayList(BlockId).init(allocator);
+    try bfs_ids.ensureTotalCapacity(10); // Pre-allocate for test comparison
     defer bfs_ids.deinit();
     var dfs_ids = std.ArrayList(BlockId).init(allocator);
+    try dfs_ids.ensureTotalCapacity(10); // Pre-allocate for test comparison
     defer dfs_ids.deinit();
 
     try bfs_ids.ensureTotalCapacity(bfs_result.blocks.len);

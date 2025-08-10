@@ -309,6 +309,8 @@ pub const ContextBlock = struct {
     }
 
     /// Free memory allocated for this ContextBlock.
+    /// NOTE: Only call this for blocks created via deserialize() or other individual allocation.
+    /// Arena-allocated blocks should be freed via arena.deinit(), not individual deinit().
     pub fn deinit(self: ContextBlock, allocator: std.mem.Allocator) void {
         allocator.free(self.source_uri);
         allocator.free(self.metadata_json);

@@ -141,7 +141,11 @@ pub const OwnedBlock = struct {
 
     /// Transfer ownership without cloning data.
     /// DANGEROUS: Only use when you're certain the original owner won't access the block.
-    pub fn transfer_ownership(self: *OwnedBlock, new_ownership: BlockOwnership, new_arena: ?*std.heap.ArenaAllocator) void {
+    pub fn transfer_ownership(
+        self: *OwnedBlock,
+        new_ownership: BlockOwnership,
+        new_arena: ?*std.heap.ArenaAllocator,
+    ) void {
         if (builtin.mode == .Debug) {
             std.log.warn("Ownership transfer: block {any} from {s} to {s} (DANGEROUS - ensure original owner won't access)", .{ self.block.id.bytes, self.ownership.name(), new_ownership.name() });
         }
@@ -485,15 +489,9 @@ pub fn validate_ownership_usage(comptime T: type) void {
                         ". Use OwnedBlock for ownership tracking.");
                 }
 
-                // Validation disabled: @typeName() string matching produces false positives with generic types
-                // Trade-off chosen to avoid blocking legitimate OwnedBlock usage until Zig gains better comptime introspection
-                // const field_type_name = @typeName(field.type);
-                // if (std.mem.indexOf(u8, field_type_name, "ArrayList") != null and
-                //     std.mem.indexOf(u8, field_type_name, "ContextBlock") != null)
-                // {
-                //     @compileError("ArrayList of raw ContextBlock in field '" ++ field.name ++ "' in " ++ @typeName(T) ++
-                //         ". Use OwnedBlockCollection or ArrayList(OwnedBlock).");
-                // }
+                // ArrayList validation deferred: @typeName() string matching unreliable
+                // Zig compiler lacks precise generic type introspection for this validation
+                // Future enhancement: enable when Zig provides better compile-time type analysis
             }
         },
         else => @compileError("validate_ownership_usage only works on struct types"),
@@ -662,7 +660,6 @@ test "OwnershipTracker functionality" {
     tracker.track_transfer(block_id, .memtable_manager, .sstable_manager);
     try std.testing.expect(tracker.query_owner_for_block(block_id) == .sstable_manager);
 
-    // Arena allocator doesn't require individual frees - memory lifecycle managed by arena
     tracker.validate_access(block_id, .sstable_manager); // Should pass
     tracker.validate_access(block_id, .temporary); // Should pass
 

@@ -27,7 +27,10 @@ const assert_fmt = custom_assert.assert_fmt;
 /// - Zero heap allocations (stack-allocated array)
 /// - O(1) append, get, and clear operations
 /// - Debug-mode validation for all operations
-pub fn BoundedArrayTypeType(comptime T: type, comptime max_size: usize) type { // tidy:ignore-length type definition requires all methods in single function
+pub fn BoundedArrayType( // tidy:ignore-length type definition requires all methods in single function
+    comptime T: type,
+    comptime max_size: usize,
+) type {
     if (max_size == 0) {
         @compileError("BoundedArrayType max_size must be greater than 0");
     }
@@ -237,7 +240,7 @@ pub fn BoundedArrayTypeType(comptime T: type, comptime max_size: usize) type { /
 
 /// Fixed-size hash map with compile-time bounds.
 /// Uses linear probing for collision resolution with compile-time maximum capacity.
-pub fn BoundedHashMapTypeType(comptime K: type, comptime V: type, comptime max_size: usize) type {
+pub fn BoundedHashMapType(comptime K: type, comptime V: type, comptime max_size: usize) type {
     if (max_size == 0) {
         @compileError("BoundedHashMapType max_size must be greater than 0");
     }
@@ -412,7 +415,7 @@ pub fn BoundedHashMapTypeType(comptime K: type, comptime V: type, comptime max_s
 
 /// Fixed-size queue with compile-time bounds.
 /// FIFO queue with O(1) enqueue and dequeue operations.
-pub fn BoundedQueueTypeType(comptime T: type, comptime max_size: usize) type {
+pub fn BoundedQueueType(comptime T: type, comptime max_size: usize) type {
     if (max_size == 0) {
         @compileError("BoundedQueueType max_size must be greater than 0");
     }
@@ -521,9 +524,9 @@ pub fn validate_bounded_usage(comptime T: type, comptime max_size: usize, compti
 // Compile-time validation
 comptime {
     // Validate that our bounded collections work with basic types
-    const TestArray = BoundedArrayTypeType(u32, 10);
-    const TestQueue = BoundedQueueTypeType(u8, 20);
-    const TestMap = BoundedHashMapTypeType(u32, []const u8, 16);
+    const TestArray = BoundedArrayType(u32, 10);
+    const TestQueue = BoundedQueueType(u8, 20);
+    const TestMap = BoundedHashMapType(u32, []const u8, 16);
 
     custom_assert.comptime_assert(@sizeOf(TestArray) > 0, "BoundedArrayType must have non-zero size");
     custom_assert.comptime_assert(@sizeOf(TestQueue) > 0, "BoundedQueueType must have non-zero size");
@@ -533,7 +536,7 @@ comptime {
 // Tests
 
 test "BoundedArrayType basic operations" {
-    var array = BoundedArrayTypeType(u32, 5){};
+    var array = BoundedArrayType(u32, 5){};
 
     // Test append
     try array.append(1);
@@ -556,7 +559,7 @@ test "BoundedArrayType basic operations" {
 }
 
 test "BoundedArrayType overflow behavior" {
-    var array = BoundedArrayTypeType(u8, 3){};
+    var array = BoundedArrayType(u8, 3){};
 
     // Fill to capacity
     try array.append(1);
@@ -570,7 +573,7 @@ test "BoundedArrayType overflow behavior" {
 }
 
 test "BoundedArrayType slice operations" {
-    var array = BoundedArrayTypeType(u32, 10){};
+    var array = BoundedArrayType(u32, 10){};
 
     try array.append(10);
     try array.append(20);
@@ -589,7 +592,7 @@ test "BoundedArrayType slice operations" {
 }
 
 test "BoundedArrayType remove operations" {
-    var array = BoundedArrayTypeType(u32, 5){};
+    var array = BoundedArrayType(u32, 5){};
 
     try array.append(1);
     try array.append(2);
@@ -611,7 +614,7 @@ test "BoundedArrayType remove operations" {
 }
 
 test "BoundedArrayType search operations" {
-    var array = BoundedArrayTypeType([]const u8, 5){};
+    var array = BoundedArrayType([]const u8, 5){};
 
     try array.append("hello");
     try array.append("world");
@@ -624,7 +627,7 @@ test "BoundedArrayType search operations" {
 }
 
 test "BoundedQueueType basic operations" {
-    var queue = BoundedQueueTypeType(u32, 4){};
+    var queue = BoundedQueueType(u32, 4){};
 
     // Test enqueue
     try queue.enqueue(1);
@@ -648,7 +651,7 @@ test "BoundedQueueType basic operations" {
 }
 
 test "BoundedQueueType wrap-around" {
-    var queue = BoundedQueueTypeType(u8, 3){};
+    var queue = BoundedQueueType(u8, 3){};
 
     // Fill queue
     try queue.enqueue(1);
@@ -667,7 +670,7 @@ test "BoundedQueueType wrap-around" {
 }
 
 test "BoundedHashMapType basic operations" {
-    var map = BoundedHashMapTypeType(u32, []const u8, 8){};
+    var map = BoundedHashMapType(u32, []const u8, 8){};
 
     // Test put
     try map.put(1, "one");
@@ -689,7 +692,7 @@ test "BoundedHashMapType basic operations" {
 }
 
 test "BoundedHashMapType remove operations" {
-    var map = BoundedHashMapTypeType(u32, u32, 8){};
+    var map = BoundedHashMapType(u32, u32, 8){};
 
     try map.put(1, 10);
     try map.put(2, 20);
@@ -707,7 +710,7 @@ test "BoundedHashMapType remove operations" {
 }
 
 test "BoundedHashMapType iterator" {
-    var map = BoundedHashMapTypeType(u8, u8, 8){};
+    var map = BoundedHashMapType(u8, u8, 8){};
 
     try map.put(1, 10);
     try map.put(2, 20);
@@ -728,16 +731,16 @@ test "BoundedHashMapType iterator" {
 
 test "compile-time validation catches oversized collections" {
     // These would fail at compile time if uncommented:
-    // const TooLarge = BoundedArrayTypeType(u8, 100000); // Too large
-    // const ZeroSize = BoundedArrayTypeType(u8, 0); // Zero size not allowed
+    // const TooLarge = BoundedArrayType(u8, 100000); // Too large
+    // const ZeroSize = BoundedArrayType(u8, 0); // Zero size not allowed
 
     // This should pass
-    const Reasonable = BoundedArrayTypeType(u8, 100);
+    const Reasonable = BoundedArrayType(u8, 100);
     try std.testing.expect(Reasonable.max_length() == 100);
 }
 
 test "BoundedArrayType extend and copy operations" {
-    var array = BoundedArrayTypeType(u32, 10){};
+    var array = BoundedArrayType(u32, 10){};
 
     // Test extend from slice
     const data = [_]u32{ 1, 2, 3 };
@@ -747,7 +750,7 @@ test "BoundedArrayType extend and copy operations" {
     try std.testing.expect(array.at(2) == 3);
 
     // Test copy from another array
-    var other = BoundedArrayTypeType(u32, 10){};
+    var other = BoundedArrayType(u32, 10){};
     try other.copy_from(&array);
     try std.testing.expect(other.length() == 3);
     try std.testing.expect(other.at(1) == 2);
@@ -758,7 +761,7 @@ test "BoundedArrayType extend and copy operations" {
 }
 
 test "BoundedArrayType iterator functionality" {
-    var array = BoundedArrayTypeType(u32, 5){};
+    var array = BoundedArrayType(u32, 5){};
 
     try array.append(10);
     try array.append(20);

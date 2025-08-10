@@ -312,12 +312,13 @@ pub fn OwnedPtrType(comptime T: type) type {
     };
 }
 
-// Convenience type aliases
-pub fn TypedArena(comptime T: type, comptime Owner: type) type {
+// Backward compatibility aliases for external usage
+// Enables gradual migration from convenience names to explicit Type suffixes
+pub fn TypedArenaCompatibilityType(comptime T: type, comptime Owner: type) type {
     return TypedArenaType(T, Owner);
 }
 
-pub fn OwnedPtr(comptime T: type) type {
+pub fn OwnedPtrCompatibilityType(comptime T: type) type {
     return OwnedPtrType(T);
 }
 
@@ -335,7 +336,7 @@ comptime {
 
 test "TypedArena basic allocation" {
     const TestOwner = struct {};
-    var arena = TypedArena(u32, TestOwner).init(std.testing.allocator, .simulation_test);
+    var arena = TypedArenaType(u32, TestOwner).init(std.testing.allocator, .simulation_test);
     defer arena.deinit();
 
     const ptr = try arena.alloc();
@@ -345,7 +346,7 @@ test "TypedArena basic allocation" {
 
 test "TypedArena slice allocation" {
     const TestOwner = struct {};
-    var arena = TypedArena(u8, TestOwner).init(std.testing.allocator, .simulation_test);
+    var arena = TypedArenaType(u8, TestOwner).init(std.testing.allocator, .simulation_test);
     defer arena.deinit();
 
     const slice = try arena.alloc_slice(10);
@@ -362,7 +363,7 @@ test "TypedArena slice allocation" {
 
 test "TypedArena create convenience method" {
     const TestOwner = struct {};
-    var arena = TypedArena(u64, TestOwner).init(std.testing.allocator, .simulation_test);
+    var arena = TypedArenaType(u64, TestOwner).init(std.testing.allocator, .simulation_test);
     defer arena.deinit();
 
     const ptr = try arena.create(100);
@@ -371,7 +372,7 @@ test "TypedArena create convenience method" {
 
 test "TypedArena clone method" {
     const TestOwner = struct {};
-    var arena = TypedArena(u32, TestOwner).init(std.testing.allocator, .simulation_test);
+    var arena = TypedArenaType(u32, TestOwner).init(std.testing.allocator, .simulation_test);
     defer arena.deinit();
 
     const original = @as(u32, 42);
@@ -382,7 +383,7 @@ test "TypedArena clone method" {
 
 test "TypedArena reset clears all allocations" {
     const TestOwner = struct {};
-    var arena = TypedArena(u32, TestOwner).init(std.testing.allocator, .simulation_test);
+    var arena = TypedArenaType(u32, TestOwner).init(std.testing.allocator, .simulation_test);
     defer arena.deinit();
 
     // Allocate some data
@@ -402,13 +403,13 @@ test "TypedArena reset clears all allocations" {
 
 test "OwnedPtr ownership validation" {
     const TestOwner = struct {};
-    var arena = TypedArena(u32, TestOwner).init(std.testing.allocator, .simulation_test);
+    var arena = TypedArenaType(u32, TestOwner).init(std.testing.allocator, .simulation_test);
     defer arena.deinit();
 
     const ptr = try arena.alloc();
     ptr.* = 42;
 
-    const owned = OwnedPtr(u32).init(ptr, .simulation_test);
+    const owned = OwnedPtrType(u32).init(ptr, .simulation_test);
 
     // Valid access
     const accessed = owned.access(.simulation_test);
@@ -421,13 +422,13 @@ test "OwnedPtr ownership validation" {
 
 test "OwnedPtr ownership transfer" {
     const TestOwner = struct {};
-    var arena = TypedArena(u32, TestOwner).init(std.testing.allocator, .simulation_test);
+    var arena = TypedArenaType(u32, TestOwner).init(std.testing.allocator, .simulation_test);
     defer arena.deinit();
 
     const ptr = try arena.alloc();
     ptr.* = 42;
 
-    var owned = OwnedPtr(u32).init(ptr, .simulation_test);
+    var owned = OwnedPtrType(u32).init(ptr, .simulation_test);
 
     // Transfer ownership
     owned.transfer_ownership(.temporary);
@@ -478,7 +479,7 @@ test "TypedArena debug info in debug mode" {
     if (builtin.mode != .Debug) return;
 
     const TestOwner = struct {};
-    var arena = TypedArena(u32, TestOwner).init(std.testing.allocator, .simulation_test);
+    var arena = TypedArenaType(u32, TestOwner).init(std.testing.allocator, .simulation_test);
     defer arena.deinit();
 
     // Allocate some items

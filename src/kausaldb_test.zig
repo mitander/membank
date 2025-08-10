@@ -85,6 +85,14 @@ pub const concurrency = @import("core/concurrency.zig");
 pub const error_context = @import("core/error_context.zig");
 pub const stdx = @import("core/stdx.zig");
 
+// Core type safety modules
+pub const arena = @import("core/arena.zig");
+pub const ownership = @import("core/ownership.zig");
+pub const state_machines = @import("core/state_machines.zig");
+pub const file_handle = @import("core/file_handle.zig");
+pub const bounded = @import("core/bounded.zig");
+pub const core_types = @import("core/types.zig");
+
 // Test utilities and frameworks
 pub const golden_master = @import("test/golden_master.zig");
 pub const performance_assertions = @import("test/performance_assertions.zig");

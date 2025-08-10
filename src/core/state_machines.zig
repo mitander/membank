@@ -316,8 +316,9 @@ pub fn StateMachineTracerType(comptime StateEnum: type) type {
     };
 }
 
-// Convenience type alias
-pub fn StateMachineTracer(comptime StateEnum: type) type {
+// Backward compatibility alias for gradual migration
+// Provides transition path from convenience name to explicit Type suffix
+pub fn StateMachineTracerCompatibilityType(comptime StateEnum: type) type {
     return StateMachineTracerType(StateEnum);
 }
 
@@ -452,7 +453,7 @@ test "StorageState operation coordination" {
 test "state machine tracer in debug mode" {
     if (builtin.mode != .Debug) return;
 
-    var tracer = StateMachineTracer(FileState).init();
+    var tracer = StateMachineTracerType(FileState).init();
     var state = FileState.closed;
 
     // Record some transitions

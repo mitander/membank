@@ -8,7 +8,7 @@ const testing = std.testing;
 const builtin = @import("builtin");
 
 const kausaldb = @import("kausaldb");
-const TypedArena = kausaldb.arena.TypedArena;
+const TypedArenaType = kausaldb.arena.TypedArenaType;
 const ArenaOwnership = kausaldb.arena.ArenaOwnership;
 const BlockOwnership = kausaldb.ownership.BlockOwnership;
 const OwnedBlock = kausaldb.ownership.OwnedBlock;
@@ -18,14 +18,14 @@ const BlockId = kausaldb.core_types.BlockId;
 
 // Test subsystem simulators
 const MemtableSubsystem = struct {
-    arena: TypedArena(ContextBlock, @This()),
+    arena: TypedArenaType(ContextBlock, @This()),
     blocks: OwnedBlockCollection,
 
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
-            .arena = TypedArena(ContextBlock, Self).init(allocator, .memtable_manager),
+            .arena = TypedArenaType(ContextBlock, Self).init(allocator, .memtable_manager),
             .blocks = OwnedBlockCollection.init(allocator, .memtable_manager),
         };
     }
@@ -55,14 +55,14 @@ const MemtableSubsystem = struct {
 };
 
 const StorageSubsystem = struct {
-    arena: TypedArena(ContextBlock, @This()),
+    arena: TypedArenaType(ContextBlock, @This()),
     blocks: OwnedBlockCollection,
 
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
-            .arena = TypedArena(ContextBlock, Self).init(allocator, .storage_engine),
+            .arena = TypedArenaType(ContextBlock, Self).init(allocator, .storage_engine),
             .blocks = OwnedBlockCollection.init(allocator, .storage_engine),
         };
     }
@@ -83,14 +83,14 @@ const StorageSubsystem = struct {
 };
 
 const QuerySubsystem = struct {
-    arena: TypedArena(u8, @This()),
+    arena: TypedArenaType(u8, @This()),
     temp_blocks: std.ArrayList(OwnedBlock),
 
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
-            .arena = TypedArena(u8, Self).init(allocator, .query_engine),
+            .arena = TypedArenaType(u8, Self).init(allocator, .query_engine),
             .temp_blocks = std.ArrayList(OwnedBlock).init(allocator),
         };
     }
@@ -303,7 +303,7 @@ test "large scale ownership operations" {
 test "memory accounting accuracy" {
     if (builtin.mode != .Debug) return; // Debug info only available in debug mode
 
-    var arena = TypedArena(ContextBlock, MemtableSubsystem).init(testing.allocator, .memtable_manager);
+    var arena = TypedArenaType(ContextBlock, MemtableSubsystem).init(testing.allocator, .memtable_manager);
     defer arena.deinit();
 
     // Check initial state
