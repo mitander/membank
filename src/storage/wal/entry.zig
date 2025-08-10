@@ -10,6 +10,7 @@ const assert = custom_assert.assert;
 
 const types = @import("types.zig");
 const context_block = @import("../../core/types.zig");
+const ownership = @import("../../core/ownership.zig");
 const stream = @import("stream.zig");
 
 const WALError = types.WALError;
@@ -18,6 +19,8 @@ const MAX_PAYLOAD_SIZE = types.MAX_PAYLOAD_SIZE;
 const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
+const StorageEngineBlock = ownership.StorageEngineBlock;
+const OwnedBlock = ownership.OwnedBlock;
 
 /// WAL entry header structure with corruption detection
 pub const WALEntry = struct {
@@ -122,8 +125,27 @@ pub const WALEntry = struct {
     /// Create WAL entry for storing a Context Block.
     /// Serializes block data into WAL payload with integrity checksum.
     /// Returns WALError.CorruptedEntry if block serialization fails.
-    pub fn create_put_block(block: ContextBlock, allocator: std.mem.Allocator) WALError!WALEntry {
-        const payload_size = block.serialized_size();
+    pub fn create_put_block(block: anytype, allocator: std.mem.Allocator) WALError!WALEntry {
+        const BlockType = @TypeOf(block);
+        const supported_block_create = switch (BlockType) {
+            ContextBlock => true,
+            StorageEngineBlock => true,
+            OwnedBlock => true,
+            else => false,
+        };
+
+        if (!supported_block_create) {
+            @compileError("create_put_block() accepts ContextBlock, StorageEngineBlock, or OwnedBlock only");
+        }
+
+        // Convert to ContextBlock for serialization (zero-cost for ContextBlock)
+        const context_block_data = switch (BlockType) {
+            ContextBlock => block,
+            StorageEngineBlock => block.read(.storage_engine),
+            OwnedBlock => block.read(.storage_engine),
+            else => unreachable,
+        };
+        const payload_size = context_block_data.serialized_size();
 
         // Zero-size blocks indicate serialization logic failure, not data corruption
         if (payload_size == 0) {
@@ -137,7 +159,7 @@ pub const WALEntry = struct {
         errdefer allocator.free(payload);
         @memset(payload, 0);
 
-        const bytes_written = try block.serialize(payload);
+        const bytes_written = try context_block_data.serialize(payload);
 
         // Serialization size mismatch indicates internal logic error
         assert(bytes_written == payload_size);
@@ -251,9 +273,10 @@ pub const WALEntry = struct {
     }
 
     /// Extract ContextBlock from put_block entry payload
-    pub fn extract_block(self: WALEntry, allocator: std.mem.Allocator) WALError!ContextBlock {
+    pub fn extract_block(self: WALEntry, allocator: std.mem.Allocator) WALError!StorageEngineBlock {
         if (self.entry_type != .put_block) return WALError.InvalidEntryType;
-        return ContextBlock.deserialize(self.payload, allocator) catch WALError.CorruptedEntry;
+        const block_data = ContextBlock.deserialize(self.payload, allocator) catch WALError.CorruptedEntry;
+        return StorageEngineBlock.take_ownership(block_data, .storage_engine);
     }
 
     /// Extract BlockId from delete_block entry payload

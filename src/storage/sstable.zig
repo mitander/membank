@@ -21,6 +21,7 @@ const assert = @import("../core/assert.zig");
 const comptime_assert = assert.comptime_assert;
 const log = std.log.scoped(.sstable);
 const context_block = @import("../core/types.zig");
+const ownership = @import("../core/ownership.zig");
 const vfs = @import("../core/vfs.zig");
 const bloom_filter = @import("bloom_filter.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
@@ -33,6 +34,8 @@ const VFS = vfs.VFS;
 const VFile = vfs.VFile;
 const BloomFilter = bloom_filter.BloomFilter;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const SSTableBlock = ownership.SSTableBlock;
+const OwnedBlock = ownership.OwnedBlock;
 
 /// SSTable file format:
 /// | Magic (4) | Version (4) | Index Offset (8) | Block Count (4) | Reserved (12) |
@@ -252,21 +255,50 @@ pub const SSTable = struct {
     }
 
     /// Write blocks to SSTable file in sorted order
-    pub fn write_blocks(self: *SSTable, blocks: []const ContextBlock) !void {
+    pub fn write_blocks(self: *SSTable, blocks: anytype) !void {
+        const BlocksType = @TypeOf(blocks);
+        const supported_block_write = switch (BlocksType) {
+            []const ContextBlock => true,
+            []const SSTableBlock => true,
+            []const OwnedBlock => true,
+            else => false,
+        };
+
+        if (!supported_block_write) {
+            @compileError("write_blocks() accepts []const ContextBlock, []const SSTableBlock, or []const OwnedBlock only");
+        }
         assert.assert_not_empty(blocks, "Cannot write empty blocks array", .{});
         assert.assert_fmt(blocks.len <= 1000000, "Too many blocks for single SSTable: {}", .{blocks.len});
         assert.assert_fmt(@intFromPtr(blocks.ptr) != 0, "Blocks array has null pointer", .{});
 
-        for (blocks, 0..) |block, i| {
-            assert.assert_fmt(block.content.len > 0, "Block {} has empty content", .{i});
-            assert.assert_fmt(block.source_uri.len > 0, "Block {} has empty source_uri", .{i});
-            assert.assert_fmt(block.content.len < 100 * 1024 * 1024, "Block {} content too large: {} bytes", .{ i, block.content.len });
+        for (blocks, 0..) |block_value, i| {
+            // Access block data through ownership interface when needed
+            const block_data = switch (BlocksType) {
+                []const ContextBlock => block_value,
+                []const SSTableBlock => block_value.read(.sstable_write),
+                []const OwnedBlock => block_value.read(.sstable_write),
+                else => unreachable,
+            };
+
+            assert.assert_fmt(block_data.content.len > 0, "Block {} has empty content", .{i});
+            assert.assert_fmt(block_data.source_uri.len > 0, "Block {} has empty source_uri", .{i});
+            assert.assert_fmt(block_data.content.len < 100 * 1024 * 1024, "Block {} content too large: {} bytes", .{ i, block_data.content.len });
         }
 
-        const sorted_blocks = try self.allocator.dupe(ContextBlock, blocks);
-        defer self.allocator.free(sorted_blocks);
+        // Convert all blocks to ContextBlock for sorting (zero-cost for ContextBlock arrays)
+        const context_blocks = try self.allocator.alloc(ContextBlock, blocks.len);
+        defer self.allocator.free(context_blocks);
 
-        std.mem.sort(ContextBlock, sorted_blocks, {}, struct {
+        for (blocks, 0..) |block_value, i| {
+            context_blocks[i] = switch (BlocksType) {
+                []const ContextBlock => block_value,
+                []const SSTableBlock => block_value.read(.sstable_write),
+                []const OwnedBlock => block_value.read(.sstable_write),
+                else => unreachable,
+            };
+        }
+
+        std.mem.sort(ContextBlock, context_blocks, {}, struct {
             fn less_than(context: void, a: ContextBlock, b: ContextBlock) bool {
                 _ = context;
                 return std.mem.order(u8, &a.id.bytes, &b.id.bytes) == .lt;
@@ -282,19 +314,19 @@ pub const SSTable = struct {
 
         var current_offset: u64 = HEADER_SIZE;
 
-        const bloom_params = if (sorted_blocks.len < 1000)
+        const bloom_params = if (context_blocks.len < 1000)
             BloomFilter.Params.small
-        else if (sorted_blocks.len < 10000)
+        else if (context_blocks.len < 10000)
             BloomFilter.Params.medium
         else
             BloomFilter.Params.large;
 
         var bloom = try BloomFilter.init(self.allocator, bloom_params);
-        for (sorted_blocks) |block| {
+        for (context_blocks) |block| {
             bloom.add(block.id);
         }
 
-        for (sorted_blocks) |block| {
+        for (context_blocks) |block| {
             const block_size = block.serialized_size();
             const buffer = try self.allocator.alloc(u8, block_size);
             defer self.allocator.free(buffer);
@@ -349,7 +381,7 @@ pub const SSTable = struct {
             .format_version = VERSION,
             .flags = 0,
             .index_offset = index_offset,
-            .block_count = @intCast(sorted_blocks.len),
+            .block_count = @intCast(context_blocks.len),
             .file_checksum = file_checksum,
             .created_timestamp = @intCast(std.time.timestamp()),
             .bloom_filter_offset = bloom_filter_offset,
@@ -361,7 +393,7 @@ pub const SSTable = struct {
         _ = try file.write(&header_buffer);
 
         try file.flush();
-        self.block_count = @intCast(sorted_blocks.len);
+        self.block_count = @intCast(context_blocks.len);
 
         self.bloom_filter = bloom;
     }
@@ -449,7 +481,7 @@ pub const SSTable = struct {
     ///
     /// Uses the bloom filter for fast negative lookups, then performs binary search
     /// on the index. Returns null if the block is not found in this SSTable.
-    pub fn find_block(self: *SSTable, block_id: BlockId) !?ContextBlock {
+    pub fn find_block(self: *SSTable, block_id: BlockId) !?SSTableBlock {
         if (self.bloom_filter) |*filter| {
             if (!filter.might_contain(block_id)) {
                 return null;
@@ -489,7 +521,8 @@ pub const SSTable = struct {
 
         _ = try file.read(buffer);
 
-        return try ContextBlock.deserialize(buffer, self.allocator);
+        const block_data = try ContextBlock.deserialize(buffer, self.allocator);
+        return SSTableBlock.take_ownership(block_data, .sstable_read);
     }
 
     /// Get iterator for all blocks in sorted order
@@ -524,7 +557,7 @@ pub const SSTableIterator = struct {
     }
 
     /// Get next block from iterator, opening file if needed
-    pub fn next(self: *SSTableIterator) !?ContextBlock {
+    pub fn next(self: *SSTableIterator) !?SSTableBlock {
         assert.assert_fmt(@intFromPtr(self.sstable) != 0, "Iterator sstable pointer corrupted", .{});
         assert.assert_index_valid(self.current_index, self.sstable.index.items.len + 1, "Iterator index out of bounds: {} >= {}", .{ self.current_index, self.sstable.index.items.len + 1 });
 
@@ -546,7 +579,8 @@ pub const SSTableIterator = struct {
 
         _ = try self.file.?.read(buffer);
 
-        return try ContextBlock.deserialize(buffer, self.sstable.allocator);
+        const block_data = try ContextBlock.deserialize(buffer, self.sstable.allocator);
+        return SSTableBlock.take_ownership(block_data, .sstable_iter);
     }
 };
 
@@ -590,9 +624,9 @@ pub const Compactor = struct {
         var output_table = SSTable.init(self.allocator, self.filesystem, output_path_copy);
         defer output_table.deinit();
 
-        var all_blocks = std.ArrayList(ContextBlock).init(self.allocator);
+        var all_blocks = std.ArrayList(SSTableBlock).init(self.allocator);
         defer {
-            for (all_blocks.items) |block| {
+            for (all_blocks.items) |*block| {
                 block.deinit(self.allocator);
             }
             all_blocks.deinit();
@@ -615,7 +649,7 @@ pub const Compactor = struct {
 
         const unique_blocks = try self.dedup_blocks(all_blocks.items);
         defer {
-            for (unique_blocks) |block| {
+            for (unique_blocks) |*block| {
                 block.deinit(self.allocator);
             }
             self.allocator.free(unique_blocks);
@@ -631,40 +665,44 @@ pub const Compactor = struct {
     }
 
     /// Remove duplicate blocks, keeping the one with highest version
-    fn dedup_blocks(self: *Compactor, blocks: []ContextBlock) ![]ContextBlock {
+    fn dedup_blocks(self: *Compactor, blocks: []SSTableBlock) ![]SSTableBlock {
         assert.assert_fmt(@intFromPtr(blocks.ptr) != 0 or blocks.len == 0, "Blocks array has null pointer with non-zero length", .{});
 
-        if (blocks.len == 0) return try self.allocator.alloc(ContextBlock, 0);
+        if (blocks.len == 0) return try self.allocator.alloc(SSTableBlock, 0);
 
-        const sorted = try self.allocator.dupe(ContextBlock, blocks);
-        std.mem.sort(ContextBlock, sorted, {}, struct {
-            fn less_than(context: void, a: ContextBlock, b: ContextBlock) bool {
+        const sorted = try self.allocator.dupe(SSTableBlock, blocks);
+        std.mem.sort(SSTableBlock, sorted, {}, struct {
+            fn less_than(context: void, a: SSTableBlock, b: SSTableBlock) bool {
                 _ = context;
-                const order = std.mem.order(u8, &a.id.bytes, &b.id.bytes);
+                const a_data = a.read(.compaction_sort);
+                const b_data = b.read(.compaction_sort);
+                const order = std.mem.order(u8, &a_data.id.bytes, &b_data.id.bytes);
                 if (order == .eq) {
-                    return a.version > b.version;
+                    return a_data.version > b_data.version;
                 }
                 return order == .lt;
             }
         }.less_than);
 
-        var unique = std.ArrayList(ContextBlock).init(self.allocator);
+        var unique = std.ArrayList(SSTableBlock).init(self.allocator);
         defer unique.deinit();
 
         try unique.ensureTotalCapacity(sorted.len);
 
         var prev_id: ?BlockId = null;
         for (sorted) |block| {
-            if (prev_id == null or !block.id.eql(prev_id.?)) {
+            const block_data = block.read(.compaction_dedup);
+            if (prev_id == null or !block_data.id.eql(prev_id.?)) {
                 const cloned = ContextBlock{
-                    .id = block.id,
-                    .version = block.version,
-                    .source_uri = try self.allocator.dupe(u8, block.source_uri),
-                    .metadata_json = try self.allocator.dupe(u8, block.metadata_json),
-                    .content = try self.allocator.dupe(u8, block.content),
+                    .id = block_data.id,
+                    .version = block_data.version,
+                    .source_uri = try self.allocator.dupe(u8, block_data.source_uri),
+                    .metadata_json = try self.allocator.dupe(u8, block_data.metadata_json),
+                    .content = try self.allocator.dupe(u8, block_data.content),
                 };
-                try unique.append(cloned);
-                prev_id = block.id;
+                const owned_block = SSTableBlock.take_ownership(cloned, .compaction_output);
+                try unique.append(owned_block);
+                prev_id = block_data.id;
             }
         }
 
