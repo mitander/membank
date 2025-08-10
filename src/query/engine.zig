@@ -24,6 +24,7 @@ const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const OwnedBlock = ownership.OwnedBlock;
 const BlockOwnership = ownership.BlockOwnership;
+const QueryEngineBlock = ownership.QueryEngineBlock;
 
 pub const QueryError = operations.QueryError;
 pub const QueryResult = operations.QueryResult;
@@ -371,14 +372,15 @@ pub const QueryEngine = struct {
     }
 
     /// Find a single block by ID with direct storage access for maximum performance
-    pub fn find_block(self: *QueryEngine, block_id: BlockId) !?ContextBlock {
+    /// Returns QueryEngineBlock with ownership transfer to caller
+    pub fn find_block(self: *QueryEngine, block_id: BlockId) !?QueryEngineBlock {
         assert(self.initialized);
         if (!self.initialized) return EngineError.NotInitialized;
 
         const start_time = std.time.nanoTimestamp();
         defer self.record_direct_query(start_time);
 
-        return self.storage_engine.find_block(block_id) catch |err| {
+        return self.storage_engine.find_query_block_fast(block_id) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("query_find_block", block_id));
             return err;
         };
@@ -821,13 +823,12 @@ test "query engine find_block convenience method" {
     const test_block = create_test_block(test_id, "single block content");
     try storage_engine.put_block(test_block);
 
-    const result = try query_engine.find_block(test_id);
-    defer result.deinit();
+    const result_opt = try query_engine.find_block(test_id);
 
-    try testing.expectEqual(@as(u32, 1), result.total_found);
-
-    const found_block = (try result.next()).?;
-    try testing.expect(found_block.id.eql(test_id));
+    try testing.expect(result_opt != null);
+    const found_block = result_opt.?;
+    const block_data = found_block.read(.query_engine);
+    try testing.expect(block_data.id.eql(test_id));
 }
 
 test "query engine block_exists check" {
@@ -901,4 +902,82 @@ test "query engine traversal integration" {
     const stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 3), stats.traversal_queries);
     try testing.expectEqual(@as(u64, 3), stats.queries_executed);
+}
+
+test "query engine ownership transfer from storage" {
+    const allocator = testing.allocator;
+
+    var storage_engine = try create_test_storage_engine(allocator);
+    defer storage_engine.deinit();
+
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
+
+    // Create test block and store it
+    const test_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
+    const test_block = create_test_block(test_id, "ownership transfer test");
+    try storage_engine.put_block(test_block);
+
+    // Query engine should get ownership transfer from storage
+    const found_block_opt = try query_engine.find_block(test_id);
+    try testing.expect(found_block_opt != null);
+
+    const found_block = found_block_opt.?;
+
+    // Verify we can read the block as query_engine
+    const block_data = found_block.read(.query_engine);
+    try testing.expect(block_data.id.eql(test_id));
+    try testing.expect(std.mem.eql(u8, block_data.content, "ownership transfer test"));
+
+    // Verify ownership is properly transferred
+    try testing.expect(found_block.is_owned_by(.query_engine));
+}
+
+test "query engine zero-copy read operations" {
+    const allocator = testing.allocator;
+
+    var storage_engine = try create_test_storage_engine(allocator);
+    defer storage_engine.deinit();
+
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
+
+    // Create test blocks and store them
+    const test_blocks = [_]ContextBlock{
+        create_test_block(try BlockId.from_hex("1111111111111111111111111111111111111111"), "zero copy test 1"),
+        create_test_block(try BlockId.from_hex("2222222222222222222222222222222222222222"), "zero copy test 2"),
+        create_test_block(try BlockId.from_hex("3333333333333333333333333333333333333333"), "zero copy test 3"),
+    };
+
+    for (test_blocks) |block| {
+        try storage_engine.put_block(block);
+    }
+
+    // Use a fail allocator to detect any unexpected allocations during read operations
+    const failing_allocator = testing.FailingAllocator.init(allocator, 0); // Fail on first allocation attempt
+
+    // Query engine read operations should be zero-copy - no allocations needed
+    const found_block1 = try query_engine.find_block(test_blocks[0].id);
+    try testing.expect(found_block1 != null);
+
+    const found_block2 = try query_engine.find_block(test_blocks[1].id);
+    try testing.expect(found_block2 != null);
+
+    const found_block3 = try query_engine.find_block(test_blocks[2].id);
+    try testing.expect(found_block3 != null);
+
+    // Verify that reading block data is also zero-copy
+    const block1_data = found_block1.?.read(.query_engine);
+    try testing.expect(block1_data.id.eql(test_blocks[0].id));
+    try testing.expect(std.mem.eql(u8, block1_data.content, "zero copy test 1"));
+
+    // Test multiple reads don't allocate
+    const block2_data = found_block2.?.read(.query_engine);
+    const block3_data = found_block3.?.read(.query_engine);
+
+    try testing.expect(std.mem.eql(u8, block2_data.content, "zero copy test 2"));
+    try testing.expect(std.mem.eql(u8, block3_data.content, "zero copy test 3"));
+
+    // If we reach here without allocation errors, zero-copy is working
+    try testing.expect(failing_allocator.allocations == 0);
 }

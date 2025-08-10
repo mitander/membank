@@ -8,6 +8,7 @@ const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
+const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
 
@@ -15,6 +16,8 @@ const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const QueryEngineBlock = ownership.QueryEngineBlock;
+const BlockOwnership = ownership.BlockOwnership;
 
 /// Filtering operation errors
 pub const FilterError = error{
@@ -200,14 +203,14 @@ pub const FilteredQuery = struct {
 
 /// Result set from a filtered query operation
 pub const FilteredQueryResult = struct {
-    blocks: []ContextBlock,
+    blocks: []QueryEngineBlock,
     total_matches: u32,
     has_more: bool,
     allocator: std.mem.Allocator,
 
     pub fn init(
         allocator: std.mem.Allocator,
-        blocks: []ContextBlock,
+        blocks: []QueryEngineBlock,
         total_matches: u32,
         has_more: bool,
     ) FilteredQueryResult {
@@ -221,9 +224,10 @@ pub const FilteredQueryResult = struct {
 
     pub fn deinit(self: FilteredQueryResult) void {
         for (self.blocks) |block| {
-            self.allocator.free(block.source_uri);
-            self.allocator.free(block.metadata_json);
-            self.allocator.free(block.content);
+            const ctx_block = block.read(.query_engine);
+            self.allocator.free(ctx_block.source_uri);
+            self.allocator.free(ctx_block.metadata_json);
+            self.allocator.free(ctx_block.content);
         }
         self.allocator.free(self.blocks);
     }
@@ -237,10 +241,11 @@ pub const FilteredQueryResult = struct {
         try writer.print(":\n\n");
 
         for (self.blocks, 0..) |block, i| {
-            try writer.print("Block {} (ID: {}):\n", .{ i + 1, block.id });
-            try writer.print("Source: {s}\n", .{block.source_uri});
-            try writer.print("Type: {s}\n", .{@tagName(block.block_type)});
-            try writer.print("Content: {s}\n\n", .{block.content});
+            const ctx_block = block.read(.query_engine);
+            try writer.print("Block {} (ID: {}):\n", .{ i + 1, ctx_block.id });
+            try writer.print("Source: {s}\n", .{ctx_block.source_uri});
+            try writer.print("Version: {}\n", .{ctx_block.version});
+            try writer.print("Content: {s}\n\n", .{ctx_block.content});
         }
     }
 };
@@ -257,12 +262,13 @@ pub fn execute_filtered_query(
     var blocks_collected: u32 = 0;
     const max_to_collect = query.max_results;
 
-    var matched_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var matched_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
     errdefer {
         for (matched_blocks.items) |block| {
-            allocator.free(block.source_uri);
-            allocator.free(block.metadata_json);
-            allocator.free(block.content);
+            const ctx_block = block.read(.query_engine);
+            allocator.free(ctx_block.source_uri);
+            allocator.free(ctx_block.metadata_json);
+            allocator.free(ctx_block.content);
         }
         matched_blocks.deinit();
     }
@@ -271,13 +277,15 @@ pub fn execute_filtered_query(
     var iterator = storage_engine.iterate_all_blocks();
 
     while (iterator.next()) |block| {
-        if (try query.expression.matches(block, allocator)) {
+        const ctx_block = block.read(.storage);
+        if (try query.expression.matches(ctx_block, allocator)) {
             total_matches += 1;
 
             if (total_matches <= query.offset) continue;
 
             if (blocks_collected < max_to_collect) {
-                try matched_blocks.append(try clone_block(allocator, block));
+                const cloned_ctx_block = try clone_block(allocator, ctx_block);
+                try matched_blocks.append(QueryEngineBlock.init(cloned_ctx_block));
                 blocks_collected += 1;
             }
         }
@@ -662,7 +670,7 @@ test "filter target enum parsing" {
 test "filtered query result operations" {
     const allocator = testing.allocator;
 
-    const test_blocks = [_]ContextBlock{
+    const test_ctx_blocks = [_]ContextBlock{
         .{
             .id = try BlockId.from_hex("1111111111111111111111111111111111111111"),
             .version = 1,
@@ -679,7 +687,14 @@ test "filtered query result operations" {
         },
     };
 
-    var result = FilteredQueryResult.init(allocator, try allocator.dupe(ContextBlock, &test_blocks), 5, true);
+    // Convert to QueryEngineBlock
+    var test_blocks = try allocator.alloc(QueryEngineBlock, test_ctx_blocks.len);
+    defer allocator.free(test_blocks);
+    for (test_ctx_blocks, 0..) |ctx_block, i| {
+        test_blocks[i] = QueryEngineBlock.init(ctx_block);
+    }
+
+    var result = FilteredQueryResult.init(allocator, try allocator.dupe(QueryEngineBlock, test_blocks), 5, true);
     defer result.deinit();
 
     try testing.expectEqual(@as(u32, 5), result.total_matches);
