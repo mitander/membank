@@ -42,9 +42,9 @@ pub const OwnedGraphEdge = struct {
     }
 };
 
-/// **SINGLE OWNERSHIP MODEL**: GraphEdgeIndex is the sole owner of all graph edge data.
-/// HashMap uses stable backing allocator while edge content uses separate arena allocator.
-/// This prevents corruption from allocator conflicts during fault injection.
+/// Arena refresh pattern: GraphEdgeIndex only uses backing allocator for HashMap and ArrayList
+/// structures. GraphEdge data is stored by value (no string allocation needed), so no
+/// coordinator interface is required. Edges contain fixed-size BlockId arrays.
 pub const GraphEdgeIndex = struct {
     outgoing_edges: std.HashMap(
         BlockId,
@@ -58,7 +58,7 @@ pub const GraphEdgeIndex = struct {
         BlockIdContext,
         std.hash_map.default_max_load_percentage,
     ),
-    edge_arena: std.heap.ArenaAllocator,
+    /// Stable backing allocator for HashMap and ArrayList structures
     backing_allocator: std.mem.Allocator,
 
     const BlockIdContext = struct {
@@ -75,28 +75,29 @@ pub const GraphEdgeIndex = struct {
         }
     };
 
-    /// Initialize empty graph edge index with separate allocators for isolation.
-    /// HashMap uses stable backing allocator while edge content uses separate arena
-    /// to prevent corruption from allocator conflicts during fault injection.
-    pub fn init(allocator: std.mem.Allocator) GraphEdgeIndex {
+    /// Initialize empty graph edge index using only backing allocator.
+    /// No coordinator needed since GraphEdge data is stored by value (fixed-size arrays).
+    pub fn init(backing: std.mem.Allocator) GraphEdgeIndex {
         return GraphEdgeIndex{
             .outgoing_edges = std.HashMap(
                 BlockId,
                 std.ArrayList(OwnedGraphEdge),
                 BlockIdContext,
                 std.hash_map.default_max_load_percentage,
-            ).init(allocator),
+            ).init(backing),
             .incoming_edges = std.HashMap(
                 BlockId,
                 std.ArrayList(OwnedGraphEdge),
                 BlockIdContext,
                 std.hash_map.default_max_load_percentage,
-            ).init(allocator),
-            .edge_arena = std.heap.ArenaAllocator.init(allocator),
-            .backing_allocator = allocator,
+            ).init(backing),
+            .backing_allocator = backing,
         };
     }
 
+    /// Clean up GraphEdgeIndex resources.
+    /// Frees HashMap and ArrayList structures. No arena cleanup needed since
+    /// GraphEdge data is stored by value (no allocated strings).
     pub fn deinit(self: *GraphEdgeIndex) void {
         var outgoing_iterator = self.outgoing_edges.valueIterator();
         while (outgoing_iterator.next()) |edge_list| {
@@ -109,7 +110,7 @@ pub const GraphEdgeIndex = struct {
         self.outgoing_edges.deinit();
         self.incoming_edges.deinit();
 
-        self.edge_arena.deinit();
+        // Arena memory is owned by StorageEngine - no local cleanup needed
     }
 
     /// Add a directed edge to the index with bidirectional lookup support.
@@ -117,7 +118,7 @@ pub const GraphEdgeIndex = struct {
     /// Uses arena allocation for O(1) bulk cleanup during index reset operations.
     pub fn put_edge(self: *GraphEdgeIndex, edge: GraphEdge) !void {
         assert.assert_fmt(@intFromPtr(self) != 0, "GraphEdgeIndex self pointer cannot be null", .{});
-        assert.assert_fmt(@intFromPtr(&self.edge_arena) != 0, "GraphEdgeIndex arena pointer cannot be null", .{});
+        // Hierarchical model: Arena validation handled at coordinator level
 
         var source_non_zero: u32 = 0;
         var target_non_zero: u32 = 0;
@@ -296,7 +297,7 @@ pub const GraphEdgeIndex = struct {
         self.outgoing_edges.clearRetainingCapacity();
         self.incoming_edges.clearRetainingCapacity();
 
-        _ = self.edge_arena.reset(.retain_capacity);
+        // No arena memory to reset since GraphEdge data is stored by value
     }
 };
 
@@ -312,6 +313,7 @@ test "graph edge index initialization creates empty index" {
 }
 
 test "put and find edge operations work correctly" {
+    // Hierarchical memory model: create arena for content, use backing for structure
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -341,6 +343,7 @@ test "put and find edge operations work correctly" {
 }
 
 test "multiple edges from same source are stored correctly" {
+    // Hierarchical memory model: create arena for content, use backing for structure
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -371,6 +374,7 @@ test "multiple edges from same source are stored correctly" {
 }
 
 test "remove specific edge works correctly" {
+    // Hierarchical memory model: create arena for content, use backing for structure
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -406,6 +410,7 @@ test "remove specific edge works correctly" {
 }
 
 test "remove block edges cleans up all references" {
+    // Hierarchical memory model: create arena for content, use backing for structure
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -429,6 +434,7 @@ test "remove block edges cleans up all references" {
 }
 
 test "clear operation resets index to empty state" {
+    // Hierarchical memory model: create arena for content, use backing for structure
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -452,6 +458,7 @@ test "clear operation resets index to empty state" {
 }
 
 test "bidirectional index consistency" {
+    // Hierarchical memory model: create arena for content, use backing for structure
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 
@@ -494,6 +501,7 @@ test "hash context provides good distribution for block ids" {
 }
 
 test "edge count accuracy with complex graph" {
+    // Hierarchical memory model: create arena for content, use backing for structure
     var index = GraphEdgeIndex.init(testing.allocator);
     defer index.deinit();
 

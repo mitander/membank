@@ -271,6 +271,35 @@ pub const SimulationVFS = struct {
         };
     }
 
+    /// Create SimulationVFS on heap with default fault seed.
+    /// Avoids arena corruption by initializing arena directly in heap memory.
+    pub fn heap_init(allocator: std.mem.Allocator) !*SimulationVFS {
+        return heap_init_with_fault_seed(allocator, 0);
+    }
+
+    /// Create SimulationVFS on heap with specified fault seed.
+    /// Avoids arena corruption by initializing arena directly in heap memory.
+    pub fn heap_init_with_fault_seed(allocator: std.mem.Allocator, seed: u64) !*SimulationVFS {
+        const sim_vfs = try allocator.create(SimulationVFS);
+        errdefer allocator.destroy(sim_vfs);
+
+        // Initialize arena directly in heap memory - no copying involved
+        sim_vfs.file_arena = std.heap.ArenaAllocator.init(allocator);
+        errdefer sim_vfs.file_arena.deinit();
+
+        // Initialize other fields directly
+        sim_vfs.magic = MAGIC_NUMBER;
+        sim_vfs.allocator = allocator;
+        sim_vfs.files = std.StringHashMap(FileHandleId).init(allocator);
+        sim_vfs.file_storage = std.ArrayList(FileStorage).init(allocator);
+        sim_vfs.file_storage.ensureTotalCapacity(512) catch unreachable; // Safety: generous initial capacity for testing
+        sim_vfs.handle_registry = FileHandleRegistry.init(allocator);
+        sim_vfs.current_time_ns = 1_700_000_000_000_000_000; // Fixed epoch for determinism
+        sim_vfs.fault_injection = FaultInjectionState.init(seed);
+
+        return sim_vfs;
+    }
+
     /// Enable torn write simulation with specified parameters
     pub fn enable_torn_writes(
         self: *SimulationVFS,

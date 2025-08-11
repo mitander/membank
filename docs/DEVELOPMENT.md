@@ -139,10 +139,42 @@ test "storage coordinator memory ownership" {
     // Coordinator owns single arena - all storage memory flows through this
     const arena_ptr = &harness.storage_engine.storage_arena;
 
-    // Validate submodules reference coordinator's arena
-    try testing.expect(harness.storage_engine.memtable_manager.arena_allocator.ptr == arena_ptr.allocator().ptr);
+    // Arena refresh pattern eliminates dangling references
+    const coordinator = harness.storage_engine.arena_coordinator();
+    // All submodules use coordinator interface, not direct arena references
 }
 ```
+
+### Arena Refresh Pattern
+
+KausalDB uses an **arena refresh pattern** to eliminate dangling allocator references after arena resets:
+
+**Pattern Design:**
+- **Coordinator Interface**: Subcomponents use `ArenaCoordinator` interface instead of direct allocator references
+- **Safe Allocation**: All arena allocation goes through coordinator methods that always use current arena state
+- **No Temporal Coupling**: Coordinator interface remains valid after arena resets
+- **Zero Runtime Overhead**: Interface dispatches through vtable with minimal cost
+
+**Implementation Example:**
+```zig
+// OLD (Broken): Direct arena reference becomes invalid after reset
+pub const BlockIndex = struct {
+    arena_allocator: std.mem.Allocator, // Dangling after reset!
+};
+
+// NEW (Safe): Coordinator interface always uses current arena state
+pub const BlockIndex = struct {
+    arena_coordinator: ArenaCoordinator, // Always safe
+};
+
+// Safe allocation through coordinator
+const content = try self.arena_coordinator.duplicate_u8(input_string);
+```
+
+**Benefits:**
+- **Memory Safety**: Eliminates segmentation faults from dangling arena references
+- **Performance**: Still enables O(1) bulk memory cleanup through coordinator
+- **Simplicity**: Coordinator pattern is easier to reason about than reference management
 
 **Allocator Isolation Testing:**
 
@@ -172,8 +204,8 @@ test "coordinator arena cleanup eliminates all subsystem memory" {
     try storage_engine.put_block(test_block);
     try storage_engine.put_edge(test_edge);
 
-    // Single arena reset clears ALL storage memory
-    storage_engine.storage_arena.reset(.retain_capacity);
+    // Single arena reset clears ALL storage memory through coordinator
+    storage_engine.reset_storage_memory();
 
     // All subsystems should reflect empty state
     try testing.expectEqual(@as(u32, 0), storage_engine.memtable_manager.block_count());

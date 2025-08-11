@@ -20,6 +20,22 @@ const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
 
+// Test helper: Mock StorageEngine for unit tests
+const MockStorageEngine = struct {
+    allocator: std.mem.Allocator,
+
+    pub fn duplicate_storage(self: *MockStorageEngine, comptime T: type, slice: []const T) ![]T {
+        return self.allocator.dupe(T, slice);
+    }
+};
+
+fn create_mock_storage_engine(allocator: std.mem.Allocator) *MockStorageEngine {
+    // Safety: Test allocator allocation only fails in OOM, which aborts tests appropriately
+    const mock = testing.allocator.create(MockStorageEngine) catch unreachable;
+    mock.* = MockStorageEngine{ .allocator = allocator };
+    return mock;
+}
+
 const sstable = @import("sstable.zig");
 const tiered_compaction = @import("tiered_compaction.zig");
 
@@ -38,42 +54,47 @@ const BlockOwnership = ownership.BlockOwnership;
 /// including discovery, read coordination, and compaction management.
 /// Uses TypedArena for safe memory management and OwnedBlock for access control.
 ///
-/// **SINGLE OWNERSHIP MODEL**: This component is the sole owner of all SSTable path strings and block data.
-/// Other components (like TieredCompactionManager) use path indices/references rather than copies.
-/// HashMap uses stable backing allocator while block content uses separate arena allocator.
-/// This prevents use-after-free bugs and allocator conflicts during fault injection.
+/// Arena refresh pattern: SSTableManager receives direct StorageEngine reference
+/// and uses it for ALL SSTable content allocation. Stable backing allocator
+/// used for path strings and structures while content uses coordinator's arena.
 pub const SSTableManager = struct {
+    /// Direct pointer to StorageEngine for safe arena allocation (anyopaque to avoid circular dependency)
+    storage_engine_ptr: *anyopaque,
+    /// Stable backing allocator for path strings and data structures
     backing_allocator: std.mem.Allocator,
     vfs: VFS,
     data_dir: []const u8,
     sstable_paths: std.ArrayList([]const u8),
     next_sstable_id: u32,
     compaction_manager: TieredCompactionManager,
-    block_arena: std.heap.ArenaAllocator,
 
-    /// Initialize SSTable manager with separate allocators for isolation.
-    /// Path ArrayList uses stable backing allocator while block content uses separate arena
+    /// Initialize SSTable manager following hierarchical memory model.
+    /// Path ArrayList uses stable backing allocator while content uses parent's arena reference
     /// to prevent corruption from allocator conflicts during fault injection.
     pub fn init(
-        allocator: std.mem.Allocator,
+        storage_engine_ptr: *anyopaque,
+        backing: std.mem.Allocator,
         filesystem: VFS,
         data_dir: []const u8,
     ) SSTableManager {
         return SSTableManager{
-            .backing_allocator = allocator,
+            .storage_engine_ptr = storage_engine_ptr,
+            .backing_allocator = backing,
             .vfs = filesystem,
             .data_dir = data_dir,
-            .sstable_paths = std.ArrayList([]const u8).init(allocator),
+            .sstable_paths = std.ArrayList([]const u8).init(backing),
             .next_sstable_id = 0,
             .compaction_manager = TieredCompactionManager.init(
-                allocator,
+                backing,
                 filesystem,
                 data_dir,
             ),
-            .block_arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
 
+    /// Clean up SSTableManager resources following hierarchical model.
+    /// Frees path strings and structures using backing allocator. Arena memory
+    /// cleanup happens when StorageEngine resets its storage_arena.
     pub fn deinit(self: *SSTableManager) void {
         concurrency.assert_main_thread();
 
@@ -83,7 +104,7 @@ pub const SSTableManager = struct {
         }
         self.sstable_paths.deinit();
         self.compaction_manager.deinit();
-        self.block_arena.deinit();
+        // Arena memory is owned by StorageEngine - no local cleanup needed
     }
 
     /// Find path by index for external components (read-only access).
@@ -171,15 +192,20 @@ pub const SSTableManager = struct {
             defer sstable_file.deinit();
 
             if (try sstable_file.find_block(block_id)) |block| {
-                const arena_allocator = self.block_arena.allocator();
+                // Clone strings using StorageEngine's arena allocation methods
+                const StorageEngineType = @import("engine.zig").StorageEngine;
+                const storage_engine: *StorageEngineType = @ptrCast(@alignCast(self.storage_engine_ptr));
+
                 const cloned_block = ContextBlock{
                     .id = block.block.id,
                     .version = block.block.version,
-                    .source_uri = try arena_allocator.dupe(u8, block.block.source_uri),
-                    .metadata_json = try arena_allocator.dupe(u8, block.block.metadata_json),
-                    .content = try arena_allocator.dupe(u8, block.block.content),
+                    .source_uri = try storage_engine.duplicate_storage(u8, block.block.source_uri),
+                    .metadata_json = try storage_engine.duplicate_storage(u8, block.block.metadata_json),
+                    .content = try storage_engine.duplicate_storage(u8, block.block.content),
                 };
-                const owned_block = OwnedBlock.init(cloned_block, accessor, &self.block_arena);
+                // Note: OwnedBlock.init still expects arena pointer for debug tracking
+                // In hierarchical model, this is now coordinator's arena
+                const owned_block = OwnedBlock.init(cloned_block, accessor, null);
                 return owned_block;
             }
         }
@@ -507,7 +533,12 @@ test "SSTableManager two-phase initialization" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var manager = SSTableManager.init(allocator, sim_vfs.vfs(), "/test/data");
+    // Hierarchical memory model: create arena for content, use backing for structure
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer allocator.destroy(mock_engine);
+    var manager = SSTableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data");
     defer manager.deinit();
 
     try testing.expectEqual(@as(u32, 0), manager.sstable_count());
@@ -523,7 +554,12 @@ test "SSTableManager creates new SSTable from owned blocks" {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var manager = SSTableManager.init(allocator, sim_vfs.vfs(), "/test/data");
+    // Hierarchical memory model: create arena for content, use backing for structure
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer allocator.destroy(mock_engine);
+    var manager = SSTableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data");
     defer manager.deinit();
 
     try manager.startup();
@@ -550,7 +586,12 @@ test "SSTableManager finds owned blocks in SSTables" {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var manager = SSTableManager.init(allocator, sim_vfs.vfs(), "/test/data");
+    // Hierarchical memory model: create arena for content, use backing for structure
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer allocator.destroy(mock_engine);
+    var manager = SSTableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data");
     defer manager.deinit();
 
     try manager.startup();

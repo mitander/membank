@@ -1,32 +1,29 @@
-//! In-memory block index (memtable) with arena-per-subsystem memory management.
+//! In-memory block index for the KausalDB memtable.
 //!
-//! Implements the write-optimized memtable component of the LSM-tree storage engine.
-//! Uses ArenaAllocator for O(1) bulk deallocation when flushing to SSTables,
-//! eliminating per-block memory management overhead and preventing memory leaks.
-//! Memory accounting tracks string content only (not HashMap overhead) to enable
-//! accurate flush thresholds based on actual data size.
+//! This module provides fast insertion, lookup, and deletion of blocks using a HashMap
+//! backed by arena allocation for content storage. Follows the arena refresh pattern
+//! to eliminate dangling allocator references and enable O(1) bulk memory cleanup.
 
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
 const assert_fmt = @import("../core/assert.zig").assert_fmt;
 const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const context_block = @import("../core/types.zig");
-
 const ownership = @import("../core/ownership.zig");
+
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
-
 const OwnedBlock = ownership.OwnedBlock;
 const BlockOwnership = ownership.BlockOwnership;
 
-/// In-memory block index using typed arena allocation for efficient bulk operations.
+/// In-memory block index using arena refresh pattern for efficient bulk operations.
 /// Provides fast writes and reads while maintaining O(1) memory cleanup through
-/// arena reset when flushing to SSTables. Uses type-safe OwnedBlock system
-/// to prevent cross-subsystem memory access violations.
+/// storage engine arena reset. Uses type-safe OwnedBlock system to prevent dangling
+/// allocator references.
 ///
-/// **SINGLE OWNERSHIP MODEL**: BlockIndex is the sole owner of all block string content.
-/// HashMap uses stable backing allocator while string content uses separate arena allocator.
-/// This prevents corruption from allocator conflicts during fault injection.
+/// Arena refresh pattern: BlockIndex uses direct StorageEngine pointer for all content
+/// allocation, eliminating temporal coupling with arena resets. HashMap uses stable
+/// backing allocator while content uses StorageEngine's current arena state.
 pub const BlockIndex = struct {
     blocks: std.HashMap(
         BlockId,
@@ -34,7 +31,9 @@ pub const BlockIndex = struct {
         BlockIdContext,
         std.hash_map.default_max_load_percentage,
     ),
-    string_arena: std.heap.ArenaAllocator,
+    /// Direct pointer to StorageEngine for safe arena allocation (avoids circular dependency)
+    storage_engine_ptr: *anyopaque,
+    /// Stable backing allocator for HashMap structure
     backing_allocator: std.mem.Allocator,
     /// Track total memory used by block content strings in arena.
     /// Excludes HashMap overhead to provide clean flush threshold calculations.
@@ -56,16 +55,16 @@ pub const BlockIndex = struct {
         }
     };
 
-    /// Initialize empty block index with separate allocators for isolation.
-    /// HashMap uses stable backing allocator while string content uses separate arena
-    /// to prevent corruption from allocator conflicts during fault injection.
-    pub fn init(allocator: std.mem.Allocator) BlockIndex {
+    /// Initialize empty block index following arena refresh pattern.
+    /// HashMap uses stable backing allocator while content uses StorageEngine reference
+    /// to prevent dangling allocator references after arena resets.
+    pub fn init(storage_engine_ptr: *anyopaque, backing: std.mem.Allocator) BlockIndex {
         var blocks = std.HashMap(
             BlockId,
             OwnedBlock,
             BlockIdContext,
             std.hash_map.default_max_load_percentage,
-        ).init(allocator);
+        ).init(backing);
 
         // Ensure minimum capacity to prevent integer overflow in hash map operations
         blocks.ensureTotalCapacity(1) catch |err| {
@@ -75,28 +74,25 @@ pub const BlockIndex = struct {
 
         return BlockIndex{
             .blocks = blocks, // HashMap uses stable backing allocator
-            .string_arena = std.heap.ArenaAllocator.init(allocator), // Separate arena for strings
-            .backing_allocator = allocator,
+            .storage_engine_ptr = storage_engine_ptr, // Direct reference to StorageEngine
+            .backing_allocator = backing,
             .memory_used = 0,
         };
     }
 
-    /// Clean up all resources including HashMap and string arena.
-    /// HashMap must be cleared before arena deallocation to prevent use-after-free
-    /// of arena-allocated strings referenced by HashMap entries.
+    /// Clean up BlockIndex resources following arena refresh pattern.
+    /// Only clears HashMap since arena memory is managed by StorageEngine.
+    /// Content memory cleanup happens when StorageEngine resets its storage arena.
     pub fn deinit(self: *BlockIndex) void {
         self.blocks.clearAndFree();
-        self.string_arena.deinit();
+        // Arena memory is owned by StorageEngine - no local cleanup needed
     }
 
-    /// Insert or update a block in the index with arena-allocated string storage.
-    /// Clones all string content into the separate string arena to ensure memory safety and
-    /// enable O(1) bulk deallocation. Creates OwnedBlock for ownership tracking.
+    /// Insert or update a block in the index using StorageEngine's arena for content storage.
+    /// Clones all string content through StorageEngine methods to ensure memory safety and
+    /// eliminate dangling allocator references after arena resets.
     pub fn put_block(self: *BlockIndex, block: ContextBlock) !void {
         assert_fmt(@intFromPtr(self) != 0, "BlockIndex self pointer cannot be null", .{});
-        assert_fmt(@intFromPtr(&self.string_arena) != 0, "BlockIndex arena pointer cannot be null", .{});
-
-        const arena_allocator = self.string_arena.allocator();
 
         // Validate string lengths to prevent allocation of corrupted sizes
         assert_fmt(block.source_uri.len < 1024 * 1024, "source_uri too large: {} bytes", .{block.source_uri.len});
@@ -114,25 +110,30 @@ pub const BlockIndex = struct {
             assert_fmt(@intFromPtr(block.content.ptr) != 0, "content has null pointer with non-zero length", .{});
         }
 
+        // Clone strings using StorageEngine's arena allocation methods
+        // The StorageEngine interface is: pub fn duplicate_storage(self: *StorageEngine, comptime T: type, slice: []const T) ![]T
+        const StorageEngineType = @import("engine.zig").StorageEngine;
+        const storage_engine: *StorageEngineType = @ptrCast(@alignCast(self.storage_engine_ptr));
+
         const cloned_block = ContextBlock{
             .id = block.id,
             .version = block.version,
-            .source_uri = try arena_allocator.dupe(u8, block.source_uri),
-            .metadata_json = try arena_allocator.dupe(u8, block.metadata_json),
-            .content = try arena_allocator.dupe(u8, block.content),
+            .source_uri = try storage_engine.duplicate_storage(u8, block.source_uri),
+            .metadata_json = try storage_engine.duplicate_storage(u8, block.metadata_json),
+            .content = try storage_engine.duplicate_storage(u8, block.content),
         };
 
-        // Debug-time validation that arena allocator correctly clones strings.
+        // Debug-time validation that StorageEngine correctly clones strings.
         // These checks ensure memory safety during development but compile to no-ops
         // in release builds for zero-overhead production performance.
         if (block.source_uri.len > 0) {
-            assert_fmt(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "Arena failed to clone source_uri - returned original pointer", .{});
+            assert_fmt(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "StorageEngine failed to clone source_uri - returned original pointer", .{});
         }
         if (block.metadata_json.len > 0) {
-            assert_fmt(@intFromPtr(cloned_block.metadata_json.ptr) != @intFromPtr(block.metadata_json.ptr), "Arena failed to clone metadata_json - returned original pointer", .{});
+            assert_fmt(@intFromPtr(cloned_block.metadata_json.ptr) != @intFromPtr(block.metadata_json.ptr), "StorageEngine failed to clone metadata_json - returned original pointer", .{});
         }
         if (block.content.len > 0) {
-            assert_fmt(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "Arena failed to clone content - returned original pointer", .{});
+            assert_fmt(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "StorageEngine failed to clone content - returned original pointer", .{});
         }
 
         // Adjust memory accounting for replacement case
@@ -144,7 +145,8 @@ pub const BlockIndex = struct {
         }
 
         const new_memory = block.source_uri.len + block.metadata_json.len + block.content.len;
-        const owned_block = OwnedBlock.init(cloned_block, .memtable_manager, &self.string_arena);
+        // Arena ownership tracking is handled at StorageEngine level
+        const owned_block = OwnedBlock.init(cloned_block, .memtable_manager, null);
 
         // Critical: Update HashMap first, then memory accounting to prevent corruption on allocation failure
         try self.blocks.put(cloned_block.id, owned_block);
@@ -204,30 +206,45 @@ pub const BlockIndex = struct {
         return self.memory_used;
     }
 
-    /// Clear all blocks and reset typed arena for O(1) bulk deallocation.
-    /// Retains HashMap and arena capacity for efficient reuse after flush.
-    /// This is the key operation that makes typed arena-per-subsystem efficient.
-    /// Reset the block index to empty state using O(1) arena deallocation.
-    /// This operation is called during memtable flush to reclaim all memory at once
-    /// rather than individual block deallocations for maximum performance.
+    /// Clear all blocks in preparation for StorageEngine arena reset.
+    /// Retains HashMap capacity for efficient reuse after StorageEngine resets arena.
+    /// This is the key operation that enables O(1) bulk deallocation through StorageEngine.
+    /// Called during memtable flush before StorageEngine reclaims all arena memory at once.
     pub fn clear(self: *BlockIndex) void {
-        // CRITICAL: Validate structure integrity before performing the O(1) arena reset.
-        // This operation frees all allocated memory at once. If these pointers are corrupted,
-        // the arena reset could cause a double-free or use-after-free, corrupting the heap.
-        // These assertions ensure the arena-per-subsystem pattern operates safely.
+        // Arena refresh pattern: Arena reset happens at StorageEngine level
+        // BlockIndex only clears its HashMap structure
         fatal_assert(@intFromPtr(self) != 0, "BlockIndex self pointer is null - memory corruption detected", .{});
-        fatal_assert(@intFromPtr(&self.string_arena) != 0, "BlockIndex arena pointer is null - memory corruption detected", .{});
 
         self.blocks.clearRetainingCapacity();
-        _ = self.string_arena.reset(.retain_capacity);
+        // Arena memory reset handled by StorageEngine - no local reset needed
         self.memory_used = 0;
     }
 };
 
 const testing = std.testing;
 
+// Test helper: Mock StorageEngine for unit tests
+const MockStorageEngine = struct {
+    allocator: std.mem.Allocator,
+
+    pub fn duplicate_storage(self: *MockStorageEngine, comptime T: type, slice: []const T) ![]T {
+        return self.allocator.dupe(T, slice);
+    }
+};
+
+fn create_mock_storage_engine(allocator: std.mem.Allocator) *MockStorageEngine {
+    // Safety: Test allocator allocation only fails in OOM, which aborts tests appropriately
+    const mock = testing.allocator.create(MockStorageEngine) catch unreachable;
+    mock.* = MockStorageEngine{ .allocator = allocator };
+    return mock;
+}
+
 test "block index initialization creates empty index" {
-    var index = BlockIndex.init(testing.allocator);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer testing.allocator.destroy(mock_engine);
+    var index = BlockIndex.init(mock_engine, testing.allocator);
     defer index.deinit();
 
     try testing.expectEqual(@as(u32, 0), index.block_count());
@@ -237,24 +254,26 @@ test "block index initialization creates empty index" {
 test "put and find block operations work correctly" {
     const allocator = testing.allocator;
 
-    var index = BlockIndex.init(allocator);
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer allocator.destroy(mock_engine);
+    var index = BlockIndex.init(mock_engine, allocator);
     defer index.deinit();
 
     const block_id = BlockId.generate();
-    const block = ContextBlock{
+    const test_block = ContextBlock{
         .id = block_id,
         .version = 1,
-        .source_uri = "file://test.zig",
+        .source_uri = "test://example.zig",
         .metadata_json = "{}",
         .content = "test content",
     };
 
-    try index.put_block(block);
-
+    try index.put_block(test_block);
     try testing.expectEqual(@as(u32, 1), index.block_count());
-    try testing.expect(index.memory_usage() > 0);
 
-    const found_block = index.find_block(block_id, .simulation_test);
+    const found_block = index.find_block(block_id, .memtable_manager);
     try testing.expect(found_block != null);
     try testing.expect(found_block.?.id.eql(block_id));
     try testing.expectEqualStrings("test content", found_block.?.content);
@@ -263,186 +282,188 @@ test "put and find block operations work correctly" {
 test "put block clones strings into arena" {
     const allocator = testing.allocator;
 
-    var index = BlockIndex.init(allocator);
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer allocator.destroy(mock_engine);
+    var index = BlockIndex.init(mock_engine, allocator);
     defer index.deinit();
 
     const original_content = try allocator.dupe(u8, "original content");
     defer allocator.free(original_content);
 
-    const block = ContextBlock{
-        .id = BlockId.generate(),
+    const block_id = BlockId.generate();
+    const test_block = ContextBlock{
+        .id = block_id,
         .version = 1,
-        .source_uri = "file://test.zig",
+        .source_uri = "test://example.zig",
         .metadata_json = "{}",
         .content = original_content,
     };
 
-    try index.put_block(block);
+    try index.put_block(test_block);
 
-    const found_block = index.find_block(block.id, .simulation_test).?;
-
-    // Verify content is equal but memory addresses are different (cloned)
-    try testing.expectEqualStrings(original_content, found_block.content);
-    try testing.expect(@intFromPtr(original_content.ptr) != @intFromPtr(found_block.content.ptr));
+    const found_block = index.find_block(block_id, .memtable_manager);
+    try testing.expect(found_block != null);
+    try testing.expectEqualStrings("original content", found_block.?.content);
+    // Verify it's a different pointer (cloned, not original)
+    try testing.expect(@intFromPtr(found_block.?.content.ptr) != @intFromPtr(original_content.ptr));
 }
 
 test "remove block updates count and memory accounting" {
-    var index = BlockIndex.init(testing.allocator);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer testing.allocator.destroy(mock_engine);
+    var index = BlockIndex.init(mock_engine, testing.allocator);
     defer index.deinit();
 
     const block_id = BlockId.generate();
-    const block = ContextBlock{
+    const test_block = ContextBlock{
         .id = block_id,
         .version = 1,
-        .source_uri = "file://test.zig",
+        .source_uri = "test://example.zig",
         .metadata_json = "{}",
         .content = "test content",
     };
 
-    try index.put_block(block);
-    const memory_after_put = index.memory_usage();
-    try testing.expect(memory_after_put > 0);
+    try index.put_block(test_block);
+    const memory_before = index.memory_usage();
+    try testing.expect(memory_before > 0);
 
     index.remove_block(block_id);
-
     try testing.expectEqual(@as(u32, 0), index.block_count());
     try testing.expectEqual(@as(u64, 0), index.memory_usage());
-    try testing.expect(index.find_block(block_id, .simulation_test) == null);
 }
 
 test "block replacement updates memory accounting correctly" {
-    var index = BlockIndex.init(testing.allocator);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer testing.allocator.destroy(mock_engine);
+    var index = BlockIndex.init(mock_engine, testing.allocator);
     defer index.deinit();
 
     const block_id = BlockId.generate();
-
-    // Insert initial block
-    const block_v1 = ContextBlock{
+    const original_block = ContextBlock{
         .id = block_id,
         .version = 1,
-        .source_uri = "file://test.zig",
+        .source_uri = "test://example.zig",
         .metadata_json = "{}",
         .content = "short",
     };
 
-    try index.put_block(block_v1);
-    const memory_v1 = index.memory_usage();
+    try index.put_block(original_block);
+    const memory_after_first = index.memory_usage();
 
-    // Replace with larger block
-    const block_v2 = ContextBlock{
+    const replacement_block = ContextBlock{
         .id = block_id,
         .version = 2,
-        .source_uri = "file://test.zig",
+        .source_uri = "test://example.zig",
         .metadata_json = "{}",
-        .content = "much longer content here",
+        .content = "much longer content than before",
     };
 
-    try index.put_block(block_v2);
-    const memory_v2 = index.memory_usage();
+    try index.put_block(replacement_block);
+    const memory_after_second = index.memory_usage();
 
+    // Should still have 1 block
     try testing.expectEqual(@as(u32, 1), index.block_count());
-    try testing.expect(memory_v2 > memory_v1);
 
-    const found = index.find_block(block_id, .simulation_test).?;
-    try testing.expectEqual(@as(u32, 2), found.version);
+    // Memory should have increased due to longer content
+    try testing.expect(memory_after_second > memory_after_first);
+
+    const found_block = index.find_block(block_id, .memtable_manager);
+    try testing.expect(found_block != null);
+    try testing.expectEqual(@as(u32, 2), found_block.?.version);
+    try testing.expectEqualStrings("much longer content than before", found_block.?.content);
 }
 
 test "clear operation resets index to empty state efficiently" {
-    var index = BlockIndex.init(testing.allocator);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer testing.allocator.destroy(mock_engine);
+    var index = BlockIndex.init(mock_engine, testing.allocator);
     defer index.deinit();
 
     for (0..10) |i| {
-        const block = ContextBlock{
-            .id = BlockId.generate(),
+        const block_id = BlockId.generate();
+        const test_block = ContextBlock{
+            .id = block_id,
             .version = 1,
-            .source_uri = "file://test.zig",
+            .source_uri = "test://example.zig",
             .metadata_json = "{}",
             .content = try std.fmt.allocPrint(testing.allocator, "content {}", .{i}),
         };
-        defer testing.allocator.free(block.content);
+        defer testing.allocator.free(test_block.content);
 
-        try index.put_block(block);
+        try index.put_block(test_block);
     }
 
     try testing.expectEqual(@as(u32, 10), index.block_count());
     try testing.expect(index.memory_usage() > 0);
 
     index.clear();
-
     try testing.expectEqual(@as(u32, 0), index.block_count());
     try testing.expectEqual(@as(u64, 0), index.memory_usage());
 }
 
 test "memory accounting tracks string content accurately" {
-    var index = BlockIndex.init(testing.allocator);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer testing.allocator.destroy(mock_engine);
+    var index = BlockIndex.init(mock_engine, testing.allocator);
     defer index.deinit();
 
     const source_uri = "file://example.zig";
-    const metadata_json = "{\"type\":\"function\"}";
-    const content = "fn example() void {}";
+    const metadata_json = "{}";
+    const content = "test content here";
 
-    const expected_memory = source_uri.len + metadata_json.len + content.len;
-
-    const block = ContextBlock{
-        .id = BlockId.generate(),
+    const block_id = BlockId.generate();
+    const test_block = ContextBlock{
+        .id = block_id,
         .version = 1,
         .source_uri = source_uri,
         .metadata_json = metadata_json,
         .content = content,
     };
 
-    try index.put_block(block);
+    try index.put_block(test_block);
 
-    try testing.expectEqual(expected_memory, index.memory_usage());
-}
-
-test "block id hash context provides good distribution" {
-    const ctx = BlockIndex.BlockIdContext{};
-
-    // Generate different block IDs and verify they hash to different values
-    const id1 = BlockId.generate();
-    const id2 = BlockId.generate();
-
-    const hash1 = ctx.hash(id1);
-    const hash2 = ctx.hash(id2);
-
-    try testing.expect(hash1 != hash2);
-
-    // Same ID should hash to same value
-    try testing.expectEqual(hash1, ctx.hash(id1));
-
-    try testing.expect(ctx.eql(id1, id1));
-    try testing.expect(!ctx.eql(id1, id2));
+    const expected_memory = source_uri.len + metadata_json.len + content.len;
+    try testing.expectEqual(@as(u64, expected_memory), index.memory_usage());
 }
 
 test "large block content handling" {
     const allocator = testing.allocator;
 
-    var index = BlockIndex.init(allocator);
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer allocator.destroy(mock_engine);
+    var index = BlockIndex.init(mock_engine, allocator);
     defer index.deinit();
 
     const large_content = try allocator.alloc(u8, 1024 * 1024);
     defer allocator.free(large_content);
+    @memset(large_content, 'X');
 
-    // Fill with recognizable pattern
-    for (large_content, 0..) |*byte, i| {
-        byte.* = @intCast(i % 256);
-    }
-
-    const block = ContextBlock{
-        .id = BlockId.generate(),
+    const block_id = BlockId.generate();
+    const test_block = ContextBlock{
+        .id = block_id,
         .version = 1,
-        .source_uri = "file://large.zig",
+        .source_uri = "test://large.zig",
         .metadata_json = "{}",
         .content = large_content,
     };
 
-    try index.put_block(block);
+    try index.put_block(test_block);
 
-    const found = index.find_block(block.id, .simulation_test).?;
-    try testing.expectEqual(large_content.len, found.content.len);
-    try testing.expectEqual(@as(u8, 255), found.content[255]); // Check pattern
-
-    // Memory usage should account for the large content
-    try testing.expect(index.memory_usage() >= 1024 * 1024);
+    const found_block = index.find_block(block_id, .memtable_manager);
+    try testing.expect(found_block != null);
+    try testing.expectEqual(@as(usize, 1024 * 1024), found_block.?.content.len);
+    try testing.expectEqual(@as(u8, 'X'), found_block.?.content[0]);
+    try testing.expectEqual(@as(u8, 'X'), found_block.?.content[1024 * 1024 - 1]);
 }

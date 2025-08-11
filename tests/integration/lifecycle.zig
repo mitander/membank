@@ -357,12 +357,15 @@ test "storage recovery and query consistency" {
 
     // Phase 1: Initial data creation using standardized test data
     {
-        var storage_engine1 = try kausaldb.storage.StorageEngine.init_default(
+        var storage_engine1 = try kausaldb.storage.StorageEngine.create_default(
             allocator,
             sim_vfs.vfs(),
             "recovery_consistency_data",
         );
-        defer storage_engine1.deinit();
+        defer {
+            storage_engine1.deinit();
+            allocator.destroy(storage_engine1);
+        }
         try storage_engine1.startup();
 
         // Create blocks with relationships using TestData
@@ -399,12 +402,15 @@ test "storage recovery and query consistency" {
     }
 
     // Phase 2: Recovery and consistency validation with shared VFS
-    var storage_engine2 = try kausaldb.storage.StorageEngine.init_default(
+    var storage_engine2 = try kausaldb.storage.StorageEngine.create_default(
         allocator,
         sim_vfs.vfs(),
         "recovery_consistency_data",
     );
-    defer storage_engine2.deinit();
+    defer {
+        storage_engine2.deinit();
+        allocator.destroy(storage_engine2);
+    }
     try storage_engine2.startup();
 
     // Verify recovery: all blocks should be retrievable

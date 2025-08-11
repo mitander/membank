@@ -28,6 +28,7 @@ const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 const EdgeType = context_block.EdgeType;
+
 const OwnedGraphEdge = graph_edge_index.OwnedGraphEdge;
 const VFS = vfs.VFS;
 const WAL = wal.WAL;
@@ -48,11 +49,14 @@ pub const BlockIterator = struct {
 };
 
 /// Manages the complete in-memory write buffer (memtable) state.
-/// Encapsulates both block and edge indexes to provide single ownership
-/// boundary for all in-memory data. Uses coordinated arena management
-/// for atomic O(1) cleanup during memtable flushes.
+/// Follows arena refresh pattern: receives direct StorageEngine reference
+/// and passes it to child components (BlockIndex, GraphEdgeIndex).
+/// Uses StorageEngine methods for ALL content allocation enabling O(1) bulk cleanup during arena resets.
 /// **Owns WAL for durability**: All mutations go WAL-first before memtable update.
 pub const MemtableManager = struct {
+    /// Direct pointer to StorageEngine for safe arena allocation (anyopaque to avoid circular dependency)
+    storage_engine_ptr: *anyopaque,
+    /// Backing allocator for stable data structures (HashMap, ArrayList)
     backing_allocator: std.mem.Allocator,
     vfs: VFS,
     data_dir: []const u8,
@@ -62,27 +66,29 @@ pub const MemtableManager = struct {
     memtable_max_size: u64,
 
     /// Phase 1: Create the memtable manager without I/O operations.
-    /// Initializes both block and edge indexes with their dedicated arenas.
-    /// Creates WAL instance but does not perform I/O until startup() is called.
-    /// Follows KausalDB two-phase initialization pattern for testability.
+    /// Follows arena refresh pattern: receives direct StorageEngine reference
+    /// and passes it to child components. Creates WAL instance but does not perform
+    /// I/O until startup() is called. Follows KausalDB two-phase initialization.
     pub fn init(
-        allocator: std.mem.Allocator,
+        storage_engine_ptr: *anyopaque,
+        backing: std.mem.Allocator,
         filesystem: VFS,
         data_dir: []const u8,
         memtable_max_size: u64,
     ) !MemtableManager {
-        const owned_data_dir = try allocator.dupe(u8, data_dir);
+        const owned_data_dir = try backing.dupe(u8, data_dir);
 
         var wal_dir_buffer: [512]u8 = undefined;
         const wal_dir = try std.fmt.bufPrint(wal_dir_buffer[0..], "{s}/wal", .{owned_data_dir});
 
         return MemtableManager{
-            .backing_allocator = allocator,
+            .storage_engine_ptr = storage_engine_ptr,
+            .backing_allocator = backing,
             .vfs = filesystem,
             .data_dir = owned_data_dir,
-            .block_index = BlockIndex.init(allocator),
-            .graph_index = GraphEdgeIndex.init(allocator),
-            .wal = try WAL.init(allocator, filesystem, wal_dir),
+            .block_index = BlockIndex.init(storage_engine_ptr, backing),
+            .graph_index = GraphEdgeIndex.init(backing),
+            .wal = try WAL.init(backing, filesystem, wal_dir),
             .memtable_max_size = memtable_max_size,
         };
     }
@@ -297,9 +303,12 @@ pub const MemtableManager = struct {
         };
 
         const recovery_callback = struct {
-            fn apply(entry: WALEntry, context: *anyopaque) !void {
+            fn apply(entry: WALEntry, context: *anyopaque) wal.WALError!void {
                 const ctx: *RecoveryContext = @ptrCast(@alignCast(context));
-                try ctx.memtable.apply_wal_entry(entry);
+                ctx.memtable.apply_wal_entry(entry) catch |err| switch (err) {
+                    error.OutOfMemory => return wal.WALError.OutOfMemory,
+                    else => return wal.WALError.CallbackFailed,
+                };
             }
         }.apply;
 
@@ -380,6 +389,23 @@ pub const MemtableManager = struct {
 };
 
 const testing = std.testing;
+
+// Test helper: Mock StorageEngine for unit tests
+const MockStorageEngine = struct {
+    allocator: std.mem.Allocator,
+
+    pub fn duplicate_storage(self: *MockStorageEngine, comptime T: type, slice: []const T) ![]T {
+        return self.allocator.dupe(T, slice);
+    }
+};
+
+fn create_mock_storage_engine(allocator: std.mem.Allocator) *MockStorageEngine {
+    // Safety: Test allocator allocation only fails in OOM, which aborts tests appropriately
+    const mock = testing.allocator.create(MockStorageEngine) catch unreachable;
+    mock.* = MockStorageEngine{ .allocator = allocator };
+    return mock;
+}
+
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
@@ -407,7 +433,12 @@ test "MemtableManager basic lifecycle" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var manager = try MemtableManager.init(allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
+    // Hierarchical memory model: create arena for content, use backing for structure
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer allocator.destroy(mock_engine);
+    var manager = try MemtableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
     try testing.expectEqual(@as(u32, 0), manager.block_count());
@@ -421,7 +452,12 @@ test "MemtableManager with WAL operations" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var manager = try MemtableManager.init(allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
+    // Hierarchical memory model: create arena for content, use backing for structure
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer allocator.destroy(mock_engine);
+    var manager = try MemtableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
     try manager.startup();
@@ -443,7 +479,12 @@ test "MemtableManager multiple blocks" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var manager = try MemtableManager.init(allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
+    // Hierarchical memory model: create arena for content, use backing for structure
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer allocator.destroy(mock_engine);
+    var manager = try MemtableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
     try manager.startup();
@@ -467,7 +508,12 @@ test "MemtableManager edge operations" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var manager = try MemtableManager.init(allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
+    // Hierarchical memory model: create arena for content, use backing for structure
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer allocator.destroy(mock_engine);
+    var manager = try MemtableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
     try manager.startup();
@@ -490,7 +536,12 @@ test "MemtableManager clear operation" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var manager = try MemtableManager.init(allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
+    // Hierarchical memory model: create arena for content, use backing for structure
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const mock_engine = create_mock_storage_engine(arena.allocator());
+    defer allocator.destroy(mock_engine);
+    var manager = try MemtableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
     try manager.startup();

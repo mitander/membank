@@ -194,8 +194,7 @@ pub const Node = struct {
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator, id: NodeId) !Self {
-        const filesystem_ptr = try allocator.create(sim_vfs.SimulationVFS);
-        filesystem_ptr.* = try sim_vfs.SimulationVFS.init(allocator);
+        const filesystem_ptr = try sim_vfs.SimulationVFS.heap_init(allocator);
 
         return Self{
             .id = id,

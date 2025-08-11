@@ -242,7 +242,16 @@ test "WAL cleanup isolated memtable manager fault injection" {
     defer sim_vfs.deinit();
 
     // Test MemtableManager in isolation to precisely target WAL cleanup
-    var memtable = try MemtableManager.init(allocator, sim_vfs.vfs(), "/test/isolated_wal_4", 64 * 1024);
+    // Create mock storage engine for MemtableManager
+    const MockStorageEngine = struct {
+        allocator: std.mem.Allocator,
+        pub fn duplicate_storage(self: *@This(), comptime T: type, slice: []const T) ![]T {
+            return self.allocator.dupe(T, slice);
+        }
+    };
+    var mock_engine = MockStorageEngine{ .allocator = allocator };
+
+    var memtable = try MemtableManager.init(@ptrCast(&mock_engine), allocator, sim_vfs.vfs(), "/test/isolated_wal_4", 64 * 1024);
     defer memtable.deinit();
     try memtable.startup();
 
