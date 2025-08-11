@@ -323,6 +323,10 @@ fn traverse_breadth_first(
 ) !TraversalResult {
     var visited = BlockIdHashMap.init(allocator);
     defer visited.deinit();
+    // Ensure minimum capacity to prevent integer overflow in hash map operations
+    try visited.ensureTotalCapacity(1);
+    // Ensure minimum capacity to prevent integer overflow in hash map operations
+    try visited.ensureTotalCapacity(1);
 
     var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
@@ -330,7 +334,12 @@ fn traverse_breadth_first(
 
     var result_paths = std.ArrayList([]BlockId).init(allocator);
     try result_paths.ensureTotalCapacity(query.max_results);
-    defer result_paths.deinit();
+    defer {
+        for (result_paths.items) |path| {
+            allocator.free(path);
+        }
+        result_paths.deinit();
+    }
 
     var result_depths = std.ArrayList(u32).init(allocator);
     try result_depths.ensureTotalCapacity(query.max_results);
@@ -422,6 +431,8 @@ fn traverse_depth_first(
 ) !TraversalResult {
     var visited = BlockIdHashMap.init(allocator);
     defer visited.deinit();
+    // Ensure minimum capacity to prevent integer overflow in hash map operations
+    try visited.ensureTotalCapacity(1);
 
     var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
@@ -429,7 +440,12 @@ fn traverse_depth_first(
 
     var result_paths = std.ArrayList([]BlockId).init(allocator);
     try result_paths.ensureTotalCapacity(query.max_results);
-    defer result_paths.deinit();
+    defer {
+        for (result_paths.items) |path| {
+            allocator.free(path);
+        }
+        result_paths.deinit();
+    }
 
     var result_depths = std.ArrayList(u32).init(allocator);
     try result_depths.ensureTotalCapacity(query.max_results);
@@ -475,7 +491,7 @@ fn traverse_depth_first(
         blocks_traversed += 1;
         max_depth_reached = @max(max_depth_reached, current.depth);
 
-        const current_block = (try storage_engine.find_query_block_fast(
+        const current_block = (try storage_engine.find_query_block(
             current.block_id,
         )) orelse continue;
 
@@ -643,6 +659,8 @@ fn traverse_astar_search(
 ) !TraversalResult {
     var visited = BlockIdHashMap.init(allocator);
     defer visited.deinit();
+    // Ensure minimum capacity to prevent integer overflow in hash map operations
+    try visited.ensureTotalCapacity(1);
 
     var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
@@ -650,7 +668,12 @@ fn traverse_astar_search(
 
     var result_paths = std.ArrayList([]BlockId).init(allocator);
     try result_paths.ensureTotalCapacity(query.max_results);
-    defer result_paths.deinit();
+    defer {
+        for (result_paths.items) |path| {
+            allocator.free(path);
+        }
+        result_paths.deinit();
+    }
 
     var result_depths = std.ArrayList(u32).init(allocator);
     try result_depths.ensureTotalCapacity(query.max_results);
@@ -702,7 +725,7 @@ fn traverse_astar_search(
         blocks_traversed += 1;
         max_depth_reached = @max(max_depth_reached, current.depth);
 
-        const current_block = (try storage_engine.find_query_block_fast(
+        const current_block = (try storage_engine.find_query_block(
             current.block_id,
         )) orelse continue;
 
@@ -754,8 +777,13 @@ fn traverse_bidirectional_search(
 ) !TraversalResult {
     var visited_forward = BlockIdHashMap.init(allocator);
     defer visited_forward.deinit();
+    // Ensure minimum capacity to prevent integer overflow in hash map operations
+    try visited_forward.ensureTotalCapacity(1);
+
     var visited_backward = BlockIdHashMap.init(allocator);
     defer visited_backward.deinit();
+    // Ensure minimum capacity to prevent integer overflow in hash map operations
+    try visited_backward.ensureTotalCapacity(1);
 
     var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
@@ -763,7 +791,12 @@ fn traverse_bidirectional_search(
 
     var result_paths = std.ArrayList([]BlockId).init(allocator);
     try result_paths.ensureTotalCapacity(query.max_results);
-    defer result_paths.deinit();
+    defer {
+        for (result_paths.items) |path| {
+            allocator.free(path);
+        }
+        result_paths.deinit();
+    }
 
     var result_depths = std.ArrayList(u32).init(allocator);
     try result_depths.ensureTotalCapacity(query.max_results);
@@ -834,7 +867,7 @@ fn traverse_bidirectional_search(
             blocks_traversed += 1;
             max_depth_reached = @max(max_depth_reached, current.depth);
 
-            const current_block = (try storage_engine.find_query_block_fast(
+            const current_block = (try storage_engine.find_query_block(
                 current.block_id,
             )) orelse continue;
 
@@ -873,7 +906,7 @@ fn traverse_bidirectional_search(
                 continue;
             }
 
-            const current_block = (try storage_engine.find_query_block_fast(
+            const current_block = (try storage_engine.find_query_block(
                 current.block_id,
             )) orelse continue;
 
@@ -951,6 +984,8 @@ fn traverse_topological_sort(
     // Use Kahn's algorithm with cycle detection
     var visited = BlockIdHashMap.init(allocator);
     defer visited.deinit();
+    // Ensure minimum capacity to prevent integer overflow in hash map operations
+    try visited.ensureTotalCapacity(1);
 
     var in_degree = std.HashMap(BlockId, u32, BlockIdHashContext, std.hash_map.default_max_load_percentage).init(allocator);
     defer in_degree.deinit();
@@ -1061,7 +1096,7 @@ fn traverse_topological_sort(
     if (path.items.len > 0) {
         for (path.items, 0..) |block_id, i| {
             // Try to find the block
-            if (storage_engine.find_query_block_fast(block_id) catch null) |block| {
+            if (storage_engine.find_query_block(block_id) catch null) |block| {
                 try result_blocks.append(block); // tidy:ignore-perf ensureTotalCapacity called at function start
 
                 // Create path slice for this block (just itself in topological order)

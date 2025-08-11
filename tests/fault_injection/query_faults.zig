@@ -61,11 +61,11 @@ test "query handles SSTable read errors gracefully" {
     sim_vfs.enable_io_failures(500, .{ .read = true }); // 50% probability on reads
 
     // Test block retrieval under read pressure
-    const find_result = engine.find_block(test_block_id(12345));
+    const find_result = engine.find_block(test_block_id(12345), .query_engine);
     if (find_result) |maybe_block| {
         if (maybe_block) |found_block| {
             // Success case - block found despite I/O pressure
-            try testing.expectEqual(test_block.id, found_block.id);
+            try testing.expectEqual(test_block.id, found_block.extract().id);
         }
         // If null, block not found but no error - acceptable
     } else |err| {
@@ -116,10 +116,10 @@ test "query handles memory pressure in large result sets" {
     }
 
     // Test block retrieval under resource pressure
-    const find_result = engine.find_block(test_block_id(1));
+    const find_result = engine.find_block(test_block_id(1), .query_engine);
     if (find_result) |maybe_block| {
         if (maybe_block) |found_block| {
-            try testing.expectEqual(test_block_id(1), found_block.id);
+            try testing.expectEqual(test_block_id(1), found_block.extract().id);
         }
         // If null, block not found but no error - acceptable under pressure
     } else |err| {
@@ -170,10 +170,10 @@ test "query handles storage corruption during graph traversal" {
     sim_vfs.enable_read_corruption(200, 2); // High corruption rate
 
     // Test block retrieval under corruption
-    const find_result = engine.find_block(test_block_id(1001));
+    const find_result = engine.find_block(test_block_id(1001), .query_engine);
     if (find_result) |maybe_block| {
         if (maybe_block) |found_block| {
-            try testing.expectEqual(main_block.id, found_block.id);
+            try testing.expectEqual(main_block.id, found_block.extract().id);
         }
         // If null, block not found but no error - acceptable under corruption
     } else |err| {
@@ -209,12 +209,12 @@ test "query handles slow I/O and timeout conditions" {
     const start_time = std.time.milliTimestamp();
 
     // Test block retrieval under slow I/O
-    const find_result = engine.find_block(test_block_id(2001));
+    const find_result = engine.find_block(test_block_id(2001), .query_engine);
     const elapsed = std.time.milliTimestamp() - start_time;
 
     if (find_result) |maybe_block| {
         if (maybe_block) |found_block| {
-            try testing.expectEqual(test_block.id, found_block.id);
+            try testing.expectEqual(test_block.id, found_block.extract().id);
         }
         // If null, block not found but no error - acceptable under slow I/O
     } else |err| {
@@ -244,11 +244,11 @@ test "query provides detailed error context for debugging" {
     const invalid_ids = [_]BlockId{ test_block_id(99999), test_block_id(88888), test_block_id(77777) };
 
     for (invalid_ids) |block_id| {
-        const find_result = engine.find_block(block_id);
+        const find_result = engine.find_block(block_id, .query_engine);
         if (find_result) |maybe_block| {
             if (maybe_block) |found_block| {
                 // Unexpected success - block somehow exists
-                try testing.expect(found_block.id.eql(block_id));
+                try testing.expect(found_block.extract().id.eql(block_id));
             }
             // If null, block not found - expected for invalid IDs
         } else |err| {
@@ -298,10 +298,10 @@ test "semantic query handles parsing and similarity failures" {
 
     // Test block retrieval under corruption (simulates semantic search)
     for (blocks) |expected_block| {
-        const find_result = engine.find_block(expected_block.id);
+        const find_result = engine.find_block(expected_block.id, .query_engine);
         if (find_result) |maybe_block| {
             if (maybe_block) |found_block| {
-                try testing.expectEqual(expected_block.id, found_block.id);
+                try testing.expectEqual(expected_block.id, found_block.extract().id);
             }
             // If null, block not found but no error - acceptable under corruption
         } else |err| {
@@ -347,10 +347,10 @@ test "query handles resource contention and concurrent access" {
 
     var successful_queries: u32 = 0;
     for (query_ids) |block_id| {
-        const find_result = engine.find_block(block_id);
+        const find_result = engine.find_block(block_id, .query_engine);
         if (find_result) |maybe_block| {
             if (maybe_block) |found_block| {
-                try testing.expectEqual(block_id, found_block.id);
+                try testing.expectEqual(block_id, found_block.extract().id);
                 successful_queries += 1;
             }
             // If null, block not found but no error
@@ -388,11 +388,11 @@ test "query properly cleans up resources after failures" {
     sim_vfs.enable_io_failures(600, .{ .write = true }); // 60% probability on writes
 
     // Test block retrieval under write pressure
-    const find_result = engine.find_block(test_block_id(5001));
+    const find_result = engine.find_block(test_block_id(5001), .query_engine);
     if (find_result) |maybe_block| {
         if (maybe_block) |found_block| {
             // Success case - verify proper operation
-            try testing.expectEqual(test_block.id, found_block.id);
+            try testing.expectEqual(test_block.id, found_block.extract().id);
         }
         // If null, block not found but no error - acceptable
     } else |_| {
@@ -419,11 +419,11 @@ test "query validates parameters and handles malformed inputs" {
     const invalid_block_ids = [_]BlockId{ test_block_id(999999), test_block_id(888888) };
 
     for (invalid_block_ids) |block_id| {
-        const find_result = engine.find_block(block_id);
+        const find_result = engine.find_block(block_id, .query_engine);
         if (find_result) |maybe_block| {
             if (maybe_block) |found_block| {
                 // Unexpected success - somehow found invalid block
-                try testing.expect(found_block.id.eql(block_id));
+                try testing.expect(found_block.extract().id.eql(block_id));
             }
             // If null, block not found - expected for invalid IDs
         } else |err| {
@@ -440,7 +440,7 @@ test "query validates parameters and handles malformed inputs" {
     // Test multiple invalid queries under I/O pressure
     for (0..5) |i| {
         const random_id = test_block_id(@intCast(90000 + i));
-        const find_result = engine.find_block(random_id);
+        const find_result = engine.find_block(random_id, .query_engine);
         if (find_result) |_| {
             // Unexpected success
         } else |err| {

@@ -652,7 +652,26 @@ pub const Compactor = struct {
         }
 
         const unique_blocks = try self.dedup_blocks(all_blocks.items);
-        defer self.allocator.free(unique_blocks);
+
+        // Free the original deserialized blocks after deduplication
+        defer {
+            for (all_blocks.items) |block| {
+                // These strings were allocated by ContextBlock.deserialize()
+                self.allocator.free(block.extract().source_uri);
+                self.allocator.free(block.extract().metadata_json);
+                self.allocator.free(block.extract().content);
+            }
+        }
+
+        defer {
+            // Clean up cloned strings in unique blocks
+            for (unique_blocks) |block| {
+                self.allocator.free(block.extract().source_uri);
+                self.allocator.free(block.extract().metadata_json);
+                self.allocator.free(block.extract().content);
+            }
+            self.allocator.free(unique_blocks);
+        }
 
         try output_table.write_blocks(unique_blocks);
 

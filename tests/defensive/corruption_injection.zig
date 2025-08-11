@@ -16,6 +16,7 @@ const builtin = @import("builtin");
 
 const log = std.log.scoped(.corruption_injection);
 const kausaldb = @import("kausaldb");
+const TestData = kausaldb.TestData;
 
 const assert = kausaldb.assert;
 const types = kausaldb.types;
@@ -67,9 +68,9 @@ test "arena allocator corruption detection" {
     try storage_engine.put_block(block);
 
     // Verify block can be retrieved
-    const retrieved = try storage_engine.find_block(block.id);
+    const retrieved = try storage_engine.find_block(block.id, .query_engine);
     try testing.expect(retrieved != null);
-    try testing.expectEqualStrings(block.content, retrieved.?.content);
+    try testing.expectEqualStrings(block.content, retrieved.?.extract().content);
 
     // Normal arena operations should work without triggering fatal assertions
     // The arena corruption detection validates pointer aliasing in block cloning
@@ -236,11 +237,9 @@ test "large file processing robustness" {
 
     // Verify some blocks were recovered correctly
     for (1..6) |i| { // Check first 5 blocks
-        var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
-        std.mem.writeInt(u64, id_bytes[0..8], i, .little);
-        const block_id = BlockId{ .bytes = id_bytes };
+        const block_id = TestData.deterministic_block_id(@intCast(i));
 
-        const recovered = try recovery_engine.find_block(block_id);
+        const recovered = try recovery_engine.find_block(block_id, .query_engine);
         try testing.expect(recovered != null);
     }
 
@@ -285,9 +284,9 @@ test "EOF handling in WAL streams" {
     try recovery_engine.startup();
 
     // Should recover the single block without issues
-    const recovered = try recovery_engine.find_block(block.id);
+    const recovered = try recovery_engine.find_block(block.id, .query_engine);
     try testing.expect(recovered != null);
-    try testing.expectEqualStrings(block.content, recovered.?.content);
+    try testing.expectEqualStrings(block.content, recovered.?.extract().content);
 }
 
 test "empty WAL file recovery" {
@@ -317,7 +316,7 @@ test "empty WAL file recovery" {
     var id_bytes: [16]u8 = std.mem.zeroes([16]u8);
     std.mem.writeInt(u64, id_bytes[0..8], 99999, .little); // Non-zero, non-existent ID
     const nonexistent_id = BlockId{ .bytes = id_bytes };
-    const result = try recovery_engine.find_block(nonexistent_id);
+    const result = try recovery_engine.find_block(nonexistent_id, .query_engine);
     try testing.expect(result == null);
 }
 
@@ -385,7 +384,7 @@ test "assertion overhead measurement" {
         try storage_engine.put_block(block);
 
         // Verify block was stored correctly
-        const retrieved = try storage_engine.find_block(block.id);
+        const retrieved = try storage_engine.find_block(block.id, .query_engine);
         try testing.expect(retrieved != null);
     }
 
@@ -468,7 +467,7 @@ test "graceful vs fail fast classification" {
     std.mem.writeInt(u64, id_bytes[0..8], 88888, .little); // Different non-existent ID
     const nonexistent_id = BlockId{ .bytes = id_bytes };
 
-    const result = try storage_engine.find_block(nonexistent_id);
+    const result = try storage_engine.find_block(nonexistent_id, .query_engine);
     try testing.expect(result == null); // Should return null, not crash
 
     // Normal operations should work without any fatal assertions
@@ -482,7 +481,7 @@ test "graceful vs fail fast classification" {
     }
     try storage_engine.put_block(block);
 
-    const retrieved = try storage_engine.find_block(block.id);
+    const retrieved = try storage_engine.find_block(block.id, .query_engine);
     try testing.expect(retrieved != null);
 }
 
@@ -559,7 +558,7 @@ test "simulation framework compatibility" {
     try storage_engine.put_block(block);
 
     // Simulation should provide consistent, reproducible results
-    const retrieved = try storage_engine.find_block(block.id);
+    const retrieved = try storage_engine.find_block(block.id, .query_engine);
     try testing.expect(retrieved != null);
-    try testing.expectEqualStrings(block.content, retrieved.?.content);
+    try testing.expectEqualStrings(block.content, retrieved.?.extract().content);
 }

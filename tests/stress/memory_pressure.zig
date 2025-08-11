@@ -44,11 +44,11 @@ test "memory isolation with 5 storage cycles" {
             try harness.storage_engine.put_block(block);
 
             // Verify block can be retrieved
-            const retrieved = (try harness.storage_engine.find_block(block.id)) orelse {
+            const retrieved = (try harness.storage_engine.find_block(block.id, .query_engine)) orelse {
                 try testing.expect(false); // Block should exist
                 continue;
             };
-            try testing.expect(retrieved.id.eql(block.id));
+            try testing.expect(retrieved.extract().id.eql(block.id));
         }
 
         log.debug("Completed storage cycle {} successfully", .{cycle});
@@ -79,11 +79,11 @@ test "hashmap operations under stress" {
 
         // Periodically retrieve and verify blocks
         if (index % 10 == 0) {
-            const retrieved = (try harness.storage_engine.find_block(block.id)) orelse {
+            const retrieved = (try harness.storage_engine.find_block(block.id, .query_engine)) orelse {
                 try testing.expect(false); // Block should exist
                 continue;
             };
-            try testing.expect(retrieved.id.eql(block.id));
+            try testing.expect(retrieved.extract().id.eql(block.id));
         }
     }
 

@@ -196,7 +196,7 @@ test "query optimization strategy validation" {
         .block_ids = large_block_ids.items,
     };
 
-    var large_result = try query.operations.execute_find_blocks(allocator, &storage_engine, large_query);
+    var large_result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), large_query);
     defer large_result.deinit();
 
     // Both should complete successfully with appropriate results
@@ -582,7 +582,7 @@ test "mixed query workload simulation" {
             .block_ids = batch_ids.items,
         };
 
-        var batch_result = try query.operations.execute_find_blocks(allocator, &storage_engine, batch_query);
+        var batch_result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), batch_query);
         defer batch_result.deinit();
 
         // Graph traversal

@@ -88,9 +88,9 @@ test "storage engine defensive programming validation" {
     try engine.put_block(valid_block);
 
     // Test block retrieval
-    const retrieved = try engine.find_block(valid_block.id);
+    const retrieved = try engine.find_block(valid_block.id, .query_engine);
     try testing.expect(retrieved != null);
-    try testing.expectEqualStrings(valid_block.content, retrieved.?.content);
+    try testing.expectEqualStrings(valid_block.content, retrieved.?.extract().content);
 
     // Test valid edge operations
     const valid_edge = GraphEdge{
@@ -192,9 +192,9 @@ test "block validation defensive programming" {
             try engine.put_block(test_block);
 
             // Verify retrieval works
-            const retrieved = try engine.find_block(test_block.id);
+            const retrieved = try engine.find_block(test_block.id, .query_engine);
             try testing.expect(retrieved != null);
-            try testing.expectEqual(test_block.version, retrieved.?.version);
+            try testing.expectEqual(test_block.version, retrieved.?.extract().version);
         }
     }
 }
@@ -327,16 +327,16 @@ test "memory management defensive programming" {
         try engine.put_block(blocks[i]);
 
         // Verify immediate retrieval
-        const retrieved = try engine.find_block(blocks[i].id);
+        const retrieved = try engine.find_block(blocks[i].id, .query_engine);
         try testing.expect(retrieved != null);
-        try testing.expectEqualStrings(blocks[i].content, retrieved.?.content);
+        try testing.expectEqualStrings(blocks[i].content, retrieved.?.extract().content);
     }
 
     // Verify all blocks are still retrievable after potential flushes
     for (blocks) |block| {
-        const retrieved = try engine.find_block(block.id);
+        const retrieved = try engine.find_block(block.id, .query_engine);
         try testing.expect(retrieved != null);
-        try testing.expectEqual(block.version, retrieved.?.version);
+        try testing.expectEqual(block.version, retrieved.?.extract().version);
     }
 
     // Test metrics consistency
@@ -383,9 +383,9 @@ test "concurrent operation defensive programming" {
         try engine.put_block(block);
 
         // Immediate read to test assertion validation under rapid access
-        const retrieved = try engine.find_block(block.id);
+        const retrieved = try engine.find_block(block.id, .query_engine);
         try testing.expect(retrieved != null);
-        try testing.expectEqualStrings(block.content, retrieved.?.content);
+        try testing.expectEqualStrings(block.content, retrieved.?.extract().content);
 
         // Add edge to create graph structure - use previous block as target to avoid self-reference
         if (previous_block_id) |prev_id| {
@@ -469,7 +469,7 @@ test "error propagation with defensive programming" {
     try engine.put_block(valid_block);
 
     // Verify normal operation continues with defensive programming active
-    const retrieved = try engine.find_block(valid_block.id);
+    const retrieved = try engine.find_block(valid_block.id, .query_engine);
     try testing.expect(retrieved != null);
 
     // Test that metrics are still properly validated

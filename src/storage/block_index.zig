@@ -57,13 +57,21 @@ pub const BlockIndex = struct {
     /// HashMap uses stable backing allocator while block content uses typed arena
     /// to enable O(1) bulk deallocation on flush with ownership tracking.
     pub fn init(allocator: std.mem.Allocator) BlockIndex {
+        var blocks = std.HashMap(
+            BlockId,
+            OwnedBlock,
+            BlockIdContext,
+            std.hash_map.default_max_load_percentage,
+        ).init(allocator);
+
+        // Ensure minimum capacity to prevent integer overflow in hash map operations
+        blocks.ensureTotalCapacity(1) catch |err| {
+            // If we can't allocate even 1 entry, we're in serious trouble
+            std.debug.panic("Failed to allocate minimum HashMap capacity: {}", .{err});
+        };
+
         return BlockIndex{
-            .blocks = std.HashMap(
-                BlockId,
-                OwnedBlock,
-                BlockIdContext,
-                std.hash_map.default_max_load_percentage,
-            ).init(allocator), // HashMap uses stable backing allocator
+            .blocks = blocks, // HashMap uses stable backing allocator
             .block_arena = TypedArenaType(ContextBlock, BlockIndex).init(allocator, .memtable_manager),
             .backing_allocator = allocator,
             .memory_used = 0,
@@ -152,6 +160,12 @@ pub const BlockIndex = struct {
     /// Returns pointer to the OwnedBlock if found, allowing access to ownership metadata.
     /// Used during transition from runtime to compile-time ownership validation.
     pub fn find_block_runtime(self: *const BlockIndex, block_id: BlockId, accessor: BlockOwnership) ?*const OwnedBlock {
+        // Safety check: ensure HashMap has capacity to prevent integer overflow
+        // This can happen if HashMap was cleared without being re-initialized
+        if (self.blocks.capacity() == 0) {
+            return null;
+        }
+
         if (self.blocks.getPtr(block_id)) |owned_block_ptr| {
             // Validate ownership access but return the full OwnedBlock
             _ = owned_block_ptr.read_runtime(accessor);

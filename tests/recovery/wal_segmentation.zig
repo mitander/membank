@@ -233,7 +233,7 @@ test "cleanup after sstable flush" {
     // These blocks should be findable (from either SSTable or remaining WAL)
     std.debug.print("DEBUG: Searching for first block ID: {any}\n", .{first_block_id.bytes});
 
-    const first_result = try harness.storage_engine.find_block(first_block_id);
+    const first_result = try harness.storage_engine.find_block(first_block_id, .query_engine);
     if (first_result == null) {
         std.debug.print("DEBUG: Could not find first block (ID=1)\n", .{});
 
@@ -246,7 +246,7 @@ test "cleanup after sstable flush" {
     }
 
     std.debug.print("DEBUG: Searching for last block ID: {any}\n", .{last_block_id.bytes});
-    const last_result = try harness.storage_engine.find_block(last_block_id);
+    const last_result = try harness.storage_engine.find_block(last_block_id, .query_engine);
     if (last_result == null) {
         // Known issue: State corruption causes find_block() to fail inconsistently
         // TODO: Fix data integrity issue before re-enabling this test
@@ -315,7 +315,7 @@ test "recovery from mixed segments and sstables" {
         std.mem.writeInt(u128, &test_id_bytes, test_i, .big);
         const test_id = BlockId{ .bytes = test_id_bytes };
 
-        if (try harness.storage_engine.find_block(test_id)) |_| {
+        if (try harness.storage_engine.find_block(test_id, .query_engine)) |_| {
             found_blocks += 1;
         } else {
             try not_found_list.append(test_i);
@@ -350,9 +350,9 @@ test "recovery from mixed segments and sstables" {
     var phase1_id_bytes: [16]u8 = undefined;
     std.mem.writeInt(u128, &phase1_id_bytes, 1, .big);
     const phase1_id = BlockId{ .bytes = phase1_id_bytes };
-    const phase1_block = try harness.storage_engine.find_block(phase1_id);
+    const phase1_block = try harness.storage_engine.find_block(phase1_id, .query_engine);
     if (phase1_block) |block| {
-        try testing.expectEqualStrings("phase 1 content", block.content);
+        try testing.expectEqualStrings("phase 1 content", block.extract().content);
     } else {
         std.debug.print("KNOWN ISSUE: Phase 1 block (SSTable) lookup failed - tolerance for known data integrity issue\n", .{});
         // Skip phase1 verification due to known SSTable issue, continue with phase2
@@ -361,11 +361,11 @@ test "recovery from mixed segments and sstables" {
     var phase2_id_bytes: [16]u8 = undefined;
     std.mem.writeInt(u128, &phase2_id_bytes, 60, .big);
     const phase2_id = BlockId{ .bytes = phase2_id_bytes };
-    const phase2_block = (try harness.storage_engine.find_block(phase2_id)) orelse {
+    const phase2_block = (try harness.storage_engine.find_block(phase2_id, .query_engine)) orelse {
         try testing.expect(false); // Phase 2 blocks (WAL) should always exist
         return;
     };
-    try testing.expectEqualStrings("phase 2 content", phase2_block.content);
+    try testing.expectEqualStrings("phase 2 content", phase2_block.extract().content);
 }
 
 test "segment number persistence" {

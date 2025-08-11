@@ -79,14 +79,14 @@ test "streaming WAL recovery basic correctness" {
 
     // Verify all blocks were recovered correctly
     for (expected_blocks.items) |expected_block| {
-        const recovered_block = (try recovery_engine.find_block(expected_block.id)) orelse {
+        const recovered_block = (try recovery_engine.find_block(expected_block.id, .query_engine)) orelse {
             try testing.expect(false); // Block should exist
             continue;
         };
-        try testing.expectEqualSlices(u8, expected_block.source_uri, recovered_block.source_uri);
-        try testing.expectEqualSlices(u8, expected_block.metadata_json, recovered_block.metadata_json);
-        try testing.expectEqualSlices(u8, expected_block.content, recovered_block.content);
-        try testing.expectEqual(expected_block.version, recovered_block.version);
+        try testing.expectEqualSlices(u8, expected_block.source_uri, recovered_block.extract().source_uri);
+        try testing.expectEqualSlices(u8, expected_block.metadata_json, recovered_block.extract().metadata_json);
+        try testing.expectEqualSlices(u8, expected_block.content, recovered_block.extract().content);
+        try testing.expectEqual(expected_block.version, recovered_block.extract().version);
     }
 }
 
@@ -139,7 +139,7 @@ test "streaming WAL recovery large file efficiency" {
         std.mem.writeInt(u64, id_bytes[0..8], i, .little);
         const block_id = BlockId{ .bytes = id_bytes };
 
-        if (try recovery_engine.find_block(block_id)) |_| {
+        if (try recovery_engine.find_block(block_id, .query_engine)) |_| {
             recovered_count += 1;
         } else {
             // Expected for some blocks that might not exist
@@ -174,11 +174,11 @@ test "streaming WAL recovery empty file handling" {
     defer test_block.deinit(allocator);
     try storage_engine.put_block(test_block);
 
-    const retrieved_block = (try storage_engine.find_block(test_block.id)) orelse {
+    const retrieved_block = (try storage_engine.find_block(test_block.id, .query_engine)) orelse {
         try testing.expect(false); // Block should exist
         return;
     };
-    try testing.expectEqualSlices(u8, test_block.content, retrieved_block.content);
+    try testing.expectEqualSlices(u8, test_block.content, retrieved_block.extract().content);
 }
 
 test "streaming WAL recovery arena memory reset validation" {
@@ -226,7 +226,7 @@ test "streaming WAL recovery arena memory reset validation" {
         std.mem.writeInt(u64, id_bytes[0..8], i, .little);
         const block_id = BlockId{ .bytes = id_bytes };
 
-        if (try recovery_engine.find_block(block_id)) |_| {
+        if (try recovery_engine.find_block(block_id, .query_engine)) |_| {
             found_blocks += 1;
         } else {
             // Expected for blocks that might not exist

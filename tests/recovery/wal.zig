@@ -87,15 +87,15 @@ test "wal recovery single block recovery" {
     // Verify block was recovered
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
 
-    const recovered_block = (try storage_engine2.find_block(test_block.id)) orelse {
+    const recovered_block = (try storage_engine2.find_block(test_block.id, .query_engine)) orelse {
         try testing.expect(false);
         return;
     };
-    try testing.expect(test_block.id.eql(recovered_block.id));
-    try testing.expectEqual(test_block.version, recovered_block.version);
-    try testing.expectEqualStrings(test_block.source_uri, recovered_block.source_uri);
-    try testing.expectEqualStrings(test_block.metadata_json, recovered_block.metadata_json);
-    try testing.expectEqualStrings(test_block.content, recovered_block.content);
+    try testing.expect(test_block.id.eql(recovered_block.extract().id));
+    try testing.expectEqual(test_block.version, recovered_block.extract().version);
+    try testing.expectEqualStrings(test_block.source_uri, recovered_block.extract().source_uri);
+    try testing.expectEqualStrings(test_block.metadata_json, recovered_block.extract().metadata_json);
+    try testing.expectEqualStrings(test_block.content, recovered_block.extract().content);
 
     // Golden master validation: ensure recovery behavior is deterministic
     try golden_master.verify_recovery_golden_master(allocator, "wal_single_block_recovery", &storage_engine2);
@@ -164,12 +164,12 @@ test "wal recovery multiple blocks and operations" {
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
 
     // Block1 should not exist
-    try testing.expect((try storage_engine2.find_block(block1.id)) == null);
+    try testing.expect((try storage_engine2.find_block(block1.id, .query_engine)) == null);
 
     // Block2 should exist
-    const recovered_block2 = (try storage_engine2.find_block(block2.id)).?;
-    try testing.expect(block2.id.eql(recovered_block2.id));
-    try testing.expectEqual(block2.version, recovered_block2.version);
+    const recovered_block2 = (try storage_engine2.find_block(block2.id, .query_engine)).?;
+    try testing.expect(block2.id.eql(recovered_block2.extract().id));
+    try testing.expectEqual(block2.version, recovered_block2.extract().version);
 }
 
 test "wal recovery corruption with invalid checksum" {
@@ -284,9 +284,9 @@ test "wal recovery with large blocks" {
     try storage_engine2.startup();
 
     try testing.expectEqual(@as(u32, 1), storage_engine2.block_count());
-    const recovered = (try storage_engine2.find_block(large_block.id)).?;
-    try testing.expectEqual(large_content.len, recovered.content.len);
-    try testing.expect(std.mem.eql(u8, large_content, recovered.content));
+    const recovered = (try storage_engine2.find_block(large_block.id, .query_engine)).?;
+    try testing.expectEqual(large_content.len, recovered.extract().content.len);
+    try testing.expect(std.mem.eql(u8, large_content, recovered.extract().content));
 }
 
 test "wal recovery stress with many entries" {
@@ -373,11 +373,11 @@ test "wal recovery stress with many entries" {
 
     // Verify all blocks were recovered correctly
     for (expected_blocks.items) |expected| {
-        const recovered = (try storage_engine2.find_block(expected.id)).?;
-        try testing.expect(expected.id.eql(recovered.id));
-        try testing.expectEqual(expected.version, recovered.version);
-        try testing.expectEqualStrings(expected.source_uri, recovered.source_uri);
-        try testing.expectEqualStrings(expected.metadata_json, recovered.metadata_json);
-        try testing.expectEqualStrings(expected.content, recovered.content);
+        const recovered = (try storage_engine2.find_block(expected.id, .query_engine)).?;
+        try testing.expect(expected.id.eql(recovered.extract().id));
+        try testing.expectEqual(expected.version, recovered.extract().version);
+        try testing.expectEqualStrings(expected.source_uri, recovered.extract().source_uri);
+        try testing.expectEqualStrings(expected.metadata_json, recovered.extract().metadata_json);
+        try testing.expectEqualStrings(expected.content, recovered.extract().content);
     }
 }

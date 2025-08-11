@@ -69,13 +69,13 @@ test "sequential recovery cycles" {
         for (0..cycle + 1) |verify_cycle| {
             for (1..4) |block_idx| {
                 const block_id = TestData.deterministic_block_id(@as(u32, @intCast(verify_cycle * 10 + block_idx)));
-                const recovered = try harness.storage_engine.find_block(block_id) orelse {
+                const recovered = try harness.storage_engine.find_block(block_id, .query_engine) orelse {
                     try testing.expect(false); // Block should exist
                     return;
                 };
 
                 const expected_size = (block_idx + 1) * 256;
-                try testing.expectEqual(expected_size, recovered.content.len);
+                try testing.expectEqual(expected_size, recovered.extract().content.len);
             }
         }
     }
@@ -146,14 +146,14 @@ test "allocator stress testing" {
     // Verify content integrity
     for (block_sizes, 0..) |size, index| {
         const block_id = TestData.deterministic_block_id(@as(u32, @intCast(index + 100)));
-        const recovered = try storage_engine2.find_block(block_id) orelse {
+        const recovered = try storage_engine2.find_block(block_id, .query_engine) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
-        try testing.expectEqual(size, recovered.content.len);
+        try testing.expectEqual(size, recovered.extract().content.len);
 
         // Verify pattern integrity
-        for (recovered.content, 0..) |byte, i| {
+        for (recovered.extract().content, 0..) |byte, i| {
             const expected: u8 = @intCast((i + index) % 256);
             try testing.expectEqual(expected, byte);
         }
@@ -221,11 +221,11 @@ test "edge case robustness" {
 
         try harness.storage_engine.put_block(block);
 
-        const recovered = try harness.storage_engine.find_block(block.id) orelse {
+        const recovered = try harness.storage_engine.find_block(block.id, .query_engine) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
-        try testing.expectEqualStrings(" ", recovered.content);
+        try testing.expectEqualStrings(" ", recovered.extract().content);
     }
 
     // Test 2: Very long strings (stress string allocation)
@@ -242,11 +242,11 @@ test "edge case robustness" {
 
         try harness.storage_engine.put_block(block);
 
-        const recovered = try harness.storage_engine.find_block(block.id) orelse {
+        const recovered = try harness.storage_engine.find_block(block.id, .query_engine) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
-        try testing.expectEqual(long_content.len, recovered.content.len);
+        try testing.expectEqual(long_content.len, recovered.extract().content.len);
     }
 
     // Test 3: Special characters and UTF-8 (encoding edge cases)
@@ -270,11 +270,11 @@ test "edge case robustness" {
         // Clean up after storage engine has cloned the data
         allocator.free(owned_content);
 
-        const recovered = try harness.storage_engine.find_block(block.id) orelse {
+        const recovered = try harness.storage_engine.find_block(block.id, .query_engine) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
-        try testing.expectEqualStrings(special_content, recovered.content);
+        try testing.expectEqualStrings(special_content, recovered.extract().content);
     }
 }
 
@@ -329,7 +329,7 @@ test "rapid sequential operations" {
     const sample_indices = [_]u32{ 1, 3, 6, 8, 10 };
     for (sample_indices) |index| {
         const block_id = TestData.deterministic_block_id(index);
-        const recovered = try storage_engine2.find_block(block_id) orelse {
+        const recovered = try storage_engine2.find_block(block_id, .query_engine) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
@@ -337,6 +337,6 @@ test "rapid sequential operations" {
         const expected_content = try std.fmt.allocPrint(allocator, "operation {} content", .{index});
         defer allocator.free(expected_content);
 
-        try testing.expectEqualStrings(expected_content, recovered.content);
+        try testing.expectEqualStrings(expected_content, recovered.extract().content);
     }
 }

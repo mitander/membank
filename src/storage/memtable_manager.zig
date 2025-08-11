@@ -119,7 +119,7 @@ pub const MemtableManager = struct {
     pub fn put_block_durable(self: *MemtableManager, block: ContextBlock) !void {
         concurrency.assert_main_thread();
 
-        const wal_entry = try WALEntry.create_put_block(block.*, self.backing_allocator);
+        const wal_entry = try WALEntry.create_put_block(block, self.backing_allocator);
         defer wal_entry.deinit(self.backing_allocator);
         try self.wal.write_entry(wal_entry);
 

@@ -248,9 +248,9 @@ test "large allocation stress" {
     try testing.expect(harness.storage_engine.block_count() == block_count);
 
     // Verify large blocks can be retrieved
-    const first_block = try harness.storage_engine.find_block(TestData.deterministic_block_id(0));
+    const first_block = try harness.storage_engine.find_block(TestData.deterministic_block_id(0), .query_engine);
     try testing.expect(first_block != null);
-    try testing.expect(first_block.?.content.len == large_size);
+    try testing.expect(first_block.?.extract().content.len == large_size);
 }
 
 test "cross allocator corruption detection" {
@@ -303,8 +303,8 @@ test "cross allocator corruption detection" {
     try testing.expect(harness.storage_engine.block_count() == 2);
 
     // Verify both blocks can be retrieved regardless of source allocator
-    const retrieved1 = try harness.storage_engine.find_block(block_with_main.id);
-    const retrieved2 = try harness.storage_engine.find_block(block_with_separate.id);
+    const retrieved1 = try harness.storage_engine.find_block(block_with_main.id, .query_engine);
+    const retrieved2 = try harness.storage_engine.find_block(block_with_separate.id, .query_engine);
     try testing.expect(retrieved1 != null);
     try testing.expect(retrieved2 != null);
 }

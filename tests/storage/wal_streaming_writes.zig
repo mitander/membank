@@ -92,9 +92,9 @@ test "streaming recovery basic" {
     try testing.expectEqual(@as(u32, 2), harness.storage_engine.block_count());
 
     // Verify specific blocks exist
-    const recovered_block1 = try harness.storage_engine.find_block(test_block1.id);
-    const recovered_block2 = try harness.storage_engine.find_block(test_block2.id);
-    const recovered_block3 = try harness.storage_engine.find_block(test_block3.id);
+    const recovered_block1 = try harness.storage_engine.find_block(test_block1.id, .query_engine);
+    const recovered_block2 = try harness.storage_engine.find_block(test_block2.id, .query_engine);
+    const recovered_block3 = try harness.storage_engine.find_block(test_block3.id, .query_engine);
 
     try testing.expect(recovered_block1 != null);
     try testing.expect(recovered_block2 != null);
@@ -108,7 +108,7 @@ test "streaming recovery large entries" {
     defer harness.deinit();
 
     // Create block with large content that exceeds typical buffer sizes
-    var large_block = try create_test_block(allocator, 1);
+    var large_block = try TestData.create_test_block(allocator, 1);
     allocator.free(large_block.content);
 
     const large_content_size = 32 * 1024; // 32KB content
@@ -120,8 +120,8 @@ test "streaming recovery large entries" {
     large_block.content = mutable_content;
 
     // Store large block and some normal blocks
-    const normal_block1 = try create_test_block(allocator, 2);
-    const normal_block2 = try create_test_block(allocator, 3);
+    const normal_block1 = try TestData.create_test_block(allocator, 2);
+    const normal_block2 = try TestData.create_test_block(allocator, 3);
 
     try harness.storage_engine.put_block(normal_block1);
     try harness.storage_engine.put_block(large_block);
@@ -158,7 +158,7 @@ test "streaming recovery memory efficiency" {
     try test_blocks.ensureTotalCapacity(num_entries);
 
     for (0..num_entries) |i| {
-        const test_block = try create_test_block(allocator, @as(u8, @intCast(i + 1))); // Use sequential IDs starting from 1
+        const test_block = try TestData.create_test_block(allocator, @as(u8, @intCast(i + 1))); // Use sequential IDs starting from 1
         try test_blocks.append(test_block);
         try harness.storage_engine.put_block(test_block);
     }

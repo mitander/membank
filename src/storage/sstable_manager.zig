@@ -102,8 +102,14 @@ pub const SSTableManager = struct {
         accessor: BlockOwnership,
         query_cache: std.mem.Allocator,
     ) !?OwnedBlock {
+        // Detect SSTable paths corruption and handle gracefully in fault injection tests
+        if (self.sstable_paths.items.len > 1000000) {
+            return error.CorruptedSSTablePaths;
+        }
+
         // Comprehensive corruption detection for SSTable paths array
         fatal_assert(@intFromPtr(&self.sstable_paths) != 0, "SSTable paths ArrayList structure corrupted - null pointer", .{});
+
         if (@intFromPtr(self.sstable_paths.items.ptr) == 0 and self.sstable_paths.items.len > 0) {
             // SSTable paths array corruption detected - handle gracefully in fault injection scenarios
             return error.CorruptedSSTablePaths;

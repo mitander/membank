@@ -88,8 +88,8 @@ test "high volume writes during network partition" {
     var retrieved_count: u32 = 0;
     while (i < 101) : (i += 1) {
         const block_id = TestData.deterministic_block_id(i);
-        if (try harness.storage_engine.find_block(block_id)) |retrieved| {
-            try std.testing.expect(retrieved.id.eql(block_id));
+        if (try harness.storage_engine.find_block(block_id, .query_engine)) |retrieved| {
+            try std.testing.expect(retrieved.extract().id.eql(block_id));
             retrieved_count += 1;
         }
     }
@@ -150,16 +150,16 @@ test "recovery from WAL corruption simulation" {
     // Verify we can retrieve the recovered blocks
     for (1..11) |j| {
         const block_id = TestData.deterministic_block_id(@intCast(j));
-        const recovered_block = (try harness.storage_engine.find_block(block_id)) orelse {
+        const recovered_block = (try harness.storage_engine.find_block(block_id, .query_engine)) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
-        try std.testing.expect(block_id.eql(recovered_block.id));
-        try std.testing.expectEqual(@as(u64, 1), recovered_block.version);
-        try std.testing.expectEqualStrings("test://storage_load_concurrent.zig", recovered_block.source_uri);
+        try std.testing.expect(block_id.eql(recovered_block.extract().id));
+        try std.testing.expectEqual(@as(u64, 1), recovered_block.extract().version);
+        try std.testing.expectEqualStrings("test://storage_load_concurrent.zig", recovered_block.extract().source_uri);
         try std.testing.expectEqualStrings(
             "{\"test\":\"storage_load_concurrent\"}",
-            recovered_block.metadata_json,
+            recovered_block.extract().metadata_json,
         );
     }
 }
@@ -198,12 +198,12 @@ test "large block handling limits" {
     try std.testing.expectEqual(@as(u32, 1), harness.storage_engine.block_count());
 
     // Test retrieving large block
-    const retrieved = (try harness.storage_engine.find_block(block_id)) orelse {
+    const retrieved = (try harness.storage_engine.find_block(block_id, .query_engine)) orelse {
         try testing.expect(false); // Block should exist
         return;
     };
-    try std.testing.expectEqual(@as(usize, 1024 * 1024), retrieved.content.len);
-    try std.testing.expectEqualSlices(u8, large_content, retrieved.content);
+    try std.testing.expectEqual(@as(usize, 1024 * 1024), retrieved.extract().content.len);
+    try std.testing.expectEqualSlices(u8, large_content, retrieved.extract().content);
 }
 
 test "rapid block updates concurrency" {
@@ -244,19 +244,19 @@ test "rapid block updates concurrency" {
         try harness.storage_engine.put_block(updated_block);
 
         // Verify update took effect
-        const retrieved = (try harness.storage_engine.find_block(block_id)) orelse {
+        const retrieved = (try harness.storage_engine.find_block(block_id, .query_engine)) orelse {
             try testing.expect(false); // Block should exist
             return;
         };
-        try std.testing.expectEqual(version, retrieved.version);
+        try std.testing.expectEqual(version, retrieved.extract().version);
 
         harness.tick(1);
     }
 
     // Final verification
-    const final_block = (try harness.storage_engine.find_block(block_id)).?;
-    try std.testing.expectEqual(@as(u64, 50), final_block.version);
-    try std.testing.expect(std.mem.indexOf(u8, final_block.content, "Version 50") != null);
+    const final_block = (try harness.storage_engine.find_block(block_id, .query_engine)).?;
+    try std.testing.expectEqual(@as(u64, 50), final_block.extract().version);
+    try std.testing.expect(std.mem.indexOf(u8, final_block.extract().content, "Version 50") != null);
 }
 
 test "duplicate block handling integrity" {
@@ -293,13 +293,13 @@ test "duplicate block handling integrity" {
     try std.testing.expectEqual(@as(u32, 1), harness.storage_engine.block_count());
 
     // Verify the updated version is stored
-    const retrieved = (try harness.storage_engine.find_block(block_id)) orelse {
+    const retrieved = (try harness.storage_engine.find_block(block_id, .query_engine)) orelse {
         try testing.expect(false); // Block should exist
         return;
     };
-    try std.testing.expectEqual(@as(u64, 2), retrieved.version);
-    try std.testing.expectEqualStrings("Updated content", retrieved.content);
-    try std.testing.expectEqualStrings("test://duplicate_handling_updated.zig", retrieved.source_uri);
+    try std.testing.expectEqual(@as(u64, 2), retrieved.extract().version);
+    try std.testing.expectEqualStrings("Updated content", retrieved.extract().content);
+    try std.testing.expectEqualStrings("test://duplicate_handling_updated.zig", retrieved.extract().source_uri);
 }
 
 test "graph relationship persistence" {
@@ -364,11 +364,11 @@ test "graph relationship persistence" {
 
     try std.testing.expectEqual(@as(u32, 3), harness.storage_engine.block_count());
 
-    const retrieved_main = (try harness.storage_engine.find_block(main_id)) orelse {
+    const retrieved_main = (try harness.storage_engine.find_block(main_id, .query_engine)) orelse {
         try testing.expect(false); // Block should exist
         return;
     };
-    try std.testing.expect(std.mem.indexOf(u8, retrieved_main.content, "utils.helper()") != null);
+    try std.testing.expect(std.mem.indexOf(u8, retrieved_main.extract().content, "utils.helper()") != null);
 }
 
 test "batch operations under load" {
@@ -441,17 +441,17 @@ test "batch operations under load" {
     const first_block_id = TestData.deterministic_block_id(1); // First block is now 1
     const last_block_id = TestData.deterministic_block_id(100);
 
-    const first_block = (try harness.storage_engine.find_block(first_block_id)) orelse {
+    const first_block = (try harness.storage_engine.find_block(first_block_id, .query_engine)) orelse {
         try testing.expect(false); // Block should exist
         return;
     };
-    try std.testing.expect(std.mem.indexOf(u8, first_block.content, "Batch 0 item 0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first_block.extract().content, "Batch 0 item 0") != null);
 
-    const last_block = (try harness.storage_engine.find_block(last_block_id)) orelse {
+    const last_block = (try harness.storage_engine.find_block(last_block_id, .query_engine)) orelse {
         try testing.expect(false); // Block should exist
         return;
     };
-    try std.testing.expect(std.mem.indexOf(u8, last_block.content, "Batch 4 item 19") != null);
+    try std.testing.expect(std.mem.indexOf(u8, last_block.extract().content, "Batch 4 item 19") != null);
 }
 
 test "invalid data handling robustness" {

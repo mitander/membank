@@ -121,9 +121,9 @@ test "WAL cleanup partial failure recovery" {
     defer allocator.free(test_block.content);
 
     try engine.put_block(test_block);
-    const found_block = try engine.find_block(test_block.id);
+    const found_block = try engine.find_block(test_block.id, .query_engine);
     try testing.expect(found_block != null);
-    try testing.expectEqualStrings(test_block.content, found_block.?.content);
+    try testing.expectEqualStrings(test_block.content, found_block.?.extract().content);
 
     std.debug.print("WAL cleanup fault injection test completed successfully\n", .{});
 }
@@ -170,7 +170,7 @@ test "cascading failure during post flush compaction" {
     defer allocator.free(verification_block.content);
 
     try engine.put_block(verification_block);
-    const found = try engine.find_block(verification_block.id);
+    const found = try engine.find_block(verification_block.id, .query_engine);
     try testing.expect(found != null);
 
     std.debug.print("Post-cascading-failure verification successful\n", .{});
@@ -229,7 +229,7 @@ test "WAL cleanup consistency under I/O error storm" {
     try engine.put_block(recovery_block);
     try engine.flush_memtable_to_sstable(); // Should work normally
 
-    const recovered_block = try engine.find_block(recovery_block.id);
+    const recovered_block = try engine.find_block(recovery_block.id, .query_engine);
     try testing.expect(recovered_block != null);
 
     std.debug.print("Post-I/O-storm recovery and normal operation verified\n", .{});

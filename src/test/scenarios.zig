@@ -366,8 +366,8 @@ pub const ScenarioExecutor = struct {
         };
 
         try storage_engine.put_block(recovery_block);
-        const retrieved = (try storage_engine.find_block(recovery_block.id)).?;
-        try testing.expect(retrieved.id.eql(recovery_block.id));
+        const retrieved = (try storage_engine.find_block(recovery_block.id, .query_engine)).?;
+        try testing.expect(retrieved.extract().id.eql(recovery_block.id));
     }
 };
 

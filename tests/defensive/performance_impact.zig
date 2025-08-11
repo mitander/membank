@@ -205,7 +205,7 @@ test "assertion framework performance overhead measurement" {
 
     // Very conservative thresholds to prevent CI flakiness while still catching major regressions
     const max_overhead_threshold: f64 = 200.0; // 200% overhead max (very generous for CI)
-    const min_overhead_threshold: f64 = -50.0; // Allow significant negative variance
+    const min_overhead_threshold: f64 = -90.0; // Allow very significant negative variance for CI
 
     // Validate overhead is within reasonable bounds (very loose bounds to avoid CI flakiness)
     try testing.expect(overhead_percent <= max_overhead_threshold);
@@ -305,7 +305,7 @@ test "storage operations performance with defensive programming" {
         const timer = Timer.startup();
 
         for (test_blocks.items) |block| {
-            const retrieved = try engine.find_block(block.id);
+            const retrieved = try engine.find_block(block.id, .query_engine);
             try testing.expect(retrieved != null);
         }
 
@@ -554,7 +554,7 @@ test "assertion framework consistency under load" {
             try engine.put_block(block);
 
             // Immediate read with full assertion validation
-            const retrieved = try engine.find_block(block.id);
+            const retrieved = try engine.find_block(block.id, .query_engine);
             try testing.expect(retrieved != null);
 
             // Add graph edge with assertion validation

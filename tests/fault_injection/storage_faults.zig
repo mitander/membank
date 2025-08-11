@@ -125,14 +125,14 @@ test "fault injection read corruption during query" {
     harness.tick(5);
 
     // Try to read the block - may succeed or fail due to fault injection
-    const found_block = harness.storage_engine().find_block(test_block.id) catch |err| {
+    const found_block = harness.storage_engine().find_block(test_block.id, .query_engine) catch |err| {
         // I/O failures during read are expected with fault injection
         try testing.expect(err == error.IOFailure or err == error.Corruption);
         return;
     };
 
     if (found_block) |block| {
-        try testing.expect(std.mem.eql(u8, block.content, test_block.content));
+        try testing.expect(std.mem.eql(u8, block.extract().content, test_block.content));
     }
     // Block not found is also acceptable under fault injection
 }

@@ -372,7 +372,7 @@ pub const StorageEngine = struct {
         // Hot path optimizations: minimal validation, direct access
         if (comptime builtin.mode == .Debug) {
             fatal_assert(@intFromPtr(self) != 0, "StorageEngine corrupted", .{});
-            assert.assert_fmt(block_id.bytes[0] != 0 or block_id.bytes[15] != 0, "Invalid block ID", .{});
+            assert.assert_fmt(!block_id.eql(BlockId.from_bytes([_]u8{0} ** 16)), "Invalid block ID: cannot be all zeros", .{});
         }
 
         // Fast path: check memtable first (most recent data)
@@ -775,7 +775,7 @@ test "storage engine startup and basic operations" {
     try engine.put_block(block);
     try testing.expectEqual(@as(u32, 1), engine.block_count());
 
-    const found_block = try engine.find_block(block_id);
+    const found_block = try engine.find_block(block_id, .query_engine);
     try testing.expect(found_block != null);
     try testing.expectEqualStrings("test content", found_block.?.content);
 
@@ -849,7 +849,7 @@ test "WAL recovery restores storage state" {
         try engine.startup();
         try testing.expectEqual(@as(u32, 1), engine.block_count());
 
-        const recovered_block = try engine.find_block(block_id);
+        const recovered_block = try engine.find_block(block_id, .query_engine);
         try testing.expect(recovered_block != null);
         try testing.expectEqualStrings("test content", recovered_block.?.content);
     }
@@ -1145,7 +1145,7 @@ test "error context logging for storage operations" {
     const put_result = engine.put_block(test_block);
     try testing.expectError(StorageError.NotInitialized, put_result);
 
-    const find_result = engine.find_block(test_block.id);
+    const find_result = engine.find_block(test_block.id, .query_engine);
     try testing.expectError(StorageError.NotInitialized, find_result);
 
     const delete_result = engine.delete_block(test_block.id);

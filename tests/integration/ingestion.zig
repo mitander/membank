@@ -14,6 +14,7 @@ const simulation = kausaldb.simulation;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
 const types = kausaldb.types;
+const vfs = kausaldb.vfs;
 const ingestion = kausaldb.pipeline;
 const git_source = kausaldb.git_source;
 const zig_parser = kausaldb.zig_parser;
@@ -40,19 +41,7 @@ test "complete pipeline git to storage" {
     var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "test_db");
     defer harness.deinit();
 
-    try create_test_repository(harness.vfs());
-
-    // Debug: Check what files were created
-    const file_state = try harness.vfs().state(allocator);
-    defer {
-        for (file_state) |fs| {
-            allocator.free(fs.path);
-            if (fs.content) |content| {
-                allocator.free(content);
-            }
-        }
-        allocator.free(file_state);
-    }
+    try create_test_repository(harness.vfs_ptr());
 
     // Storage engine provided by harness
 
@@ -122,13 +111,13 @@ test "complete pipeline git to storage" {
 
     // Verify blocks can be retrieved
     for (blocks) |block| {
-        const retrieved = (try harness.storage_engine.find_block(block.id)) orelse {
+        const retrieved = (try harness.storage_engine.find_block(block.id, .query_engine)) orelse {
             try testing.expect(false); // Block should exist
             continue;
         };
-        try testing.expectEqualStrings(block.content, retrieved.content);
-        try testing.expectEqualStrings(block.source_uri, retrieved.source_uri);
-        try testing.expectEqual(block.version, retrieved.version);
+        try testing.expectEqualStrings(block.content, retrieved.extract().content);
+        try testing.expectEqualStrings(block.source_uri, retrieved.extract().source_uri);
+        try testing.expectEqual(block.version, retrieved.extract().version);
     }
 
     // Verify pipeline statistics
@@ -184,14 +173,14 @@ test "zig parser extracts semantic units correctly" {
         \\}
     ;
 
-    try create_directory(&sim_vfs, "/");
-    try write_file(&sim_vfs, "/test.zig", zig_content);
+    var vfs_instance = sim_vfs.vfs();
+    try create_directory(&vfs_instance, "/");
+    try write_file(&vfs_instance, "/test.zig", zig_content);
 
     // Setup pipeline components
     var pipeline_config = PipelineConfig.init(allocator);
     defer pipeline_config.deinit();
 
-    var vfs_instance = sim_vfs.vfs();
     var pipeline = try IngestionPipeline.init(allocator, &vfs_instance, pipeline_config);
     defer pipeline.deinit();
 
@@ -357,15 +346,15 @@ test "pipeline handles parsing errors gracefully" {
     defer sim_vfs.deinit();
 
     // Create repository with unsupported file type
-    try create_directory(&sim_vfs, "/test_repo");
-    try write_file(&sim_vfs, "/test_repo/data.bin", "binary data here");
+    var vfs_instance = sim_vfs.vfs();
+    try create_directory(&vfs_instance, "/test_repo");
+    try write_file(&vfs_instance, "/test_repo/data.bin", "binary data here");
 
     // Setup pipeline with continue_on_error = true
     var pipeline_config = PipelineConfig.init(allocator);
     pipeline_config.continue_on_error = true;
     defer pipeline_config.deinit();
 
-    var vfs_instance = sim_vfs.vfs();
     var pipeline = try IngestionPipeline.init(allocator, &vfs_instance, pipeline_config);
     defer pipeline.deinit();
 
@@ -413,10 +402,11 @@ test "per file arena memory optimization preserves correctness" {
     defer sim_vfs.deinit();
 
     // Create repository with multiple Zig files to test per-file arena handling
-    try create_directory(&sim_vfs, "/multi_file_repo");
+    var vfs_instance = sim_vfs.vfs();
+    try create_directory(&vfs_instance, "/multi_file_repo");
 
     // File 1: Simple function
-    try write_file(&sim_vfs, "/multi_file_repo/file1.zig",
+    try write_file(&vfs_instance, "/multi_file_repo/file1.zig",
         \\const std = @import("std");
         \\
         \\pub fn add_numbers(a: i32, b: i32) i32 {
@@ -425,7 +415,7 @@ test "per file arena memory optimization preserves correctness" {
     );
 
     // File 2: Struct definition
-    try write_file(&sim_vfs, "/multi_file_repo/file2.zig",
+    try write_file(&vfs_instance, "/multi_file_repo/file2.zig",
         \\pub const Config = struct {
         \\    host: []const u8,
         \\    port: u16,
@@ -437,7 +427,7 @@ test "per file arena memory optimization preserves correctness" {
     );
 
     // File 3: Test function
-    try write_file(&sim_vfs, "/multi_file_repo/file3.zig",
+    try write_file(&vfs_instance, "/multi_file_repo/file3.zig",
         \\const testing = @import("std").testing;
         \\
         \\test "example test" {
@@ -450,7 +440,6 @@ test "per file arena memory optimization preserves correctness" {
     var pipeline_config = PipelineConfig.init(allocator);
     defer pipeline_config.deinit();
 
-    var vfs_instance = sim_vfs.vfs();
     var pipeline = try IngestionPipeline.init(allocator, &vfs_instance, pipeline_config);
     defer pipeline.deinit();
 
@@ -526,7 +515,8 @@ test "per file arena optimization handles large files efficiently" {
     var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    try create_directory(&sim_vfs, "/large_files_repo");
+    var vfs_instance = sim_vfs.vfs();
+    try create_directory(&vfs_instance, "/large_files_repo");
 
     // Create several files with substantial content to test memory efficiency
     const large_file_content =
@@ -565,15 +555,14 @@ test "per file arena optimization handles large files efficiently" {
     ;
 
     // Create multiple large files
-    try write_file(&sim_vfs, "/large_files_repo/large1.zig", large_file_content);
-    try write_file(&sim_vfs, "/large_files_repo/large2.zig", large_file_content);
-    try write_file(&sim_vfs, "/large_files_repo/large3.zig", large_file_content);
+    try write_file(&vfs_instance, "/large_files_repo/large1.zig", large_file_content);
+    try write_file(&vfs_instance, "/large_files_repo/large2.zig", large_file_content);
+    try write_file(&vfs_instance, "/large_files_repo/large3.zig", large_file_content);
 
     // Setup pipeline
     var pipeline_config = PipelineConfig.init(allocator);
     defer pipeline_config.deinit();
 
-    var vfs_instance = sim_vfs.vfs();
     var pipeline = try IngestionPipeline.init(allocator, &vfs_instance, pipeline_config);
     defer pipeline.deinit();
 
@@ -634,31 +623,29 @@ test "per file arena optimization handles large files efficiently" {
 }
 
 /// Helper function to create a directory
-fn create_directory(sim_vfs: *simulation_vfs.SimulationVFS, path: []const u8) !void {
-    var vfs_instance = sim_vfs.vfs();
-    try vfs_instance.mkdir(path);
+fn create_directory(vfs_interface: *vfs.VFS, path: []const u8) !void {
+    try vfs_interface.mkdir(path);
 }
 
 /// Helper function to write a file
-fn write_file(sim_vfs: *simulation_vfs.SimulationVFS, path: []const u8, content: []const u8) !void {
-    var vfs_instance = sim_vfs.vfs();
-    var file = try vfs_instance.create(path);
+fn write_file(vfs_interface: *vfs.VFS, path: []const u8, content: []const u8) !void {
+    var file = try vfs_interface.create(path);
     defer file.close();
     _ = try file.write(content);
 }
 
 /// Helper function to create a test Git repository structure
-fn create_test_repository(sim_vfs: *simulation_vfs.SimulationVFS) !void {
+fn create_test_repository(vfs_interface: *vfs.VFS) !void {
     // Create repository directory structure
-    try create_directory(sim_vfs, "/test_repo");
-    try create_directory(sim_vfs, "/test_repo/.git");
-    try create_directory(sim_vfs, "/test_repo/.git/refs");
-    try create_directory(sim_vfs, "/test_repo/.git/refs/heads");
-    try create_directory(sim_vfs, "/test_repo/src");
+    try create_directory(vfs_interface, "/test_repo");
+    try create_directory(vfs_interface, "/test_repo/.git");
+    try create_directory(vfs_interface, "/test_repo/.git/refs");
+    try create_directory(vfs_interface, "/test_repo/.git/refs/heads");
+    try create_directory(vfs_interface, "/test_repo/src");
 
     // Create Git metadata files
-    try write_file(sim_vfs, "/test_repo/.git/HEAD", "ref: refs/heads/main\n");
-    try write_file(sim_vfs, "/test_repo/.git/refs/heads/main", "abc123def456789012345678901234567890abcd\n");
+    try write_file(vfs_interface, "/test_repo/.git/HEAD", "ref: refs/heads/main\n");
+    try write_file(vfs_interface, "/test_repo/.git/refs/heads/main", "abc123def456789012345678901234567890abcd\n");
 
     // Create main.zig
     const main_zig =
@@ -680,7 +667,7 @@ fn create_test_repository(sim_vfs: *simulation_vfs.SimulationVFS) !void {
         \\    defer store.deinit();
         \\}
     ;
-    try write_file(sim_vfs, "/test_repo/src/main.zig", main_zig);
+    try write_file(vfs_interface, "/test_repo/src/main.zig", main_zig);
 
     // Create storage.zig
     const storage_zig =
@@ -726,7 +713,7 @@ fn create_test_repository(sim_vfs: *simulation_vfs.SimulationVFS) !void {
         \\    try testing.expectEqualStrings("test_value", retrieved.?);
         \\}
     ;
-    try write_file(sim_vfs, "/test_repo/src/storage.zig", storage_zig);
+    try write_file(vfs_interface, "/test_repo/src/storage.zig", storage_zig);
 
     // Create README.md (should be filtered out by default patterns)
     const readme =
@@ -740,5 +727,5 @@ fn create_test_repository(sim_vfs: *simulation_vfs.SimulationVFS) !void {
         \\- Version tracking
         \\- Test coverage
     ;
-    try write_file(sim_vfs, "/test_repo/README.md", readme);
+    try write_file(vfs_interface, "/test_repo/README.md", readme);
 }

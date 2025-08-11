@@ -395,7 +395,7 @@ pub const Server = struct {
         var result_blocks = std.ArrayList(ownership.QueryEngineBlock).init(allocator);
         defer result_blocks.deinit();
 
-        const start_block = (try self.storage_engine.find_block(start_id)) orelse {
+        const start_block = (try self.storage_engine.find_block(start_id, .query_engine)) orelse {
             const error_msg = try std.fmt.allocPrint(allocator, "Starting block not found", .{});
             connection.send_response(error_msg);
             self.stats.errors_encountered += 1;
