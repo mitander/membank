@@ -121,8 +121,64 @@ When adding new features:
 
 1.  **Use appropriate harness**: Select QueryHarness, StorageHarness, or NetworkHarness based on subsystem
 2.  **Test failure modes**: Every success path requires corresponding failure mode tests
-3.  **Validate memory safety**: Follow arena-per-subsystem memory management with proper resource cleanup
-4.  **Include performance tests**: Add benchmark coverage for performance-critical paths
+3.  **Validate memory hierarchy**: Ensure coordinators own arenas, submodules use references, sub-submodules perform pure computation
+4.  **Test allocator isolation**: Verify fault injection cannot corrupt memory across component boundaries
+5.  **Include performance tests**: Add benchmark coverage for performance-critical paths
+
+### Hierarchical Memory Testing
+
+The hierarchical memory model requires specific testing patterns to validate the coordinator→submodule→sub-submodule relationship:
+
+**Coordinator Testing:**
+
+```zig
+test "storage coordinator memory ownership" {
+    var harness = try StorageHarness.init_and_startup(allocator, "test_db");
+    defer harness.deinit();
+
+    // Coordinator owns single arena - all storage memory flows through this
+    const arena_ptr = &harness.storage_engine.storage_arena;
+
+    // Validate submodules reference coordinator's arena
+    try testing.expect(harness.storage_engine.memtable_manager.arena_allocator.ptr == arena_ptr.allocator().ptr);
+}
+```
+
+**Allocator Isolation Testing:**
+
+```zig
+test "fault injection cannot corrupt memory hierarchy" {
+    // Manual setup required because: Testing allocator isolation during fault injection
+    // requires precise control over when faults are enabled relative to memory operations
+    var harness = try FaultInjectionHarness.init_with_faults(allocator, 0x12345, "test_db", fault_config);
+    defer harness.deinit();
+
+    // Enable I/O failures after initialization
+    harness.enable_io_failures(500, .{ .read = true });
+
+    // Memory operations should remain stable despite I/O failures
+    const result = harness.storage_engine.put_block(test_block);
+    // Should succeed or fail gracefully, never corrupt memory
+}
+```
+
+**Memory Leak Prevention:**
+
+```zig
+test "coordinator arena cleanup eliminates all subsystem memory" {
+    var storage_engine = try StorageEngine.init(allocator, vfs, "test");
+
+    // Add data to multiple subsystems
+    try storage_engine.put_block(test_block);
+    try storage_engine.put_edge(test_edge);
+
+    // Single arena reset clears ALL storage memory
+    storage_engine.storage_arena.reset(.retain_capacity);
+
+    // All subsystems should reflect empty state
+    try testing.expectEqual(@as(u32, 0), storage_engine.memtable_manager.block_count());
+}
+```
 
 ### Performance Regression Testing
 
