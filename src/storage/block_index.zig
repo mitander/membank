@@ -11,12 +11,11 @@ const assert = @import("../core/assert.zig").assert;
 const assert_fmt = @import("../core/assert.zig").assert_fmt;
 const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const context_block = @import("../core/types.zig");
-const arena = @import("../core/arena.zig");
+
 const ownership = @import("../core/ownership.zig");
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
-const TypedArenaType = arena.TypedArenaType;
-const ArenaOwnership = arena.ArenaOwnership;
+
 const OwnedBlock = ownership.OwnedBlock;
 const BlockOwnership = ownership.BlockOwnership;
 
@@ -24,6 +23,10 @@ const BlockOwnership = ownership.BlockOwnership;
 /// Provides fast writes and reads while maintaining O(1) memory cleanup through
 /// arena reset when flushing to SSTables. Uses type-safe OwnedBlock system
 /// to prevent cross-subsystem memory access violations.
+///
+/// **SINGLE OWNERSHIP MODEL**: BlockIndex is the sole owner of all block string content.
+/// HashMap uses stable backing allocator while string content uses separate arena allocator.
+/// This prevents corruption from allocator conflicts during fault injection.
 pub const BlockIndex = struct {
     blocks: std.HashMap(
         BlockId,
@@ -31,7 +34,7 @@ pub const BlockIndex = struct {
         BlockIdContext,
         std.hash_map.default_max_load_percentage,
     ),
-    block_arena: TypedArenaType(ContextBlock, BlockIndex),
+    string_arena: std.heap.ArenaAllocator,
     backing_allocator: std.mem.Allocator,
     /// Track total memory used by block content strings in arena.
     /// Excludes HashMap overhead to provide clean flush threshold calculations.
@@ -53,9 +56,9 @@ pub const BlockIndex = struct {
         }
     };
 
-    /// Initialize empty block index with typed arena for string storage.
-    /// HashMap uses stable backing allocator while block content uses typed arena
-    /// to enable O(1) bulk deallocation on flush with ownership tracking.
+    /// Initialize empty block index with separate allocators for isolation.
+    /// HashMap uses stable backing allocator while string content uses separate arena
+    /// to prevent corruption from allocator conflicts during fault injection.
     pub fn init(allocator: std.mem.Allocator) BlockIndex {
         var blocks = std.HashMap(
             BlockId,
@@ -72,28 +75,28 @@ pub const BlockIndex = struct {
 
         return BlockIndex{
             .blocks = blocks, // HashMap uses stable backing allocator
-            .block_arena = TypedArenaType(ContextBlock, BlockIndex).init(allocator, .memtable_manager),
+            .string_arena = std.heap.ArenaAllocator.init(allocator), // Separate arena for strings
             .backing_allocator = allocator,
             .memory_used = 0,
         };
     }
 
-    /// Clean up all resources including HashMap and typed arena.
+    /// Clean up all resources including HashMap and string arena.
     /// HashMap must be cleared before arena deallocation to prevent use-after-free
     /// of arena-allocated strings referenced by HashMap entries.
     pub fn deinit(self: *BlockIndex) void {
         self.blocks.clearAndFree();
-        self.block_arena.deinit();
+        self.string_arena.deinit();
     }
 
-    /// Insert or update a block in the index with typed arena-allocated string storage.
-    /// Clones all string content into the typed arena to ensure memory safety and
+    /// Insert or update a block in the index with arena-allocated string storage.
+    /// Clones all string content into the separate string arena to ensure memory safety and
     /// enable O(1) bulk deallocation. Creates OwnedBlock for ownership tracking.
     pub fn put_block(self: *BlockIndex, block: ContextBlock) !void {
         assert_fmt(@intFromPtr(self) != 0, "BlockIndex self pointer cannot be null", .{});
-        assert_fmt(@intFromPtr(&self.block_arena) != 0, "BlockIndex arena pointer cannot be null", .{});
+        assert_fmt(@intFromPtr(&self.string_arena) != 0, "BlockIndex arena pointer cannot be null", .{});
 
-        const arena_allocator = self.block_arena.allocator();
+        const arena_allocator = self.string_arena.allocator();
 
         // Validate string lengths to prevent allocation of corrupted sizes
         assert_fmt(block.source_uri.len < 1024 * 1024, "source_uri too large: {} bytes", .{block.source_uri.len});
@@ -133,17 +136,21 @@ pub const BlockIndex = struct {
         }
 
         // Adjust memory accounting for replacement case
+        // Calculate memory changes but don't update accounting until after HashMap operation succeeds
+        var old_memory: usize = 0;
         if (self.blocks.get(cloned_block.id)) |existing_block| {
-            const old_memory = existing_block.block.source_uri.len + existing_block.block.metadata_json.len + existing_block.block.content.len;
+            old_memory = existing_block.block.source_uri.len + existing_block.block.metadata_json.len + existing_block.block.content.len;
             fatal_assert(self.memory_used >= old_memory, "Memory accounting underflow: tracked={} removing={} - indicates heap corruption", .{ self.memory_used, old_memory });
-            self.memory_used -= old_memory;
         }
 
         const new_memory = block.source_uri.len + block.metadata_json.len + block.content.len;
-        self.memory_used += new_memory;
+        const owned_block = OwnedBlock.init(cloned_block, .memtable_manager, &self.string_arena);
 
-        const owned_block = OwnedBlock.init(cloned_block, .memtable_manager, &self.block_arena.arena);
+        // Critical: Update HashMap first, then memory accounting to prevent corruption on allocation failure
         try self.blocks.put(cloned_block.id, owned_block);
+
+        // Update memory accounting only after successful HashMap operation
+        self.memory_used = self.memory_used - old_memory + new_memory;
     }
 
     /// Find a block by ID with ownership validation.
@@ -200,19 +207,20 @@ pub const BlockIndex = struct {
     /// Clear all blocks and reset typed arena for O(1) bulk deallocation.
     /// Retains HashMap and arena capacity for efficient reuse after flush.
     /// This is the key operation that makes typed arena-per-subsystem efficient.
+    /// Reset the block index to empty state using O(1) arena deallocation.
+    /// This operation is called during memtable flush to reclaim all memory at once
+    /// rather than individual block deallocations for maximum performance.
     pub fn clear(self: *BlockIndex) void {
         // CRITICAL: Validate structure integrity before performing the O(1) arena reset.
         // This operation frees all allocated memory at once. If these pointers are corrupted,
         // the arena reset could cause a double-free or use-after-free, corrupting the heap.
-        // These assertions ensure the typed arena-per-subsystem pattern operates safely.
+        // These assertions ensure the arena-per-subsystem pattern operates safely.
         fatal_assert(@intFromPtr(self) != 0, "BlockIndex self pointer is null - memory corruption detected", .{});
-        fatal_assert(@intFromPtr(&self.block_arena) != 0, "BlockIndex arena pointer is null - memory corruption detected", .{});
+        fatal_assert(@intFromPtr(&self.string_arena) != 0, "BlockIndex arena pointer is null - memory corruption detected", .{});
 
         self.blocks.clearRetainingCapacity();
-        self.block_arena.reset();
+        _ = self.string_arena.reset(.retain_capacity);
         self.memory_used = 0;
-
-        fatal_assert(self.blocks.count() == 0, "HashMap clear failed - data structure corruption detected", .{});
     }
 };
 

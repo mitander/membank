@@ -9,14 +9,13 @@
 const std = @import("std");
 const assert = @import("../core/assert.zig");
 const context_block = @import("../core/types.zig");
-const arena = @import("../core/arena.zig");
+
 const ownership = @import("../core/ownership.zig");
 
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
 const EdgeType = context_block.EdgeType;
-const TypedArenaType = arena.TypedArenaType;
-const ArenaOwnership = arena.ArenaOwnership;
+
 const BlockOwnership = ownership.BlockOwnership;
 
 pub const OwnedGraphEdge = struct {
@@ -43,6 +42,9 @@ pub const OwnedGraphEdge = struct {
     }
 };
 
+/// **SINGLE OWNERSHIP MODEL**: GraphEdgeIndex is the sole owner of all graph edge data.
+/// HashMap uses stable backing allocator while edge content uses separate arena allocator.
+/// This prevents corruption from allocator conflicts during fault injection.
 pub const GraphEdgeIndex = struct {
     outgoing_edges: std.HashMap(
         BlockId,
@@ -56,7 +58,7 @@ pub const GraphEdgeIndex = struct {
         BlockIdContext,
         std.hash_map.default_max_load_percentage,
     ),
-    edge_arena: TypedArenaType(GraphEdge, GraphEdgeIndex),
+    edge_arena: std.heap.ArenaAllocator,
     backing_allocator: std.mem.Allocator,
 
     const BlockIdContext = struct {
@@ -73,6 +75,9 @@ pub const GraphEdgeIndex = struct {
         }
     };
 
+    /// Initialize empty graph edge index with separate allocators for isolation.
+    /// HashMap uses stable backing allocator while edge content uses separate arena
+    /// to prevent corruption from allocator conflicts during fault injection.
     pub fn init(allocator: std.mem.Allocator) GraphEdgeIndex {
         return GraphEdgeIndex{
             .outgoing_edges = std.HashMap(
@@ -87,7 +92,7 @@ pub const GraphEdgeIndex = struct {
                 BlockIdContext,
                 std.hash_map.default_max_load_percentage,
             ).init(allocator),
-            .edge_arena = TypedArenaType(GraphEdge, GraphEdgeIndex).init(allocator, .memtable_manager),
+            .edge_arena = std.heap.ArenaAllocator.init(allocator),
             .backing_allocator = allocator,
         };
     }
@@ -291,7 +296,7 @@ pub const GraphEdgeIndex = struct {
         self.outgoing_edges.clearRetainingCapacity();
         self.incoming_edges.clearRetainingCapacity();
 
-        self.edge_arena.reset();
+        _ = self.edge_arena.reset(.retain_capacity);
     }
 };
 

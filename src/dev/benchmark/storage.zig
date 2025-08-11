@@ -196,14 +196,14 @@ fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allo
 
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = block_ids[i % block_ids.len];
-        _ = try storage_engine.find_block(block_id);
+        _ = try storage_engine.find_block(block_id, .temporary);
     }
 
     for (0..ITERATIONS) |i| {
         const block_id = block_ids[i % block_ids.len];
 
         const start_time = std.time.nanoTimestamp();
-        _ = try storage_engine.find_block(block_id);
+        _ = try storage_engine.find_block(block_id, .temporary);
         const end_time = std.time.nanoTimestamp();
 
         timings[i] = @intCast(end_time - start_time);

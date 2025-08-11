@@ -43,15 +43,25 @@ test "L0 threshold trigger" {
     var manager = TieredCompactionManager.init(
         allocator,
         sim_vfs.vfs(),
-        "/test_l0_compaction",
+        "/test_l0_threshold",
     );
     defer manager.deinit();
+
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(4); // 3 SSTables + 1 trigger
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
 
     // Add SSTables to L0 below threshold
     var i: u32 = 0;
     while (i < 3) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "sstable_{}.sst", .{i});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, 1024 * 1024, 0); // 1MB SSTable
     }
 
@@ -60,7 +70,7 @@ test "L0 threshold trigger" {
 
     // Add one more to trigger threshold
     const trigger_path = try std.fmt.allocPrint(allocator, "sstable_trigger.sst", .{});
-    defer allocator.free(trigger_path);
+    try managed_paths.append(trigger_path);
     try manager.add_sstable(trigger_path, 1024 * 1024, 0);
 
     // Should now trigger L0 compaction
@@ -80,16 +90,26 @@ test "size based higher levels" {
     var manager = TieredCompactionManager.init(
         allocator,
         sim_vfs.vfs(),
-        "/test_size_tiered",
+        "/test_size_based",
     );
     defer manager.deinit();
+
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(8); // 8 L1 SSTables
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
 
     // Add multiple SSTables to L1 with similar sizes to trigger compaction
     const sstable_size = 10 * 1024 * 1024; // 10MB
     var i: u32 = 0;
     while (i < 8) : (i += 1) { // Increase to 8 SSTables to ensure compaction threshold
         const path = try std.fmt.allocPrint(allocator, "l1_sstable_{}.sst", .{i});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, sstable_size, 1);
     }
 
@@ -116,6 +136,16 @@ test "tier state management and tracking" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(5); // 3 levels + 1 remove path + buffer
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     // Add SSTables to different levels
     const levels_and_sizes = [_]struct { level: u8, size: u64 }{
         .{ .level = 0, .size = 1024 * 1024 }, // 1MB
@@ -125,13 +155,13 @@ test "tier state management and tracking" {
 
     for (levels_and_sizes, 0..) |item, i| {
         const path = try std.fmt.allocPrint(allocator, "level_{}_sstable_{}.sst", .{ item.level, i });
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, item.size, item.level);
     }
 
     // Test removal
     const remove_path = try std.fmt.allocPrint(allocator, "level_0_sstable_0.sst", .{});
-    defer allocator.free(remove_path);
+    try managed_paths.append(remove_path); // tidy:ignore-perf Single append in test cleanup
     manager.remove_sstable(remove_path, 0);
 
     // State should be updated correctly (hard to verify without exposing internals)
@@ -151,11 +181,21 @@ test "compaction job creation and validation" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(5); // 5 SSTables for compaction job test
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     // Set up scenario that triggers compaction
     var i: u32 = 0;
     while (i < 5) : (i += 1) { // Above L0 threshold
         const path = try std.fmt.allocPrint(allocator, "job_test_sstable_{}.sst", .{i});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, 1024 * 1024, 0);
     }
 
@@ -182,6 +222,16 @@ test "compaction configuration validation" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(3); // 2 config test + 1 trigger
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     // Test with different configuration values
     // This validates that configuration is respected
 
@@ -192,7 +242,7 @@ test "compaction configuration validation" {
     var i: u32 = 0;
     while (i < 2) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "config_test_{}.sst", .{i});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, 1024 * 1024, 0);
     }
 
@@ -200,8 +250,8 @@ test "compaction configuration validation" {
     try testing.expect((try manager.check_compaction_needed()) == null);
 
     // Add one more to hit threshold
-    const trigger_path = try std.fmt.allocPrint(allocator, "config_trigger.sst", .{});
-    defer allocator.free(trigger_path);
+    const trigger_path = try std.fmt.allocPrint(allocator, "sstable_trigger.sst", .{});
+    try managed_paths.append(trigger_path);
     try manager.add_sstable(trigger_path, 1024 * 1024, 0);
 
     // Should now trigger
@@ -223,12 +273,22 @@ test "multi level compaction scenarios" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(18); // 5 L0 + 10 L1 + 3 compacted results
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     // Create scenario with multiple levels needing compaction
     // L0: Add above threshold
     var i: u32 = 0;
     while (i < 5) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "l0_multi_{}.sst", .{i});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, 1024 * 1024, 0);
     }
 
@@ -236,7 +296,7 @@ test "multi level compaction scenarios" {
     i = 0;
     while (i < 10) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "l1_multi_{}.sst", .{i});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, 10 * 1024 * 1024, 1);
     }
 
@@ -260,12 +320,22 @@ test "compaction with large SSTables" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(5); // 3 large files + 2 edge cases
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     // Add very large SSTables to test size handling
     const large_size = 1024 * 1024 * 1024; // 1GB
     var i: u32 = 0;
     while (i < 3) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "large_sstable_{}.sst", .{i});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, large_size, 2);
     }
 
@@ -292,12 +362,22 @@ test "compaction edge cases and error conditions" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(100); // Large test with up to 100 files
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     // Test removing non-existent SSTable (should not crash)
     manager.remove_sstable("non_existent.sst", 0);
 
     // Test adding SSTable to highest level
     const max_level_path = try std.fmt.allocPrint(allocator, "max_level.sst", .{});
-    defer allocator.free(max_level_path);
+    try managed_paths.append(max_level_path);
     try manager.add_sstable(max_level_path, 1024 * 1024, 7); // L7 is max
 
     // Should not crash when checking compaction on max level
@@ -308,7 +388,7 @@ test "compaction edge cases and error conditions" {
 
     // Test zero-size SSTable
     const zero_size_path = try std.fmt.allocPrint(allocator, "zero_size.sst", .{});
-    defer allocator.free(zero_size_path);
+    try managed_paths.append(zero_size_path);
     try manager.add_sstable(zero_size_path, 0, 1);
 }
 
@@ -325,6 +405,16 @@ test "compaction performance characteristics" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(100); // sstable_count = 100
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     const start_time = std.time.nanoTimestamp();
 
     // Add many SSTables to test performance
@@ -333,7 +423,7 @@ test "compaction performance characteristics" {
     var i: u32 = 0;
     while (i < sstable_count) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "perf_test_{}.sst", .{i});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         const level: u8 = @intCast(i % 4); // Distribute across levels
         try manager.add_sstable(path, 1024 * 1024, level);
     }
@@ -376,6 +466,16 @@ test "tier state consistency under operations" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(30); // 10 + 15 + 5 lifecycle paths
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     // Simulate realistic SSTable lifecycle
     var sstable_counter: u32 = 0;
 
@@ -383,7 +483,7 @@ test "tier state consistency under operations" {
     var i: u32 = 0;
     while (i < 10) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "lifecycle_{}.sst", .{sstable_counter});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, 1024 * 1024, 0);
         sstable_counter += 1;
     }
@@ -400,7 +500,7 @@ test "tier state consistency under operations" {
 
         // Add resulting SSTable to target level
         const output_path = try std.fmt.allocPrint(allocator, "compacted_{}.sst", .{sstable_counter});
-        defer allocator.free(output_path);
+        try managed_paths.append(output_path);
         try manager.add_sstable(output_path, 5 * 1024 * 1024, job.output_level);
         sstable_counter += 1;
     }
@@ -409,7 +509,7 @@ test "tier state consistency under operations" {
     i = 0;
     while (i < 5) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "post_compact_{}.sst", .{sstable_counter});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, 1024 * 1024, 0);
         sstable_counter += 1;
     }
@@ -434,11 +534,21 @@ test "compaction strategies across tier sizes" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(16); // 4 L0 + 8 L1 + 4 compacted
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     // Test L0 → L1 compaction (count-based)
     var i: u32 = 0;
     while (i < 4) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "strategy_l0_{}.sst", .{i});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, 1024 * 1024, 0);
     }
 
@@ -453,7 +563,7 @@ test "compaction strategies across tier sizes" {
             manager.remove_sstable(input_path, 0);
         }
         const l1_path = try std.fmt.allocPrint(allocator, "compacted_to_l1.sst", .{});
-        defer allocator.free(l1_path);
+        try managed_paths.append(l1_path);
         try manager.add_sstable(l1_path, 8 * 1024 * 1024, 1);
     }
 
@@ -461,7 +571,7 @@ test "compaction strategies across tier sizes" {
     i = 0;
     while (i < 8) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "strategy_l1_{}.sst", .{i});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, 10 * 1024 * 1024, 1);
     }
 

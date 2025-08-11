@@ -298,6 +298,7 @@ pub fn execute_traversal(
 ) !TraversalResult {
     // Use arena allocator for all query results - O(1) cleanup
     var query_arena = std.heap.ArenaAllocator.init(backing_allocator);
+    errdefer query_arena.deinit();
     const allocator = query_arena.allocator();
     try query.validate();
 

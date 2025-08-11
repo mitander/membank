@@ -7,13 +7,15 @@
 //! maintain optimal read performance through background compaction.
 
 const std = @import("std");
+const builtin = @import("builtin");
+const log = std.log.scoped(.sstable_manager);
 const assert = @import("../core/assert.zig").assert;
 const assert_fmt = @import("../core/assert.zig").assert_fmt;
 const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const vfs = @import("../core/vfs.zig");
 const context_block = @import("../core/types.zig");
 const concurrency = @import("../core/concurrency.zig");
-const arena = @import("../core/arena.zig");
+
 const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
@@ -27,8 +29,7 @@ const BlockId = context_block.BlockId;
 const SSTable = sstable.SSTable;
 const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const TypedArenaType = arena.TypedArenaType;
-const ArenaOwnership = arena.ArenaOwnership;
+
 const OwnedBlock = ownership.OwnedBlock;
 const BlockOwnership = ownership.BlockOwnership;
 
@@ -36,6 +37,11 @@ const BlockOwnership = ownership.BlockOwnership;
 /// Provides single ownership boundary for all persistent storage state
 /// including discovery, read coordination, and compaction management.
 /// Uses TypedArena for safe memory management and OwnedBlock for access control.
+///
+/// **SINGLE OWNERSHIP MODEL**: This component is the sole owner of all SSTable path strings and block data.
+/// Other components (like TieredCompactionManager) use path indices/references rather than copies.
+/// HashMap uses stable backing allocator while block content uses separate arena allocator.
+/// This prevents use-after-free bugs and allocator conflicts during fault injection.
 pub const SSTableManager = struct {
     backing_allocator: std.mem.Allocator,
     vfs: VFS,
@@ -43,9 +49,11 @@ pub const SSTableManager = struct {
     sstable_paths: std.ArrayList([]const u8),
     next_sstable_id: u32,
     compaction_manager: TieredCompactionManager,
-    block_arena: TypedArenaType(ContextBlock, SSTableManager),
+    block_arena: std.heap.ArenaAllocator,
 
-    /// Initialize SSTable manager with TypedArena for type-safe block management.
+    /// Initialize SSTable manager with separate allocators for isolation.
+    /// Path ArrayList uses stable backing allocator while block content uses separate arena
+    /// to prevent corruption from allocator conflicts during fault injection.
     pub fn init(
         allocator: std.mem.Allocator,
         filesystem: VFS,
@@ -62,20 +70,42 @@ pub const SSTableManager = struct {
                 filesystem,
                 data_dir,
             ),
-            .block_arena = TypedArenaType(ContextBlock, SSTableManager).init(allocator, .sstable_manager),
+            .block_arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
 
     pub fn deinit(self: *SSTableManager) void {
         concurrency.assert_main_thread();
 
-        for (self.sstable_paths.items) |sstable_path| {
-            self.backing_allocator.free(sstable_path);
+        // Free all our copied paths before deinitializing the ArrayList
+        for (self.sstable_paths.items) |path| {
+            self.backing_allocator.free(path);
         }
         self.sstable_paths.deinit();
-
         self.compaction_manager.deinit();
         self.block_arena.deinit();
+    }
+
+    /// Find path by index for external components (read-only access).
+    /// This provides safe access to path strings without transferring ownership.
+    /// Used by TieredCompactionManager and other components that need path references.
+    pub fn find_path_by_index(self: *const SSTableManager, index: u32) ?[]const u8 {
+        if (index >= self.sstable_paths.items.len) {
+            return null;
+        }
+        return self.sstable_paths.items[index];
+    }
+
+    /// Register an SSTable path and return its index for reference management.
+    /// This is the ONLY way to add paths to the system, ensuring single ownership.
+    /// Returns the index that other components can use to reference this path.
+    fn register_sstable_path(self: *SSTableManager, path: []const u8) !u32 {
+        // Pre-allocate capacity for performance
+        try self.sstable_paths.ensureTotalCapacity(self.sstable_paths.items.len + 1);
+        // Create our own copy to ensure single ownership
+        const path_copy = try self.backing_allocator.dupe(u8, path);
+        try self.sstable_paths.append(path_copy);
+        return @intCast(self.sstable_paths.items.len - 1);
     }
 
     /// Discover existing SSTables and register with compaction manager.
@@ -130,8 +160,14 @@ pub const SSTableManager = struct {
             fatal_assert(@intFromPtr(sstable_path.ptr) != 0 or sstable_path.len == 0, "SSTable path[{}] has null pointer with length {} - string corruption", .{ i, sstable_path.len });
             fatal_assert(sstable_path.len < 4096, "SSTable path[{}] has suspicious length {} - possible corruption", .{ i, sstable_path.len });
 
-            var sstable_file = SSTable.init(query_cache, self.vfs, sstable_path);
-            sstable_file.read_index() catch continue; // Skip corrupted SSTables
+            const sstable_path_copy = try query_cache.dupe(u8, sstable_path);
+            var sstable_file = SSTable.init(query_cache, self.vfs, sstable_path_copy);
+
+            // CRITICAL: Track SSTable index loading failures,
+            sstable_file.read_index() catch |err| {
+                log.warn("SSTable index loading failed for '{s}': {} - block lookup will fail for this SSTable", .{ sstable_path, err });
+                continue; // Skip this SSTable but log the failure
+            };
             defer sstable_file.deinit();
 
             if (try sstable_file.find_block(block_id)) |block| {
@@ -143,7 +179,7 @@ pub const SSTableManager = struct {
                     .metadata_json = try arena_allocator.dupe(u8, block.block.metadata_json),
                     .content = try arena_allocator.dupe(u8, block.block.content),
                 };
-                const owned_block = OwnedBlock.init(cloned_block, accessor, &self.block_arena.arena);
+                const owned_block = OwnedBlock.init(cloned_block, accessor, &self.block_arena);
                 return owned_block;
             }
         }
@@ -183,8 +219,8 @@ pub const SSTableManager = struct {
             "{s}/sst/sstable_{:04}.sst",
             .{ self.data_dir, self.next_sstable_id },
         );
-        // Ensure string is properly managed by storing it immediately
-        errdefer self.backing_allocator.free(sstable_filename);
+        // Free after all consumers have made their own copies
+        defer self.backing_allocator.free(sstable_filename);
         self.next_sstable_id += 1;
 
         const sorted_blocks = try self.backing_allocator.alloc(ContextBlock, owned_blocks.len);
@@ -208,16 +244,18 @@ pub const SSTableManager = struct {
         }
         try new_sstable.write_blocks(sorted_blocks);
 
-        // Add to compaction manager first (which duplicates the path)
+        // Register path in single ownership system and get reference
+        const path_index = try self.register_sstable_path(sstable_filename);
+        const owned_path = self.sstable_paths.items[path_index];
+        const file_size = try self.read_file_size(sstable_filename);
+
+        // Pass owned path reference to compaction manager (no copying)
+        // TieredCompactionManager will store reference, not copy
         try self.compaction_manager.add_sstable(
-            sstable_filename,
-            try self.read_file_size(sstable_filename),
+            owned_path,
+            file_size,
             0, // Level 0 for new SSTables
         );
-
-        // Store our own copy in sstable_paths
-        try self.sstable_paths.ensureTotalCapacity(self.sstable_paths.items.len + 1);
-        try self.sstable_paths.append(sstable_filename);
     }
 
     /// Check if compaction is beneficial based on SSTable collection state.
@@ -301,10 +339,34 @@ pub const SSTableManager = struct {
                 "{s}/{s}",
                 .{ sst_dir, entry.name },
             );
-            try self.sstable_paths.append(full_path);
 
-            const file_size = try self.read_file_size(full_path);
-            try self.compaction_manager.add_sstable(full_path, file_size, 0);
+            // Corruption tracking: Validate path before append
+            if (builtin.mode == .Debug) {
+                fatal_assert(full_path.len > 0 and full_path.len < 4096, "Invalid path length: {}, path: '{s}'", .{ full_path.len, full_path });
+                fatal_assert(@intFromPtr(full_path.ptr) != 0, "Path pointer is null", .{});
+            }
+
+            // Corruption tracking: Validate ArrayList before append
+            self.validate_sstable_paths_integrity("before append") catch |err| {
+                log.err("CORRUPTION: ArrayList corrupted before appending path '{s}': {}", .{ full_path, err });
+                self.backing_allocator.free(full_path);
+                return err;
+            };
+
+            // Register path in single ownership system and get index for reference
+            const path_index = try self.register_sstable_path(full_path);
+
+            // Free the temporary path since register_sstable_path made its own copy
+            self.backing_allocator.free(full_path);
+
+            // Get our owned copy for file operations
+            const path_copy = self.sstable_paths.items[path_index];
+            const file_size = try self.read_file_size(path_copy);
+
+            // Pass owned path reference to compaction manager (no copying)
+            // TieredCompactionManager will store reference, not copy
+            try self.compaction_manager.add_sstable(path_copy, file_size, 0);
+
             if (self.parse_sstable_id_from_path(entry.name)) |id| {
                 if (id >= self.next_sstable_id) {
                     self.next_sstable_id = id + 1;
@@ -332,6 +394,110 @@ pub const SSTableManager = struct {
 
         const id_str = filename[8 .. filename.len - 4];
         return std.fmt.parseInt(u32, id_str, 10) catch null;
+    }
+
+    /// Comprehensive ArrayList corruption detection and validation.
+    /// Returns error if corruption is detected, logs detailed diagnostics.
+    fn validate_sstable_paths_integrity(self: *SSTableManager, context: []const u8) !void {
+        // Basic structure validation
+        if (self.sstable_paths.items.len > 1000000) {
+            log.err("CORRUPTION DETECTED [{s}]: ArrayList len corrupted: {}", .{ context, self.sstable_paths.items.len });
+            return error.CorruptedSSTablePaths;
+        }
+
+        if (@intFromPtr(&self.sstable_paths) == 0) {
+            log.err("CORRUPTION DETECTED [{s}]: ArrayList structure pointer is null", .{context});
+            return error.CorruptedSSTablePaths;
+        }
+
+        if (self.sstable_paths.items.len > 0) {
+            if (@intFromPtr(self.sstable_paths.items.ptr) == 0) {
+                log.err("CORRUPTION DETECTED [{s}]: ArrayList items pointer null with len={}", .{ context, self.sstable_paths.items.len });
+                return error.CorruptedSSTablePaths;
+            }
+
+            if (self.sstable_paths.capacity < self.sstable_paths.items.len) {
+                log.err("CORRUPTION DETECTED [{s}]: ArrayList capacity {} < len {}", .{ context, self.sstable_paths.capacity, self.sstable_paths.items.len });
+                return error.CorruptedSSTablePaths;
+            }
+        }
+
+        // Validate individual path strings
+        for (self.sstable_paths.items, 0..) |path, i| {
+            // Check for null or invalid length paths
+            if (path.len == 0) {
+                log.warn("CORRUPTION WARNING [{s}]: Empty path at index {}", .{ context, i });
+                continue;
+            }
+
+            if (path.len > 4096) {
+                log.err("CORRUPTION DETECTED [{s}]: Path length {} too large at index {}", .{ context, path.len, i });
+                return error.CorruptedSSTablePaths;
+            }
+
+            if (@intFromPtr(path.ptr) == 0) {
+                log.err("CORRUPTION DETECTED [{s}]: Null path pointer at index {}, len={}", .{ context, i, path.len });
+                return error.CorruptedSSTablePaths;
+            }
+
+            // Check for obviously corrupted path content (non-printable chars)
+            var printable_chars: u32 = 0;
+            var total_chars: u32 = 0;
+            for (path[0..@min(path.len, 64)]) |char| {
+                total_chars += 1;
+                if (char >= 32 and char <= 126) {
+                    printable_chars += 1;
+                }
+            }
+
+            if (total_chars > 0 and printable_chars * 100 / total_chars < 50) {
+                log.err("CORRUPTION DETECTED [{s}]: Path at index {} has {}% printable chars, likely corrupted: '{any}'", .{ context, i, printable_chars * 100 / total_chars, path[0..@min(path.len, 32)] });
+                return error.CorruptedSSTablePaths;
+            }
+        }
+
+        // Log successful validation in debug mode
+        if (builtin.mode == .Debug and self.sstable_paths.items.len > 0) {
+            log.debug("ArrayList integrity OK [{s}]: len={}, cap={}, ptr={}, first_path='{s}'", .{ context, self.sstable_paths.items.len, self.sstable_paths.capacity, @intFromPtr(self.sstable_paths.items.ptr), if (self.sstable_paths.items.len > 0) self.sstable_paths.items[0] else "none" });
+        }
+    }
+
+    /// Enhanced periodic validation that logs detailed memory state for corruption debugging.
+    /// Call this from various points to track when corruption occurs.
+    pub fn debug_validate_with_timing(self: *SSTableManager, context: []const u8, operation_details: []const u8) void {
+        if (builtin.mode != .Debug) return;
+
+        const list_addr = @intFromPtr(&self.sstable_paths);
+        const items_ptr = if (self.sstable_paths.items.len > 0) @intFromPtr(self.sstable_paths.items.ptr) else 0;
+
+        log.debug("TIMING CHECK [{s}] {s}: ArrayList@0x{X} len={} cap={} items@0x{X}", .{ context, operation_details, list_addr, self.sstable_paths.items.len, self.sstable_paths.capacity, items_ptr });
+
+        // Quick corruption check without error propagation
+        if (self.sstable_paths.items.len > 1000000) {
+            log.err("CORRUPTION TIMING [{s}]: ArrayList len corrupted to {} during {s}", .{ context, self.sstable_paths.items.len, operation_details });
+            return;
+        }
+
+        // Sample first few paths for corruption
+        const sample_count = @min(self.sstable_paths.items.len, 3);
+        for (self.sstable_paths.items[0..sample_count], 0..) |path, i| {
+            if (path.len > 4096) {
+                log.err("CORRUPTION TIMING [{s}]: Path {} corrupted (len={}) during {s}", .{ context, i, path.len, operation_details });
+                return;
+            }
+
+            if (path.len > 0) {
+                var printable: u32 = 0;
+                const check_len = @min(path.len, 16);
+                for (path[0..check_len]) |c| {
+                    if (c >= 32 and c <= 126) printable += 1;
+                }
+                if (printable * 100 / check_len < 50) {
+                    log.err("CORRUPTION TIMING [{s}]: Path {} has garbled content during {s}: {any}", .{ context, i, operation_details, path[0..check_len] });
+                    return;
+                }
+            }
+        }
     }
 };
 

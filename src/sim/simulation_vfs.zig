@@ -17,7 +17,6 @@ const testing = std.testing;
 const vfs_types = @import("../core/vfs.zig");
 const state_machines = @import("../core/state_machines.zig");
 const file_handle = @import("../core/file_handle.zig");
-const arena = @import("../core/arena.zig");
 
 const VFS = vfs_types.VFS;
 const VFile = vfs_types.VFile;
@@ -30,7 +29,6 @@ const FileHandleId = file_handle.FileHandleId;
 const FileAccessMode = file_handle.FileAccessMode;
 const FileOperations = file_handle.FileOperations;
 const FileHandleRegistry = file_handle.FileHandleRegistry;
-const TypedArenaType = arena.TypedArenaType;
 
 /// Type alias for VFile write operations with fault injection
 const VFileWriteError = VFileError;
@@ -106,7 +104,7 @@ const FileStorage = struct {
 pub const SimulationVFS = struct {
     magic: u64,
     allocator: std.mem.Allocator,
-    file_arena: TypedArenaType(FileStorage, SimulationVFS),
+    file_arena: std.heap.ArenaAllocator,
     files: std.StringHashMap(FileHandleId),
     file_storage: std.ArrayList(FileStorage),
     handle_registry: FileHandleRegistry,
@@ -114,11 +112,6 @@ pub const SimulationVFS = struct {
     fault_injection: FaultInjectionState,
 
     const MAGIC_NUMBER: u64 = 0xDEADBEEFCAFEBABE;
-
-    comptime {
-        // Validate struct follows type safety guidelines
-        arena.validate_arena_naming(@This());
-    }
 
     const Self = @This();
 
@@ -259,7 +252,7 @@ pub const SimulationVFS = struct {
     /// Creates a simulation filesystem with reproducible I/O failures.
     /// Useful for testing how the system handles file errors.
     pub fn init_with_fault_seed(allocator: std.mem.Allocator, seed: u64) !SimulationVFS {
-        var file_arena = TypedArenaType(FileStorage, SimulationVFS).init(allocator, .simulation_test);
+        var file_arena = std.heap.ArenaAllocator.init(allocator);
         errdefer file_arena.deinit();
 
         const files = std.StringHashMap(FileHandleId).init(allocator);

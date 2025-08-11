@@ -9,12 +9,39 @@ const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
 const TieredCompactionManager = kausaldb.storage.TieredCompactionManager;
+const SSTableManager = kausaldb.storage.SSTableManager;
 const StorageEngine = kausaldb.storage.StorageEngine;
 const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
 const ContextBlock = kausaldb.types.ContextBlock;
 const BlockId = kausaldb.types.BlockId;
 const TestData = kausaldb.TestData;
 const StorageHarness = kausaldb.StorageHarness;
+
+// Helper for managing path lifetimes in TieredCompactionManager tests
+const TestPathManager = struct {
+    allocator: std.mem.Allocator,
+    paths: std.ArrayList([]const u8),
+
+    fn init(allocator: std.mem.Allocator) TestPathManager {
+        return TestPathManager{
+            .allocator = allocator,
+            .paths = std.ArrayList([]const u8).init(allocator),
+        };
+    }
+
+    fn deinit(self: *TestPathManager) void {
+        for (self.paths.items) |path| {
+            self.allocator.free(path);
+        }
+        self.paths.deinit();
+    }
+
+    fn add_managed_path(self: *TestPathManager, comptime fmt: []const u8, args: anytype) ![]const u8 {
+        const path = try std.fmt.allocPrint(self.allocator, fmt, args);
+        try self.paths.append(path);
+        return path;
+    }
+};
 
 // Helper function to check compaction without leaking memory
 fn check_compaction_and_cleanup(manager: *TieredCompactionManager) bool {
@@ -112,6 +139,7 @@ test "compaction memory efficiency under large datasets" {
     // Create large dataset to test memory efficiency during compaction
     const large_dataset_size = 10000;
     var test_blocks = std.ArrayList(ContextBlock).init(allocator);
+    try test_blocks.ensureTotalCapacity(large_dataset_size);
     defer {
         for (test_blocks.items) |block| {
             allocator.free(block.content);
@@ -175,6 +203,16 @@ test "compaction strategy adaptability to workload patterns" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(25); // 15 write_heavy + 10 large_l1 paths
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     // Test different workload patterns and verify appropriate compaction strategies
 
     // Pattern 1: Write-heavy workload (many small L0 files)
@@ -187,7 +225,7 @@ test "compaction strategy adaptability to workload patterns" {
                 "write_heavy_{}_{}.sst",
                 .{ write_heavy_cycle, i },
             );
-            defer allocator.free(path);
+            try managed_paths.append(path);
             try manager.add_sstable(path, 1024 * 1024, 0); // 1MB files
         }
 
@@ -209,7 +247,7 @@ test "compaction strategy adaptability to workload patterns" {
                 "compacted_write_heavy_{}.sst",
                 .{write_heavy_cycle},
             );
-            defer allocator.free(result_path);
+            try managed_paths.append(result_path);
             try manager.add_sstable(result_path, 5 * 1024 * 1024, 1); // 5MB result
         }
     }
@@ -218,7 +256,7 @@ test "compaction strategy adaptability to workload patterns" {
     var large_file_idx: u32 = 0;
     while (large_file_idx < 10) : (large_file_idx += 1) {
         const path = try std.fmt.allocPrint(allocator, "large_l1_{}.sst", .{large_file_idx});
-        defer allocator.free(path);
+        try managed_paths.append(path);
         try manager.add_sstable(path, 50 * 1024 * 1024, 1); // 50MB files
     }
 
@@ -244,6 +282,16 @@ test "compaction robustness under concurrent modifications" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(500); // ~1/3 of 1000 operations are adds
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     // Simulate concurrent SSTable additions and removals during compaction planning
     const concurrent_operations = 1000;
 
@@ -253,9 +301,9 @@ test "compaction robustness under concurrent modifications" {
 
         switch (operation_type) {
             0 => {
-                // Add SSTable
+                // Add SSTable with managed path lifetime
                 const path = try std.fmt.allocPrint(allocator, "concurrent_{}.sst", .{operation_count});
-                defer allocator.free(path);
+                try managed_paths.append(path);
                 const level: u8 = @intCast(operation_count % 4);
                 const size = (operation_count % 10 + 1) * 1024 * 1024; // 1-10MB
                 try manager.add_sstable(path, size, level);
@@ -276,10 +324,16 @@ test "compaction robustness under concurrent modifications" {
                 // Remove SSTable (simulate completed compaction)
                 if (operation_count > 10) {
                     const remove_idx = operation_count - 10;
-                    const path = try std.fmt.allocPrint(allocator, "concurrent_{}.sst", .{remove_idx});
-                    defer allocator.free(path);
-                    const level: u8 = @intCast(remove_idx % 4);
-                    manager.remove_sstable(path, level);
+                    // Find the path in our managed paths instead of creating new string
+                    for (managed_paths.items) |managed_path| {
+                        const expected_name = try std.fmt.allocPrint(allocator, "concurrent_{}.sst", .{remove_idx});
+                        defer allocator.free(expected_name);
+                        if (std.mem.endsWith(u8, managed_path, expected_name)) {
+                            const level: u8 = @intCast(remove_idx % 4);
+                            manager.remove_sstable(managed_path, level);
+                            break;
+                        }
+                    }
                 }
             },
             else => unreachable,
@@ -303,6 +357,9 @@ test "large scale compaction validation with realistic data distribution" {
     );
     defer manager.deinit();
 
+    var path_manager = TestPathManager.init(allocator);
+    defer path_manager.deinit();
+
     // Simulate realistic LSM-tree with exponentially growing level sizes
     const level_configs = [_]struct { level: u8, file_count: u32, avg_size_mb: u64 }{
         .{ .level = 0, .file_count = 8, .avg_size_mb = 1 },
@@ -319,12 +376,10 @@ test "large scale compaction validation with realistic data distribution" {
     for (level_configs) |config| {
         var file_idx: u32 = 0;
         while (file_idx < config.file_count) : (file_idx += 1) {
-            const path = try std.fmt.allocPrint(
-                allocator,
+            const path = try path_manager.add_managed_path(
                 "large_scale_l{}_f{}.sst",
                 .{ config.level, file_idx },
             );
-            defer allocator.free(path);
 
             // Add size variation to simulate realistic distribution
             const size_variation = (file_idx % 5);
@@ -364,19 +419,16 @@ test "large scale compaction validation with realistic data distribution" {
             }
 
             // Add compacted result
-            const result_path = try std.fmt.allocPrint(
-                allocator,
+            const result_path = try path_manager.add_managed_path(
                 "compacted_cycle_{}_l{}.sst",
                 .{ compaction_cycles, job.output_level },
             );
-            defer allocator.free(result_path);
 
             const result_size = @as(u64, job.input_paths.items.len) * 10 * 1024 * 1024; // Estimate
             try manager.add_sstable(result_path, result_size, job.output_level);
         } else {
             // No compaction needed - add more data to trigger next cycle
-            const trigger_path = try std.fmt.allocPrint(allocator, "trigger_{}.sst", .{compaction_cycles});
-            defer allocator.free(trigger_path);
+            const trigger_path = try path_manager.add_managed_path("trigger_{}.sst", .{compaction_cycles});
             try manager.add_sstable(trigger_path, 2 * 1024 * 1024, 0);
         }
     }
@@ -476,6 +528,16 @@ test "compaction performance under stress conditions" {
     );
     defer manager.deinit();
 
+    // Track paths for proper lifetime management to prevent use-after-free
+    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    try managed_paths.ensureTotalCapacity(7000); // 5000 stress + 2000 mixed operations
+    defer {
+        for (managed_paths.items) |path| {
+            allocator.free(path);
+        }
+        managed_paths.deinit();
+    }
+
     const stress_file_count = 5000;
     // Performance target - lenient for CI environments with resource constraints
     const max_operations_per_second = 1000; // Reduced from 10000 for CI stability
@@ -486,7 +548,7 @@ test "compaction performance under stress conditions" {
     var i: u32 = 0;
     while (i < stress_file_count) : (i += 1) {
         const path = try std.fmt.allocPrint(allocator, "stress_{}.sst", .{i});
-        defer allocator.free(path);
+        try managed_paths.append(path);
 
         const level: u8 = @intCast(i % 6); // Distribute across levels
         const size = ((i % 50) + 1) * 1024 * 1024; // 1-50MB files
@@ -527,7 +589,7 @@ test "compaction performance under stress conditions" {
             0 => {
                 // Add file
                 const path = try std.fmt.allocPrint(allocator, "mixed_add_{}.sst", .{mixed_idx});
-                defer allocator.free(path);
+                try managed_paths.append(path);
                 try manager.add_sstable(path, 10 * 1024 * 1024, 0);
             },
             1 => {
@@ -537,9 +599,15 @@ test "compaction performance under stress conditions" {
             2 => {
                 // Remove file (if exists)
                 if (mixed_idx > 100) {
-                    const path = try std.fmt.allocPrint(allocator, "mixed_add_{}.sst", .{mixed_idx - 100});
-                    defer allocator.free(path);
-                    manager.remove_sstable(path, 0);
+                    // Find the path in our managed paths instead of creating new string
+                    for (managed_paths.items) |managed_path| {
+                        const expected_name = try std.fmt.allocPrint(allocator, "mixed_add_{}.sst", .{mixed_idx - 100});
+                        defer allocator.free(expected_name);
+                        if (std.mem.endsWith(u8, managed_path, expected_name)) {
+                            manager.remove_sstable(managed_path, 0);
+                            break;
+                        }
+                    }
                 }
             },
             3 => {

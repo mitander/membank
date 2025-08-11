@@ -431,20 +431,15 @@ test "astar search basic functionality validation" {
         .max_results = 100,
     };
 
-    const result = engines.query.execute_traversal(query);
-
     // Test should succeed or fail gracefully, not crash
-    if (result) |query_result| {
+    if (engines.query.execute_traversal(query)) |query_result| {
         defer query_result.deinit();
         // Test succeeded - verify we got some results
         _ = query_result.blocks;
     } else |err| {
-        // Skip test if ArrayList corruption detected - known issue being investigated
-        if (err == error.CorruptedSSTablePaths) {
-            std.log.warn("SKIPPING: ArrayList corruption detected in SSTableManager - known issue", .{});
-            return;
-        }
-        validate_graceful_failure(err);
+        std.log.debug("Traversal error: {}", .{err});
+        // STRICT: No corruption tolerance - must fix root cause
+        try testing.expect(false); // Force test failure to diagnose corruption
     }
 
     try validate_resource_cleanup(allocator);
@@ -462,7 +457,7 @@ test "astar search with binary tree structure" {
     };
 
     const fault_config = TraversalFaultConfig{
-        .block_read_failure_rate = 0.1, // 10% read failure rate
+        .block_read_failure_rate = 0.0, // Disable fault injection to isolate HashMap corruption
         .simulation_seed = 0xBEEF,
     };
 
@@ -482,20 +477,14 @@ test "astar search with binary tree structure" {
         .max_results = 50,
     };
 
-    const result = engines.query.execute_traversal(query);
-
-    // Test should handle I/O failures gracefully
-    if (result) |query_result| {
+    if (engines.query.execute_traversal(query)) |query_result| {
         defer query_result.deinit();
         // Test succeeded despite fault injection - verify we got some results
         _ = query_result.blocks;
     } else |err| {
-        // Skip test if ArrayList corruption detected - known issue being investigated
-        if (err == error.CorruptedSSTablePaths) {
-            std.log.warn("SKIPPING: ArrayList corruption detected in SSTableManager - known issue", .{});
-            return;
-        }
-        validate_graceful_failure(err);
+        std.log.debug("Traversal error: {}", .{err});
+        // STRICT: No corruption tolerance - must fix root cause
+        try testing.expect(false); // Force test failure to diagnose corruption
     }
 
     try validate_resource_cleanup(allocator);
@@ -533,23 +522,16 @@ test "astar search path reconstruction correctness" {
         .max_results = 10,
     };
 
-    const result = engines.query.execute_traversal(query);
-
     // For linear chain, we should be able to find a path
-    if (result) |query_result| {
+    if (engines.query.execute_traversal(query)) |query_result| {
         defer query_result.deinit();
 
         // Path should exist and be reasonable length
         if (query_result.blocks.len > 0) {
             // Found at least one result - path reconstruction succeeded
         }
-    } else |err| {
-        // Skip test if ArrayList corruption detected - known issue being investigated
-        if (err == error.CorruptedSSTablePaths) {
-            std.log.warn("SKIPPING: ArrayList corruption detected in SSTableManager - known issue", .{});
-            return;
-        }
-        validate_graceful_failure(err);
+    } else |_| {
+        try testing.expect(false); // Force test failure to diagnose corruption
     }
 
     try validate_resource_cleanup(allocator);

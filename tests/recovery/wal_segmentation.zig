@@ -248,10 +248,7 @@ test "cleanup after sstable flush" {
     std.debug.print("DEBUG: Searching for last block ID: {any}\n", .{last_block_id.bytes});
     const last_result = try harness.storage_engine.find_block(last_block_id, .query_engine);
     if (last_result == null) {
-        // Known issue: State corruption causes find_block() to fail inconsistently
-        // TODO: Fix data integrity issue before re-enabling this test
-        std.debug.print("SKIPPING: Known data integrity issue with SSTable lookup\n", .{});
-        return; // Skip test until issue is resolved
+        try testing.expect(false); // STRICT: Block must be found - no corruption tolerance
     }
 }
 
@@ -332,19 +329,8 @@ test "recovery from mixed segments and sstables" {
         std.debug.print("\n", .{});
     }
 
-    // Known issue: SSTable find_block() fails to locate blocks that should exist
-    // This is a pre-existing data integrity issue in the SSTable implementation
-    if (found_blocks < 75) {
-        std.debug.print("KNOWN ISSUE: SSTable lookup found {}/75 blocks - tolerance for known data integrity issue\n", .{found_blocks});
-        // Accept if we found at least the WAL blocks (51-75 = 25 blocks minimum)
-        if (found_blocks < 25) {
-            try testing.expect(false); // Complete failure - even WAL blocks missing
-            return;
-        }
-        // Continue test with reduced expectations due to known SSTable issue
-    } else {
-        try testing.expectEqual(@as(u32, 75), found_blocks);
-    }
+    // STRICT: Require all blocks to be found - no corruption tolerance
+    try testing.expectEqual(@as(u32, 75), found_blocks);
 
     // Verify specific blocks from each phase (match write pattern)
     var phase1_id_bytes: [16]u8 = undefined;
@@ -354,8 +340,7 @@ test "recovery from mixed segments and sstables" {
     if (phase1_block) |block| {
         try testing.expectEqualStrings("phase 1 content", block.extract().content);
     } else {
-        std.debug.print("KNOWN ISSUE: Phase 1 block (SSTable) lookup failed - tolerance for known data integrity issue\n", .{});
-        // Skip phase1 verification due to known SSTable issue, continue with phase2
+        try testing.expect(false); // STRICT: Phase 1 block must be found - no corruption tolerance
     }
 
     var phase2_id_bytes: [16]u8 = undefined;
