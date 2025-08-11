@@ -142,12 +142,13 @@ pub fn apply_wal_entry_to_storage(context: ?*anyopaque, entry: WALEntry) !void {
 
     switch (entry.entry_type) {
         .put_block => {
-            const block = entry.extract_block(recovery_ctx.block_index.arena.allocator()) catch |err| {
+            const owned_block = entry.extract_block(recovery_ctx.block_index.arena.allocator()) catch |err| {
                 log.warn("Failed to extract block from WAL entry: {}", .{err});
                 recovery_ctx.stats.corrupted_entries_skipped += 1;
                 return;
             };
-            recovery_ctx.block_index.put_block(block) catch |err| {
+            const block = owned_block.read(.storage_engine);
+            recovery_ctx.block_index.put_block(block.*) catch |err| {
                 // Log corruption but continue recovery to maximize data salvage
                 log.warn("Failed to recover block {}: {}", .{ block.id, err });
                 recovery_ctx.stats.corrupted_entries_skipped += 1;

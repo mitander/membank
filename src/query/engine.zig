@@ -380,7 +380,7 @@ pub const QueryEngine = struct {
         const start_time = std.time.nanoTimestamp();
         defer self.record_direct_query(start_time);
 
-        return self.storage_engine.find_block_fast(block_id, .query_engine) catch |err| {
+        return self.storage_engine.find_block(block_id, .query_engine) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("query_find_block", block_id));
             return err;
         };

@@ -397,14 +397,14 @@ fn benchmark_zero_cost_ownership(storage_engine: *StorageEngine, allocator: std.
     // Warmup for zero-cost approach
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = block_ids[i % block_ids.len];
-        _ = try storage_engine.find_storage_block_fast(block_id);
+        _ = try storage_engine.find_storage_block(block_id);
     }
 
     // Benchmark zero-cost compile-time ownership
     for (0..ITERATIONS) |i| {
         const block_id = block_ids[i % block_ids.len];
         const start_time = std.time.nanoTimestamp();
-        _ = try storage_engine.find_storage_block_fast(block_id);
+        _ = try storage_engine.find_storage_block(block_id);
         const end_time = std.time.nanoTimestamp();
         zero_cost_timings[i] = @intCast(end_time - start_time);
     }

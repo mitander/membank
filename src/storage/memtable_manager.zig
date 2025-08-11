@@ -365,7 +365,7 @@ pub const MemtableManager = struct {
                 const temp_allocator = temp_arena.allocator();
 
                 const owned_block = try entry.extract_block(temp_allocator);
-                try self.put_block(owned_block.block);
+                try self.put_block(owned_block.read(.storage_engine).*);
             },
             .delete_block => {
                 const block_id = try entry.extract_block_id();

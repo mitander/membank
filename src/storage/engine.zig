@@ -365,7 +365,7 @@ pub const StorageEngine = struct {
     /// Zero-cost block lookup for hot paths with compile-time ownership.
     /// Eliminates all runtime overhead while maintaining type safety.
     /// Use this for performance-critical operations where ownership is known at compile time.
-    pub fn find_block_fast(
+    pub fn find_block(
         self: *StorageEngine,
         block_id: BlockId,
         comptime owner: BlockOwnership,
@@ -392,7 +392,7 @@ pub const StorageEngine = struct {
 
     /// Zero-cost storage engine block lookup - fastest possible read path.
     /// Compile-time ownership guarantees with zero runtime overhead.
-    pub fn find_storage_block_fast(
+    pub fn find_storage_block(
         self: *StorageEngine,
         block_id: BlockId,
     ) !?StorageEngineBlock {
@@ -413,7 +413,7 @@ pub const StorageEngine = struct {
 
     /// Zero-cost memtable block lookup for internal storage operations.
     /// Optimized for memtable-specific operations with compile-time ownership.
-    pub fn find_memtable_block_fast(self: *StorageEngine, block_id: BlockId) ?MemtableBlock {
+    pub fn find_memtable_block(self: *StorageEngine, block_id: BlockId) ?MemtableBlock {
         if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
             return MemtableBlock.init(block_ptr.*);
         }
@@ -423,7 +423,7 @@ pub const StorageEngine = struct {
     /// Zero-cost query engine block lookup for cross-subsystem access.
     /// Enables fast block transfer to query engine with compile-time safety.
     /// Find a Context Block by ID with zero-cost ownership for query operations
-    pub fn find_block(self: *StorageEngine, block_id: BlockId) !?QueryEngineBlock {
+    pub fn find_query_block(self: *StorageEngine, block_id: BlockId) !?QueryEngineBlock {
         if (comptime builtin.mode == .Debug) {
             fatal_assert(@intFromPtr(self) != 0, "StorageEngine corrupted", .{});
         }

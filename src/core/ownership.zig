@@ -286,6 +286,22 @@ pub fn ComptimeOwnedBlockType(comptime owner: BlockOwnership) type {
             return owner;
         }
 
+        /// Transfer ownership of a ContextBlock to this subsystem.
+        /// Creates a new owned block with the specified ownership.
+        pub fn take_ownership(block: ContextBlock) Self {
+            return Self{
+                .block = block,
+                .debug_allocation_source = if (builtin.mode == .Debug) @src() else {},
+            };
+        }
+
+        /// Extract the underlying ContextBlock for cleaner access patterns.
+        /// Use this when you need to work with the actual block data.
+        /// Example: const block = owned_block.extract();
+        pub fn extract(self: *const Self) ContextBlock {
+            return self.block;
+        }
+
         /// Check if this block is owned by the specified ownership at compile time.
         pub fn is_owned_by(comptime check_owner: BlockOwnership) bool {
             return owner == check_owner;

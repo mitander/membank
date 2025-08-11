@@ -176,7 +176,7 @@ const QueryBlockIterator = struct {
             const block_id = self.block_ids[self.current_index];
             self.current_index += 1;
 
-            if (self.storage_engine.find_block_fast(block_id, .query_engine) catch null) |owned_block| {
+            if (self.storage_engine.find_block(block_id, .query_engine) catch null) |owned_block| {
                 return owned_block;
             }
         }
