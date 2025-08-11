@@ -7,6 +7,7 @@ const std = @import("std");
 const assert = @import("../core/assert.zig");
 const vfs = @import("../core/vfs.zig");
 const sim_vfs = @import("simulation_vfs.zig");
+const ownership = @import("../core/ownership.zig");
 
 /// Deterministic simulation harness.
 pub const Simulation = struct {
@@ -15,6 +16,7 @@ pub const Simulation = struct {
     tick_count: u64,
     nodes: std.ArrayList(Node),
     network: Network,
+    ownership_injector: OwnershipViolationInjector,
 
     const Self = @This();
 
@@ -28,6 +30,7 @@ pub const Simulation = struct {
             .tick_count = 0,
             .nodes = std.ArrayList(Node).init(allocator),
             .network = Network.init(allocator, &prng),
+            .ownership_injector = OwnershipViolationInjector.init(seed),
         };
     }
 
@@ -116,6 +119,52 @@ pub const Simulation = struct {
     ) ![]sim_vfs.SimulationVFS.FileState {
         const node = self.find_node(node_id);
         return node.filesystem.state(self.allocator);
+    }
+
+    /// Enable ownership violation injection for testing fail-fast behavior.
+    /// Rate controls how frequently violations are injected (0.0 = never, 1.0 = always).
+    pub fn enable_ownership_violations(self: *Self, injection_rate: f32) void {
+        self.ownership_injector.enable_injection(injection_rate);
+    }
+
+    /// Disable ownership violation injection.
+    pub fn disable_ownership_violations(self: *Self) void {
+        self.ownership_injector.disable_injection();
+    }
+
+    /// Get ownership violation injection statistics for test validation.
+    pub fn ownership_violation_stats(self: *const Self) struct {
+        injection_rate: f32,
+        is_enabled: bool,
+        violation_count: u32,
+    } {
+        const stats = self.ownership_injector.query_violation_stats();
+        return .{
+            .injection_rate = stats.injection_rate,
+            .is_enabled = stats.is_enabled,
+            .violation_count = stats.violation_count,
+        };
+    }
+
+    /// Reset ownership violation statistics for new test scenarios.
+    pub fn reset_ownership_violation_stats(self: *Self) void {
+        self.ownership_injector.reset_stats();
+    }
+
+    /// Inject ownership violations into block operations for testing.
+    /// This method allows controlled corruption of ownership information.
+    pub fn inject_ownership_violation(
+        self: *Self,
+        owned_block: ownership.OwnedBlock,
+        violation_type: OwnershipViolationInjector.ViolationType,
+        fake_accessor: ownership.BlockOwnership,
+    ) ?ownership.OwnedBlock {
+        return switch (violation_type) {
+            .cross_subsystem_read => self.ownership_injector.inject_cross_subsystem_read(owned_block, fake_accessor),
+            .dangling_arena_access => self.ownership_injector.inject_dangling_arena_access(owned_block),
+            .cross_subsystem_write => self.ownership_injector.inject_cross_subsystem_read(owned_block, fake_accessor),
+            .use_after_transfer => self.ownership_injector.inject_dangling_arena_access(owned_block),
+        };
     }
 };
 
@@ -422,6 +471,119 @@ pub const Network = struct {
     }
 };
 
+/// Deterministic ownership violation injector for simulation testing.
+/// Provides controlled injection of ownership violations to test fail-fast behavior.
+pub const OwnershipViolationInjector = struct {
+    prng: std.Random.DefaultPrng,
+    injection_rate: f32,
+    is_enabled: bool,
+    violation_count: u32,
+
+    const Self = @This();
+
+    /// Ownership violation types that can be injected during simulation.
+    pub const ViolationType = enum {
+        cross_subsystem_read, // StorageEngine trying to read QueryEngine-owned block
+        cross_subsystem_write, // QueryEngine trying to write MemtableManager-owned block
+        dangling_arena_access, // Accessing block after arena is reset
+        use_after_transfer, // Using block after ownership transfer
+    };
+
+    /// Initialize injector with deterministic seed for reproducible violation patterns.
+    pub fn init(seed: u64) Self {
+        return Self{
+            .prng = std.Random.DefaultPrng.init(seed ^ 0xBAD_000ED),
+            .injection_rate = 0.0, // Disabled by default
+            .is_enabled = false,
+            .violation_count = 0,
+        };
+    }
+
+    /// Enable ownership violation injection with specified rate.
+    /// Rate should be between 0.0 (never) and 1.0 (always).
+    pub fn enable_injection(self: *Self, rate: f32) void {
+        assert.assert_fmt(rate >= 0.0 and rate <= 1.0, "Invalid injection rate: {d}", .{rate});
+        self.injection_rate = rate;
+        self.is_enabled = true;
+    }
+
+    /// Disable ownership violation injection.
+    pub fn disable_injection(self: *Self) void {
+        self.is_enabled = false;
+        self.injection_rate = 0.0;
+    }
+
+    /// Check if a violation should be injected for this operation.
+    /// Uses deterministic random number generation for reproducible test scenarios.
+    pub fn should_inject_violation(self: *Self, violation_type: ViolationType) bool {
+        if (!self.is_enabled) return false;
+
+        // Use violation type as additional entropy for varied patterns
+        _ = @intFromEnum(violation_type); // For future entropy mixing
+        const random_val = self.prng.random().float(f32);
+
+        if (random_val < self.injection_rate) {
+            self.violation_count += 1;
+            return true;
+        }
+        return false;
+    }
+
+    /// Inject a cross-subsystem read violation by corrupting ownership information.
+    /// Returns a block with incorrect ownership to trigger validation failure.
+    pub fn inject_cross_subsystem_read(
+        self: *Self,
+        owned_block: ownership.OwnedBlock,
+        fake_accessor: ownership.BlockOwnership,
+    ) ownership.OwnedBlock {
+        if (!self.should_inject_violation(.cross_subsystem_read)) {
+            return owned_block;
+        }
+
+        // Create a block with corrupted ownership that will fail validation
+        var corrupted_block = owned_block;
+        corrupted_block.ownership = fake_accessor;
+        return corrupted_block;
+    }
+
+    /// Inject a dangling arena access by returning a block that appears valid
+    /// but whose arena has been conceptually "reset".
+    pub fn inject_dangling_arena_access(
+        self: *Self,
+        owned_block: ownership.OwnedBlock,
+    ) ?ownership.OwnedBlock {
+        if (!self.should_inject_violation(.dangling_arena_access)) {
+            return owned_block;
+        }
+
+        // In a real scenario, the arena would be reset but we're accessing the block
+        // For simulation, we can corrupt the arena pointer to simulate this
+        var corrupted_block = owned_block;
+        if (@import("builtin").mode == .Debug) {
+            corrupted_block.arena_ptr = null; // Simulate arena being freed
+        }
+        return corrupted_block;
+    }
+
+    /// Query statistics about injected violations for test validation.
+    pub fn query_violation_stats(self: *const Self) struct {
+        injection_rate: f32,
+        is_enabled: bool,
+        violation_count: u32,
+    } {
+        return .{
+            .injection_rate = self.injection_rate,
+            .is_enabled = self.is_enabled,
+            .violation_count = self.violation_count,
+        };
+    }
+
+    /// Reset violation statistics for new test scenarios.
+    pub fn reset_stats(self: *Self) void {
+        self.violation_count = 0;
+    }
+};
+
 test "simulation basic functionality" {
     const allocator = std.testing.allocator;
 
@@ -517,4 +679,70 @@ test "simulation deterministic behavior" {
     const rand1 = sim1.random();
     const rand2 = sim2.random();
     try std.testing.expect(rand1 == rand2);
+}
+
+test "ownership violation injection" {
+    const allocator = std.testing.allocator;
+    const types = @import("../core/types.zig");
+
+    var sim = try Simulation.init(allocator, 0xBAD_000ED);
+    defer sim.deinit();
+
+    // Create a test block owned by storage engine
+    const test_block = types.ContextBlock{
+        .id = types.BlockId.from_hex("1234567890abcdef1234567890abcdef12345678") catch unreachable, // Safety: Valid 40-char hex string
+        .version = 1,
+        .source_uri = "test://simulation_violation.zig",
+        .metadata_json = "{}",
+        .content = "Test content for ownership violation injection",
+    };
+    const owned_block = ownership.OwnedBlock.take_ownership(test_block, .storage_engine);
+
+    // Initially, no violations should be enabled
+    var stats = sim.ownership_violation_stats();
+    try std.testing.expect(!stats.is_enabled);
+    try std.testing.expect(stats.violation_count == 0);
+
+    // Enable violation injection with 100% rate
+    sim.enable_ownership_violations(1.0);
+    stats = sim.ownership_violation_stats();
+    try std.testing.expect(stats.is_enabled);
+    try std.testing.expect(stats.injection_rate == 1.0);
+
+    // Test cross-subsystem read violation
+    const corrupted_block = sim.inject_ownership_violation(
+        owned_block,
+        .cross_subsystem_read,
+        .query_engine, // Wrong accessor - should trigger violation
+    );
+
+    try std.testing.expect(corrupted_block != null);
+    if (corrupted_block) |block| {
+        // The injected block should have corrupted ownership
+        try std.testing.expect(block.query_owner() == .query_engine);
+        try std.testing.expect(block.query_owner() != owned_block.query_owner());
+    }
+
+    // Verify violation was counted
+    stats = sim.ownership_violation_stats();
+    try std.testing.expect(stats.violation_count > 0);
+
+    // Test disabling injections
+    sim.disable_ownership_violations();
+    sim.reset_ownership_violation_stats();
+
+    stats = sim.ownership_violation_stats();
+    try std.testing.expect(!stats.is_enabled);
+    try std.testing.expect(stats.violation_count == 0);
+
+    // With injections disabled, block should remain unchanged
+    const unchanged_block = sim.inject_ownership_violation(
+        owned_block,
+        .cross_subsystem_read,
+        .query_engine,
+    );
+
+    if (unchanged_block) |block| {
+        try std.testing.expect(block.query_owner() == owned_block.query_owner());
+    }
 }

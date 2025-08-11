@@ -278,8 +278,11 @@ pub const SSTable = struct {
             // Access block data through ownership interface when needed
             const block_data = switch (BlocksType) {
                 []const ContextBlock => block_value,
-                []const SSTableBlock => block_value.read(.sstable_write),
-                []const OwnedBlock => block_value.read(.sstable_write),
+                []ContextBlock => block_value,
+                []const SSTableBlock => block_value.read(.sstable_manager),
+                []SSTableBlock => block_value.read(.sstable_manager),
+                []const OwnedBlock => block_value.read(.sstable_manager),
+                []OwnedBlock => block_value.read(.sstable_manager),
                 else => unreachable,
             };
 
@@ -295,8 +298,11 @@ pub const SSTable = struct {
         for (blocks, 0..) |block_value, i| {
             context_blocks[i] = switch (BlocksType) {
                 []const ContextBlock => block_value,
-                []const SSTableBlock => block_value.read(.sstable_write),
-                []const OwnedBlock => block_value.read(.sstable_write),
+                []ContextBlock => block_value,
+                []const SSTableBlock => block_value.read(.sstable_manager).*,
+                []SSTableBlock => block_value.read(.sstable_manager).*,
+                []const OwnedBlock => block_value.read(.sstable_manager).*,
+                []OwnedBlock => block_value.read(.sstable_manager).*,
                 else => unreachable,
             };
         }

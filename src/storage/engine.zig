@@ -260,7 +260,7 @@ pub const StorageEngine = struct {
     pub fn put_block(self: *StorageEngine, block: anytype) !void {
         const owned_block = switch (@TypeOf(block)) {
             OwnedBlock => block,
-            ContextBlock => OwnedBlock.take_ownership(block, .temporary),
+            ContextBlock => OwnedBlock.take_ownership(block, .memtable_manager),
             else => @compileError("put_block() accepts OwnedBlock or ContextBlock only"),
         };
         concurrency.assert_main_thread();
@@ -271,8 +271,7 @@ pub const StorageEngine = struct {
             return error.StorageEngineDeinitialized;
         }
 
-        // Extract block for validation and storage
-        const block_data = owned_block.read(.storage_engine);
+        const block_data = owned_block.read_runtime(.temporary);
 
         assert.assert_fmt(block_data.content.len > 0, "Block content cannot be empty", .{});
         assert.assert_fmt(block_data.source_uri.len > 0, "Block source_uri cannot be empty", .{});
