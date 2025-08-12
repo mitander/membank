@@ -116,7 +116,7 @@ pub const Simulation = struct {
     pub fn node_filesystem_state(
         self: *Self,
         node_id: NodeId,
-    ) ![]sim_vfs.SimulationVFS.FileState {
+    ) ![]sim_vfs.SimulationVFS.SimulationFileState {
         const node = self.find_node(node_id);
         return node.filesystem.state(self.allocator);
     }
@@ -615,10 +615,10 @@ test "simulation node filesystem" {
     var vfs_interface = node.filesystem_interface();
 
     var file = try vfs_interface.create("test.txt");
-    defer file.close() catch {};
+    defer file.close();
 
     _ = try file.write("Hello, Simulation!");
-    try file.close();
+    file.close();
 
     try std.testing.expect(vfs_interface.exists("test.txt"));
 
@@ -689,7 +689,7 @@ test "ownership violation injection" {
 
     // Create a test block owned by storage engine
     const test_block = types.ContextBlock{
-        .id = types.BlockId.from_hex("1234567890abcdef1234567890abcdef12345678") catch unreachable, // Safety: Valid 40-char hex string
+        .id = types.BlockId.from_hex("1234567890abcdef1234567890abcdef") catch unreachable, // Safety: Valid 32-char hex string
         .version = 1,
         .source_uri = "test://simulation_violation.zig",
         .metadata_json = "{}",

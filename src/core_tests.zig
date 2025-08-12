@@ -16,7 +16,7 @@ comptime {
     _ = @import("core/memory.zig");
     _ = @import("core/ownership.zig");
     _ = @import("core/arena.zig");
-    
+
     // Import dependencies needed by core tests
     _ = @import("sim/simulation_vfs.zig");
 }

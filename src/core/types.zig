@@ -295,17 +295,14 @@ pub const ContextBlock = struct {
 
         if (offset + header.source_uri_len > buffer.len) return error.IncompleteData;
         const source_uri = try allocator.dupe(u8, buffer[offset .. offset + header.source_uri_len]);
-        errdefer allocator.free(source_uri);
         offset += header.source_uri_len;
 
         if (offset + header.metadata_json_len > buffer.len) return error.IncompleteData;
         const metadata_json = try allocator.dupe(u8, buffer[offset .. offset + header.metadata_json_len]);
-        errdefer allocator.free(metadata_json);
         offset += header.metadata_json_len;
 
         if (offset + header.content_len > buffer.len) return error.IncompleteData;
         const content = try allocator.dupe(u8, buffer[offset .. offset + header.content_len]);
-        errdefer allocator.free(content);
 
         return ContextBlock{
             .id = BlockId{ .bytes = header.id },

@@ -75,6 +75,7 @@ pub const SSTableManager = struct {
             .sstable_paths = std.ArrayList([]const u8).init(backing),
             .next_sstable_id = 0,
             .compaction_manager = TieredCompactionManager.init(
+                coordinator,
                 backing,
                 filesystem,
                 data_dir,
@@ -172,7 +173,7 @@ pub const SSTableManager = struct {
             fatal_assert(sstable_path.len < 4096, "SSTable path[{}] has suspicious length {} - possible corruption", .{ i, sstable_path.len });
 
             const sstable_path_copy = try query_cache.dupe(u8, sstable_path);
-            var sstable_file = SSTable.init(query_cache, self.vfs, sstable_path_copy);
+            var sstable_file = SSTable.init(self.arena_coordinator, query_cache, self.vfs, sstable_path_copy);
 
             // CRITICAL: Track SSTable index loading failures,
             sstable_file.read_index() catch |err| {
@@ -211,11 +212,15 @@ pub const SSTableManager = struct {
             _ = owned_block.read(.memtable_manager);
         }
 
-        return self.create_new_sstable_internal(owned_blocks);
+        return self.create_new_sstable_internal(owned_blocks, .memtable_manager);
     }
 
     /// Create a new SSTable from owned blocks with explicit access validation.
-    pub fn create_new_sstable(self: *SSTableManager, owned_blocks: []const OwnedBlock, accessor: BlockOwnership) !void {
+    pub fn create_new_sstable(
+        self: *SSTableManager,
+        owned_blocks: []const OwnedBlock,
+        comptime accessor: BlockOwnership,
+    ) !void {
         concurrency.assert_main_thread();
 
         if (owned_blocks.len == 0) return; // Nothing to flush
@@ -223,10 +228,14 @@ pub const SSTableManager = struct {
             _ = owned_block.read(accessor); // Validates access permission
         }
 
-        return self.create_new_sstable_internal(owned_blocks);
+        return self.create_new_sstable_internal(owned_blocks, accessor);
     }
 
-    fn create_new_sstable_internal(self: *SSTableManager, owned_blocks: []const OwnedBlock) !void {
+    fn create_new_sstable_internal(
+        self: *SSTableManager,
+        owned_blocks: []const OwnedBlock,
+        comptime accessor: BlockOwnership,
+    ) !void {
         const sstable_filename = try std.fmt.allocPrint(
             self.backing_allocator,
             "{s}/sst/sstable_{:04}.sst",
@@ -239,7 +248,7 @@ pub const SSTableManager = struct {
         const sorted_blocks = try self.backing_allocator.alloc(ContextBlock, owned_blocks.len);
         defer self.backing_allocator.free(sorted_blocks);
         for (owned_blocks, 0..) |*owned_block, i| {
-            sorted_blocks[i] = owned_block.read(.memtable_manager).*;
+            sorted_blocks[i] = owned_block.read(accessor).*;
         }
 
         std.sort.pdq(ContextBlock, sorted_blocks, {}, struct {
@@ -248,7 +257,7 @@ pub const SSTableManager = struct {
             }
         }.less_than);
 
-        var new_sstable = SSTable.init(self.backing_allocator, self.vfs, sstable_filename);
+        var new_sstable = SSTable.init(self.arena_coordinator, self.backing_allocator, self.vfs, sstable_filename);
         defer {
             new_sstable.index.deinit();
             if (new_sstable.bloom_filter) |*filter| {

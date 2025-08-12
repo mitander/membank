@@ -450,7 +450,7 @@ test "validate_arena_naming catches bad field names" {
     //     memory_arena: std.heap.ArenaAllocator,
     // };
     // validate_arena_naming(GoodStruct);
-    
+
     // Simple validation that the function exists
     const EmptyStruct = struct {};
     validate_arena_naming(EmptyStruct);

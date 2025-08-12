@@ -718,9 +718,8 @@ test "source content lifecycle" {
     const allocator = testing.allocator;
 
     var metadata = std.StringHashMap([]const u8).init(allocator);
-    defer metadata.deinit();
 
-    try metadata.put("file_path", "/test/example.zig");
+    try metadata.put("file_path", try allocator.dupe(u8, "/test/example.zig"));
 
     var content = SourceContent{
         .data = try allocator.dupe(u8, "test content"),

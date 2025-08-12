@@ -54,7 +54,7 @@ const TemporaryBlock = ownership.TemporaryBlock;
 const OwnedGraphEdge = graph_edge_index.OwnedGraphEdge;
 const ArenaCoordinator = memory.ArenaCoordinator;
 
-const BlockHashMap = std.HashMap(BlockId, ContextBlock, block_index_mod.BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage);
+const BlockHashMap = std.HashMap(BlockId, OwnedBlock, block_index_mod.BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage);
 const BlockHashMapIterator = BlockHashMap.Iterator;
 
 pub const Config = config_mod.Config;
@@ -370,7 +370,9 @@ pub const StorageEngine = struct {
         assert.assert_fmt(block_data.metadata_json.len < 1024 * 1024, "Block metadata_json too large: {} bytes", .{block_data.metadata_json.len});
         assert.assert_fmt(block_data.version > 0, "Block version must be positive: {}", .{block_data.version});
 
-        self.state.assert_can_write();
+        if (!self.state.can_write()) {
+            return if (self.state == .uninitialized or self.state == .initialized) StorageError.NotInitialized else StorageError.StorageEngineDeinitialized;
+        }
 
         const start_time = std.time.nanoTimestamp();
         assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
@@ -416,7 +418,9 @@ pub const StorageEngine = struct {
         }
         assert.assert_fmt(non_zero_bytes > 0, "Block ID cannot be all zeros", .{});
 
-        self.state.assert_can_read();
+        if (!self.state.can_read()) {
+            return if (self.state == .uninitialized or self.state == .initialized) StorageError.NotInitialized else StorageError.StorageEngineDeinitialized;
+        }
 
         const start_time = std.time.nanoTimestamp();
 
@@ -463,6 +467,10 @@ pub const StorageEngine = struct {
         if (comptime builtin.mode == .Debug) {
             fatal_assert(@intFromPtr(self) != 0, "StorageEngine corrupted", .{});
             assert.assert_fmt(!block_id.eql(BlockId.from_bytes([_]u8{0} ** 16)), "Invalid block ID: cannot be all zeros", .{});
+        }
+
+        if (!self.state.can_read()) {
+            return if (self.state == .uninitialized or self.state == .initialized) StorageError.NotInitialized else StorageError.StorageEngineDeinitialized;
         }
 
         // Fast path: check memtable first (most recent data)
@@ -539,7 +547,9 @@ pub const StorageEngine = struct {
     /// Delete a Context Block by ID with tombstone semantics.
     pub fn delete_block(self: *StorageEngine, block_id: BlockId) !void {
         concurrency.assert_main_thread();
-        self.state.assert_can_write();
+        if (!self.state.can_write()) {
+            return if (self.state == .uninitialized or self.state == .initialized) StorageError.NotInitialized else StorageError.StorageEngineDeinitialized;
+        }
 
         self.memtable_manager.delete_block_durable(block_id) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("delete_block_durable", block_id));
@@ -571,7 +581,9 @@ pub const StorageEngine = struct {
         assert.assert_fmt(target_non_zero > 0, "Edge target_id cannot be all zeros", .{});
         assert.assert_fmt(!std.mem.eql(u8, &edge.source_id.bytes, &edge.target_id.bytes), "Edge cannot be self-referential", .{});
 
-        self.state.assert_can_write();
+        if (!self.state.can_write()) {
+            return if (self.state == .uninitialized or self.state == .initialized) StorageError.NotInitialized else StorageError.StorageEngineDeinitialized;
+        }
 
         const start_time = std.time.nanoTimestamp();
         assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
@@ -592,7 +604,9 @@ pub const StorageEngine = struct {
     /// Force synchronization of all WAL operations to durable storage.
     pub fn flush_wal(self: *StorageEngine) !void {
         concurrency.assert_main_thread();
-        self.state.assert_can_write();
+        if (!self.state.can_write()) {
+            return if (self.state == .uninitialized or self.state == .initialized) StorageError.NotInitialized else StorageError.StorageEngineDeinitialized;
+        }
 
         self.memtable_manager.flush_wal() catch |err| {
             error_context.log_storage_error(err, error_context.StorageContext{ .operation = "flush_wal" });
@@ -703,28 +717,97 @@ pub const StorageEngine = struct {
     }
 
     /// Block iterator for scanning all blocks in storage (memtable only).
-    /// SSTable iteration delegated to SSTableManager to maintain separation of concerns.
-    /// For full storage iteration, use memtable iterator + SSTableManager methods.
+    /// Complete storage iterator that traverses both memtable and SSTables.
+    /// Follows coordinator pattern - delegates to subsystems for actual iteration.
     pub const BlockIterator = struct {
         memtable_iterator: BlockHashMapIterator,
+        sstable_manager: *SSTableManager,
+        backing_allocator: std.mem.Allocator,
+        current_sstable_index: u32,
+        current_sstable_iterator: ?sstable.SSTableIterator,
+        current_sstable: ?SSTable,
 
-        /// @deprecated Use ownership-aware iteration methods for zero-cost ownership
-        pub fn next(self: *BlockIterator) ?ContextBlock {
+        /// Iterate through memtable first, then all SSTables in order
+        pub fn next(self: *BlockIterator) !?ContextBlock {
+            // First, exhaust memtable
             if (self.memtable_iterator.next()) |entry| {
-                return entry.value_ptr.*;
+                return entry.value_ptr.block;
             }
+
+            // Then iterate through SSTables
+            while (self.current_sstable_index < self.sstable_manager.sstable_count()) {
+                // Initialize current SSTable iterator if needed
+                if (self.current_sstable_iterator == null) {
+                    // Validate arena coordinator before SSTable operations
+                    self.sstable_manager.arena_coordinator.validate_coordinator();
+
+                    const sstable_path = self.sstable_manager.find_path_by_index(self.current_sstable_index) orelse {
+                        self.current_sstable_index += 1;
+                        continue;
+                    };
+
+                    const path_copy = self.backing_allocator.dupe(u8, sstable_path) catch {
+                        self.current_sstable_index += 1;
+                        continue;
+                    };
+
+                    // Validate arena coordinator before creating SSTable
+                    self.sstable_manager.arena_coordinator.validate_coordinator();
+
+                    var new_sstable = SSTable.init(self.sstable_manager.arena_coordinator, self.backing_allocator, self.sstable_manager.vfs, path_copy);
+                    new_sstable.read_index() catch {
+                        self.backing_allocator.free(path_copy);
+                        self.current_sstable_index += 1;
+                        continue;
+                    };
+
+                    self.current_sstable = new_sstable;
+                    self.current_sstable_iterator = new_sstable.iterator();
+                }
+
+                // Validate arena coordinator before SSTable iteration
+                self.sstable_manager.arena_coordinator.validate_coordinator();
+
+                // Try to get next block from current SSTable
+                if (try self.current_sstable_iterator.?.next()) |sstable_block| {
+                    return sstable_block.read(.sstable_manager).*;
+                } else {
+                    // Current SSTable exhausted, move to next
+                    if (self.current_sstable_iterator) |*iter| {
+                        iter.deinit();
+                    }
+                    if (self.current_sstable) |*table| {
+                        table.deinit();
+                    }
+                    self.current_sstable_iterator = null;
+                    self.current_sstable = null;
+                    self.current_sstable_index += 1;
+                }
+            }
+
             return null;
         }
 
-        pub fn deinit(_: *BlockIterator) void {}
+        pub fn deinit(self: *BlockIterator) void {
+            if (self.current_sstable_iterator) |*iter| {
+                iter.deinit();
+            }
+            if (self.current_sstable) |*table| {
+                table.deinit();
+            }
+        }
     };
 
-    /// Create iterator to scan blocks in memtable only.
-    /// For complete storage iteration, coordinate with SSTableManager directly.
-    /// Pure coordinator pattern - delegates complex iteration to subsystems.
+    /// Create iterator to scan ALL blocks in both memtable and SSTables.
+    /// Pure coordinator pattern - delegates to subsystems for actual iteration.
     pub fn iterate_all_blocks(self: *StorageEngine) BlockIterator {
         return BlockIterator{
             .memtable_iterator = self.memtable_manager.raw_iterator(),
+            .sstable_manager = &self.sstable_manager,
+            .backing_allocator = self.backing_allocator,
+            .current_sstable_index = 0,
+            .current_sstable_iterator = null,
+            .current_sstable = null,
         };
     }
 
@@ -867,7 +950,7 @@ test "storage engine startup and basic operations" {
 
     const found_block = try engine.find_block(block_id, .query_engine);
     try testing.expect(found_block != null);
-    try testing.expectEqualStrings("test content", found_block.?.content);
+    try testing.expectEqualStrings("test content", found_block.?.read(.query_engine).content);
 
     try engine.delete_block(block_id);
     try testing.expectEqual(@as(u32, 0), engine.block_count());
@@ -941,7 +1024,7 @@ test "WAL recovery restores storage state" {
 
         const recovered_block = try engine.find_block(block_id, .query_engine);
         try testing.expect(recovered_block != null);
-        try testing.expectEqualStrings("test content", recovered_block.?.content);
+        try testing.expectEqualStrings("test content", recovered_block.?.read(.query_engine).content);
     }
 }
 
@@ -968,12 +1051,12 @@ test "graph edge operations work correctly" {
     try testing.expectEqual(@as(u32, 1), engine.edge_count());
 
     const outgoing = engine.find_outgoing_edges(source_id);
-    try testing.expect(outgoing != null);
-    try testing.expectEqual(@as(usize, 1), outgoing.?.len);
+    try testing.expect(outgoing.len > 0);
+    try testing.expectEqual(@as(usize, 1), outgoing.len);
 
     const incoming = engine.find_incoming_edges(target_id);
-    try testing.expect(incoming != null);
-    try testing.expectEqual(@as(usize, 1), incoming.?.len);
+    try testing.expect(incoming.len > 0);
+    try testing.expectEqual(@as(usize, 1), incoming.len);
 }
 
 test "storage metrics track operations accurately" {
@@ -1019,7 +1102,7 @@ test "block iterator with empty storage" {
     var iterator = engine.iterate_all_blocks();
     defer iterator.deinit();
 
-    const block = iterator.next();
+    const block = try iterator.next();
     try testing.expectEqual(@as(?ContextBlock, null), block);
 }
 
@@ -1250,7 +1333,7 @@ test "storage engine error context wrapping validation" {
     // Test that configuration validation provides error context
     const invalid_config = Config{ .memtable_max_size = 0 }; // Invalid config
     const init_result = StorageEngine.init(allocator, sim_vfs.vfs(), "/test", invalid_config);
-    try testing.expect(std.meta.isError(init_result));
+    try testing.expectError(config_mod.ConfigError.MemtableMaxSizeTooSmall, init_result);
 
     // Test with valid config but I/O failures enabled for startup errors
     sim_vfs.enable_io_failures(500, .{ .read = true, .write = true }); // 50% failure rate
@@ -1259,7 +1342,6 @@ test "storage engine error context wrapping validation" {
     defer engine.deinit();
 
     // Startup may fail with I/O errors, demonstrating error context is provided
-    const startup_result = engine.startup();
     // Don't assert error since it's probabilistic, but demonstrates context wrapping
-    _ = startup_result;
+    _ = engine.startup() catch {}; // Just demonstrate that error context is provided
 }

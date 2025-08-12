@@ -10,16 +10,22 @@ const custom_assert = @import("../core/assert.zig");
 const assert = custom_assert.assert;
 const fatal_assert = custom_assert.fatal_assert;
 const vfs = @import("../core/vfs.zig");
+const memory = @import("../core/memory.zig");
 const sstable = @import("sstable.zig");
 const concurrency = @import("../core/concurrency.zig");
 
 const VFS = vfs.VFS;
+const ArenaCoordinator = memory.ArenaCoordinator;
 const SSTable = sstable.SSTable;
 const Compactor = sstable.Compactor;
 
 /// Tiered compaction configuration and strategy implementation.
 pub const TieredCompactionManager = struct {
-    allocator: std.mem.Allocator,
+    /// Arena coordinator pointer for stable allocation access (remains valid across arena resets)
+    /// CRITICAL: Must be pointer to prevent coordinator struct copying corruption
+    arena_coordinator: *const ArenaCoordinator,
+    /// Stable backing allocator for structures and temporary data
+    backing_allocator: std.mem.Allocator,
     compactor: Compactor,
 
     /// Configuration parameters for compaction strategy
@@ -135,18 +141,20 @@ pub const TieredCompactionManager = struct {
     };
 
     pub fn init(
-        allocator: std.mem.Allocator,
+        coordinator: *const ArenaCoordinator,
+        backing: std.mem.Allocator,
         filesystem: VFS,
         data_dir: []const u8,
     ) TieredCompactionManager {
         var tiers: [MAX_TIERS]TierState = undefined;
         for (&tiers) |*tier| {
-            tier.* = TierState.init(allocator);
+            tier.* = TierState.init(backing);
         }
 
         return TieredCompactionManager{
-            .allocator = allocator,
-            .compactor = Compactor.init(allocator, filesystem, data_dir),
+            .arena_coordinator = coordinator,
+            .backing_allocator = backing,
+            .compactor = Compactor.init(coordinator, backing, filesystem, data_dir),
             .config = CompactionConfig{},
             .tiers = tiers,
             .compaction_counter = 0,
@@ -155,7 +163,7 @@ pub const TieredCompactionManager = struct {
 
     pub fn deinit(self: *TieredCompactionManager) void {
         for (&self.tiers) |*tier| {
-            tier.deinit(self.allocator);
+            tier.deinit(self.backing_allocator);
         }
     }
 
@@ -215,7 +223,7 @@ pub const TieredCompactionManager = struct {
     }
 
     fn create_l0_compaction_job(self: *TieredCompactionManager) CompactionJob {
-        var input_paths = std.ArrayList([]const u8).init(self.allocator);
+        var input_paths = std.ArrayList([]const u8).init(self.backing_allocator);
         for (self.tiers[0].sstables.items) |info| {
             input_paths.append(info.path) catch unreachable; // Safety: paths are pre-allocated strings
         }
@@ -231,7 +239,7 @@ pub const TieredCompactionManager = struct {
 
     fn create_tier_compaction_job(self: *TieredCompactionManager, level: u8) !CompactionJob {
         const tier = &self.tiers[level];
-        var candidates = std.ArrayList(usize).init(self.allocator);
+        var candidates = std.ArrayList(usize).init(self.backing_allocator);
         defer candidates.deinit();
         try candidates.ensureTotalCapacity(self.config.max_sstables_per_tier);
 
@@ -241,7 +249,7 @@ pub const TieredCompactionManager = struct {
             if (candidates.items.len >= self.config.max_sstables_per_tier) break;
         }
 
-        var input_paths = std.ArrayList([]const u8).init(self.allocator);
+        var input_paths = std.ArrayList([]const u8).init(self.backing_allocator);
         try input_paths.ensureTotalCapacity(candidates.items.len);
         var total_size: u64 = 0;
 
@@ -279,11 +287,11 @@ pub const TieredCompactionManager = struct {
         const compaction_id = self.compaction_counter;
         self.compaction_counter += 1;
         const output_path = try std.fmt.allocPrint(
-            self.allocator,
+            self.backing_allocator,
             "{s}/sst/compacted_{:04}.sst",
             .{ self.compactor.data_dir, compaction_id },
         );
-        defer self.allocator.free(output_path);
+        defer self.backing_allocator.free(output_path);
 
         try self.compactor.compact_sstables(job.input_paths.items, output_path);
 
@@ -298,11 +306,11 @@ pub const TieredCompactionManager = struct {
         const compaction_id = self.compaction_counter;
         self.compaction_counter += 1;
         const output_path = try std.fmt.allocPrint(
-            self.allocator,
+            self.backing_allocator,
             "{s}/sst/compacted_{:04}.sst",
             .{ self.compactor.data_dir, compaction_id },
         );
-        defer self.allocator.free(output_path);
+        defer self.backing_allocator.free(output_path);
 
         try self.compactor.compact_sstables(job.input_paths.items, output_path);
 

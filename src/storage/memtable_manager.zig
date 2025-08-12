@@ -515,7 +515,7 @@ test "MemtableManager edge operations" {
 
     const outgoing = manager.find_outgoing_edges(source_id);
     try testing.expectEqual(@as(usize, 1), outgoing.len);
-    try testing.expectEqual(target_id, outgoing[0].target_id);
+    try testing.expectEqual(target_id, outgoing[0].edge.target_id);
 }
 
 test "MemtableManager clear operation" {

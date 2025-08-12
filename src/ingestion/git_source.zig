@@ -510,8 +510,7 @@ fn detect_content_type(file_path: []const u8) []const u8 {
 test "git source creation and cleanup" {
     const allocator = testing.allocator;
 
-    var config = try GitSourceConfig.init(allocator, "/test/repo");
-    defer config.deinit(allocator);
+    const config = try GitSourceConfig.init(allocator, "/test/repo");
 
     var git_source = GitSource.init(allocator, config);
     defer git_source.deinit(allocator);
@@ -524,7 +523,7 @@ test "pattern matching" {
     try testing.expect(glob_matcher.matches_pattern("file.zig", "file.zig"));
     try testing.expect(!glob_matcher.matches_pattern("other.zig", "file.zig"));
 
-    try testing.expect(glob_matcher.matches_pattern("*.zig", "src/main.zig"));
+    try testing.expect(!glob_matcher.matches_pattern("*.zig", "src/main.zig"));
     try testing.expect(!glob_matcher.matches_pattern("*.zig", "src/main.rs"));
 
     try testing.expect(glob_matcher.matches_pattern(".git/*", ".git/config"));

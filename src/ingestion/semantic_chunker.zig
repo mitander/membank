@@ -295,13 +295,24 @@ test "convert unit to block" {
     defer semantic_chunker.deinit(allocator);
 
     var metadata = std.StringHashMap([]const u8).init(allocator);
+    defer metadata.deinit();
     try metadata.put("function_name", "test_func");
     try metadata.put("is_public", "true");
 
+    const unit_id = try allocator.dupe(u8, "test_function");
+    defer allocator.free(unit_id);
+    const unit_type = try allocator.dupe(u8, "function");
+    defer allocator.free(unit_type);
+    const unit_content = try allocator.dupe(u8, "pub fn test_func() void {}");
+    defer allocator.free(unit_content);
+
+    var unit_edges = std.ArrayList(ParsedEdge).init(allocator);
+    defer unit_edges.deinit();
+
     const unit = ParsedUnit{
-        .id = try allocator.dupe(u8, "test_function"),
-        .unit_type = try allocator.dupe(u8, "function"),
-        .content = try allocator.dupe(u8, "pub fn test_func() void {}"),
+        .id = unit_id,
+        .unit_type = unit_type,
+        .content = unit_content,
         .location = SourceLocation{
             .file_path = "test.zig",
             .line_start = 10,
@@ -309,11 +320,12 @@ test "convert unit to block" {
             .col_start = 1,
             .col_end = 25,
         },
-        .edges = std.ArrayList(ParsedEdge).init(allocator),
+        .edges = unit_edges,
         .metadata = metadata,
     };
 
     const block = try semantic_chunker.convert_unit_to_block(allocator, unit);
+    defer block.deinit(allocator);
 
     try testing.expectEqualStrings("pub fn test_func() void {}", block.content);
     try testing.expectEqualStrings("file://test.zig#L10-12", block.source_uri);
@@ -332,10 +344,23 @@ test "generate deterministic block ID" {
     var semantic_chunker = SemanticChunker.init(allocator, config);
     defer semantic_chunker.deinit(allocator);
 
+    var unit_metadata = std.StringHashMap([]const u8).init(allocator);
+    defer unit_metadata.deinit();
+
+    var unit_edges = std.ArrayList(ParsedEdge).init(allocator);
+    defer unit_edges.deinit();
+
+    const unit_id = try allocator.dupe(u8, "test_function");
+    defer allocator.free(unit_id);
+    const unit_type = try allocator.dupe(u8, "function");
+    defer allocator.free(unit_type);
+    const unit_content = try allocator.dupe(u8, "content");
+    defer allocator.free(unit_content);
+
     const unit = ParsedUnit{
-        .id = try allocator.dupe(u8, "test_function"),
-        .unit_type = try allocator.dupe(u8, "function"),
-        .content = try allocator.dupe(u8, "content"),
+        .id = unit_id,
+        .unit_type = unit_type,
+        .content = unit_content,
         .location = SourceLocation{
             .file_path = "test.zig",
             .line_start = 10,
@@ -343,8 +368,8 @@ test "generate deterministic block ID" {
             .col_start = 1,
             .col_end = 25,
         },
-        .edges = std.ArrayList(ParsedEdge).init(allocator),
-        .metadata = std.StringHashMap([]const u8).init(allocator),
+        .edges = unit_edges,
+        .metadata = unit_metadata,
     };
 
     const id1 = try semantic_chunker.generate_block_id(allocator, unit);
@@ -362,14 +387,25 @@ test "chunk multiple units" {
     defer semantic_chunker.deinit(allocator);
 
     var units = std.ArrayList(ParsedUnit).init(allocator);
+    defer units.deinit();
 
     var metadata1 = std.StringHashMap([]const u8).init(allocator);
+    defer metadata1.deinit();
     try metadata1.put("function_name", "func1");
 
+    const unit1_id = try allocator.dupe(u8, "func1");
+    defer allocator.free(unit1_id);
+    const unit1_type = try allocator.dupe(u8, "function");
+    defer allocator.free(unit1_type);
+    const unit1_content = try allocator.dupe(u8, "fn func1() void {}");
+    defer allocator.free(unit1_content);
+    var unit1_edges = std.ArrayList(ParsedEdge).init(allocator);
+    defer unit1_edges.deinit();
+
     const unit1 = ParsedUnit{
-        .id = try allocator.dupe(u8, "func1"),
-        .unit_type = try allocator.dupe(u8, "function"),
-        .content = try allocator.dupe(u8, "fn func1() void {}"),
+        .id = unit1_id,
+        .unit_type = unit1_type,
+        .content = unit1_content,
         .location = SourceLocation{
             .file_path = "test.zig",
             .line_start = 1,
@@ -377,18 +413,28 @@ test "chunk multiple units" {
             .col_start = 1,
             .col_end = 18,
         },
-        .edges = std.ArrayList(ParsedEdge).init(allocator),
+        .edges = unit1_edges,
         .metadata = metadata1,
     };
     try units.append(unit1);
 
     var metadata2 = std.StringHashMap([]const u8).init(allocator);
+    defer metadata2.deinit();
     try metadata2.put("constant_name", "VERSION");
 
+    const unit2_id = try allocator.dupe(u8, "VERSION");
+    defer allocator.free(unit2_id);
+    const unit2_type = try allocator.dupe(u8, "constant");
+    defer allocator.free(unit2_type);
+    const unit2_content = try allocator.dupe(u8, "const VERSION = \"1.0.0\";");
+    defer allocator.free(unit2_content);
+    var unit2_edges = std.ArrayList(ParsedEdge).init(allocator);
+    defer unit2_edges.deinit();
+
     const unit2 = ParsedUnit{
-        .id = try allocator.dupe(u8, "VERSION"),
-        .unit_type = try allocator.dupe(u8, "constant"),
-        .content = try allocator.dupe(u8, "const VERSION = \"1.0.0\";"),
+        .id = unit2_id,
+        .unit_type = unit2_type,
+        .content = unit2_content,
         .location = SourceLocation{
             .file_path = "test.zig",
             .line_start = 3,
@@ -396,13 +442,19 @@ test "chunk multiple units" {
             .col_start = 1,
             .col_end = 24,
         },
-        .edges = std.ArrayList(ParsedEdge).init(allocator),
+        .edges = unit2_edges,
         .metadata = metadata2,
     };
     try units.append(unit2);
 
     const chunker_interface = semantic_chunker.chunker();
     const blocks = try chunker_interface.chunk(allocator, units.items);
+    defer {
+        for (blocks) |block| {
+            block.deinit(allocator);
+        }
+        allocator.free(blocks);
+    }
 
     try testing.expectEqual(@as(usize, 2), blocks.len);
     try testing.expectEqualStrings("fn func1() void {}", blocks[0].content);

@@ -10,6 +10,7 @@ const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
 const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const harness = @import("../test/harness.zig");
 const testing = std.testing;
 
 const StorageEngine = storage.StorageEngine;
@@ -18,6 +19,7 @@ const BlockId = context_block.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const QueryEngineBlock = ownership.QueryEngineBlock;
 const TemporaryBlock = ownership.TemporaryBlock;
+const TestData = harness.TestData;
 const BlockOwnership = ownership.BlockOwnership;
 
 /// Basic query operation errors
@@ -145,11 +147,12 @@ pub const QueryResult = struct {
             // No defer needed - arena-managed
 
             try writer.writeAll("--- BEGIN CONTEXT BLOCK ---\n");
-            try writer.print("Block {} (ID: {}):\n", .{ block_index, block_ptr.id });
-            try writer.print("Source: {s}\n", .{block_ptr.source_uri});
-            try writer.print("Version: {}\n", .{block_ptr.version});
-            try writer.print("Metadata: {s}\n", .{block_ptr.metadata_json});
-            try writer.print("Content: {s}\n", .{block_ptr.content});
+            const ctx_block = block_ptr.read(.query_engine);
+            try writer.print("Block {} (ID: {}):\n", .{ block_index, ctx_block.id });
+            try writer.print("Source: {s}\n", .{ctx_block.source_uri});
+            try writer.print("Version: {}\n", .{ctx_block.version});
+            try writer.print("Metadata: {s}\n", .{ctx_block.metadata_json});
+            try writer.print("Content: {s}\n", .{ctx_block.content});
             try writer.writeAll("--- END CONTEXT BLOCK ---\n\n");
 
             block_index += 1;
@@ -233,7 +236,7 @@ pub const SemanticQueryResult = struct {
         const owned_results = try allocator.alloc(SemanticResult, results.len);
         for (results, 0..) |result, i| {
             owned_results[i] = SemanticResult{
-                .block = try clone_block(allocator, result.block),
+                .block = QueryEngineBlock.init(try clone_block(allocator, result.block.block)),
                 .similarity_score = result.similarity_score,
             };
         }
@@ -247,9 +250,9 @@ pub const SemanticQueryResult = struct {
 
     pub fn deinit(self: SemanticQueryResult) void {
         for (self.results) |result| {
-            self.allocator.free(result.block.source_uri);
-            self.allocator.free(result.block.metadata_json);
-            self.allocator.free(result.block.content);
+            self.allocator.free(result.block.block.source_uri);
+            self.allocator.free(result.block.block.metadata_json);
+            self.allocator.free(result.block.block.content);
         }
         self.allocator.free(self.results);
     }
@@ -283,7 +286,7 @@ pub const SemanticQueryResult = struct {
         std.sort.heap(SemanticResult, sorted_results, {}, semantic_result_less_than);
 
         for (sorted_results, 0..) |search_result, i| {
-            blocks[i] = try clone_block(allocator, search_result.block);
+            blocks[i] = try clone_block(allocator, search_result.block.block);
         }
 
         return blocks;
@@ -313,7 +316,7 @@ pub fn execute_keyword_query(
 
     var results = std.ArrayList(SemanticResult).init(allocator);
     defer results.deinit();
-    try results.ensureCapacity(query.max_results);
+    try results.ensureTotalCapacity(query.max_results);
 
     var iterator = storage_engine.iterate_all_blocks();
 
@@ -326,19 +329,22 @@ pub fn execute_keyword_query(
 
             if (results.items.len < query.max_results) {
                 try results.append(SemanticResult{
-                    .block = block,
+                    .block = QueryEngineBlock.init(block),
                     .similarity_score = similarity,
                 });
             }
         }
     }
 
+    // Sort results by similarity score (highest first)
+    std.sort.heap(SemanticResult, results.items, {}, semantic_result_less_than);
+
     return SemanticQueryResult.init(allocator, results.items, matches_found);
 }
 
 /// Check if a block exists in storage
 pub fn block_exists(storage_engine: *StorageEngine, block_id: BlockId) bool {
-    const result = storage_engine.find_block(block_id) catch return false;
+    const result = storage_engine.find_block(block_id, .query_engine) catch return false;
     return result != null;
 }
 
@@ -373,7 +379,7 @@ pub fn count_existing_blocks(
 fn calculate_keyword_similarity(content: []const u8, query: []const u8) f32 {
     if (content.len == 0 or query.len == 0) return 0.0;
 
-    var query_words = std.mem.split(u8, query, " ");
+    var query_words = std.mem.splitSequence(u8, query, " ");
     var total_query_words: f32 = 0;
     var matching_words: f32 = 0;
 
@@ -406,11 +412,22 @@ fn clone_block(allocator: std.mem.Allocator, block: ContextBlock) !ContextBlock 
     };
 }
 
+fn free_cloned_block(allocator: std.mem.Allocator, block: ContextBlock) void {
+    allocator.free(block.source_uri);
+    allocator.free(block.metadata_json);
+    allocator.free(block.content);
+}
+
 test "find blocks query validation" {
-    const valid_query = FindBlocksQuery{
-        .block_ids = &[_]BlockId{ 1, 2, 3 },
+    const query = FindBlocksQuery{
+        .block_ids = &[_]BlockId{
+            // Safety: Hard-coded 32-character hex strings, guaranteed valid
+            BlockId.from_hex("11111111111111111111111111111111") catch unreachable,
+            BlockId.from_hex("22222222222222222222222222222222") catch unreachable,
+            BlockId.from_hex("33333333333333333333333333333333") catch unreachable,
+        },
     };
-    try valid_query.validate();
+    try query.validate();
 
     const empty_query = FindBlocksQuery{
         .block_ids = &[_]BlockId{},
@@ -419,7 +436,7 @@ test "find blocks query validation" {
 
     var too_many_ids: [1001]BlockId = undefined;
     for (&too_many_ids, 0..) |*id, i| {
-        id.* = @intCast(i);
+        id.* = TestData.deterministic_block_id(@intCast(i));
     }
     const large_query = FindBlocksQuery{
         .block_ids = &too_many_ids,
@@ -459,14 +476,15 @@ test "keyword similarity calculation" {
 test "query result formatting" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_formatting");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_formatting", storage_config);
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    const test_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    const test_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const test_block = ContextBlock{
         .id = test_id,
         .version = 1,
@@ -493,15 +511,16 @@ test "query result formatting" {
 
 test "semantic result sorting" {
     const block1 = ContextBlock{
-        .id = 1,
+        // Safety: Hard-coded 32-character hex string, guaranteed valid
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable,
         .version = 1,
-        .source_uri = "test1.zig",
+        .source_uri = "test.zig",
         .metadata_json = "{}",
-        .content = "low similarity",
+        .content = "Hello, KausalDB!",
     };
 
     const block2 = ContextBlock{
-        .id = 2,
+        .id = TestData.deterministic_block_id(2),
         .version = 1,
         .source_uri = "test2.zig",
         .metadata_json = "{}",
@@ -509,32 +528,39 @@ test "semantic result sorting" {
     };
 
     const results = [_]SemanticResult{
-        .{ .block = block1, .similarity_score = 0.3 },
-        .{ .block = block2, .similarity_score = 0.9 },
+        .{ .block = QueryEngineBlock.init(block1), .similarity_score = 0.3 },
+        .{ .block = QueryEngineBlock.init(block2), .similarity_score = 0.9 },
     };
 
     var semantic_result = try SemanticQueryResult.init(testing.allocator, &results, 2);
     defer semantic_result.deinit();
 
     const sorted_blocks = try semantic_result.sorted_blocks(testing.allocator);
-    defer testing.allocator.free(sorted_blocks);
+    defer {
+        for (sorted_blocks) |block| {
+            free_cloned_block(testing.allocator, block);
+        }
+        testing.allocator.free(sorted_blocks);
+    }
 
-    try testing.expect(sorted_blocks[0].id == 2);
-    try testing.expect(sorted_blocks[1].id == 1);
+    try testing.expect(sorted_blocks[0].id.eql(TestData.deterministic_block_id(2)));
+    // Safety: Hard-coded 32-character hex string, guaranteed valid
+    try testing.expect(sorted_blocks[1].id.eql(BlockId.from_hex("11111111111111111111111111111111") catch unreachable));
 }
 
 test "execute_find_blocks with storage engine" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_operations");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_operations", storage_config);
     defer storage_engine.deinit();
     try storage_engine.startup();
-    const test_id1 = try BlockId.from_hex("1111111111111111111111111111111111111111");
-    const test_id2 = try BlockId.from_hex("2222222222222222222222222222222222222222");
-    const missing_id = try BlockId.from_hex("3333333333333333333333333333333333333333");
+    const test_id1 = try BlockId.from_hex("11111111111111111111111111111111");
+    const test_id2 = try BlockId.from_hex("22222222222222222222222222222222");
+    const missing_id = try BlockId.from_hex("33333333333333333333333333333333");
 
     const block1 = ContextBlock{
         .id = test_id1,
@@ -563,7 +589,7 @@ test "execute_find_blocks with storage engine" {
     defer result.deinit();
 
     try testing.expectEqual(@as(u32, 2), result.total_found);
-    try testing.expect(!result.is_empty());
+    try testing.expect(!(@constCast(&result)).is_empty());
 
     const partial_query = FindBlocksQuery{
         .block_ids = &[_]BlockId{ test_id1, missing_id, test_id2 },
@@ -578,30 +604,31 @@ test "execute_find_blocks with storage engine" {
 test "execute_keyword_query with word matching" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_semantic");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_semantic", storage_config);
     defer storage_engine.deinit();
     try storage_engine.startup();
 
     const blocks = [_]ContextBlock{
         .{
-            .id = try BlockId.from_hex("1111111111111111111111111111111111111111"),
+            .id = try BlockId.from_hex("11111111111111111111111111111111"),
             .version = 1,
             .source_uri = "high_match.zig",
             .metadata_json = "{}",
             .content = "hello world test function", // High similarity to "hello world"
         },
         .{
-            .id = try BlockId.from_hex("2222222222222222222222222222222222222222"),
+            .id = try BlockId.from_hex("22222222222222222222222222222222"),
             .version = 1,
             .source_uri = "medium_match.zig",
             .metadata_json = "{}",
             .content = "hello there other code", // Medium similarity
         },
         .{
-            .id = try BlockId.from_hex("3333333333333333333333333333333333333333"),
+            .id = try BlockId.from_hex("33333333333333333333333333333333"),
             .version = 1,
             .source_uri = "no_match.zig",
             .metadata_json = "{}",
@@ -635,23 +662,24 @@ test "execute_keyword_query with word matching" {
 test "query result memory management" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_memory");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_memory", storage_config);
     defer storage_engine.deinit();
     try storage_engine.startup();
 
     const test_blocks = [_]ContextBlock{
         .{
-            .id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            .id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             .version = 1,
             .source_uri = "mem_test1.zig",
             .metadata_json = "{\"test\": true}",
             .content = "memory test content 1",
         },
         .{
-            .id = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            .id = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
             .version = 1,
             .source_uri = "mem_test2.zig",
             .metadata_json = "{\"test\": false}",
@@ -671,8 +699,8 @@ test "query result memory management" {
     try testing.expect(!result.is_empty());
 
     const first_block = (try result.next()).?;
-    try testing.expect(first_block.id.eql(test_blocks[0].id));
-    try testing.expect(std.mem.eql(u8, first_block.content, test_blocks[0].content));
+    try testing.expect(first_block.block.id.eql(test_blocks[0].id));
+    try testing.expect(std.mem.eql(u8, first_block.block.content, test_blocks[0].content));
 }
 
 test "semantic query result operations" {
@@ -680,24 +708,24 @@ test "semantic query result operations" {
 
     const test_results = [_]SemanticResult{
         .{
-            .block = .{
-                .id = try BlockId.from_hex("1111111111111111111111111111111111111111"),
+            .block = QueryEngineBlock.init(ContextBlock{
+                .id = TestData.deterministic_block_id(1),
                 .version = 1,
                 .source_uri = "semantic1.zig",
                 .metadata_json = "{}",
                 .content = "high relevance content",
-            },
+            }),
             .similarity_score = 0.9,
         },
         .{
-            .block = .{
-                .id = try BlockId.from_hex("2222222222222222222222222222222222222222"),
+            .block = QueryEngineBlock.init(ContextBlock{
+                .id = TestData.deterministic_block_id(2),
                 .version = 1,
                 .source_uri = "semantic2.zig",
                 .metadata_json = "{}",
                 .content = "medium relevance content",
-            },
-            .similarity_score = 0.6,
+            }),
+            .similarity_score = 0.5,
         },
     };
 
@@ -708,7 +736,12 @@ test "semantic query result operations" {
     try testing.expectEqual(@as(usize, 2), semantic_result.results.len);
 
     const sorted_blocks = try semantic_result.sorted_blocks(allocator);
-    defer allocator.free(sorted_blocks);
+    defer {
+        for (sorted_blocks) |block| {
+            free_cloned_block(allocator, block);
+        }
+        allocator.free(sorted_blocks);
+    }
 
     try testing.expectEqual(@as(usize, 2), sorted_blocks.len);
     try testing.expect(semantic_result.results[0].similarity_score >= semantic_result.results[1].similarity_score);
@@ -717,15 +750,16 @@ test "semantic query result operations" {
 test "block existence checking" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_existence");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_existence", storage_config);
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    const existing_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
-    const missing_id = try BlockId.from_hex("2222222222222222222222222222222222222222");
+    const existing_id = try BlockId.from_hex("11111111111111111111111111111111");
+    const missing_id = try BlockId.from_hex("22222222222222222222222222222222");
 
     try testing.expect(!block_exists(&storage_engine, existing_id));
     try testing.expect(!block_exists(&storage_engine, missing_id));
@@ -750,14 +784,15 @@ test "block existence checking" {
 test "find_block convenience function" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_find_single");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_find_single", storage_config);
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    const test_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    const test_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const test_block = ContextBlock{
         .id = test_id,
         .version = 1,
@@ -772,18 +807,19 @@ test "find_block convenience function" {
 
     try testing.expectEqual(@as(u32, 1), result.total_found);
 
-    const found_block = (try result.next()).?;
-    try testing.expect(found_block.id.eql(test_id));
-    try testing.expect(std.mem.eql(u8, found_block.content, test_block.content));
+    const found_block = (try (@constCast(&result)).next()).?;
+    try testing.expect(found_block.block.id.eql(test_id));
+    try testing.expect(std.mem.eql(u8, found_block.block.content, test_block.content));
 }
 
 test "large dataset query performance" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_performance");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_performance", storage_config);
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -806,6 +842,7 @@ test "large dataset query performance" {
             .metadata_json = "{}",
             .content = content,
         };
+
         try storage_engine.put_block(test_block);
     }
 
@@ -856,10 +893,11 @@ test "query error handling" {
 test "query result formatting edge cases" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_edge_cases");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_edge_cases", storage_config);
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -875,7 +913,7 @@ test "query result formatting edge cases" {
     const empty_formatted = empty_formatted_output.items;
     try testing.expect(std.mem.indexOf(u8, empty_formatted, "Retrieved 0 blocks") != null);
 
-    const special_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
+    const special_id = try BlockId.from_hex("11111111111111111111111111111111");
     const special_block = ContextBlock{
         .id = special_id,
         .version = 1,
@@ -899,10 +937,11 @@ test "query result formatting edge cases" {
 test "query result zero-allocation performance validation" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_zero_alloc_perf");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_zero_alloc_perf", storage_config);
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -913,7 +952,9 @@ test "query result zero-allocation performance validation" {
 
     for (0..block_count) |i| {
         var id_bytes: [16]u8 = undefined;
-        std.mem.writeInt(u128, &id_bytes, @as(u128, i), .big);
+        // Create non-zero block IDs by setting high bit if i == 0
+        const id_value = if (i == 0) @as(u128, 1) else @as(u128, i);
+        std.mem.writeInt(u128, &id_bytes, id_value, .big);
         block_ids[i] = BlockId{ .bytes = id_bytes };
 
         const content = try std.fmt.allocPrint(allocator, "test content for block {d} with some additional text to make it realistic", .{i});
@@ -939,7 +980,7 @@ test "query result zero-allocation performance validation" {
     while (try result.next()) |block_ptr| {
         iteration_count += 1;
         // Simulate minimal processing - just access the block data
-        if (block_ptr.content.len == 0) {
+        if (block_ptr.block.content.len == 0) {
             return error.UnexpectedEmptyContent;
         }
     }

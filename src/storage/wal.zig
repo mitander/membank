@@ -53,7 +53,7 @@ test "WAL entry serialization roundtrip" {
         .id = BlockId.from_hex("0123456789abcdeffedcba9876543210") catch unreachable, // Safety: hardcoded valid hex
         .version = 1,
         .source_uri = "test://example",
-        .metadata = "{}",
+        .metadata_json = "{}",
         .content = "Hello, WAL!",
     };
 
@@ -79,7 +79,7 @@ test "WAL entry serialization roundtrip" {
 test "WAL basic write and recovery" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const vfs_interface = sim_vfs.vfs();
@@ -87,12 +87,13 @@ test "WAL basic write and recovery" {
 
     var wal = try WAL.init(allocator, vfs_interface, wal_dir);
     defer wal.deinit();
+    try wal.startup();
 
     const test_block = ContextBlock{
         .id = BlockId.from_hex("1234567890abcdef1234567890abcdef") catch unreachable, // Safety: hardcoded valid hex
         .version = 1,
         .source_uri = "test://source",
-        .metadata = "{}",
+        .metadata_json = "{}",
         .content = "Test content",
     };
 
@@ -108,15 +109,18 @@ test "WAL basic write and recovery" {
     const RecoveryContext = struct {
         entries_recovered: u32 = 0,
         allocator: std.mem.Allocator,
-
-        fn callback(self: *@This(), recovered_entry: WALEntry, _: *anyopaque) WALError!void {
-            defer recovered_entry.deinit(self.allocator);
-            self.entries_recovered += 1;
-        }
     };
 
+    const callback = struct {
+        fn recover(recovered_entry: WALEntry, ctx: *anyopaque) WALError!void {
+            _ = recovered_entry; // Consumed by the callback, cleaned up by recovery system
+            const context: *RecoveryContext = @ptrCast(@alignCast(ctx));
+            context.entries_recovered += 1;
+        }
+    }.recover;
+
     var context = RecoveryContext{ .allocator = allocator };
-    try wal.recover_entries(@ptrCast(&RecoveryContext.callback), &context);
+    try wal.recover_entries(callback, &context);
 
     try testing.expect(context.entries_recovered == 1);
 }
@@ -124,7 +128,7 @@ test "WAL basic write and recovery" {
 test "WAL segment rotation" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const vfs_interface = sim_vfs.vfs();
@@ -132,6 +136,7 @@ test "WAL segment rotation" {
 
     var wal = try WAL.init(allocator, vfs_interface, wal_dir);
     defer wal.deinit();
+    try wal.startup();
 
     const large_content = try allocator.alloc(u8, 1024 * 1024); // 1MB
     defer allocator.free(large_content);
@@ -142,10 +147,10 @@ test "WAL segment rotation" {
 
     while (entries_written < 100) { // Reasonable upper bound
         const test_block = ContextBlock{
-            .id = try BlockId.new(),
+            .id = try BlockId.from_hex("deadbeefdeadbeefdeadbeefdeadbeef"),
             .version = 1,
             .source_uri = "test://large",
-            .metadata = "{}",
+            .metadata_json = "{}",
             .content = large_content,
         };
 

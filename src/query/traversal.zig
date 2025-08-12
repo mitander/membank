@@ -1354,7 +1354,8 @@ pub fn traverse_astar(
 
 fn create_test_storage_engine(allocator: std.mem.Allocator) !StorageEngine {
     var sim_vfs = try SimulationVFS.init(allocator);
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_traversal");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_traversal", storage_config);
     try storage_engine.startup();
     return storage_engine;
 }
@@ -1374,12 +1375,11 @@ fn create_test_edge(from_id: BlockId, to_id: BlockId, edge_type: EdgeType) Graph
         .source_id = from_id,
         .target_id = to_id,
         .edge_type = edge_type,
-        .metadata_json = "{}",
     };
 }
 
 test "traversal query validation" {
-    const start_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
+    const start_id = try BlockId.from_hex("11111111111111111111111111111111");
 
     const valid_query = TraversalQuery.init(start_id, .outgoing);
     try valid_query.validate();
@@ -1417,9 +1417,11 @@ test "traversal algorithm enum parsing" {
 test "traversal result memory management" {
     const allocator = testing.allocator;
 
-    const test_block = create_test_block(try BlockId.from_hex("1111111111111111111111111111111111111111"), "test content");
+    const test_block = create_test_block(try BlockId.from_hex("11111111111111111111111111111111"), "test content");
 
-    var result = try TraversalResult.init(allocator, &[_]ContextBlock{test_block}, 1, 1);
+    const empty_paths: []const []const BlockId = &.{};
+    const empty_depths: []const u32 = &.{};
+    var result = TraversalResult.init(allocator, &[_]QueryEngineBlock{QueryEngineBlock.init(test_block)}, empty_paths, empty_depths, 1, 0);
     defer result.deinit();
 
     try testing.expectEqual(@as(usize, 1), result.count());
@@ -1434,7 +1436,7 @@ test "basic traversal with empty graph" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    const start_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    const start_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const start_block = create_test_block(start_id, "isolated block");
     try storage_engine.put_block(start_block);
 
@@ -1443,7 +1445,7 @@ test "basic traversal with empty graph" {
     defer result.deinit();
 
     try testing.expectEqual(@as(usize, 1), result.count());
-    try testing.expect(result.blocks[0].id.eql(start_id));
+    try testing.expect(result.blocks[0].block.id.eql(start_id));
     try testing.expectEqual(@as(u32, 0), result.max_depth_reached);
 }
 
@@ -1453,7 +1455,7 @@ test "outgoing traversal with linear chain" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
 
@@ -1489,9 +1491,9 @@ test "outgoing traversal with linear chain" {
     var found_b = false;
     var found_c = false;
     for (result.blocks) |block| {
-        if (block.id.eql(id_a)) found_a = true;
-        if (block.id.eql(id_b)) found_b = true;
-        if (block.id.eql(id_c)) found_c = true;
+        if (block.block.id.eql(id_a)) found_a = true;
+        if (block.block.id.eql(id_b)) found_b = true;
+        if (block.block.id.eql(id_c)) found_c = true;
     }
     try testing.expect(found_a and found_b and found_c);
 }
@@ -1502,7 +1504,7 @@ test "incoming traversal" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    const id_a = try BlockId.from_hex("1111111111111111111111111111111111111111");
+    const id_a = try BlockId.from_hex("11111111111111111111111111111111");
     const id_b = try BlockId.from_hex("2222222222222222222222222222222222222222");
     const id_c = try BlockId.from_hex("3333333333333333333333333333333333333333");
 
@@ -1528,9 +1530,9 @@ test "incoming traversal" {
     var found_b = false;
     var found_c = false;
     for (result.blocks) |block| {
-        if (block.id.eql(id_a)) found_a = true;
-        if (block.id.eql(id_b)) found_b = true;
-        if (block.id.eql(id_c)) found_c = true;
+        if (block.block.id.eql(id_a)) found_a = true;
+        if (block.block.id.eql(id_b)) found_b = true;
+        if (block.block.id.eql(id_c)) found_c = true;
     }
     try testing.expect(found_a and found_b and found_c);
 }
@@ -1541,7 +1543,7 @@ test "bidirectional traversal" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
 
@@ -1567,9 +1569,9 @@ test "bidirectional traversal" {
     var found_b = false;
     var found_c = false;
     for (result.blocks) |block| {
-        if (block.id.eql(id_a)) found_a = true;
-        if (block.id.eql(id_b)) found_b = true;
-        if (block.id.eql(id_c)) found_c = true;
+        if (block.block.id.eql(id_a)) found_a = true;
+        if (block.block.id.eql(id_b)) found_b = true;
+        if (block.block.id.eql(id_c)) found_c = true;
     }
     try testing.expect(found_a and found_b and found_c);
 }
@@ -1580,7 +1582,7 @@ test "edge type filtering" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    const id_a = try BlockId.from_hex("1111111111111111111111111111111111111111");
+    const id_a = try BlockId.from_hex("11111111111111111111111111111111");
     const id_b = try BlockId.from_hex("2222222222222222222222222222222222222222");
     const id_c = try BlockId.from_hex("3333333333333333333333333333333333333333");
 
@@ -1615,9 +1617,9 @@ test "edge type filtering" {
     var found_b = false;
     var found_c = false;
     for (result_calls.blocks) |block| {
-        if (block.id.eql(id_a)) found_a = true;
-        if (block.id.eql(id_b)) found_b = true;
-        if (block.id.eql(id_c)) found_c = true;
+        if (block.block.id.eql(id_a)) found_a = true;
+        if (block.block.id.eql(id_b)) found_b = true;
+        if (block.block.id.eql(id_c)) found_c = true;
     }
     try testing.expect(found_a and found_b and !found_c);
 }
@@ -1628,7 +1630,7 @@ test "max depth limit enforcement" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
     const id_d = try BlockId.from_hex("dddddddddddddddddddddddddddddddddddddddd");
@@ -1671,7 +1673,7 @@ test "max depth limit enforcement" {
 
     var found_d = false;
     for (result.blocks) |block| {
-        if (block.id.eql(id_d)) found_d = true;
+        if (block.block.id.eql(id_d)) found_d = true;
     }
     try testing.expect(!found_d);
 }
@@ -1682,7 +1684,7 @@ test "max results limit enforcement" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
     const id_d = try BlockId.from_hex("dddddddddddddddddddddddddddddddddddddddd");
@@ -1737,7 +1739,7 @@ test "breadth-first vs depth-first traversal ordering" {
     //  B     C
     //  |     |
     //  D     E
-    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
     const id_d = try BlockId.from_hex("dddddddddddddddddddddddddddddddddddddddd");
@@ -1802,11 +1804,11 @@ test "breadth-first vs depth-first traversal ordering" {
 
     try bfs_ids.ensureTotalCapacity(bfs_result.blocks.len);
     for (bfs_result.blocks) |block| {
-        try bfs_ids.append(block.id);
+        try bfs_ids.append(block.block.id);
     }
     try dfs_ids.ensureTotalCapacity(dfs_result.blocks.len);
     for (dfs_result.blocks) |block| {
-        try dfs_ids.append(block.id);
+        try dfs_ids.append(block.block.id);
     }
 
     try testing.expectEqual(bfs_ids.items.len, dfs_ids.items.len);
@@ -1834,7 +1836,7 @@ test "convenience traversal functions" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    const start_id = try BlockId.from_hex("1111111111111111111111111111111111111111");
+    const start_id = try BlockId.from_hex("11111111111111111111111111111111");
     const test_block = create_test_block(start_id, "convenience test");
     try storage_engine.put_block(test_block);
 
@@ -1862,7 +1864,7 @@ test "A* search algorithm basic functionality" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
 
@@ -1898,9 +1900,9 @@ test "A* search algorithm basic functionality" {
     var found_b = false;
     var found_c = false;
     for (result.blocks) |block| {
-        if (block.id.eql(id_a)) found_a = true;
-        if (block.id.eql(id_b)) found_b = true;
-        if (block.id.eql(id_c)) found_c = true;
+        if (block.block.id.eql(id_a)) found_a = true;
+        if (block.block.id.eql(id_b)) found_b = true;
+        if (block.block.id.eql(id_c)) found_c = true;
     }
     try testing.expect(found_a and found_b and found_c);
 }
@@ -1911,7 +1913,7 @@ test "bidirectional search algorithm" {
     var storage_engine = try create_test_storage_engine(allocator);
     defer storage_engine.deinit();
 
-    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
 
@@ -1945,7 +1947,7 @@ test "bidirectional search algorithm" {
 
     var found_a = false;
     for (result.blocks) |block| {
-        if (block.id.eql(id_a)) found_a = true;
+        if (block.block.id.eql(id_a)) found_a = true;
     }
     try testing.expect(found_a);
 }

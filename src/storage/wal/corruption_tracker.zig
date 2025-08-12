@@ -197,14 +197,14 @@ test "CorruptionTracker elevated corruption detection" {
     for (0..96) |_| {
         tracker.record_success();
     }
-    for (0..4) |_| { 
+    for (0..4) |_| {
         tracker.record_failure("test");
     }
     try testing.expect(!tracker.is_corruption_elevated());
 
     // Above threshold - elevated (6% failure rate)
-    tracker.record_failure("test"); 
-    tracker.record_failure("test"); 
+    tracker.record_failure("test");
+    tracker.record_failure("test");
     try testing.expect(tracker.is_corruption_elevated());
 }
 

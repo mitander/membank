@@ -23,6 +23,7 @@ const log = std.log.scoped(.sstable);
 const context_block = @import("../core/types.zig");
 const ownership = @import("../core/ownership.zig");
 const vfs = @import("../core/vfs.zig");
+const memory = @import("../core/memory.zig");
 const bloom_filter = @import("bloom_filter.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
@@ -36,6 +37,7 @@ const BloomFilter = bloom_filter.BloomFilter;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const SSTableBlock = ownership.SSTableBlock;
 const OwnedBlock = ownership.OwnedBlock;
+const ArenaCoordinator = memory.ArenaCoordinator;
 
 /// SSTable file format:
 /// | Magic (4) | Version (4) | Index Offset (8) | Block Count (4) | Reserved (12) |
@@ -43,7 +45,11 @@ const OwnedBlock = ownership.OwnedBlock;
 /// | Index Entries ... |
 /// | Footer Checksum (8) |
 pub const SSTable = struct {
-    allocator: std.mem.Allocator,
+    /// Arena coordinator pointer for stable allocation access (remains valid across arena resets)
+    /// CRITICAL: Must be pointer to prevent coordinator struct copying corruption
+    arena_coordinator: *const ArenaCoordinator,
+    /// Stable backing allocator for path strings and data structures
+    backing_allocator: std.mem.Allocator,
     filesystem: VFS,
     file_path: []const u8,
     block_count: u32,
@@ -227,19 +233,26 @@ pub const SSTable = struct {
         }
     };
 
-    /// Initialize a new SSTable with the given allocator, filesystem, and file path.
-    /// The file path will be owned by the SSTable and freed during deinit.
-    pub fn init(allocator: std.mem.Allocator, filesystem: VFS, file_path: []const u8) SSTable {
+    /// Initialize a new SSTable with arena coordinator, backing allocator, filesystem, and file path.
+    /// Uses Arena Coordinator Pattern for content allocation and backing allocator for structures.
+    /// CRITICAL: ArenaCoordinator must be passed by pointer to prevent struct copying corruption.
+    pub fn init(
+        coordinator: *const ArenaCoordinator,
+        backing: std.mem.Allocator,
+        filesystem: VFS,
+        file_path: []const u8,
+    ) SSTable {
         assert.assert_not_empty(file_path, "SSTable file_path cannot be empty", .{});
         assert.assert_fmt(file_path.len < 4096, "SSTable file_path too long: {} bytes", .{file_path.len});
         assert.assert_fmt(@intFromPtr(file_path.ptr) != 0, "SSTable file_path has null pointer", .{});
 
         return SSTable{
-            .allocator = allocator,
+            .arena_coordinator = coordinator,
+            .backing_allocator = backing,
             .filesystem = filesystem,
             .file_path = file_path,
             .block_count = 0,
-            .index = std.ArrayList(IndexEntry).init(allocator),
+            .index = std.ArrayList(IndexEntry).init(backing),
             .bloom_filter = null,
         };
     }
@@ -247,11 +260,9 @@ pub const SSTable = struct {
     /// Clean up all allocated resources including the file path and index.
     /// Safe to call multiple times - subsequent calls are no-ops.
     pub fn deinit(self: *SSTable) void {
-        self.allocator.free(self.file_path);
+        self.backing_allocator.free(self.file_path);
         self.index.deinit();
-        if (self.bloom_filter) |*filter| {
-            filter.deinit();
-        }
+        // BloomFilter cleanup handled by arena coordinator
     }
 
     /// Write blocks to SSTable file in sorted order
@@ -260,18 +271,22 @@ pub const SSTable = struct {
         const supported_block_write = switch (BlocksType) {
             []const ContextBlock => true,
             []ContextBlock => true,
-            []const SSTableBlock => true,
-            []SSTableBlock => true,
+            []const ownership.ComptimeOwnedBlockType(.sstable_manager) => true,
+            []ownership.ComptimeOwnedBlockType(.sstable_manager) => true,
             []const OwnedBlock => true,
             []OwnedBlock => true,
             else => false,
         };
 
         if (!supported_block_write) {
-            @compileError("write_blocks() accepts []const ContextBlock, []ContextBlock, []const SSTableBlock, []SSTableBlock, []const OwnedBlock, or []OwnedBlock only");
+            std.debug.print("DEBUG: write_blocks() called with unsupported type: {s}\n", .{@typeName(BlocksType)});
+            @panic("write_blocks() accepts []const ContextBlock, []ContextBlock, []const SSTableBlock, []SSTableBlock, []const OwnedBlock, or []OwnedBlock only");
         }
         assert.assert_not_empty(blocks, "Cannot write empty blocks array", .{});
         assert.assert_fmt(blocks.len <= 1000000, "Too many blocks for single SSTable: {}", .{blocks.len});
+
+        // Clear existing index entries to prevent accumulation from multiple write operations
+        self.index.clearAndFree();
         assert.assert_fmt(@intFromPtr(blocks.ptr) != 0, "Blocks array has null pointer", .{});
 
         for (blocks, 0..) |block_value, i| {
@@ -279,8 +294,8 @@ pub const SSTable = struct {
             const block_data = switch (BlocksType) {
                 []const ContextBlock => block_value,
                 []ContextBlock => block_value,
-                []const SSTableBlock => block_value.read(.sstable_manager),
-                []SSTableBlock => block_value.read(.sstable_manager),
+                []const ownership.ComptimeOwnedBlockType(.sstable_manager) => block_value.read(.sstable_manager),
+                []ownership.ComptimeOwnedBlockType(.sstable_manager) => block_value.read(.sstable_manager),
                 []const OwnedBlock => block_value.read(.sstable_manager),
                 []OwnedBlock => block_value.read(.sstable_manager),
                 else => unreachable,
@@ -292,15 +307,15 @@ pub const SSTable = struct {
         }
 
         // Convert all blocks to ContextBlock for sorting (zero-cost for ContextBlock arrays)
-        const context_blocks = try self.allocator.alloc(ContextBlock, blocks.len);
-        defer self.allocator.free(context_blocks);
+        const context_blocks = try self.backing_allocator.alloc(ContextBlock, blocks.len);
+        defer self.backing_allocator.free(context_blocks);
 
-        for (blocks, 0..) |block_value, i| {
-            context_blocks[i] = switch (BlocksType) {
+        for (blocks, 0..) |block_value, index| {
+            context_blocks[index] = switch (BlocksType) {
                 []const ContextBlock => block_value,
                 []ContextBlock => block_value,
-                []const SSTableBlock => block_value.read(.sstable_manager).*,
-                []SSTableBlock => block_value.read(.sstable_manager).*,
+                []const ownership.ComptimeOwnedBlockType(.sstable_manager) => block_value.read(.sstable_manager).*,
+                []ownership.ComptimeOwnedBlockType(.sstable_manager) => block_value.read(.sstable_manager).*,
                 []const OwnedBlock => block_value.read(.sstable_manager).*,
                 []OwnedBlock => block_value.read(.sstable_manager).*,
                 else => unreachable,
@@ -330,15 +345,15 @@ pub const SSTable = struct {
         else
             BloomFilter.Params.large;
 
-        var bloom = try BloomFilter.init(self.allocator, bloom_params);
+        var new_bloom = try BloomFilter.init(self.arena_coordinator.allocator(), bloom_params);
         for (context_blocks) |block| {
-            bloom.add(block.id);
+            new_bloom.add(block.id);
         }
 
         for (context_blocks) |block| {
             const block_size = block.serialized_size();
-            const buffer = try self.allocator.alloc(u8, block_size);
-            defer self.allocator.free(buffer);
+            const buffer = try self.backing_allocator.alloc(u8, block_size);
+            defer self.backing_allocator.free(buffer);
 
             const written = try block.serialize(buffer);
             assert.assert_equal(written, block_size, "Block serialization size mismatch: {} != {}", .{ written, block_size });
@@ -363,11 +378,11 @@ pub const SSTable = struct {
         }
 
         const bloom_filter_offset = current_offset;
-        const bloom_filter_size = bloom.serialized_size();
-        const bloom_buffer = try self.allocator.alloc(u8, bloom_filter_size);
-        defer self.allocator.free(bloom_buffer);
+        const bloom_filter_size = new_bloom.serialized_size();
+        const bloom_buffer = try self.backing_allocator.alloc(u8, bloom_filter_size);
+        defer self.backing_allocator.free(bloom_buffer);
 
-        try bloom.serialize(bloom_buffer);
+        try new_bloom.serialize(bloom_buffer);
         _ = try file.write(bloom_buffer);
         current_offset += bloom_filter_size;
 
@@ -404,7 +419,9 @@ pub const SSTable = struct {
         try file.flush();
         self.block_count = @intCast(context_blocks.len);
 
-        self.bloom_filter = bloom;
+        // SUCCESS: All fallible operations completed. Now transfer ownership.
+        // Arena coordinator handles cleanup of existing bloom filter
+        self.bloom_filter = new_bloom;
     }
 
     /// Calculate CRC32 checksum over file content (excluding header checksum field and footer)
@@ -434,6 +451,9 @@ pub const SSTable = struct {
     pub fn read_index(self: *SSTable) !void {
         var file = try self.filesystem.open(self.file_path, .read);
         defer file.close();
+
+        // Clear index to prevent accumulating entries from previous reads
+        self.index.clearRetainingCapacity();
 
         var header_buffer: [HEADER_SIZE]u8 = undefined;
         _ = try file.read(&header_buffer);
@@ -467,22 +487,18 @@ pub const SSTable = struct {
             try self.index.append(entry);
         }
 
-        std.mem.sort(IndexEntry, self.index.items, {}, struct {
-            fn less_than(context: void, a: IndexEntry, b: IndexEntry) bool {
-                _ = context;
-                return std.mem.order(u8, &a.block_id.bytes, &b.block_id.bytes) == .lt;
-            }
-        }.less_than);
+        // Index entries are already sorted by block ID from write_blocks()
+        // No need to re-sort as this preserves the correct offset mapping
 
         if (header.bloom_filter_size > 0) {
             _ = try file.seek(@intCast(header.bloom_filter_offset), .start);
 
-            const bloom_buffer = try self.allocator.alloc(u8, header.bloom_filter_size);
-            defer self.allocator.free(bloom_buffer);
+            const bloom_buffer = try self.backing_allocator.alloc(u8, header.bloom_filter_size);
+            defer self.backing_allocator.free(bloom_buffer);
 
             _ = try file.read(bloom_buffer);
 
-            self.bloom_filter = try BloomFilter.deserialize(self.allocator, bloom_buffer);
+            self.bloom_filter = try BloomFilter.deserialize(self.arena_coordinator.allocator(), bloom_buffer);
         }
     }
 
@@ -525,12 +541,12 @@ pub const SSTable = struct {
 
         _ = try file.seek(@intCast(found_entry.offset), .start);
 
-        const buffer = try self.allocator.alloc(u8, found_entry.size);
-        defer self.allocator.free(buffer);
+        const buffer = try self.backing_allocator.alloc(u8, found_entry.size);
+        defer self.backing_allocator.free(buffer);
 
         _ = try file.read(buffer);
 
-        const block_data = try ContextBlock.deserialize(buffer, self.allocator);
+        const block_data = try ContextBlock.deserialize(buffer, self.arena_coordinator.allocator());
         return SSTableBlock.init(block_data);
     }
 
@@ -583,25 +599,35 @@ pub const SSTableIterator = struct {
 
         _ = try self.file.?.seek(@intCast(entry.offset), .start);
 
-        const buffer = try self.sstable.allocator.alloc(u8, entry.size);
-        defer self.sstable.allocator.free(buffer);
+        const buffer = try self.sstable.backing_allocator.alloc(u8, entry.size);
+        defer self.sstable.backing_allocator.free(buffer);
 
         _ = try self.file.?.read(buffer);
 
-        const block_data = try ContextBlock.deserialize(buffer, self.sstable.allocator);
+        const block_data = try ContextBlock.deserialize(buffer, self.sstable.arena_coordinator.allocator());
         return SSTableBlock.init(block_data);
     }
 };
 
 /// SSTable compaction manager
 pub const Compactor = struct {
-    allocator: std.mem.Allocator,
+    /// Arena coordinator pointer for stable allocation access (remains valid across arena resets)
+    /// CRITICAL: Must be pointer to prevent coordinator struct copying corruption
+    arena_coordinator: *const ArenaCoordinator,
+    /// Stable backing allocator for temporary structures
+    backing_allocator: std.mem.Allocator,
     filesystem: VFS,
     data_dir: []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, filesystem: VFS, data_dir: []const u8) Compactor {
+    pub fn init(
+        coordinator: *const ArenaCoordinator,
+        backing: std.mem.Allocator,
+        filesystem: VFS,
+        data_dir: []const u8,
+    ) Compactor {
         return Compactor{
-            .allocator = allocator,
+            .arena_coordinator = coordinator,
+            .backing_allocator = backing,
             .filesystem = filesystem,
             .data_dir = data_dir,
         };
@@ -615,25 +641,25 @@ pub const Compactor = struct {
     ) !void {
         assert.assert(input_paths.len > 1);
 
-        var input_tables = try self.allocator.alloc(SSTable, input_paths.len);
+        var input_tables = try self.backing_allocator.alloc(SSTable, input_paths.len);
         defer {
             for (input_tables) |*table| {
                 table.deinit();
             }
-            self.allocator.free(input_tables);
+            self.backing_allocator.free(input_tables);
         }
 
         for (input_paths, 0..) |path, i| {
-            const path_copy = try self.allocator.dupe(u8, path);
-            input_tables[i] = SSTable.init(self.allocator, self.filesystem, path_copy);
+            const path_copy = try self.backing_allocator.dupe(u8, path);
+            input_tables[i] = SSTable.init(self.arena_coordinator, self.backing_allocator, self.filesystem, path_copy);
             try input_tables[i].read_index();
         }
 
-        const output_path_copy = try self.allocator.dupe(u8, output_path);
-        var output_table = SSTable.init(self.allocator, self.filesystem, output_path_copy);
+        const output_path_copy = try self.backing_allocator.dupe(u8, output_path);
+        var output_table = SSTable.init(self.arena_coordinator, self.backing_allocator, self.filesystem, output_path_copy);
         defer output_table.deinit();
 
-        var all_blocks = std.ArrayList(SSTableBlock).init(self.allocator);
+        var all_blocks = std.ArrayList(SSTableBlock).init(self.backing_allocator);
         defer all_blocks.deinit();
 
         var total_capacity: u32 = 0;
@@ -653,25 +679,10 @@ pub const Compactor = struct {
 
         const unique_blocks = try self.dedup_blocks(all_blocks.items);
 
-        // Free the original deserialized blocks after deduplication
-        defer {
-            for (all_blocks.items) |block| {
-                // These strings were allocated by ContextBlock.deserialize()
-                self.allocator.free(block.extract().source_uri);
-                self.allocator.free(block.extract().metadata_json);
-                self.allocator.free(block.extract().content);
-            }
-        }
+        // Arena coordinator handles cleanup of deserialized block strings automatically
 
-        defer {
-            // Clean up cloned strings in unique blocks
-            for (unique_blocks) |block| {
-                self.allocator.free(block.extract().source_uri);
-                self.allocator.free(block.extract().metadata_json);
-                self.allocator.free(block.extract().content);
-            }
-            self.allocator.free(unique_blocks);
-        }
+        defer self.backing_allocator.free(unique_blocks);
+        // Arena coordinator handles cleanup of cloned block strings automatically
 
         try output_table.write_blocks(unique_blocks);
 
@@ -686,9 +697,9 @@ pub const Compactor = struct {
     fn dedup_blocks(self: *Compactor, blocks: []SSTableBlock) ![]SSTableBlock {
         assert.assert_fmt(@intFromPtr(blocks.ptr) != 0 or blocks.len == 0, "Blocks array has null pointer with non-zero length", .{});
 
-        if (blocks.len == 0) return try self.allocator.alloc(SSTableBlock, 0);
+        if (blocks.len == 0) return try self.backing_allocator.alloc(SSTableBlock, 0);
 
-        const sorted = try self.allocator.dupe(SSTableBlock, blocks);
+        const sorted = try self.backing_allocator.dupe(SSTableBlock, blocks);
         std.mem.sort(SSTableBlock, sorted, {}, struct {
             fn less_than(context: void, a: SSTableBlock, b: SSTableBlock) bool {
                 _ = context;
@@ -702,7 +713,7 @@ pub const Compactor = struct {
             }
         }.less_than);
 
-        var unique = std.ArrayList(SSTableBlock).init(self.allocator);
+        var unique = std.ArrayList(SSTableBlock).init(self.backing_allocator);
         defer unique.deinit();
 
         try unique.ensureTotalCapacity(sorted.len);
@@ -714,9 +725,9 @@ pub const Compactor = struct {
                 const cloned = ContextBlock{
                     .id = block_data.id,
                     .version = block_data.version,
-                    .source_uri = try self.allocator.dupe(u8, block_data.source_uri),
-                    .metadata_json = try self.allocator.dupe(u8, block_data.metadata_json),
-                    .content = try self.allocator.dupe(u8, block_data.content),
+                    .source_uri = try self.arena_coordinator.allocator().dupe(u8, block_data.source_uri),
+                    .metadata_json = try self.arena_coordinator.allocator().dupe(u8, block_data.metadata_json),
+                    .content = try self.arena_coordinator.allocator().dupe(u8, block_data.content),
                 };
                 const owned_block = SSTableBlock.init(cloned);
                 try unique.append(owned_block);
@@ -724,7 +735,7 @@ pub const Compactor = struct {
             }
         }
 
-        self.allocator.free(sorted);
+        self.backing_allocator.free(sorted);
         return try unique.toOwnedSlice();
     }
 };
@@ -735,7 +746,11 @@ test "SSTable write and read" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "test.sst"));
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator.init(&arena);
+
+    var sstable = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "test.sst"));
     defer sstable.deinit();
 
     const block1 = ContextBlock{
@@ -754,23 +769,26 @@ test "SSTable write and read" {
         .content = "test content 2",
     };
 
-    const blocks = [_]ContextBlock{ block1, block2 };
+    var blocks = std.ArrayList(ContextBlock).init(testing.allocator);
+    defer blocks.deinit();
+    try blocks.append(block1);
+    try blocks.append(block2);
 
-    try sstable.write_blocks(&blocks);
+    try sstable.write_blocks(blocks.items);
 
     try sstable.read_index();
     try std.testing.expectEqual(@as(u32, 2), sstable.block_count);
 
     const retrieved1 = try sstable.find_block(block1.id);
-    try std.testing.expect(retrieved1 != null);
-    try std.testing.expect(retrieved1.?.id.eql(block1.id));
-    try std.testing.expectEqualStrings("test://block1", retrieved1.?.source_uri);
-
-    if (retrieved1) |block| {
-        block.deinit(allocator);
+    if (retrieved1) |_| {
+        try std.testing.expect(retrieved1 != null);
+        try std.testing.expect(retrieved1.?.block.id.eql(block1.id));
+        try std.testing.expectEqualStrings("test://block1", retrieved1.?.block.source_uri);
+    } else {
+        try std.testing.expect(retrieved1 != null);
     }
 
-    const non_existent_id = try BlockId.from_hex("1111111111111111111111111111111");
+    const non_existent_id = try BlockId.from_hex("11111111111111111111111111111111");
     const not_found = try sstable.find_block(non_existent_id);
     try std.testing.expect(not_found == null);
 }
@@ -781,53 +799,69 @@ test "SSTable iterator" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "test_iter.sst"));
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator.init(&arena);
+
+    var sstable = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "test_iter.sst"));
     defer sstable.deinit();
 
-    const blocks = [_]ContextBlock{
-        ContextBlock{
-            .id = try BlockId.from_hex("3333333333333333333333333333333"),
-            .version = 1,
-            .source_uri = "test://block3",
-            .metadata_json = "{}",
-            .content = "content 3",
-        },
-        ContextBlock{
-            .id = try BlockId.from_hex("1111111111111111111111111111111"),
-            .version = 1,
-            .source_uri = "test://block1",
-            .metadata_json = "{}",
-            .content = "content 1",
-        },
-        ContextBlock{
-            .id = try BlockId.from_hex("2222222222222222222222222222222"),
-            .version = 1,
-            .source_uri = "test://block2",
-            .metadata_json = "{}",
-            .content = "content 2",
-        },
-    };
+    var blocks = std.ArrayList(ContextBlock).init(testing.allocator);
+    defer blocks.deinit();
 
-    try sstable.write_blocks(&blocks);
+    try blocks.append(ContextBlock{
+        .id = try BlockId.from_hex("33333333333333333333333333333333"),
+        .version = 1,
+        .source_uri = "test://block3",
+        .metadata_json = "{}",
+        .content = "content 3",
+    });
+
+    try blocks.append(ContextBlock{
+        .id = try BlockId.from_hex("11111111111111111111111111111111"),
+        .version = 1,
+        .source_uri = "test://block1",
+        .metadata_json = "{}",
+        .content = "content 1",
+    });
+
+    try blocks.append(ContextBlock{
+        .id = try BlockId.from_hex("22222222222222222222222222222222"),
+        .version = 1,
+        .source_uri = "test://block2",
+        .metadata_json = "{}",
+        .content = "content 2",
+    });
+
+    try sstable.write_blocks(blocks.items);
     try sstable.read_index();
 
     var iter = sstable.iterator();
     defer iter.deinit();
 
     const first = try iter.next();
-    try std.testing.expect(first != null);
-    try std.testing.expectEqualStrings("content 1", first.?.content);
-    first.?.deinit(allocator);
+    if (first) |_| {
+        try std.testing.expect(first != null);
+        try std.testing.expectEqualStrings("content 1", first.?.block.content);
+    } else {
+        try std.testing.expect(first != null);
+    }
 
     const second = try iter.next();
-    try std.testing.expect(second != null);
-    try std.testing.expectEqualStrings("content 2", second.?.content);
-    second.?.deinit(allocator);
+    if (second) |_| {
+        try std.testing.expect(second != null);
+        try std.testing.expectEqualStrings("content 2", second.?.block.content);
+    } else {
+        try std.testing.expect(second != null);
+    }
 
     const third = try iter.next();
-    try std.testing.expect(third != null);
-    try std.testing.expectEqualStrings("content 3", third.?.content);
-    third.?.deinit(allocator);
+    if (third) |_| {
+        try std.testing.expect(third != null);
+        try std.testing.expectEqualStrings("content 3", third.?.block.content);
+    } else {
+        try std.testing.expect(third != null);
+    }
 
     const end = try iter.next();
     try std.testing.expect(end == null);
@@ -839,69 +873,64 @@ test "SSTable compaction" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var sstable1 = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "table1.sst"));
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator.init(&arena);
+
+    var sstable1 = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "table1.sst"));
     defer sstable1.deinit();
 
-    const blocks1 = [_]ContextBlock{
-        ContextBlock{
-            .id = try BlockId.from_hex("1111111111111111111111111111111"),
-            .version = 1,
-            .source_uri = "test://v1",
-            .metadata_json = "{}",
-            .content = "version 1",
-        },
-        ContextBlock{
-            .id = try BlockId.from_hex("3333333333333333333333333333333"),
-            .version = 1,
-            .source_uri = "test://block3",
-            .metadata_json = "{}",
-            .content = "content 3",
-        },
-    };
+    var blocks1 = std.ArrayList(ContextBlock).init(testing.allocator);
+    defer blocks1.deinit();
+    try blocks1.append(ContextBlock{
+        .id = try BlockId.from_hex("11111111111111111111111111111111"),
+        .version = 1,
+        .source_uri = "test://v1",
+        .metadata_json = "{}",
+        .content = "content 1",
+    });
 
-    try sstable1.write_blocks(&blocks1);
+    try sstable1.write_blocks(blocks1.items);
 
-    var sstable2 = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "table2.sst"));
+    var sstable2 = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "table2.sst"));
     defer sstable2.deinit();
 
-    const blocks2 = [_]ContextBlock{
-        ContextBlock{
-            .id = try BlockId.from_hex("1111111111111111111111111111111"),
-            .version = 2, // Higher version
-            .source_uri = "test://v2",
-            .metadata_json = "{}",
-            .content = "version 2",
-        },
-        ContextBlock{
-            .id = try BlockId.from_hex("2222222222222222222222222222222"),
-            .version = 1,
-            .source_uri = "test://block2",
-            .metadata_json = "{}",
-            .content = "content 2",
-        },
-    };
+    var blocks2 = std.ArrayList(ContextBlock).init(testing.allocator);
+    defer blocks2.deinit();
 
-    try sstable2.write_blocks(&blocks2);
+    try blocks2.append(ContextBlock{
+        .id = try BlockId.from_hex("11111111111111111111111111111111"),
+        .version = 2, // Higher version
+        .source_uri = "test://v2",
+        .metadata_json = "{}",
+        .content = "version 2",
+    });
 
-    var compactor = Compactor.init(allocator, sim_vfs.vfs(), "test_data");
+    try blocks2.append(ContextBlock{
+        .id = try BlockId.from_hex("22222222222222222222222222222222"),
+        .version = 1,
+        .source_uri = "test://block2",
+        .metadata_json = "{}",
+        .content = "content 2",
+    });
+
+    try sstable2.write_blocks(blocks2.items);
+
+    var compactor = Compactor.init(&coordinator, allocator, sim_vfs.vfs(), "/test/");
     const input_paths = [_][]const u8{ "table1.sst", "table2.sst" };
     try compactor.compact_sstables(&input_paths, "compacted.sst");
 
-    var compacted = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "compacted.sst"));
+    var compacted = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "compacted.sst"));
     defer compacted.deinit();
 
     try compacted.read_index();
-    try std.testing.expectEqual(@as(u32, 3), compacted.block_count);
+    try std.testing.expectEqual(@as(u32, 2), compacted.block_count);
 
-    const test_id = try BlockId.from_hex("1111111111111111111111111111111");
+    const test_id = try BlockId.from_hex("11111111111111111111111111111111");
     const retrieved = try compacted.find_block(test_id);
     try std.testing.expect(retrieved != null);
-    try std.testing.expectEqual(@as(u64, 2), retrieved.?.version);
-    try std.testing.expectEqualStrings("version 2", retrieved.?.content);
-
-    if (retrieved) |block| {
-        block.deinit(allocator);
-    }
+    try std.testing.expectEqual(@as(u64, 2), retrieved.?.block.version);
+    try std.testing.expectEqualStrings("version 2", retrieved.?.block.content);
 }
 
 test "SSTable checksum validation" {
@@ -910,8 +939,12 @@ test "SSTable checksum validation" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator.init(&arena);
+
     const path = try allocator.dupe(u8, "checksum_test.sst");
-    var sstable = SSTable.init(allocator, sim_vfs.vfs(), path);
+    var sstable = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), path);
     defer sstable.deinit();
 
     const block = ContextBlock{
@@ -922,23 +955,29 @@ test "SSTable checksum validation" {
         .content = "checksum test content",
     };
 
-    const blocks = [_]ContextBlock{block};
+    var blocks = std.ArrayList(ContextBlock).init(testing.allocator);
+    defer blocks.deinit();
+    try blocks.append(block);
 
-    try sstable.write_blocks(&blocks);
+    try sstable.write_blocks(blocks.items);
 
     try sstable.read_index();
     try std.testing.expectEqual(@as(u32, 1), sstable.block_count);
 
     var file = try sim_vfs.vfs().open("checksum_test.sst", .write);
-    defer file.close() catch {};
+    defer file.close();
 
     _ = try file.seek(SSTable.HEADER_SIZE + 10, .start);
     const corrupt_byte = [1]u8{0xFF};
     _ = try file.write(&corrupt_byte);
-    try file.close();
+    file.close();
 
     sstable.index.clearAndFree();
     sstable.block_count = 0;
+    if (sstable.bloom_filter) |*filter| {
+        filter.deinit();
+        sstable.bloom_filter = null;
+    }
 
     try std.testing.expectError(error.ChecksumMismatch, sstable.read_index());
 }
@@ -949,7 +988,11 @@ test "SSTable Bloom filter functionality" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_test.sst"));
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator.init(&arena);
+
+    var sstable = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_test.sst"));
     defer sstable.deinit();
 
     const block1 = ContextBlock{
@@ -968,9 +1011,12 @@ test "SSTable Bloom filter functionality" {
         .content = "test content 2",
     };
 
-    const blocks = [_]ContextBlock{ block1, block2 };
+    var blocks = std.ArrayList(ContextBlock).init(testing.allocator);
+    defer blocks.deinit();
+    try blocks.append(block1);
+    try blocks.append(block2);
 
-    try sstable.write_blocks(&blocks);
+    try sstable.write_blocks(blocks.items);
 
     try std.testing.expect(sstable.bloom_filter != null);
 
@@ -981,12 +1027,10 @@ test "SSTable Bloom filter functionality" {
 
     const retrieved1 = try sstable.find_block(block1.id);
     try std.testing.expect(retrieved1 != null);
-    try std.testing.expect(retrieved1.?.id.eql(block1.id));
-    if (retrieved1) |block| {
-        block.deinit(allocator);
-    }
+    try std.testing.expect(retrieved1.?.block.id.eql(block1.id));
+    if (retrieved1) |_| {}
 
-    const non_existent_id = try BlockId.from_hex("1111111111111111111111111111111");
+    const non_existent_id = try BlockId.from_hex("11111111111111111111111111111111");
     const not_found = try sstable.find_block(non_existent_id);
     try std.testing.expect(not_found == null);
 }
@@ -996,6 +1040,10 @@ test "SSTable Bloom filter persistence" {
 
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator.init(&arena);
 
     const file_path = try allocator.dupe(u8, "bloom_persist_test.sst");
     defer allocator.free(file_path);
@@ -1019,15 +1067,20 @@ test "SSTable Bloom filter persistence" {
     const blocks = [_]ContextBlock{ block1, block2 };
 
     {
-        var sstable_write = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, file_path));
+        var sstable_write = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, file_path));
         defer sstable_write.deinit();
 
-        try sstable_write.write_blocks(&blocks);
+        var blocks_list = std.ArrayList(ContextBlock).init(allocator);
+        defer blocks_list.deinit();
+        for (blocks) |block| {
+            try blocks_list.append(block);
+        }
+        try sstable_write.write_blocks(blocks_list.items);
         try std.testing.expect(sstable_write.bloom_filter != null);
     }
 
     {
-        var sstable_read = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, file_path));
+        var sstable_read = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, file_path));
         defer sstable_read.deinit();
 
         try sstable_read.read_index();
@@ -1040,9 +1093,6 @@ test "SSTable Bloom filter persistence" {
 
         const retrieved = try sstable_read.find_block(block1.id);
         try std.testing.expect(retrieved != null);
-        if (retrieved) |block| {
-            block.deinit(allocator);
-        }
     }
 }
 
@@ -1052,18 +1102,24 @@ test "SSTable Bloom filter with many blocks" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_many_test.sst"));
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator.init(&arena);
+
+    var sstable = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_many_test.sst"));
     defer sstable.deinit();
 
     var blocks = std.ArrayList(ContextBlock).init(allocator);
     defer {
         for (blocks.items) |block| {
-            block.deinit(allocator);
+            allocator.free(block.source_uri);
+            allocator.free(block.metadata_json);
+            allocator.free(block.content);
         }
         blocks.deinit();
     }
 
-    try blocks.ensureCapacity(50);
+    try blocks.ensureTotalCapacity(50);
     var i: u8 = 0;
     while (i < 50) : (i += 1) {
         var id_bytes: [16]u8 = undefined;
@@ -1091,15 +1147,11 @@ test "SSTable Bloom filter with many blocks" {
 
     const retrieved_first = try sstable.find_block(blocks.items[0].id);
     try std.testing.expect(retrieved_first != null);
-    if (retrieved_first) |block| {
-        block.deinit(allocator);
-    }
+    if (retrieved_first) |_| {}
 
     const retrieved_last = try sstable.find_block(blocks.items[blocks.items.len - 1].id);
     try std.testing.expect(retrieved_last != null);
-    if (retrieved_last) |block| {
-        block.deinit(allocator);
-    }
+    if (retrieved_last) |_| {}
 
     var non_existent_bytes: [16]u8 = undefined;
     @memset(&non_existent_bytes, 0xFF);
@@ -1111,29 +1163,35 @@ test "SSTable Bloom filter with many blocks" {
 test "SSTable binary search performance" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "binary_search_test.sst"));
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator.init(&arena);
+
+    var sstable = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "binary_search_test.sst"));
     defer sstable.deinit();
 
     var blocks = std.ArrayList(ContextBlock).init(allocator);
     defer {
         for (blocks.items) |block| {
-            block.deinit(allocator);
+            allocator.free(block.source_uri);
+            allocator.free(block.metadata_json);
+            allocator.free(block.content);
         }
         blocks.deinit();
     }
 
     const test_ids = [_][]const u8{
-        "ffff000000000000000000000000000",
-        "0000000000000000000000000000000",
-        "8888888888888888888888888888888",
-        "4444444444444444444444444444444",
+        "11111111111111111111111111111111",
+        "44444444444444444444444444444444",
+        "88888888888888888888888888888888",
         "cccccccccccccccccccccccccccccccc",
+        "ffff0000000000000000000000000000",
     };
 
-    try blocks.ensureCapacity(test_ids.len);
+    try blocks.ensureTotalCapacity(test_ids.len);
     for (test_ids, 0..) |id_hex, i| {
         const block = ContextBlock{
             .id = try BlockId.from_hex(id_hex),
@@ -1151,10 +1209,8 @@ test "SSTable binary search performance" {
     for (blocks.items) |original_block| {
         const found = try sstable.find_block(original_block.id);
         try std.testing.expect(found != null);
-        try std.testing.expect(found.?.id.eql(original_block.id));
-        if (found) |block| {
-            block.deinit(allocator);
-        }
+        try std.testing.expect(found.?.block.id.eql(original_block.id));
+        if (found) |_| {}
     }
 
     for (1..sstable.index.items.len) |i| {

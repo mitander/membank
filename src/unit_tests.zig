@@ -12,6 +12,8 @@ comptime {
     _ = @import("core/memory.zig");
     _ = @import("core/ownership.zig");
     _ = @import("core/arena.zig");
+    _ = @import("core/stdx.zig");
+    _ = @import("core_tests.zig");
 
     // Phase 2: Core with dependencies
     _ = @import("sim/simulation_vfs.zig");
@@ -33,42 +35,62 @@ comptime {
     _ = @import("storage/wal/recovery.zig");
     _ = @import("storage/wal/corruption_tracker.zig");
 
-    // Phase 5: Storage indexes (next to enable)
+    // Phase 5: Storage indexes (working)
     _ = @import("storage/graph_edge_index.zig");
     _ = @import("storage/block_index.zig");
 
-    // TODO: Enable more modules incrementally as issues are fixed
-    // _ = @import("storage/recovery.zig");
-    // _ = @import("storage/sstable.zig");
-    // _ = @import("storage/sstable_manager.zig");
-    // _ = @import("storage/memtable_manager.zig");
-    // _ = @import("storage/wal.zig");
-    // _ = @import("storage/engine.zig");
-    // _ = @import("storage/tiered_compaction.zig");
+    // Phase 6: Storage managers (working)
+    _ = @import("storage/recovery.zig");
+    _ = @import("storage/sstable.zig");
+    _ = @import("storage/sstable_manager.zig");
+    _ = @import("storage/tiered_compaction.zig");
+    _ = @import("storage/memtable_manager.zig");
+    _ = @import("storage/wal.zig");
+    _ = @import("storage/engine.zig");
 
-    // _ = @import("query/cache.zig");
-    // _ = @import("query/operations.zig");
-    // _ = @import("query/filtering.zig");
-    // _ = @import("query/traversal.zig");
-    // _ = @import("query/engine.zig");
+    // Phase 7: Ingestion modules (working)
+    _ = @import("ingestion/glob_matcher.zig");
+    _ = @import("ingestion/semantic_chunker.zig");
+    _ = @import("ingestion/zig_parser.zig");
+    _ = @import("ingestion/git_source.zig");
+    _ = @import("ingestion/pipeline.zig");
 
-    // _ = @import("ingestion/glob_matcher.zig");
-    // _ = @import("ingestion/semantic_chunker.zig");
-    // _ = @import("ingestion/zig_parser.zig");
-    // _ = @import("ingestion/git_source.zig");
-    // _ = @import("ingestion/pipeline.zig");
+    // Phase 8: Server modules (working)
+    _ = @import("server/connection_manager.zig");
+    _ = @import("server/handler.zig");
 
-    // _ = @import("server/connection_manager.zig");
-    // _ = @import("server/handler.zig");
+    // Phase 9: Simulation modules (working)
+    _ = @import("sim/simulation.zig");
 
-    // _ = @import("sim/simulation.zig");
+    // Phase 10: Development modules (working)
+    _ = @import("dev/shell.zig");
+    _ = @import("dev/tidy/rules.zig");
+    _ = @import("dev/tidy/patterns.zig");
+    _ = @import("dev/commit_msg_validator.zig");
+    _ = @import("dev/tidy.zig");
+    _ = @import("dev/allocator_torture_test.zig");
+    _ = @import("dev/debug_allocator.zig");
+    _ = @import("dev/fuzz/common.zig");
+    _ = @import("dev/fuzz/parser.zig");
+    _ = @import("dev/fuzz/serialization.zig");
+    _ = @import("dev/fuzz/query.zig");
+    _ = @import("dev/fuzz/storage.zig");
+    _ = @import("dev/fuzz.zig");
+    _ = @import("dev/profiler.zig");
 
-    // _ = @import("dev/shell.zig");
-    // _ = @import("dev/tidy/rules.zig");
-    // _ = @import("dev/tidy/patterns.zig");
-    // _ = @import("dev/commit_msg_validator.zig");
-    // _ = @import("dev/tidy.zig");
-    // _ = @import("dev/allocator_torture_test.zig");
-    // _ = @import("dev/debug_allocator.zig");
-    // _ = @import("dev/fuzz/common.zig");
+    // Phase 11: Test infrastructure modules (working)
+    _ = @import("test/harness.zig");
+    _ = @import("test/performance_assertions.zig");
+    _ = @import("test/fatal_assertions.zig");
+    _ = @import("test/golden_master.zig");
+    _ = @import("test/scenarios.zig");
+
+    // Phase 12: Main library tests (working)
+    _ = @import("kausaldb_test.zig");
+
+    _ = @import("query/cache.zig");
+    _ = @import("query/operations.zig");
+    _ = @import("query/filtering.zig");
+    _ = @import("query/traversal.zig");
+    _ = @import("query/engine.zig");
 }

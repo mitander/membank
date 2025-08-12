@@ -171,7 +171,7 @@ pub const GraphEdgeIndex = struct {
             assert.assert_fmt(@intFromPtr(owned_edge_list.items.ptr) != 0 or owned_edge_list.items.len == 0, "Edge list has null pointer with non-zero length", .{});
 
             const owned_edges = owned_edge_list.items;
-            if (owned_edges.len == 0) return &[_]OwnedGraphEdge{};
+            if (owned_edges.len == 0) return null;
 
             _ = owned_edges[0].read(accessor);
 
@@ -200,7 +200,7 @@ pub const GraphEdgeIndex = struct {
             assert.assert_fmt(@intFromPtr(owned_edge_list.items.ptr) != 0 or owned_edge_list.items.len == 0, "Edge list has null pointer with non-zero length", .{});
 
             const owned_edges = owned_edge_list.items;
-            if (owned_edges.len == 0) return &[_]OwnedGraphEdge{};
+            if (owned_edges.len == 0) return null;
 
             _ = owned_edges[0].read(accessor);
 
@@ -212,20 +212,23 @@ pub const GraphEdgeIndex = struct {
     /// Remove all edges involving a specific block (when block is deleted).
     /// Cleans up both outgoing and incoming edge lists to maintain consistency.
     /// Note: This removes only direct edges; graph traversal cleanup for
-    /// indirect references requires separate handling.
+    /// Remove all edges associated with a specific block (both incoming and outgoing).
+    /// After removing a block from storage, all its edges become dangling references.
+    /// Uses the existing remove_edge method for proper bidirectional cleanup.
     /// Must deinitialize ArrayLists to prevent memory leaks.
     pub fn remove_block_edges(self: *GraphEdgeIndex, block_id: BlockId) void {
-        // First, remove all outgoing edges from target blocks' incoming lists
+        // Remove all outgoing edges FROM this block (clean up target's incoming lists)
         if (self.outgoing_edges.getPtr(block_id)) |edge_list| {
             for (edge_list.items) |owned_edge| {
                 const edge = owned_edge.edge;
-                // Remove this edge from the target's incoming list
+                // Remove this edge from target's incoming list
                 if (self.incoming_edges.getPtr(edge.target_id)) |target_incoming| {
                     var i: usize = 0;
                     while (i < target_incoming.items.len) {
-                        if (target_incoming.items[i].edge.source_id.eql(block_id) and
-                            target_incoming.items[i].edge.target_id.eql(edge.target_id) and
-                            target_incoming.items[i].edge.edge_type == edge.edge_type)
+                        const target_edge = target_incoming.items[i].edge;
+                        if (target_edge.source_id.eql(block_id) and
+                            target_edge.target_id.eql(edge.target_id) and
+                            target_edge.edge_type == edge.edge_type)
                         {
                             _ = target_incoming.swapRemove(i);
                             break;
@@ -235,19 +238,21 @@ pub const GraphEdgeIndex = struct {
                 }
             }
             edge_list.deinit();
+            _ = self.outgoing_edges.remove(block_id);
         }
 
-        // Then, remove all incoming edges from source blocks' outgoing lists
+        // Remove all incoming edges TO this block (clean up source's outgoing lists)
         if (self.incoming_edges.getPtr(block_id)) |edge_list| {
             for (edge_list.items) |owned_edge| {
                 const edge = owned_edge.edge;
-                // Remove this edge from the source's outgoing list
+                // Remove this edge from source's outgoing list
                 if (self.outgoing_edges.getPtr(edge.source_id)) |source_outgoing| {
                     var i: usize = 0;
                     while (i < source_outgoing.items.len) {
-                        if (source_outgoing.items[i].edge.source_id.eql(edge.source_id) and
-                            source_outgoing.items[i].edge.target_id.eql(block_id) and
-                            source_outgoing.items[i].edge.edge_type == edge.edge_type)
+                        const source_edge = source_outgoing.items[i].edge;
+                        if (source_edge.source_id.eql(edge.source_id) and
+                            source_edge.target_id.eql(block_id) and
+                            source_edge.edge_type == edge.edge_type)
                         {
                             _ = source_outgoing.swapRemove(i);
                             break;
@@ -257,11 +262,8 @@ pub const GraphEdgeIndex = struct {
                 }
             }
             edge_list.deinit();
+            _ = self.incoming_edges.remove(block_id);
         }
-
-        // Finally, remove the block's edge lists from the maps
-        _ = self.outgoing_edges.remove(block_id);
-        _ = self.incoming_edges.remove(block_id);
     }
 
     /// Remove a specific edge between two blocks.

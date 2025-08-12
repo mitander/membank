@@ -100,7 +100,13 @@ pub const FilterCondition = struct {
     /// Evaluate this condition against a block
     pub fn matches(self: FilterCondition, block: ContextBlock, allocator: std.mem.Allocator) !bool {
         const target_value = try self.extract_target_value(block, allocator);
-        defer if (self.target == .metadata_field) allocator.free(target_value);
+        defer {
+            // Free allocated buffers for version, content_length, and metadata_field
+            switch (self.target) {
+                .version, .content_length, .metadata_field => allocator.free(target_value),
+                .content, .source_uri => {}, // These are borrowed, don't free
+            }
+        }
 
         return self.evaluate_comparison(target_value);
     }
@@ -111,16 +117,16 @@ pub const FilterCondition = struct {
             .content => block.content,
             .source_uri => block.source_uri,
             .version => blk: {
-                const buffer = try allocator.alloc(u8, 32);
+                var stack_buffer: [32]u8 = undefined;
                 // Safety: u32 max value is 4,294,967,295 (10 digits), buffer is 32 bytes - guaranteed fit
-                _ = std.fmt.bufPrint(buffer, "{d}", .{block.version}) catch unreachable;
-                break :blk buffer;
+                const written_slice = std.fmt.bufPrint(&stack_buffer, "{d}", .{block.version}) catch unreachable;
+                break :blk try allocator.dupe(u8, written_slice);
             },
             .content_length => blk: {
-                const buffer = try allocator.alloc(u8, 16);
+                var stack_buffer: [16]u8 = undefined;
                 // Safety: Content length fits in 16 bytes - max usize is at most 20 digits on 64-bit
-                _ = std.fmt.bufPrint(buffer, "{d}", .{block.content.len}) catch unreachable;
-                break :blk buffer;
+                const written_slice = std.fmt.bufPrint(&stack_buffer, "{d}", .{block.content.len}) catch unreachable;
+                break :blk try allocator.dupe(u8, written_slice);
             },
             .metadata_field => blk: {
                 if (self.metadata_field) |field_name| {
@@ -223,6 +229,7 @@ pub const FilteredQueryResult = struct {
     }
 
     pub fn deinit(self: FilteredQueryResult) void {
+        // FilteredQueryResult always owns block strings - free them unconditionally
         for (self.blocks) |block| {
             const ctx_block = block.read(.query_engine);
             self.allocator.free(ctx_block.source_uri);
@@ -238,7 +245,7 @@ pub const FilteredQueryResult = struct {
         if (self.has_more) {
             try writer.print(" (showing first {})", .{self.blocks.len});
         }
-        try writer.print(":\n\n");
+        try writer.print(":\n\n", .{});
 
         for (self.blocks, 0..) |block, i| {
             const ctx_block = block.read(.query_engine);
@@ -276,14 +283,15 @@ pub fn execute_filtered_query(
 
     var iterator = storage_engine.iterate_all_blocks();
 
-    while (iterator.next()) |block| {
-        const ctx_block = block.read(.storage);
+    while (try iterator.next()) |block| {
+        const ctx_block = block;
         if (try query.expression.matches(ctx_block, allocator)) {
             total_matches += 1;
 
             if (total_matches <= query.offset) continue;
 
             if (blocks_collected < max_to_collect) {
+                // Always clone blocks to unify ownership - FilteredQueryResult owns all strings
                 const cloned_ctx_block = try clone_block(allocator, ctx_block);
                 try matched_blocks.append(QueryEngineBlock.init(cloned_ctx_block));
                 blocks_collected += 1;
@@ -370,7 +378,7 @@ test "filter condition - content contains" {
     const allocator = testing.allocator;
 
     const block = ContextBlock{
-        .id = 1,
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable, // Safety: hardcoded valid hex string
         .version = 1,
         .source_uri = "test.zig",
         .metadata_json = "{}",
@@ -388,7 +396,8 @@ test "filter condition - metadata field extraction" {
     const allocator = testing.allocator;
 
     const block = ContextBlock{
-        .id = 1,
+        // Safety: Hardcoded hex string is guaranteed to be valid 32-character hex
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable,
         .version = 1,
         .source_uri = "test.zig",
         .metadata_json = "{\"language\": \"zig\", \"complexity\": \"low\"}",
@@ -406,7 +415,8 @@ test "filter expression - logical AND" {
     const allocator = testing.allocator;
 
     const block = ContextBlock{
-        .id = 1,
+        // Safety: Hardcoded hex string is guaranteed to be valid 32-character hex
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable,
         .version = 1,
         .source_uri = "main.zig",
         .metadata_json = "{}",
@@ -444,7 +454,7 @@ test "filter operators - comparison operations" {
     const allocator = testing.allocator;
 
     const block_v1 = ContextBlock{
-        .id = 1,
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable, // Safety: hardcoded valid hex string
         .version = 1,
         .source_uri = "test_v1.zig",
         .metadata_json = "{}",
@@ -452,7 +462,7 @@ test "filter operators - comparison operations" {
     };
 
     const block_v2 = ContextBlock{
-        .id = 2,
+        .id = BlockId.from_hex("22222222222222222222222222222222") catch unreachable, // Safety: hardcoded valid hex string
         .version = 2,
         .source_uri = "test_v2.zig",
         .metadata_json = "{}",
@@ -476,7 +486,8 @@ test "filter operators - string operations" {
     const allocator = testing.allocator;
 
     const block = ContextBlock{
-        .id = 1,
+        // Safety: Hardcoded hex string is guaranteed to be valid 32-character hex
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable,
         .version = 1,
         .source_uri = "hello_world.zig",
         .metadata_json = "{}",
@@ -506,7 +517,7 @@ test "filter expression - logical OR operation" {
     const allocator = testing.allocator;
 
     const block = ContextBlock{
-        .id = 1,
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable, // Safety: hardcoded valid hex string
         .version = 1,
         .source_uri = "main.zig",
         .metadata_json = "{}",
@@ -544,7 +555,7 @@ test "filter expression - logical NOT operation" {
     const allocator = testing.allocator;
 
     const block = ContextBlock{
-        .id = 1,
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable, // Safety: hardcoded valid hex string
         .version = 1,
         .source_uri = "test.zig",
         .metadata_json = "{}",
@@ -578,7 +589,8 @@ test "filter target - content length filtering" {
     const allocator = testing.allocator;
 
     const short_block = ContextBlock{
-        .id = 1,
+        // Safety: Hardcoded hex string is guaranteed to be valid 32-character hex
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable,
         .version = 1,
         .source_uri = "short.zig",
         .metadata_json = "{}",
@@ -586,7 +598,7 @@ test "filter target - content length filtering" {
     };
 
     const long_block = ContextBlock{
-        .id = 2,
+        .id = BlockId.from_hex("22222222222222222222222222222222") catch unreachable, // Safety: hardcoded valid hex string
         .version = 1,
         .source_uri = "long.zig",
         .metadata_json = "{}",
@@ -606,7 +618,8 @@ test "complex nested filter expressions" {
     const allocator = testing.allocator;
 
     const block = ContextBlock{
-        .id = 1,
+        // Safety: Hardcoded hex string is guaranteed to be valid 32-character hex
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable,
         .version = 2,
         .source_uri = "complex.zig",
         .metadata_json = "{\"language\": \"zig\", \"complexity\": \"high\"}",
@@ -672,14 +685,14 @@ test "filtered query result operations" {
 
     const test_ctx_blocks = [_]ContextBlock{
         .{
-            .id = try BlockId.from_hex("1111111111111111111111111111111111111111"),
+            .id = try BlockId.from_hex("11111111111111111111111111111111"),
             .version = 1,
             .source_uri = "result1.zig",
             .metadata_json = "{}",
             .content = "first result",
         },
         .{
-            .id = try BlockId.from_hex("2222222222222222222222222222222222222222"),
+            .id = try BlockId.from_hex("22222222222222222222222222222222"),
             .version = 1,
             .source_uri = "result2.zig",
             .metadata_json = "{}",
@@ -694,7 +707,14 @@ test "filtered query result operations" {
         test_blocks[i] = QueryEngineBlock.init(ctx_block);
     }
 
-    var result = FilteredQueryResult.init(allocator, try allocator.dupe(QueryEngineBlock, test_blocks), 5, true);
+    // Clone test blocks to ensure FilteredQueryResult owns all strings
+    var owned_blocks = try allocator.alloc(QueryEngineBlock, test_blocks.len);
+    for (test_blocks, 0..) |test_block, i| {
+        const cloned_block = try clone_block(allocator, test_block.read(.query_engine).*);
+        owned_blocks[i] = QueryEngineBlock.init(cloned_block);
+    }
+
+    var result = FilteredQueryResult.init(allocator, owned_blocks, 5, true);
     defer result.deinit();
 
     try testing.expectEqual(@as(u32, 5), result.total_matches);
@@ -716,30 +736,31 @@ test "filtered query result operations" {
 test "execute filtered query with storage engine" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_filtering");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_filtering", storage_config);
     defer storage_engine.deinit();
     try storage_engine.startup();
 
     const blocks = [_]ContextBlock{
         .{
-            .id = try BlockId.from_hex("1111111111111111111111111111111111111111"),
+            .id = try BlockId.from_hex("11111111111111111111111111111111"),
             .version = 1,
             .source_uri = "match1.zig",
             .metadata_json = "{\"type\": \"function\"}",
             .content = "function test_match() {}", // Contains "test"
         },
         .{
-            .id = try BlockId.from_hex("2222222222222222222222222222222222222222"),
+            .id = try BlockId.from_hex("22222222222222222222222222222222"),
             .version = 1,
             .source_uri = "match2.zig",
             .metadata_json = "{\"type\": \"variable\"}",
             .content = "var test_variable = 42;", // Contains "test"
         },
         .{
-            .id = try BlockId.from_hex("3333333333333333333333333333333333333333"),
+            .id = try BlockId.from_hex("33333333333333333333333333333333"),
             .version = 1,
             .source_uri = "nomatch.zig",
             .metadata_json = "{\"type\": \"struct\"}",
@@ -769,9 +790,10 @@ test "execute filtered query with storage engine" {
     var found_struct = false;
 
     for (result.blocks) |block| {
-        if (std.mem.indexOf(u8, block.content, "function") != null) found_function = true;
-        if (std.mem.indexOf(u8, block.content, "var") != null) found_variable = true;
-        if (std.mem.indexOf(u8, block.content, "struct") != null) found_struct = true;
+        const ctx_block = block.read(.query_engine);
+        if (std.mem.indexOf(u8, ctx_block.content, "function") != null) found_function = true;
+        if (std.mem.indexOf(u8, ctx_block.content, "var") != null) found_variable = true;
+        if (std.mem.indexOf(u8, ctx_block.content, "struct") != null) found_struct = true;
     }
 
     try testing.expect(found_function and found_variable and !found_struct);
@@ -780,10 +802,11 @@ test "execute filtered query with storage engine" {
 test "filtered query with pagination" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_pagination");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_pagination", storage_config);
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -832,7 +855,7 @@ test "metadata field extraction edge cases" {
     const allocator = testing.allocator;
 
     const malformed_block = ContextBlock{
-        .id = 1,
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable, // Safety: hardcoded valid hex string
         .version = 1,
         .source_uri = "malformed.zig",
         .metadata_json = "{\"incomplete\":", // Invalid JSON
@@ -843,7 +866,7 @@ test "metadata field extraction edge cases" {
     try testing.expect(!try condition.matches(malformed_block, allocator));
 
     const empty_block = ContextBlock{
-        .id = 2,
+        .id = BlockId.from_hex("22222222222222222222222222222222") catch unreachable, // Safety: hardcoded valid hex string
         .version = 1,
         .source_uri = "empty.zig",
         .metadata_json = "{}",
@@ -854,7 +877,7 @@ test "metadata field extraction edge cases" {
     try testing.expect(!try empty_condition.matches(empty_block, allocator));
 
     const nested_block = ContextBlock{
-        .id = 3,
+        .id = BlockId.from_hex("33333333333333333333333333333333") catch unreachable, // Safety: hardcoded valid hex string
         .version = 1,
         .source_uri = "nested.zig",
         .metadata_json = "{\"config\": {\"debug\": \"true\"}, \"level\": \"info\"}",
@@ -869,7 +892,8 @@ test "numeric comparison edge cases" {
     const allocator = testing.allocator;
 
     const block = ContextBlock{
-        .id = 1,
+        // Safety: Hardcoded hex string is guaranteed to be valid 32-character hex
+        .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable,
         .version = 42,
         .source_uri = "numeric.zig",
         .metadata_json = "{}",
