@@ -725,7 +725,7 @@ pub const StorageEngine = struct {
         backing_allocator: std.mem.Allocator,
         current_sstable_index: u32,
         current_sstable_iterator: ?sstable.SSTableIterator,
-        current_sstable: ?SSTable,
+        current_sstable: ?*SSTable,
 
         /// Iterate through memtable first, then all SSTables in order
         pub fn next(self: *BlockIterator) !?ContextBlock {
@@ -736,9 +736,10 @@ pub const StorageEngine = struct {
 
             // Then iterate through SSTables
             while (self.current_sstable_index < self.sstable_manager.sstable_count()) {
-                // Initialize current SSTable iterator if needed
+                // Lazy SSTable opening: avoids file handles for SSTables we might skip
+                // due to early termination or empty tables
                 if (self.current_sstable_iterator == null) {
-                    // Validate arena coordinator before SSTable operations
+                    // Prevent cascade failures from corrupted arena state during SSTable allocation
                     self.sstable_manager.arena_coordinator.validate_coordinator();
 
                     const sstable_path = self.sstable_manager.find_path_by_index(self.current_sstable_index) orelse {
@@ -751,11 +752,15 @@ pub const StorageEngine = struct {
                         continue;
                     };
 
-                    // Validate arena coordinator before creating SSTable
+                    // Early corruption detection: validate before allocation to prevent
+                    // cascading failures from invalid arena state
                     self.sstable_manager.arena_coordinator.validate_coordinator();
 
-                    var new_sstable = SSTable.init(self.sstable_manager.arena_coordinator, self.backing_allocator, self.sstable_manager.vfs, path_copy);
+                    // Heap-allocate SSTable to ensure stable memory addresses
+                    var new_sstable = try self.backing_allocator.create(SSTable);
+                    new_sstable.* = SSTable.init(self.sstable_manager.arena_coordinator, self.backing_allocator, self.sstable_manager.vfs, path_copy);
                     new_sstable.read_index() catch {
+                        self.backing_allocator.destroy(new_sstable);
                         self.backing_allocator.free(path_copy);
                         self.current_sstable_index += 1;
                         continue;
@@ -765,7 +770,8 @@ pub const StorageEngine = struct {
                     self.current_sstable_iterator = new_sstable.iterator();
                 }
 
-                // Validate arena coordinator before SSTable iteration
+                // Ensure iterator's memory operations use valid arena state,
+                // critical for preventing use-after-free in deserialization
                 self.sstable_manager.arena_coordinator.validate_coordinator();
 
                 // Try to get next block from current SSTable
@@ -776,8 +782,9 @@ pub const StorageEngine = struct {
                     if (self.current_sstable_iterator) |*iter| {
                         iter.deinit();
                     }
-                    if (self.current_sstable) |*table| {
+                    if (self.current_sstable) |table| {
                         table.deinit();
+                        self.backing_allocator.destroy(table);
                     }
                     self.current_sstable_iterator = null;
                     self.current_sstable = null;
@@ -792,8 +799,9 @@ pub const StorageEngine = struct {
             if (self.current_sstable_iterator) |*iter| {
                 iter.deinit();
             }
-            if (self.current_sstable) |*table| {
+            if (self.current_sstable) |table| {
                 table.deinit();
+                self.backing_allocator.destroy(table);
             }
         }
     };

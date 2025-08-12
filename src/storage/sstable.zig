@@ -541,8 +541,9 @@ pub const SSTable = struct {
 
         _ = try file.seek(@intCast(found_entry.offset), .start);
 
-        const buffer = try self.backing_allocator.alloc(u8, found_entry.size);
-        defer self.backing_allocator.free(buffer);
+        // Allocate buffer from arena to ensure it lives as long as the deserialized block
+        const buffer = try self.arena_coordinator.alloc(u8, found_entry.size);
+        // No defer free - arena manages lifetime
 
         _ = try file.read(buffer);
 
@@ -599,8 +600,9 @@ pub const SSTableIterator = struct {
 
         _ = try self.file.?.seek(@intCast(entry.offset), .start);
 
-        const buffer = try self.sstable.backing_allocator.alloc(u8, entry.size);
-        defer self.sstable.backing_allocator.free(buffer);
+        // Allocate buffer from arena to ensure it lives as long as the deserialized block
+        const buffer = try self.sstable.arena_coordinator.alloc(u8, entry.size);
+        // No defer free - arena manages lifetime
 
         _ = try self.file.?.read(buffer);
 
