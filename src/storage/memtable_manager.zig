@@ -10,6 +10,7 @@
 //! All mutations go through WAL-first pattern before updating in-memory state.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = @import("../core/assert.zig").assert;
 const assert_fmt = @import("../core/assert.zig").assert_fmt;
 const fatal_assert = @import("../core/assert.zig").fatal_assert;
@@ -17,6 +18,7 @@ const context_block = @import("../core/types.zig");
 const concurrency = @import("../core/concurrency.zig");
 const vfs = @import("../core/vfs.zig");
 const ownership = @import("../core/ownership.zig");
+const memory = @import("../core/memory.zig");
 
 const SSTableManager = @import("sstable_manager.zig").SSTableManager;
 const BlockIndex = @import("block_index.zig").BlockIndex;
@@ -35,6 +37,7 @@ const WAL = wal.WAL;
 const WALEntry = wal.WALEntry;
 const OwnedBlock = ownership.OwnedBlock;
 const BlockOwnership = ownership.BlockOwnership;
+const ArenaCoordinator = memory.ArenaCoordinator;
 
 pub const BlockIterator = struct {
     block_index: *const BlockIndex,
@@ -49,13 +52,14 @@ pub const BlockIterator = struct {
 };
 
 /// Manages the complete in-memory write buffer (memtable) state.
-/// Follows arena refresh pattern: receives direct StorageEngine reference
+/// Uses Arena Coordinator Pattern: receives stable coordinator interface
 /// and passes it to child components (BlockIndex, GraphEdgeIndex).
-/// Uses StorageEngine methods for ALL content allocation enabling O(1) bulk cleanup during arena resets.
+/// Coordinator interface remains valid across arena operations, eliminating temporal coupling.
 /// **Owns WAL for durability**: All mutations go WAL-first before memtable update.
 pub const MemtableManager = struct {
-    /// Direct pointer to StorageEngine for safe arena allocation (anyopaque to avoid circular dependency)
-    storage_engine_ptr: *anyopaque,
+    /// Arena coordinator pointer for stable allocation access (remains valid across arena resets)
+    /// CRITICAL: Must be pointer to prevent coordinator struct copying corruption
+    arena_coordinator: *const ArenaCoordinator,
     /// Backing allocator for stable data structures (HashMap, ArrayList)
     backing_allocator: std.mem.Allocator,
     vfs: VFS,
@@ -66,11 +70,12 @@ pub const MemtableManager = struct {
     memtable_max_size: u64,
 
     /// Phase 1: Create the memtable manager without I/O operations.
-    /// Follows arena refresh pattern: receives direct StorageEngine reference
-    /// and passes it to child components. Creates WAL instance but does not perform
-    /// I/O until startup() is called. Follows KausalDB two-phase initialization.
+    /// Uses Arena Coordinator Pattern: receives stable coordinator interface
+    /// and passes it to child components. Coordinator remains valid across operations.
+    /// Creates WAL instance but does not perform I/O until startup() is called.
+    /// CRITICAL: ArenaCoordinator must be passed by pointer to prevent struct copying corruption.
     pub fn init(
-        storage_engine_ptr: *anyopaque,
+        coordinator: *const ArenaCoordinator,
         backing: std.mem.Allocator,
         filesystem: VFS,
         data_dir: []const u8,
@@ -82,11 +87,11 @@ pub const MemtableManager = struct {
         const wal_dir = try std.fmt.bufPrint(wal_dir_buffer[0..], "{s}/wal", .{owned_data_dir});
 
         return MemtableManager{
-            .storage_engine_ptr = storage_engine_ptr,
+            .arena_coordinator = coordinator,
             .backing_allocator = backing,
             .vfs = filesystem,
             .data_dir = owned_data_dir,
-            .block_index = BlockIndex.init(storage_engine_ptr, backing),
+            .block_index = BlockIndex.init(coordinator, backing),
             .graph_index = GraphEdgeIndex.init(backing),
             .wal = try WAL.init(backing, filesystem, wal_dir),
             .memtable_max_size = memtable_max_size,
@@ -116,6 +121,7 @@ pub const MemtableManager = struct {
         self.wal.deinit();
         self.block_index.deinit();
         self.graph_index.deinit();
+
         self.backing_allocator.free(self.data_dir);
     }
 
@@ -270,7 +276,7 @@ pub const MemtableManager = struct {
     /// Used by StorageEngine.iterate_all_blocks for mixed memtable+SSTable iteration.
     pub fn raw_iterator(
         self: *const MemtableManager,
-    ) std.HashMap(BlockId, ContextBlock, BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage).Iterator {
+    ) std.HashMap(BlockId, OwnedBlock, BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage).Iterator {
         return self.block_index.blocks.iterator();
     }
 
@@ -391,20 +397,6 @@ pub const MemtableManager = struct {
 const testing = std.testing;
 
 // Test helper: Mock StorageEngine for unit tests
-const MockStorageEngine = struct {
-    allocator: std.mem.Allocator,
-
-    pub fn duplicate_storage(self: *MockStorageEngine, comptime T: type, slice: []const T) ![]T {
-        return self.allocator.dupe(T, slice);
-    }
-};
-
-fn create_mock_storage_engine(allocator: std.mem.Allocator) *MockStorageEngine {
-    // Safety: Test allocator allocation only fails in OOM, which aborts tests appropriately
-    const mock = testing.allocator.create(MockStorageEngine) catch unreachable;
-    mock.* = MockStorageEngine{ .allocator = allocator };
-    return mock;
-}
 
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const SimulationVFS = simulation_vfs.SimulationVFS;
@@ -436,9 +428,8 @@ test "MemtableManager basic lifecycle" {
     // Hierarchical memory model: create arena for content, use backing for structure
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer allocator.destroy(mock_engine);
-    var manager = try MemtableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+    var manager = try MemtableManager.init(&coordinator, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
     try testing.expectEqual(@as(u32, 0), manager.block_count());
@@ -455,9 +446,8 @@ test "MemtableManager with WAL operations" {
     // Hierarchical memory model: create arena for content, use backing for structure
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer allocator.destroy(mock_engine);
-    var manager = try MemtableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+    var manager = try MemtableManager.init(&coordinator, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
     try manager.startup();
@@ -482,9 +472,8 @@ test "MemtableManager multiple blocks" {
     // Hierarchical memory model: create arena for content, use backing for structure
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer allocator.destroy(mock_engine);
-    var manager = try MemtableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+    var manager = try MemtableManager.init(&coordinator, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
     try manager.startup();
@@ -511,9 +500,8 @@ test "MemtableManager edge operations" {
     // Hierarchical memory model: create arena for content, use backing for structure
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer allocator.destroy(mock_engine);
-    var manager = try MemtableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+    var manager = try MemtableManager.init(&coordinator, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
     try manager.startup();
@@ -539,9 +527,8 @@ test "MemtableManager clear operation" {
     // Hierarchical memory model: create arena for content, use backing for structure
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer allocator.destroy(mock_engine);
-    var manager = try MemtableManager.init(mock_engine, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+    var manager = try MemtableManager.init(&coordinator, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
     try manager.startup();

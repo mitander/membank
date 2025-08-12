@@ -705,7 +705,8 @@ test "pipeline creation and cleanup" {
     var config = PipelineConfig.init(allocator);
     defer config.deinit();
 
-    var pipeline = try IngestionPipeline.init(allocator, &sim_vfs.vfs, config);
+    var vfs_instance = sim_vfs.vfs();
+    var pipeline = try IngestionPipeline.init(allocator, &vfs_instance, config);
     defer pipeline.deinit();
 
     try testing.expectEqual(@as(usize, 0), pipeline.sources.items.len);

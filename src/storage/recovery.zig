@@ -16,15 +16,17 @@ const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
 
 // Import storage submodules
-const block_index_mod = @import("block_index.zig");
-const graph_edge_index_mod = @import("graph_edge_index.zig");
+const block_index = @import("block_index.zig");
+const graph_edge_index = @import("graph_edge_index.zig");
 const wal = @import("wal.zig");
+const memory = @import("../core/memory.zig");
 
 const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
-const BlockIndex = block_index_mod.BlockIndex;
-const GraphEdgeIndex = graph_edge_index_mod.GraphEdgeIndex;
+const BlockIndex = block_index.BlockIndex;
+const GraphEdgeIndex = graph_edge_index.GraphEdgeIndex;
+const ArenaCoordinator = memory.ArenaCoordinator;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const WALEntry = wal.WALEntry;
 
@@ -220,18 +222,27 @@ pub fn recover_storage_from_wal(
 /// Provides pre-configured storage subsystems suitable for recovery testing
 /// without requiring full storage engine initialization.
 pub fn create_test_recovery_setup(allocator: std.mem.Allocator) !struct {
+    arena: std.heap.ArenaAllocator,
     block_index: BlockIndex,
     graph_index: GraphEdgeIndex,
 
     pub fn deinit(self: *@This()) void {
         self.block_index.deinit();
         self.graph_index.deinit();
+        self.arena.deinit();
     }
 } {
-    return .{
-        .block_index = BlockIndex.init(allocator),
-        .graph_index = GraphEdgeIndex.init(allocator),
+    var result = .{
+        .arena = std.heap.ArenaAllocator.init(allocator),
+        .block_index = undefined,
+        .graph_index = undefined,
     };
+
+    const coordinator = ArenaCoordinator.init(&result.arena);
+    result.block_index = BlockIndex.init(&coordinator, allocator);
+    result.graph_index = GraphEdgeIndex.init(&coordinator, allocator);
+
+    return result;
 }
 
 test "recovery context initialization and finalization" {

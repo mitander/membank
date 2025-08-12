@@ -127,9 +127,10 @@ pub const StorageHarness = struct {
         // SimulationVFS manages its own internal arena
         var sim_vfs = try SimulationVFS.heap_init(allocator);
 
-        // Storage engine uses same backing allocator for consistency
+        // Storage engine uses heap allocation to prevent struct copying corruption
         const vfs_instance = sim_vfs.vfs();
-        const storage_engine = try StorageEngine.create_default(allocator, vfs_instance, db_name);
+        const storage_engine = try allocator.create(StorageEngine);
+        storage_engine.* = try StorageEngine.init_default(allocator, vfs_instance, db_name);
 
         return Self{
             .allocator = allocator,
@@ -244,7 +245,8 @@ pub const SimulationHarness = struct {
         const node_vfs = node_ptr.filesystem_interface();
 
         // Storage engine uses simulation VFS for deterministic I/O
-        const storage_engine = try StorageEngine.create_default(allocator, node_vfs, db_name);
+        const storage_engine = try allocator.create(StorageEngine);
+        storage_engine.* = try StorageEngine.init_default(allocator, node_vfs, db_name);
 
         // Query engine coordinates with storage engine
         const query_engine_ptr = try allocator.create(QueryEngine);

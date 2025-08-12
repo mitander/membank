@@ -10,20 +10,21 @@ const assert_fmt = @import("../core/assert.zig").assert_fmt;
 const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const context_block = @import("../core/types.zig");
 const ownership = @import("../core/ownership.zig");
+const memory = @import("../core/memory.zig");
 
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const OwnedBlock = ownership.OwnedBlock;
 const BlockOwnership = ownership.BlockOwnership;
+const ArenaCoordinator = memory.ArenaCoordinator;
 
-/// In-memory block index using arena refresh pattern for efficient bulk operations.
+/// In-memory block index using Arena Coordinator Pattern for efficient bulk operations.
 /// Provides fast writes and reads while maintaining O(1) memory cleanup through
-/// storage engine arena reset. Uses type-safe OwnedBlock system to prevent dangling
-/// allocator references.
+/// arena coordinator reset. Uses type-safe OwnedBlock system and stable coordinator interface.
 ///
-/// Arena refresh pattern: BlockIndex uses direct StorageEngine pointer for all content
+/// Arena Coordinator Pattern: BlockIndex uses stable coordinator interface for all content
 /// allocation, eliminating temporal coupling with arena resets. HashMap uses stable
-/// backing allocator while content uses StorageEngine's current arena state.
+/// backing allocator while content uses coordinator's current arena state.
 pub const BlockIndex = struct {
     blocks: std.HashMap(
         BlockId,
@@ -31,8 +32,9 @@ pub const BlockIndex = struct {
         BlockIdContext,
         std.hash_map.default_max_load_percentage,
     ),
-    /// Direct pointer to StorageEngine for safe arena allocation (avoids circular dependency)
-    storage_engine_ptr: *anyopaque,
+    /// Arena coordinator pointer for stable allocation access (remains valid across arena resets)
+    /// CRITICAL: Must be pointer to prevent coordinator struct copying corruption
+    arena_coordinator: *const ArenaCoordinator,
     /// Stable backing allocator for HashMap structure
     backing_allocator: std.mem.Allocator,
     /// Track total memory used by block content strings in arena.
@@ -55,10 +57,11 @@ pub const BlockIndex = struct {
         }
     };
 
-    /// Initialize empty block index following arena refresh pattern.
-    /// HashMap uses stable backing allocator while content uses StorageEngine reference
+    /// Initialize empty block index following Arena Coordinator Pattern.
+    /// HashMap uses stable backing allocator while content uses coordinator interface
     /// to prevent dangling allocator references after arena resets.
-    pub fn init(storage_engine_ptr: *anyopaque, backing: std.mem.Allocator) BlockIndex {
+    /// CRITICAL: ArenaCoordinator must be passed by pointer to prevent struct copying corruption.
+    pub fn init(coordinator: *const ArenaCoordinator, backing: std.mem.Allocator) BlockIndex {
         var blocks = std.HashMap(
             BlockId,
             OwnedBlock,
@@ -74,22 +77,22 @@ pub const BlockIndex = struct {
 
         return BlockIndex{
             .blocks = blocks, // HashMap uses stable backing allocator
-            .storage_engine_ptr = storage_engine_ptr, // Direct reference to StorageEngine
+            .arena_coordinator = coordinator, // Stable coordinator interface
             .backing_allocator = backing,
             .memory_used = 0,
         };
     }
 
-    /// Clean up BlockIndex resources following arena refresh pattern.
-    /// Only clears HashMap since arena memory is managed by StorageEngine.
-    /// Content memory cleanup happens when StorageEngine resets its storage arena.
+    /// Clean up BlockIndex resources following Arena Coordinator Pattern.
+    /// Only clears HashMap since arena memory is managed by coordinator.
+    /// Content memory cleanup happens when coordinator resets its arena.
     pub fn deinit(self: *BlockIndex) void {
         self.blocks.clearAndFree();
         // Arena memory is owned by StorageEngine - no local cleanup needed
     }
 
-    /// Insert or update a block in the index using StorageEngine's arena for content storage.
-    /// Clones all string content through StorageEngine methods to ensure memory safety and
+    /// Insert or update a block in the index using coordinator's arena for content storage.
+    /// Clones all string content through coordinator interface to ensure memory safety and
     /// eliminate dangling allocator references after arena resets.
     pub fn put_block(self: *BlockIndex, block: ContextBlock) !void {
         assert_fmt(@intFromPtr(self) != 0, "BlockIndex self pointer cannot be null", .{});
@@ -110,30 +113,27 @@ pub const BlockIndex = struct {
             assert_fmt(@intFromPtr(block.content.ptr) != 0, "content has null pointer with non-zero length", .{});
         }
 
-        // Clone strings using StorageEngine's arena allocation methods
-        // The StorageEngine interface is: pub fn duplicate_storage(self: *StorageEngine, comptime T: type, slice: []const T) ![]T
-        const StorageEngineType = @import("engine.zig").StorageEngine;
-        const storage_engine: *StorageEngineType = @ptrCast(@alignCast(self.storage_engine_ptr));
-
+        // Clone strings using coordinator's arena allocation methods
+        // Coordinator interface provides stable allocation access across arena operations
         const cloned_block = ContextBlock{
             .id = block.id,
             .version = block.version,
-            .source_uri = try storage_engine.duplicate_storage(u8, block.source_uri),
-            .metadata_json = try storage_engine.duplicate_storage(u8, block.metadata_json),
-            .content = try storage_engine.duplicate_storage(u8, block.content),
+            .source_uri = try self.arena_coordinator.duplicate_slice(u8, block.source_uri),
+            .metadata_json = try self.arena_coordinator.duplicate_slice(u8, block.metadata_json),
+            .content = try self.arena_coordinator.duplicate_slice(u8, block.content),
         };
 
-        // Debug-time validation that StorageEngine correctly clones strings.
+        // Debug-time validation that coordinator correctly clones strings.
         // These checks ensure memory safety during development but compile to no-ops
         // in release builds for zero-overhead production performance.
         if (block.source_uri.len > 0) {
-            assert_fmt(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "StorageEngine failed to clone source_uri - returned original pointer", .{});
+            assert_fmt(@intFromPtr(cloned_block.source_uri.ptr) != @intFromPtr(block.source_uri.ptr), "ArenaCoordinator failed to clone source_uri - returned original pointer", .{});
         }
         if (block.metadata_json.len > 0) {
-            assert_fmt(@intFromPtr(cloned_block.metadata_json.ptr) != @intFromPtr(block.metadata_json.ptr), "StorageEngine failed to clone metadata_json - returned original pointer", .{});
+            assert_fmt(@intFromPtr(cloned_block.metadata_json.ptr) != @intFromPtr(block.metadata_json.ptr), "ArenaCoordinator failed to clone metadata_json - returned original pointer", .{});
         }
         if (block.content.len > 0) {
-            assert_fmt(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "StorageEngine failed to clone content - returned original pointer", .{});
+            assert_fmt(@intFromPtr(cloned_block.content.ptr) != @intFromPtr(block.content.ptr), "ArenaCoordinator failed to clone content - returned original pointer", .{});
         }
 
         // Adjust memory accounting for replacement case
@@ -145,7 +145,7 @@ pub const BlockIndex = struct {
         }
 
         const new_memory = block.source_uri.len + block.metadata_json.len + block.content.len;
-        // Arena ownership tracking is handled at StorageEngine level
+        // Arena ownership tracking is handled at coordinator level
         const owned_block = OwnedBlock.init(cloned_block, .memtable_manager, null);
 
         // Critical: Update HashMap first, then memory accounting to prevent corruption on allocation failure
@@ -224,27 +224,12 @@ pub const BlockIndex = struct {
 const testing = std.testing;
 
 // Test helper: Mock StorageEngine for unit tests
-const MockStorageEngine = struct {
-    allocator: std.mem.Allocator,
-
-    pub fn duplicate_storage(self: *MockStorageEngine, comptime T: type, slice: []const T) ![]T {
-        return self.allocator.dupe(T, slice);
-    }
-};
-
-fn create_mock_storage_engine(allocator: std.mem.Allocator) *MockStorageEngine {
-    // Safety: Test allocator allocation only fails in OOM, which aborts tests appropriately
-    const mock = testing.allocator.create(MockStorageEngine) catch unreachable;
-    mock.* = MockStorageEngine{ .allocator = allocator };
-    return mock;
-}
 
 test "block index initialization creates empty index" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer testing.allocator.destroy(mock_engine);
-    var index = BlockIndex.init(mock_engine, testing.allocator);
+    const coordinator = ArenaCoordinator.init(&arena);
+    var index = BlockIndex.init(&coordinator, testing.allocator);
     defer index.deinit();
 
     try testing.expectEqual(@as(u32, 0), index.block_count());
@@ -256,9 +241,8 @@ test "put and find block operations work correctly" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer allocator.destroy(mock_engine);
-    var index = BlockIndex.init(mock_engine, allocator);
+    const coordinator = ArenaCoordinator.init(&arena);
+    var index = BlockIndex.init(&coordinator, allocator);
     defer index.deinit();
 
     const block_id = BlockId.generate();
@@ -284,9 +268,8 @@ test "put block clones strings into arena" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer allocator.destroy(mock_engine);
-    var index = BlockIndex.init(mock_engine, allocator);
+    const coordinator = ArenaCoordinator.init(&arena);
+    var index = BlockIndex.init(&coordinator, allocator);
     defer index.deinit();
 
     const original_content = try allocator.dupe(u8, "original content");
@@ -313,9 +296,8 @@ test "put block clones strings into arena" {
 test "remove block updates count and memory accounting" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer testing.allocator.destroy(mock_engine);
-    var index = BlockIndex.init(mock_engine, testing.allocator);
+    const coordinator = ArenaCoordinator.init(&arena);
+    var index = BlockIndex.init(&coordinator, testing.allocator);
     defer index.deinit();
 
     const block_id = BlockId.generate();
@@ -339,9 +321,8 @@ test "remove block updates count and memory accounting" {
 test "block replacement updates memory accounting correctly" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer testing.allocator.destroy(mock_engine);
-    var index = BlockIndex.init(mock_engine, testing.allocator);
+    const coordinator = ArenaCoordinator.init(&arena);
+    var index = BlockIndex.init(&coordinator, testing.allocator);
     defer index.deinit();
 
     const block_id = BlockId.generate();
@@ -382,9 +363,8 @@ test "block replacement updates memory accounting correctly" {
 test "clear operation resets index to empty state efficiently" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer testing.allocator.destroy(mock_engine);
-    var index = BlockIndex.init(mock_engine, testing.allocator);
+    const coordinator = ArenaCoordinator.init(&arena);
+    var index = BlockIndex.init(&coordinator, testing.allocator);
     defer index.deinit();
 
     for (0..10) |i| {
@@ -412,9 +392,8 @@ test "clear operation resets index to empty state efficiently" {
 test "memory accounting tracks string content accurately" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer testing.allocator.destroy(mock_engine);
-    var index = BlockIndex.init(mock_engine, testing.allocator);
+    const coordinator = ArenaCoordinator.init(&arena);
+    var index = BlockIndex.init(&coordinator, testing.allocator);
     defer index.deinit();
 
     const source_uri = "file://example.zig";
@@ -441,9 +420,8 @@ test "large block content handling" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const mock_engine = create_mock_storage_engine(arena.allocator());
-    defer allocator.destroy(mock_engine);
-    var index = BlockIndex.init(mock_engine, allocator);
+    const coordinator = ArenaCoordinator.init(&arena);
+    var index = BlockIndex.init(&coordinator, allocator);
     defer index.deinit();
 
     const large_content = try allocator.alloc(u8, 1024 * 1024);

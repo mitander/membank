@@ -21,6 +21,7 @@ const context_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
 const concurrency = @import("../core/concurrency.zig");
 const state_machines = @import("../core/state_machines.zig");
+const memory = @import("../core/memory.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
 
@@ -51,6 +52,7 @@ const SSTableBlock = ownership.SSTableBlock;
 const QueryEngineBlock = ownership.QueryEngineBlock;
 const TemporaryBlock = ownership.TemporaryBlock;
 const OwnedGraphEdge = graph_edge_index.OwnedGraphEdge;
+const ArenaCoordinator = memory.ArenaCoordinator;
 
 const BlockHashMap = std.HashMap(BlockId, ContextBlock, block_index_mod.BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage);
 const BlockHashMapIterator = BlockHashMap.Iterator;
@@ -95,15 +97,16 @@ pub const StorageEngine = struct {
     sstable_manager: SSTableManager,
     state: StorageState,
     storage_metrics: StorageMetrics,
-    /// Single arena for ALL storage subsystem memory allocation.
-    /// Hierarchical coordinator pattern: StorageEngine owns storage_arena,
-    /// all submodules (MemtableManager, SSTableManager) receive arena references
-    /// to eliminate allocator conflicts and enable O(1) cleanup of all storage memory.
-    storage_arena: std.heap.ArenaAllocator,
+    /// Heap-allocated arena for ALL storage subsystem memory allocation.
+    /// Arena Coordinator Pattern: Arena is allocated on heap with stable pointer,
+    /// eliminating corruption from struct copying while maintaining O(1) cleanup.
+    storage_arena: *std.heap.ArenaAllocator,
+    arena_coordinator: *ArenaCoordinator,
     query_cache_arena: std.heap.ArenaAllocator,
 
     /// Initialize storage engine with default configuration.
-    /// Convenience method for common use cases that don't require custom configuration.
+    /// Uses Arena Coordinator Pattern to eliminate arena corruption from struct copying.
+    /// Arena coordinator provides stable interface that remains valid across operations.
     pub fn init_default(
         allocator: std.mem.Allocator,
         filesystem: VFS,
@@ -112,72 +115,16 @@ pub const StorageEngine = struct {
         return init(allocator, filesystem, data_dir, Config{});
     }
 
-    /// Create storage engine on heap with default configuration.
-    /// Avoids arena corruption by initializing arenas directly in heap memory.
-    pub fn create_default(
-        allocator: std.mem.Allocator,
-        filesystem: VFS,
-        data_dir: []const u8,
-    ) !*StorageEngine {
-        return create(allocator, filesystem, data_dir, Config{});
+    /// Get arena coordinator interface for stable allocation access.
+    /// Coordinator remains valid even after arena reset operations.
+    /// Used by submodules for safe memory allocation patterns.
+    pub fn coordinator(self: *const StorageEngine) *ArenaCoordinator {
+        return self.arena_coordinator;
     }
 
-    /// Create storage engine on heap with custom configuration.
-    /// Avoids arena corruption by initializing arenas directly in heap memory.
-    pub fn create(
-        allocator: std.mem.Allocator,
-        filesystem: VFS,
-        data_dir: []const u8,
-        storage_config: Config,
-    ) !*StorageEngine {
-        assert.assert_not_empty(data_dir, "Storage data_dir cannot be empty", .{});
-        assert.assert_fmt(@intFromPtr(data_dir.ptr) != 0, "Storage data_dir has null pointer", .{});
-
-        storage_config.validate() catch |err| {
-            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "config_validation" });
-            return err;
-        };
-
-        const owned_data_dir = allocator.dupe(u8, data_dir) catch |err| {
-            error_context.log_storage_error(err, error_context.file_context("allocate_data_dir", data_dir));
-            return err;
-        };
-        errdefer allocator.free(owned_data_dir);
-
-        // Create storage engine on heap and initialize fields directly
-        const engine = try allocator.create(StorageEngine);
-        errdefer allocator.destroy(engine);
-
-        // Initialize fields directly to avoid arena copying
-        engine.backing_allocator = allocator;
-        engine.vfs = filesystem;
-        engine.data_dir = owned_data_dir;
-        engine.config = storage_config;
-        engine.state = .initialized;
-        engine.storage_metrics = StorageMetrics.init();
-
-        // Initialize arenas directly in heap memory - no copying involved
-        engine.storage_arena = std.heap.ArenaAllocator.init(allocator);
-        engine.query_cache_arena = std.heap.ArenaAllocator.init(allocator);
-
-        // Initialize submodules with direct engine pointer
-        engine.memtable_manager = MemtableManager.init(@ptrCast(engine), allocator, filesystem, owned_data_dir, storage_config.memtable_max_size) catch |err| {
-            engine.storage_arena.deinit();
-            engine.query_cache_arena.deinit();
-            error_context.log_storage_error(err, error_context.file_context("memtable_manager_init", owned_data_dir));
-            return err;
-        };
-        engine.sstable_manager = SSTableManager.init(@ptrCast(engine), allocator, filesystem, owned_data_dir);
-
-        // Validate hierarchical memory model
-        engine.validate_memory_hierarchy();
-
-        return engine;
-    }
-
-    /// Phase 1 initialization: Create storage engine with custom configuration.
-    /// Creates all necessary subsystems but does not perform I/O operations.
-    /// Call startup() to complete Phase 2 initialization.
+    /// Phase 1 initialization: Create storage engine with Arena Coordinator Pattern.
+    /// Creates stable arena coordinator interface that eliminates arena corruption.
+    /// Coordinator remains valid even when struct is copied, fixing segmentation faults.
     pub fn init(
         allocator: std.mem.Allocator,
         filesystem: VFS,
@@ -197,46 +144,58 @@ pub const StorageEngine = struct {
             return err;
         };
 
-        // Initialize hierarchical memory model: Create engine first, then initialize submodules
+        // Arena Coordinator Pattern: Allocate arena on heap for stable pointer
+        const storage_arena = try allocator.create(std.heap.ArenaAllocator);
+        storage_arena.* = std.heap.ArenaAllocator.init(allocator);
+        const query_cache_arena = std.heap.ArenaAllocator.init(allocator);
+        const arena_coordinator = try allocator.create(ArenaCoordinator);
+        arena_coordinator.* = ArenaCoordinator.init(storage_arena);
+
         var engine = StorageEngine{
             .backing_allocator = allocator,
             .vfs = filesystem,
             .data_dir = owned_data_dir,
             .config = storage_config,
-            .memtable_manager = undefined, // Prevents circular dependency during struct initialization
-            .sstable_manager = undefined, // Arena must be in final memory location before submodule init
+            .memtable_manager = undefined, // Initialize after arena coordinator is stable
+            .sstable_manager = undefined, // Coordinator must be in final location first
             .state = .initialized,
             .storage_metrics = StorageMetrics.init(),
-            .storage_arena = std.heap.ArenaAllocator.init(allocator),
-            .query_cache_arena = std.heap.ArenaAllocator.init(allocator),
+            .storage_arena = storage_arena,
+            .arena_coordinator = arena_coordinator,
+            .query_cache_arena = query_cache_arena,
         };
 
-        // Initialize submodules with direct StorageEngine pointer (anyopaque for circular dependency avoidance)
-        engine.memtable_manager = MemtableManager.init(@ptrCast(&engine), allocator, filesystem, owned_data_dir, storage_config.memtable_max_size) catch |err| {
-            engine.storage_arena.deinit();
+        // Coordinator already points to stable heap-allocated arena
+
+        // Initialize submodules with coordinator interface (stable across struct operations)
+        // CRITICAL: Pass ArenaCoordinator by pointer to prevent struct copying corruption
+        engine.memtable_manager = MemtableManager.init(engine.arena_coordinator, allocator, filesystem, owned_data_dir, storage_config.memtable_max_size) catch |err| {
+            storage_arena.deinit();
+            allocator.destroy(storage_arena);
+            allocator.destroy(arena_coordinator);
             engine.query_cache_arena.deinit();
             allocator.free(owned_data_dir);
             error_context.log_storage_error(err, error_context.file_context("memtable_manager_init", owned_data_dir));
             return err;
         };
-        engine.sstable_manager = SSTableManager.init(@ptrCast(&engine), allocator, filesystem, owned_data_dir);
+        engine.sstable_manager = SSTableManager.init(engine.arena_coordinator, allocator, filesystem, owned_data_dir);
 
-        // Validate hierarchical memory model at compile time and runtime
+        // Validate coordinator pattern integrity
         engine.validate_memory_hierarchy();
 
         return engine;
     }
 
-    /// Compile-time and debug-time validation of hierarchical memory model.
-    /// Ensures coordinator arena is properly referenced by all submodules.
+    /// Validate Arena Coordinator Pattern integrity.
+    /// Ensures coordinator interface properly references storage arena.
     /// Zero runtime overhead in release builds through comptime evaluation.
     pub fn validate_memory_hierarchy(self: *const StorageEngine) void {
         if (comptime builtin.mode == .Debug) {
-            // Validate that submodules reference the coordinator's arena
-            const storage_arena_ptr = &self.storage_arena;
+            // Validate coordinator pattern integrity
+            self.arena_coordinator.validate_coordinator();
 
-            // These validations ensure the hierarchical pattern is maintained
-            fatal_assert(@intFromPtr(storage_arena_ptr) != 0, "StorageEngine storage_arena is null - memory model violation", .{});
+            // Ensure coordinator points to our heap-allocated storage arena
+            fatal_assert(@intFromPtr(self.arena_coordinator.arena) == @intFromPtr(self.storage_arena), "ArenaCoordinator does not reference StorageEngine arena - coordinator corruption", .{});
 
             // Note: Direct arena reference validation would require more complex
             // pointer tracking. Current approach validates structure at init time.
@@ -273,22 +232,21 @@ pub const StorageEngine = struct {
         // If already stopped, do nothing
     }
 
-    /// Arena refresh pattern: Safe storage allocation through coordinator.
-    /// Eliminates dangling allocator references by ensuring all allocations
-    /// go through the coordinator's current arena state.
+    /// Arena Coordinator Pattern: Safe storage allocation through stable interface.
+    /// Coordinator interface remains valid across arena operations, eliminating temporal coupling.
     pub fn allocate_storage(self: *StorageEngine, comptime T: type, n: usize) ![]T {
-        return self.storage_arena.allocator().alloc(T, n);
+        return self.arena_coordinator.alloc(T, n);
     }
 
-    /// Safe storage duplication through coordinator arena.
-    /// Used by subcomponents for cloning string content safely.
+    /// Safe storage duplication through coordinator interface.
+    /// Used by subcomponents for cloning string content with guaranteed stability.
     pub fn duplicate_storage(self: *StorageEngine, comptime T: type, slice: []const T) ![]T {
-        return self.storage_arena.allocator().dupe(T, slice);
+        return self.arena_coordinator.duplicate_slice(T, slice);
     }
 
-    /// Reset all storage memory in O(1) time through arena refresh pattern.
-    /// Clears ALL storage subsystem memory (blocks, edges, paths, etc.) in constant time
-    /// by resetting the single arena. Safe because subcomponents use direct method calls.
+    /// Reset all storage memory in O(1) time through coordinator pattern.
+    /// Clears ALL storage subsystem memory (blocks, edges, paths, etc.) in constant time.
+    /// Coordinator interface remains stable after reset, eliminating temporal coupling.
     pub fn reset_storage_memory(self: *StorageEngine) void {
         concurrency.assert_main_thread();
 
@@ -296,9 +254,8 @@ pub const StorageEngine = struct {
         self.memtable_manager.block_index.clear();
         self.memtable_manager.graph_index.clear();
 
-        // O(1) reset of ALL storage memory through arena
-        // Safe because subcomponents use direct method calls, not dangling allocator references
-        _ = self.storage_arena.reset(.retain_capacity);
+        // O(1) reset through coordinator - interface remains valid after operation
+        self.arena_coordinator.reset();
 
         self.validate_memory_hierarchy();
     }
@@ -326,9 +283,12 @@ pub const StorageEngine = struct {
         self.memtable_manager.deinit();
         self.sstable_manager.deinit();
 
-        // StorageEngine owns and cleans up the single storage arena
+        // StorageEngine owns and cleans up the heap-allocated storage arena
         // This frees ALL storage memory in O(1) time
         self.storage_arena.deinit();
+        self.backing_allocator.destroy(self.storage_arena);
+        // Clean up heap-allocated coordinator
+        self.backing_allocator.destroy(self.arena_coordinator);
         self.query_cache_arena.deinit();
         self.backing_allocator.free(self.data_dir);
         // Mark as deinitialized to prevent double-free
@@ -1059,7 +1019,7 @@ test "block iterator with empty storage" {
     var iterator = engine.iterate_all_blocks();
     defer iterator.deinit();
 
-    const block = try iterator.next();
+    const block = iterator.next();
     try testing.expectEqual(@as(?ContextBlock, null), block);
 }
 

@@ -43,15 +43,19 @@ pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
 ///
 /// Tests the performance of finding individual blocks by ID in the query engine.
 /// Used for understanding single query response characteristics.
+/// Benchmark single-block query operations for fast lookups
 pub fn run_single_queries(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_single_queries");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    var query_eng = QueryEngine.init(allocator, &storage_engine);
+    var query_eng = QueryEngine.init(allocator, storage_engine);
     defer query_eng.deinit();
 
     return benchmark_single_block_queries(&query_eng, allocator);
@@ -61,15 +65,19 @@ pub fn run_single_queries(allocator: std.mem.Allocator) !BenchmarkResult {
 ///
 /// Tests the performance of executing multiple queries together as a batch.
 /// Used for understanding batch processing optimization benefits.
+/// Benchmark batch query operations for efficient bulk access
 pub fn run_batch_queries(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_batch_queries");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    var query_eng = QueryEngine.init(allocator, &storage_engine);
+    var query_eng = QueryEngine.init(allocator, storage_engine);
     defer query_eng.deinit();
 
     return benchmark_batch_queries_impl(&query_eng, allocator);

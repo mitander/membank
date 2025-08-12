@@ -13,6 +13,7 @@ const Simulation = kausaldb.simulation.Simulation;
 const ContextBlock = kausaldb.types.ContextBlock;
 const BlockId = kausaldb.types.BlockId;
 const StorageEngine = kausaldb.storage.StorageEngine;
+const QueryEngine = kausaldb.query_engine.QueryEngine;
 const SimulationHarness = kausaldb.SimulationHarness;
 const TestData = kausaldb.TestData;
 
@@ -58,9 +59,18 @@ test "sequential recovery cycles" {
         }
 
         // Recovery phase - manually trigger recovery by reinitializing storage engine
+        // CRITICAL: Must recreate both storage engine AND query engine to prevent arena use-after-free
         harness.storage_engine.deinit();
+        harness.allocator.destroy(harness.storage_engine);
+        harness.query_engine.deinit();
+        harness.allocator.destroy(harness.query_engine);
+
+        harness.storage_engine = try harness.allocator.create(StorageEngine);
         harness.storage_engine.* = try StorageEngine.init_default(harness.allocator, harness.node().filesystem_interface(), "memory_safety_cycles");
         try harness.storage_engine.startup();
+
+        harness.query_engine = try harness.allocator.create(QueryEngine);
+        harness.query_engine.* = QueryEngine.init(harness.allocator, harness.storage_engine);
 
         // Verify all blocks from all cycles recovered correctly
         const expected_total_blocks = @as(u32, @intCast((cycle + 1) * 3));

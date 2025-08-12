@@ -11,9 +11,9 @@
 //! only appear under specific stress conditions or allocation patterns.
 
 const std = @import("std");
-const kausaldb = @import("kausaldb");
-const assert = kausaldb.assert;
-const assert_fmt = kausaldb.assert.assert_fmt;
+// const kausaldb = @import("kausaldb"); // TODO: Fix module availability
+const assert = @import("../core/assert.zig");
+const assert_fmt = assert.assert_fmt;
 
 /// Configuration for torture test parameters
 pub const TortureTestConfig = struct {

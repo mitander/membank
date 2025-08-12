@@ -279,6 +279,7 @@ pub const VFile = struct {
         file_data_fn: *const fn (*anyopaque, file_handle.FileHandleId) ?*SimulationFileData,
         current_time_fn: *const fn (*anyopaque) i64,
         fault_injection_fn: *const fn (*anyopaque, usize) VFileError!usize,
+        read_corruption_fn: *const fn (*anyopaque, []u8) void,
     };
 
     pub const SeekFrom = enum(u8) {
@@ -314,6 +315,9 @@ pub const VFile = struct {
                 if (available == 0) break :blk 0;
 
                 @memcpy(buffer[0..available], data.content.items[sim.position .. sim.position + available]);
+
+                // Apply read corruption fault injection
+                sim.read_corruption_fn(sim.vfs_ptr, buffer[0..available]);
 
                 sim.position += available;
                 break :blk available;
@@ -840,7 +844,7 @@ test "vfs error handling patterns" {
     defer sim_vfs.deinit();
     const test_vfs = sim_vfs.vfs();
 
-    const open_result = test_vfs.open("non_existent.log");
+    const open_result = test_vfs.open("non_existent.log", .read);
     try testing.expectError(error.FileNotFound, open_result);
 
     var file = try test_vfs.create("close_test.log");

@@ -39,8 +39,11 @@ pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
 /// Tests how long it takes to merge and clean up SSTables.
 /// Helps understand how compaction affects overall performance.
 pub fn run_compaction_benchmark(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_compaction");
     defer storage_engine.deinit();

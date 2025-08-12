@@ -317,9 +317,9 @@ pub const DebugAllocator = struct {
     pub fn validate_all_allocations(self: *DebugAllocator) !void {
         var iterator = self.free_slots.iterator(.{ .kind = .unset });
         while (iterator.next()) |index| {
-            const info = &self.allocations[index];
-            if (info.ptr) |ptr| {
-                try self.validate_allocation(ptr);
+            const info = &self.allocations_protected.value[index];
+            if (info.address != 0) {
+                try self.validate_allocation_internal(info.address, info);
             }
         }
     }

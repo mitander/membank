@@ -687,7 +687,8 @@ pub const QueryCommand = enum(u8) {
 
 fn create_test_storage_engine(allocator: std.mem.Allocator) !StorageEngine {
     var sim_vfs = try SimulationVFS.init(allocator);
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_query_engine");
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_query_engine", storage_config);
     try storage_engine.startup();
     return storage_engine;
 }

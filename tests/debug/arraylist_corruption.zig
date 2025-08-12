@@ -16,6 +16,7 @@ const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
 const ContextBlock = kausaldb.types.ContextBlock;
 const BlockId = kausaldb.types.BlockId;
 const TestData = kausaldb.TestData;
+const ArenaCoordinator = kausaldb.memory.ArenaCoordinator;
 
 /// Validate ArrayList integrity and detect string corruption patterns
 fn validate_path_integrity(manager: *SSTableManager, context: []const u8) !void {
@@ -93,7 +94,10 @@ test "sstable discovery arraylist corruption detection" {
 
     std.log.info("=== TESTING ARRAYLIST CORRUPTION DURING DISCOVERY ===", .{});
 
-    var manager = SSTableManager.init(allocator, sim_vfs.vfs(), "test_db");
+    var test_arena = std.heap.ArenaAllocator.init(allocator);
+    defer test_arena.deinit();
+    const coordinator = ArenaCoordinator.init(&test_arena);
+    var manager = SSTableManager.init(&coordinator, allocator, sim_vfs.vfs(), "test_db");
     defer manager.deinit();
 
     // Validate initial state
@@ -167,7 +171,10 @@ test "sstable discovery with large path names" {
 
     std.log.info("=== TESTING LARGE PATH ALLOCATION CORRUPTION ===", .{});
 
-    var manager = SSTableManager.init(allocator, sim_vfs.vfs(), "test_db");
+    var test_arena = std.heap.ArenaAllocator.init(allocator);
+    defer test_arena.deinit();
+    const coordinator = ArenaCoordinator.init(&test_arena);
+    var manager = SSTableManager.init(&coordinator, allocator, sim_vfs.vfs(), "test_db");
     defer manager.deinit();
 
     // Monitor memory state before discovery
@@ -232,7 +239,10 @@ test "sstable discovery stress test with many files" {
 
     std.log.info("=== STRESS TESTING ARRAYLIST WITH {} FILES ===", .{file_count});
 
-    var manager = SSTableManager.init(allocator, sim_vfs.vfs(), "test_db");
+    var test_arena = std.heap.ArenaAllocator.init(allocator);
+    defer test_arena.deinit();
+    const coordinator = ArenaCoordinator.init(&test_arena);
+    var manager = SSTableManager.init(&coordinator, allocator, sim_vfs.vfs(), "test_db");
     defer manager.deinit();
 
     // Monitor initial state

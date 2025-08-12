@@ -11,13 +11,14 @@ const TestConfig = struct {
 fn discover_test_files(allocator: std.mem.Allocator, tests_dir_path: []const u8) !std.ArrayList(TestConfig) {
     var discovered_tests = std.ArrayList(TestConfig).init(allocator);
 
-    // Add the unit test (special case - embedded in src/main.zig)
+    // Add comprehensive unit test runner
     try discovered_tests.append(.{
         .name = "unit",
-        .source_file = "src/main.zig",
-        .description = "core component unit tests",
+        .source_file = "src/unit_tests.zig",
+        .description = "all unit tests from src/ modules",
     });
 
+    // Add integration tests from tests/ directory
     var tests_dir = std.fs.cwd().openDir(tests_dir_path, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return discovered_tests, // No tests directory, return unit tests only
         else => return err,
@@ -162,8 +163,10 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        // Provide both public API and internal testing APIs
-        test_exe.root_module.addImport("kausaldb", kausaldb_test_module);
+        // Only add kausaldb module import for non-unit tests
+        if (!std.mem.eql(u8, config.name, "unit")) {
+            test_exe.root_module.addImport("kausaldb", kausaldb_test_module);
+        }
 
         const install_step = b.addInstallArtifact(test_exe, .{});
         test_install_steps.append(install_step) catch @panic("Failed to append test install step");
@@ -190,14 +193,14 @@ pub fn build(b: *std.Build) void {
     tidy_tests.root_module.addImport("kausaldb_test", kausaldb_test_module);
     const run_tidy_tests = b.addRunArtifact(tidy_tests);
 
-    // Fast developer workflow: core functionality validation only
+    // Fast developer workflow: unit tests only
     const unit_test_run_step = blk: {
         for (test_configs.items, test_steps.items) |config, test_run| {
             if (std.mem.eql(u8, config.name, "unit")) break :blk test_run;
         }
         @panic("unit test config not found");
     };
-    const test_step = b.step("test", "Run fast unit tests (developer default)");
+    const test_step = b.step("test", "Run all unit tests from src/ modules (developer default)");
     test_step.dependOn(&unit_test_run_step.step);
 
     // CI validation: full coverage with reasonable runtime

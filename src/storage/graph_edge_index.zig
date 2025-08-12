@@ -215,14 +215,51 @@ pub const GraphEdgeIndex = struct {
     /// indirect references requires separate handling.
     /// Must deinitialize ArrayLists to prevent memory leaks.
     pub fn remove_block_edges(self: *GraphEdgeIndex, block_id: BlockId) void {
-        // Deinitialize ArrayList before removing to prevent memory leak
+        // First, remove all outgoing edges from target blocks' incoming lists
         if (self.outgoing_edges.getPtr(block_id)) |edge_list| {
-            edge_list.deinit();
-        }
-        if (self.incoming_edges.getPtr(block_id)) |edge_list| {
+            for (edge_list.items) |owned_edge| {
+                const edge = owned_edge.edge;
+                // Remove this edge from the target's incoming list
+                if (self.incoming_edges.getPtr(edge.target_id)) |target_incoming| {
+                    var i: usize = 0;
+                    while (i < target_incoming.items.len) {
+                        if (target_incoming.items[i].edge.source_id.eql(block_id) and
+                            target_incoming.items[i].edge.target_id.eql(edge.target_id) and
+                            target_incoming.items[i].edge.edge_type == edge.edge_type)
+                        {
+                            _ = target_incoming.swapRemove(i);
+                            break;
+                        }
+                        i += 1;
+                    }
+                }
+            }
             edge_list.deinit();
         }
 
+        // Then, remove all incoming edges from source blocks' outgoing lists
+        if (self.incoming_edges.getPtr(block_id)) |edge_list| {
+            for (edge_list.items) |owned_edge| {
+                const edge = owned_edge.edge;
+                // Remove this edge from the source's outgoing list
+                if (self.outgoing_edges.getPtr(edge.source_id)) |source_outgoing| {
+                    var i: usize = 0;
+                    while (i < source_outgoing.items.len) {
+                        if (source_outgoing.items[i].edge.source_id.eql(edge.source_id) and
+                            source_outgoing.items[i].edge.target_id.eql(block_id) and
+                            source_outgoing.items[i].edge.edge_type == edge.edge_type)
+                        {
+                            _ = source_outgoing.swapRemove(i);
+                            break;
+                        }
+                        i += 1;
+                    }
+                }
+            }
+            edge_list.deinit();
+        }
+
+        // Finally, remove the block's edge lists from the maps
         _ = self.outgoing_edges.remove(block_id);
         _ = self.incoming_edges.remove(block_id);
     }
@@ -235,7 +272,7 @@ pub const GraphEdgeIndex = struct {
 
         if (self.outgoing_edges.getPtr(source_id)) |edge_list| {
             for (edge_list.items, 0..) |edge, i| {
-                if (edge.target_id.eql(target_id) and edge.edge_type == edge_type) {
+                if (edge.edge.target_id.eql(target_id) and edge.edge.edge_type == edge_type) {
                     _ = edge_list.swapRemove(i);
                     removed = true;
                     break;
@@ -245,7 +282,7 @@ pub const GraphEdgeIndex = struct {
 
         if (self.incoming_edges.getPtr(target_id)) |edge_list| {
             for (edge_list.items, 0..) |edge, i| {
-                if (edge.source_id.eql(source_id) and edge.edge_type == edge_type) {
+                if (edge.edge.source_id.eql(source_id) and edge.edge.edge_type == edge_type) {
                     _ = edge_list.swapRemove(i);
                     break;
                 }
@@ -329,17 +366,17 @@ test "put and find edge operations work correctly" {
 
     try testing.expectEqual(@as(u32, 1), index.edge_count());
 
-    const outgoing = index.find_outgoing_edges(source_id);
+    const outgoing = index.find_outgoing_edges_with_ownership(source_id, .temporary);
     try testing.expect(outgoing != null);
     try testing.expectEqual(@as(usize, 1), outgoing.?.len);
-    try testing.expect(outgoing.?[0].target_id.eql(target_id));
-    try testing.expectEqual(EdgeType.calls, outgoing.?[0].edge_type);
+    try testing.expect(outgoing.?[0].edge.target_id.eql(target_id));
+    try testing.expectEqual(EdgeType.calls, outgoing.?[0].edge.edge_type);
 
-    const incoming = index.find_incoming_edges(target_id);
+    const incoming = index.find_incoming_edges_with_ownership(target_id, .temporary);
     try testing.expect(incoming != null);
     try testing.expectEqual(@as(usize, 1), incoming.?.len);
-    try testing.expect(incoming.?[0].source_id.eql(source_id));
-    try testing.expectEqual(EdgeType.calls, incoming.?[0].edge_type);
+    try testing.expect(incoming.?[0].edge.source_id.eql(source_id));
+    try testing.expectEqual(EdgeType.calls, incoming.?[0].edge.edge_type);
 }
 
 test "multiple edges from same source are stored correctly" {
@@ -368,7 +405,7 @@ test "multiple edges from same source are stored correctly" {
 
     try testing.expectEqual(@as(u32, 2), index.edge_count());
 
-    const outgoing = index.find_outgoing_edges(source_id);
+    const outgoing = index.find_outgoing_edges_with_ownership(source_id, .temporary);
     try testing.expect(outgoing != null);
     try testing.expectEqual(@as(usize, 2), outgoing.?.len);
 }
@@ -403,10 +440,10 @@ test "remove specific edge works correctly" {
 
     try testing.expectEqual(@as(u32, 1), index.edge_count());
 
-    const outgoing = index.find_outgoing_edges(source_id);
+    const outgoing = index.find_outgoing_edges_with_ownership(source_id, .temporary);
     try testing.expect(outgoing != null);
     try testing.expectEqual(@as(usize, 1), outgoing.?.len);
-    try testing.expectEqual(EdgeType.imports, outgoing.?[0].edge_type);
+    try testing.expectEqual(EdgeType.imports, outgoing.?[0].edge.edge_type);
 }
 
 test "remove block edges cleans up all references" {
@@ -428,9 +465,9 @@ test "remove block edges cleans up all references" {
 
     try testing.expectEqual(@as(u32, 1), index.edge_count());
 
-    try testing.expect(index.find_outgoing_edges(block_a) == null);
-    try testing.expect(index.find_outgoing_edges(block_b) == null);
-    try testing.expect(index.find_outgoing_edges(block_c) != null);
+    try testing.expect(index.find_outgoing_edges_with_ownership(block_a, .temporary) == null);
+    try testing.expect(index.find_outgoing_edges_with_ownership(block_b, .temporary) == null);
+    try testing.expect(index.find_outgoing_edges_with_ownership(block_c, .temporary) != null);
 }
 
 test "clear operation resets index to empty state" {
@@ -472,15 +509,15 @@ test "bidirectional index consistency" {
 
     try index.put_edge(edge);
 
-    const outgoing = index.find_outgoing_edges(source_id);
-    const incoming = index.find_incoming_edges(target_id);
+    const outgoing = index.find_outgoing_edges_with_ownership(source_id, .temporary);
+    const incoming = index.find_incoming_edges_with_ownership(target_id, .temporary);
 
     try testing.expect(outgoing != null);
     try testing.expect(incoming != null);
 
-    try testing.expect(outgoing.?[0].source_id.eql(incoming.?[0].source_id));
-    try testing.expect(outgoing.?[0].target_id.eql(incoming.?[0].target_id));
-    try testing.expectEqual(outgoing.?[0].edge_type, incoming.?[0].edge_type);
+    try testing.expect(outgoing.?[0].edge.source_id.eql(incoming.?[0].edge.source_id));
+    try testing.expect(outgoing.?[0].edge.target_id.eql(incoming.?[0].edge.target_id));
+    try testing.expectEqual(outgoing.?[0].edge.edge_type, incoming.?[0].edge.edge_type);
 }
 
 test "hash context provides good distribution for block ids" {

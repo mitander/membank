@@ -14,7 +14,7 @@ const ownership = @import("../../core/ownership.zig");
 const stream = @import("stream.zig");
 
 const WALError = types.WALError;
-const WALEntryType = types.WALEntryType;
+pub const WALEntryType = types.WALEntryType;
 const MAX_PAYLOAD_SIZE = types.MAX_PAYLOAD_SIZE;
 const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
@@ -48,7 +48,7 @@ pub const WALEntry = struct {
     }
 
     /// Calculate CRC-64 checksum of type and payload for corruption detection
-    fn calculate_checksum(entry_type: WALEntryType, payload: []const u8) u64 {
+    pub fn calculate_checksum(entry_type: WALEntryType, payload: []const u8) u64 {
         var hasher = std.hash.Wyhash.init(0);
         hasher.update(&[_]u8{@intFromEnum(entry_type)});
         hasher.update(payload);
@@ -320,14 +320,13 @@ fn create_test_block() ContextBlock {
 }
 
 fn create_test_edge() GraphEdge {
-    const from_id = BlockId.from_hex("1111111111111111111111111111111111111111") catch unreachable; // Safety: hardcoded valid hex
-    const to_id = BlockId.from_hex("2222222222222222222222222222222222222222") catch unreachable; // Safety: hardcoded valid hex
+    const from_id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable; // Safety: hardcoded valid hex
+    const to_id = BlockId.from_hex("22222222222222222222222222222222") catch unreachable; // Safety: hardcoded valid hex
 
     return GraphEdge{
-        .from_block_id = from_id,
-        .to_block_id = to_id,
+        .source_id = from_id,
+        .target_id = to_id,
         .edge_type = .calls,
-        .metadata_json = "{}",
     };
 }
 
@@ -455,7 +454,7 @@ test "WALEntry create_put_block" {
 test "WALEntry create_delete_block" {
     const allocator = testing.allocator;
 
-    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
+    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
     const entry = try WALEntry.create_delete_block(test_id, allocator);
     defer entry.deinit(allocator);
 
@@ -547,7 +546,7 @@ test "WALEntry edge cases" {
     const serialized_size = try empty_entry.serialize(&buffer);
     try testing.expectEqual(@as(usize, WALEntry.HEADER_SIZE), serialized_size);
 
-    const deserialized = try WALEntry.deserialize(buffer, allocator);
+    const deserialized = try WALEntry.deserialize(&buffer, allocator);
     defer deserialized.deinit(allocator);
 
     try testing.expectEqual(empty_entry.checksum, deserialized.checksum);
@@ -610,7 +609,7 @@ test "WALEntry extract_block success" {
 test "WALEntry extract_block invalid entry type" {
     const allocator = testing.allocator;
 
-    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
+    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
     const entry = try WALEntry.create_delete_block(test_id, allocator);
     defer entry.deinit(allocator);
 
@@ -620,7 +619,7 @@ test "WALEntry extract_block invalid entry type" {
 test "WALEntry extract_block_id success" {
     const allocator = testing.allocator;
 
-    const test_id = BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") catch unreachable; // Safety: hardcoded valid hex
+    const test_id = BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") catch unreachable; // Safety: hardcoded valid hex
     const entry = try WALEntry.create_delete_block(test_id, allocator);
     defer entry.deinit(allocator);
 
@@ -660,10 +659,9 @@ test "WALEntry extract_edge success" {
     defer entry.deinit(allocator);
 
     const extracted_edge = try entry.extract_edge();
-    try testing.expect(test_edge.from_block_id.eql(extracted_edge.from_block_id));
-    try testing.expect(test_edge.to_block_id.eql(extracted_edge.to_block_id));
+    try testing.expect(test_edge.source_id.eql(extracted_edge.source_id));
+    try testing.expect(test_edge.target_id.eql(extracted_edge.target_id));
     try testing.expectEqual(test_edge.edge_type, extracted_edge.edge_type);
-    try testing.expectEqualStrings(test_edge.metadata_json, extracted_edge.metadata_json);
 }
 
 test "WALEntry extract_edge invalid entry type" {

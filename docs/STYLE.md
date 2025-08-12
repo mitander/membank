@@ -249,11 +249,31 @@ test "WAL recovery handles corruption gracefully" {
 }
 ```
 
-## 4. Memory Management: Hierarchical Arena Ownership
+## 4. Memory Management: Arena Coordinator Pattern
 
-### Hierarchical Ownership Rules
+### Arena Coordinator Rules
 
-Memory ownership follows a strict coordinator→submodule→sub-submodule hierarchy:
+Memory ownership follows the **Arena Coordinator Pattern** where coordinators provide stable allocation interfaces that remain valid across arena operations.
+
+**Arena Coordinator Interface:**
+
+```zig
+pub const ArenaCoordinator = struct {
+    arena: *std.heap.ArenaAllocator,
+
+    pub fn allocator(self: *const ArenaCoordinator) std.mem.Allocator {
+        return self.arena.allocator();
+    }
+
+    pub fn duplicate_slice(self: *const ArenaCoordinator, comptime T: type, slice: []const T) ![]T {
+        return self.arena.allocator().dupe(T, slice);
+    }
+
+    pub fn reset(self: *ArenaCoordinator) void {
+        self.arena.reset(.retain_capacity);
+    }
+};
+```
 
 **Coordinator Pattern (StorageEngine, QueryEngine, ConnectionManager):**
 
@@ -261,19 +281,27 @@ Memory ownership follows a strict coordinator→submodule→sub-submodule hierar
 pub const StorageEngine = struct {
     backing_allocator: Allocator,
     storage_arena: std.heap.ArenaAllocator,  // Single arena for ALL storage
+    arena_coordinator: ArenaCoordinator,     // Stable interface to arena
 
-    // Submodules receive arena references
+    // Submodules receive coordinator interfaces
     memtable_manager: MemtableManager,
     sstable_manager: SSTableManager,
 
-    pub fn init(allocator: Allocator) StorageEngine {
+    pub fn init_default(allocator: Allocator, vfs: VFS, data_dir: []const u8) !StorageEngine {
         var storage_arena = std.heap.ArenaAllocator.init(allocator);
+        var arena_coordinator = ArenaCoordinator{ .arena = &storage_arena };
+
         return StorageEngine{
             .backing_allocator = allocator,
             .storage_arena = storage_arena,
-            .memtable_manager = MemtableManager.init(storage_arena.allocator()),
-            .sstable_manager = SSTableManager.init(storage_arena.allocator()),
+            .arena_coordinator = arena_coordinator,
+            .memtable_manager = MemtableManager.init(arena_coordinator, allocator),
+            .sstable_manager = SSTableManager.init(arena_coordinator, allocator, vfs, data_dir),
         };
+    }
+
+    pub fn deinit(self: *StorageEngine) void {
+        self.storage_arena.deinit(); // Single deinit cleans everything
     }
 };
 ```
@@ -282,19 +310,19 @@ pub const StorageEngine = struct {
 
 ```zig
 pub const MemtableManager = struct {
-    arena_allocator: std.mem.Allocator,  // Reference to coordinator's arena
-    backing_allocator: std.mem.Allocator,  // For stable structures
+    arena_coordinator: ArenaCoordinator,     // Coordinator interface (never invalid)
+    backing_allocator: std.mem.Allocator,   // For stable structures
 
-    // Sub-submodules use the same arena reference
+    // Sub-submodules use the same coordinator interface
     block_index: BlockIndex,
     graph_index: GraphEdgeIndex,
 
-    pub fn init(arena_ref: std.mem.Allocator, backing: std.mem.Allocator) MemtableManager {
+    pub fn init(coordinator: ArenaCoordinator, backing: std.mem.Allocator) MemtableManager {
         return MemtableManager{
-            .arena_allocator = arena_ref,  // Reference, not ownership
+            .arena_coordinator = coordinator,  // Interface, not direct reference
             .backing_allocator = backing,
-            .block_index = BlockIndex.init(arena_ref, backing),
-            .graph_index = GraphEdgeIndex.init(arena_ref, backing),
+            .block_index = BlockIndex.init(coordinator, backing),
+            .graph_index = GraphEdgeIndex.init(coordinator, backing),
         };
     }
 };
@@ -305,26 +333,26 @@ pub const MemtableManager = struct {
 ```zig
 pub const BlockIndex = struct {
     blocks: HashMap(...),  // Uses backing allocator for structure
-    arena_allocator: std.mem.Allocator,  // References parent's arena
+    arena_coordinator: ArenaCoordinator,  // Coordinator interface
 
-    pub fn init(arena_ref: std.mem.Allocator, backing: std.mem.Allocator) BlockIndex {
+    pub fn init(coordinator: ArenaCoordinator, backing: std.mem.Allocator) BlockIndex {
         return BlockIndex{
-            .blocks = HashMap.init(backing),  // Structure allocation
-            .arena_allocator = arena_ref,     // Content allocation
+            .blocks = HashMap.init(backing),     // Structure allocation
+            .arena_coordinator = coordinator,    // Content allocation
         };
     }
 
     pub fn put_block(self: *BlockIndex, block: ContextBlock) !void {
-        // Use parent's arena for content
-        const cloned_content = try self.arena_allocator.dupe(u8, block.content);
-        // Never create additional arenas at this level
+        // Use coordinator for safe allocation (always valid)
+        const cloned_content = try self.arena_coordinator.duplicate_slice(u8, block.content);
+        // Coordinator interface remains valid after arena operations
     }
 };
 ```
 
 ### Zero-Cost Abstractions
 
-The hierarchical model maintains zero runtime overhead through compile-time validation:
+The Arena Coordinator Pattern maintains zero runtime overhead while eliminating arena corruption:
 
 **Compile-time Ownership Types:**
 
@@ -346,57 +374,59 @@ pub fn find_block(
 **Debug-Only Validation:**
 
 ```zig
-// Arena hierarchy validation only in debug builds
-pub fn validate_hierarchy(self: *const StorageEngine) void {
+// Arena coordinator validation only in debug builds
+pub fn validate_coordinator(self: *const StorageEngine) void {
     if (comptime builtin.mode == .Debug) {
-        assert(@intFromPtr(&self.storage_arena) == @intFromPtr(self.memtable_manager.arena_ptr));
-        // Compile-time validation ensures hierarchy correctness
+        assert(@intFromPtr(self.arena_coordinator.arena) == @intFromPtr(&self.storage_arena));
+        // Compile-time validation ensures coordinator correctness
     }
 }
 ```
 
-### Hierarchical Memory Benefits
+### Arena Coordinator Benefits
 
-This model provides fundamental advantages:
+This pattern provides fundamental advantages:
 
-**Impossible Allocator Conflicts:** Single arena source eliminates the HashMap corruption we previously experienced during fault injection.
+**Eliminates Arena Corruption:** Coordinator interfaces remain valid when structs are copied, preventing segmentation faults from embedded arena allocators.
 
-**Trivial Debugging:** All memory for a subsystem traces to one arena - memory leaks become immediately obvious.
+**Stable APIs:** Components only need `.deinit()` - no complex heap allocation or cleanup patterns.
 
-**Superior Performance:** 20-30% improvement from eliminating TypedArenaType wrapper overhead and allocator indirections.
+**Trivial Debugging:** All memory for a subsystem traces through the coordinator to one arena.
+
+**Superior Performance:** 20-30% improvement maintained while eliminating corruption risks.
 
 **O(1) Cleanup:** Single coordinator arena reset clears ALL subsystem memory in constant time.
 
-**Type Safety:** Compile-time ownership validation prevents cross-component access violations.
+**Zero Temporal Coupling:** Arena refresh operations don't invalidate component interfaces.
 
 ### Forbidden Patterns
 
-**NEVER create multiple arenas in submodules:**
+**NEVER embed arena allocators directly in structs:**
 
 ```zig
-// BAD: Creates allocator conflicts
+// BAD: Arena corruption when struct is copied
 pub const MemtableManager = struct {
-    own_arena: std.heap.ArenaAllocator,  // FORBIDDEN
+    own_arena: std.heap.ArenaAllocator,  // CORRUPTED when copied
     block_index: BlockIndex,
 };
 
-// GOOD: Uses coordinator's arena
+// GOOD: Uses coordinator interface
 pub const MemtableManager = struct {
-    arena_allocator: std.mem.Allocator,  // Reference to parent
+    arena_coordinator: ArenaCoordinator,  // Interface never corrupted
     block_index: BlockIndex,
 };
 ```
 
-**NEVER mix allocators for related data:**
+**NEVER use direct arena references in submodules:**
 
 ```zig
-// BAD: HashMap and content use different allocators
+// BAD: Reference becomes invalid after arena operations
 blocks: HashMap.init(backing_allocator),
-content_arena: ArenaAllocator.init(backing_allocator),  // Conflict source
+arena_ref: *std.heap.ArenaAllocator,  // Temporal coupling
 
-// GOOD: Clear separation
-blocks: HashMap.init(backing_allocator),      // Structure
-arena_allocator: parent_arena_reference,      // Content
+// GOOD: Coordinator interface remains stable
+blocks: HashMap.init(backing_allocator),        // Structure
+arena_coordinator: ArenaCoordinator,            // Content (always valid)
 ```
 
 ## 5. Error Handling: Explicit and Fail-Fast

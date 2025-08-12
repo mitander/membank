@@ -15,8 +15,8 @@ pub const EdgeType = types.EdgeType;
 pub const storage = @import("storage/engine.zig");
 pub const Database = storage.StorageEngine;
 pub const StorageEngine = storage.StorageEngine;
-pub const Config = storage.StorageEngine.Config;
-pub const Error = storage.StorageEngine.StorageError;
+pub const Config = storage.Config;
+pub const Error = storage.StorageError;
 
 pub const query_engine = @import("query/engine.zig");
 pub const QueryEngine = query_engine.QueryEngine;
@@ -74,8 +74,11 @@ pub const version = .{
 ///
 /// Creates the storage engine with the provided configuration.
 /// The database handles knowledge graph storage and querying.
+/// Uses production VFS and default data directory.
 pub fn init(allocator: Allocator, config: Config) !Database {
-    return Database.init(allocator, config);
+    const production_vfs = @import("core/production_vfs.zig");
+    var vfs_instance = production_vfs.ProductionVFS.init(allocator);
+    return Database.init(allocator, vfs_instance.vfs(), "data", config);
 }
 
 comptime {

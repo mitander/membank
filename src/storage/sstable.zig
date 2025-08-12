@@ -732,7 +732,7 @@ pub const Compactor = struct {
 test "SSTable write and read" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "test.sst"));
@@ -778,7 +778,7 @@ test "SSTable write and read" {
 test "SSTable iterator" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "test_iter.sst"));
@@ -836,7 +836,7 @@ test "SSTable iterator" {
 test "SSTable compaction" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var sstable1 = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "table1.sst"));
@@ -907,7 +907,7 @@ test "SSTable compaction" {
 test "SSTable checksum validation" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const path = try allocator.dupe(u8, "checksum_test.sst");
@@ -946,7 +946,7 @@ test "SSTable checksum validation" {
 test "SSTable Bloom filter functionality" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_test.sst"));
@@ -994,7 +994,7 @@ test "SSTable Bloom filter functionality" {
 test "SSTable Bloom filter persistence" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const file_path = try allocator.dupe(u8, "bloom_persist_test.sst");
@@ -1049,7 +1049,7 @@ test "SSTable Bloom filter persistence" {
 test "SSTable Bloom filter with many blocks" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var sstable = SSTable.init(allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_many_test.sst"));

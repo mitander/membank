@@ -313,7 +313,7 @@ pub fn log_ingestion_error(err: anyerror, context: IngestionContext) void {
 /// Log a server error with context in debug builds only.
 pub fn log_server_error(err: anyerror, context: ServerContext) void {
     if (builtin.mode == .Debug) {
-        log.warn("Server operation failed: {any} - {any}", .{ err, context });
+        log.warn("Server operation failed: {any} - {}", .{ err, context });
     }
 }
 
@@ -477,7 +477,9 @@ test "StorageContext formatting" {
     };
 
     var buf: [512]u8 = undefined;
-    const formatted = try std.fmt.bufPrint(&buf, "{any}", .{ctx});
+    var fbs = std.io.fixedBufferStream(&buf);
+    try ctx.format("", .{}, fbs.writer());
+    const formatted = fbs.getWritten();
 
     try std.testing.expect(std.mem.indexOf(u8, formatted, "block_deserialization") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "test.sst") != null);
@@ -485,7 +487,7 @@ test "StorageContext formatting" {
 }
 
 test "error context helpers in debug mode" {
-    const test_id = try BlockId.from_hex("1111111111111111111111111111111");
+    const test_id = try BlockId.from_hex("11111111111111111111111111111111");
 
     const block_ctx = block_context("test_operation", test_id);
     try std.testing.expectEqualStrings("test_operation", block_ctx.operation);
@@ -539,7 +541,9 @@ test "IngestionContext formatting" {
     };
 
     var buf: [1024]u8 = undefined;
-    const formatted = try std.fmt.bufPrint(&buf, "{any}", .{ctx});
+    var fbs = std.io.fixedBufferStream(&buf);
+    try ctx.format("", .{}, fbs.writer());
+    const formatted = fbs.getWritten();
     try std.testing.expect(std.mem.indexOf(u8, formatted, "parse_zig_function") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "./my-repo") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "src/parser.zig") != null);

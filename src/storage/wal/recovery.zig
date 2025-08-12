@@ -34,11 +34,11 @@ const SimulationVFS = simulation_vfs.SimulationVFS;
 /// Recover entries from a single WAL segment file using streaming approach
 /// Processes entries one at a time to minimize memory usage and improve corruption resilience
 pub fn recover_from_segment(
-    filesystem: VFS,
+    filesystem: vfs.VFS,
     allocator: std.mem.Allocator,
     file_path: []const u8,
     callback: RecoveryCallback,
-    context: *anyopaque,
+    context: anytype,
     stats: *types.WALStats,
 ) WALError!void {
     assert(file_path.len > 0);
@@ -84,11 +84,13 @@ pub fn recover_from_segment(
             wal_entry_stream.StreamError.EndOfFile => break,
             wal_entry_stream.StreamError.CorruptedEntry => {
                 corruption_tracker.record_failure("stream_entry_corruption");
+                stats.recovery_failures += 1;
                 continue;
             },
             wal_entry_stream.StreamError.EntryTooLarge => {
                 log.warn("Entry too large in WAL stream", .{});
                 corruption_tracker.record_failure("entry_too_large");
+                stats.recovery_failures += 1;
                 continue;
             },
             wal_entry_stream.StreamError.IoError => return WALError.IoError,
@@ -100,10 +102,12 @@ pub fn recover_from_segment(
         const wal_entry = WALEntry.from_stream_entry(stream_entry, allocator) catch |err| switch (err) {
             WALError.InvalidChecksum => {
                 corruption_tracker.record_failure("checksum_validation");
+                stats.recovery_failures += 1;
                 continue;
             },
             WALError.InvalidEntryType => {
                 corruption_tracker.record_failure("entry_type_validation");
+                stats.recovery_failures += 1;
                 continue;
             },
             else => return err,
@@ -275,10 +279,10 @@ fn error_recovery_callback(entry: entry_mod.WALEntry, context: *anyopaque) WALEr
 test "recover_from_segment - empty file" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var file = try sim_vfs.vfs().create("empty.wal", .write);
+    var file = try sim_vfs.vfs().create("empty.wal");
     file.close();
 
     var stats = types.WALStats.init();
@@ -294,7 +298,7 @@ test "recover_from_segment - empty file" {
 test "recover_from_segment - single valid entry" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const test_block = create_test_block();
@@ -302,7 +306,7 @@ test "recover_from_segment - single valid entry" {
     defer allocator.free(serialized_block);
     _ = try test_block.serialize(serialized_block);
 
-    var file = try sim_vfs.vfs().create("single.wal", .write);
+    var file = try sim_vfs.vfs().create("single.wal");
     const entry_data = try create_test_wal_entry(0x01, serialized_block, allocator);
     defer allocator.free(entry_data);
     _ = try file.write(entry_data);
@@ -325,10 +329,10 @@ test "recover_from_segment - single valid entry" {
 test "recover_from_segment - multiple valid entries" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var file = try sim_vfs.vfs().create("multi.wal", .write);
+    var file = try sim_vfs.vfs().create("multi.wal");
 
     const test_payloads = [_][]const u8{ "payload1", "payload2", "payload3" };
     const entry_types = [_]u8{ 0x01, 0x02, 0x01 };
@@ -358,10 +362,10 @@ test "recover_from_segment - multiple valid entries" {
 test "recover_from_segment - corrupted entry handling" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var file = try sim_vfs.vfs().create("corrupted.wal", .write);
+    var file = try sim_vfs.vfs().create("corrupted.wal");
 
     const valid_payload = "valid entry";
     const valid_entry = try create_test_wal_entry(0x01, valid_payload, allocator);
@@ -394,7 +398,7 @@ test "recover_from_segment - corrupted entry handling" {
 test "recover_from_segment - file not found" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var stats = types.WALStats.init();
@@ -407,10 +411,10 @@ test "recover_from_segment - file not found" {
 test "recover_from_segment - callback error handling" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var file = try sim_vfs.vfs().create("callback_error.wal", .write);
+    var file = try sim_vfs.vfs().create("callback_error.wal");
     const test_payload = "test payload";
     const entry_data = try create_test_wal_entry(0x01, test_payload, allocator);
     defer allocator.free(entry_data);
@@ -429,11 +433,11 @@ test "recover_from_segment - callback error handling" {
 test "recover_from_segments - multiple segment files" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const test_dir = "test_segments";
-    try sim_vfs.vfs().create_directory(test_dir);
+    try sim_vfs.vfs().mkdir(test_dir);
 
     const segment_files = [_][]const u8{ "wal_0000.log", "wal_0001.log", "wal_0002.log" };
     const payloads = [_][]const u8{ "first segment", "second segment", "third segment" };
@@ -442,7 +446,7 @@ test "recover_from_segments - multiple segment files" {
         const file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ test_dir, filename });
         defer allocator.free(file_path);
 
-        var file = try sim_vfs.vfs().create(file_path, .write);
+        var file = try sim_vfs.vfs().create(file_path);
         const entry_data = try create_test_wal_entry(0x01, payload, allocator);
         defer allocator.free(entry_data);
         _ = try file.write(entry_data);
@@ -466,24 +470,28 @@ test "recover_from_segments - multiple segment files" {
 test "recover_from_segments - corrupted segment skipping" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const test_dir = "test_corrupted_segments";
-    try sim_vfs.vfs().create_directory(test_dir);
+    try sim_vfs.vfs().mkdir(test_dir);
 
-    var file = try sim_vfs.vfs().create("test_corrupted_segments/wal_0000.log", .write);
+    var file = try sim_vfs.vfs().create("test_corrupted_segments/wal_0000.log");
     const valid_entry = try create_test_wal_entry(0x01, "valid", allocator);
     defer allocator.free(valid_entry);
     _ = try file.write(valid_entry);
     file.close();
 
-    file = try sim_vfs.vfs().create("test_corrupted_segments/wal_0001.log", .write);
-    const corrupted_data = [_]u8{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+    file = try sim_vfs.vfs().create("test_corrupted_segments/wal_0001.log");
+    // Create a properly sized entry with invalid entry type to trigger InvalidEntryType
+    var corrupted_data: [13]u8 = undefined;
+    std.mem.writeInt(u64, corrupted_data[0..8], 0x1234567890abcdef, .little);
+    corrupted_data[8] = 0xFF; // Invalid entry type
+    std.mem.writeInt(u32, corrupted_data[9..13], 0, .little);
     _ = try file.write(&corrupted_data);
     file.close();
 
-    file = try sim_vfs.vfs().create("test_corrupted_segments/wal_0002.log", .write);
+    file = try sim_vfs.vfs().create("test_corrupted_segments/wal_0002.log");
     const valid_entry2 = try create_test_wal_entry(0x02, "valid2", allocator);
     defer allocator.free(valid_entry2);
     _ = try file.write(valid_entry2);
@@ -503,7 +511,7 @@ test "recover_from_segments - corrupted segment skipping" {
 test "recover_from_segments - directory not found" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var stats = types.WALStats.init();
@@ -516,11 +524,11 @@ test "recover_from_segments - directory not found" {
 test "list_segment_files - empty directory" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const test_dir = "empty_segments";
-    try sim_vfs.vfs().create_directory(test_dir);
+    try sim_vfs.vfs().mkdir(test_dir);
 
     const files = try list_segment_files(sim_vfs.vfs(), allocator, test_dir);
     defer {
@@ -536,11 +544,11 @@ test "list_segment_files - empty directory" {
 test "list_segment_files - mixed files" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const test_dir = "mixed_files";
-    try sim_vfs.vfs().create_directory(test_dir);
+    try sim_vfs.vfs().mkdir(test_dir);
 
     const all_files = [_][]const u8{
         "wal_0000.log",
@@ -553,7 +561,7 @@ test "list_segment_files - mixed files" {
     for (all_files) |filename| {
         const file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ test_dir, filename });
         defer allocator.free(file_path);
-        var file = try sim_vfs.vfs().create(file_path, .write);
+        var file = try sim_vfs.vfs().create(file_path);
         file.close();
     }
 
@@ -574,11 +582,11 @@ test "list_segment_files - mixed files" {
 test "list_segment_files - sorting verification" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const test_dir = "sorting_test";
-    try sim_vfs.vfs().create_directory(test_dir);
+    try sim_vfs.vfs().mkdir(test_dir);
 
     const unsorted_files = [_][]const u8{
         "wal_0005.log",
@@ -591,7 +599,7 @@ test "list_segment_files - sorting verification" {
     for (unsorted_files) |filename| {
         const file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ test_dir, filename });
         defer allocator.free(file_path);
-        var file = try sim_vfs.vfs().create(file_path, .write);
+        var file = try sim_vfs.vfs().create(file_path);
         file.close();
     }
 
@@ -614,10 +622,10 @@ test "list_segment_files - sorting verification" {
 test "wal_recovery_defensive_timeout_prevents_infinite_loops" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    var file = try sim_vfs.vfs().create("timeout_test.wal", .write);
+    var file = try sim_vfs.vfs().create("timeout_test.wal");
 
     var entries_written: u32 = 0;
     const target_entries = 100; // Reasonable number for testing

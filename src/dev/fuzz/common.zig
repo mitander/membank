@@ -5,10 +5,11 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const kausaldb = @import("kausaldb");
+const types = @import("../../core/types.zig");
+const concurrency = @import("../../core/concurrency.zig");
 
-const BlockId = kausaldb.BlockId;
-const ContextBlock = kausaldb.ContextBlock;
+const BlockId = types.BlockId;
+const ContextBlock = types.ContextBlock;
 
 pub const CRASH_REPORT_DIR = "fuzz_reports";
 pub const PROGRESS_INTERVAL_SEC = 60;
@@ -313,8 +314,7 @@ pub fn generate_malformed_zig_source(allocator: std.mem.Allocator, random: std.R
 // Tests
 
 test "fuzz: basic data generation functionality" {
-    const kausaldb_import = @import("kausaldb"); // tidy:ignore-arch - test requires kausaldb import for concurrency init
-    kausaldb_import.concurrency.init();
+    concurrency.init();
 
     var prng = std.Random.DefaultPrng.init(12345);
     const random = prng.random();

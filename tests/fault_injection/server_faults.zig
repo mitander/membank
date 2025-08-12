@@ -30,19 +30,21 @@ const TestServerConfig = struct {
 
 // Helper to create test server environment
 fn create_test_server(allocator: std.mem.Allocator, config: TestServerConfig) !struct {
-    sim_vfs: SimulationVFS,
-    storage: StorageEngine,
-    query: QueryEngine,
-    server: Server,
+    sim_vfs: *SimulationVFS,
+    storage: *StorageEngine,
+    query: *QueryEngine,
+    server: *Server,
 } {
     // Manual setup required because: Fault injection testing needs precise control over
     // server component initialization to test failure scenarios. Harnesses coordinate
     // components automatically, preventing fault injection at specific lifecycle points.
-    var sim_vfs = try SimulationVFS.init(allocator);
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "coordinator_test");
+    var sim_vfs = try SimulationVFS.heap_init(allocator);
+    const storage_engine = try allocator.create(StorageEngine);
+    storage_engine.* = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "coordinator_test");
     try storage_engine.startup();
 
-    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    const query_engine = try allocator.create(QueryEngine);
+    query_engine.* = QueryEngine.init(allocator, storage_engine);
 
     const server_config = ServerConfig{
         .port = 0, // Ephemeral port for testing
@@ -51,7 +53,8 @@ fn create_test_server(allocator: std.mem.Allocator, config: TestServerConfig) !s
         .enable_logging = config.enable_logging,
     };
 
-    const server = Server.init(allocator, server_config, &storage_engine, &query_engine);
+    const server = try allocator.create(Server);
+    server.* = Server.init(allocator, server_config, storage_engine, query_engine);
 
     return .{
         .sim_vfs = sim_vfs,
@@ -67,10 +70,16 @@ test "server coordinator pattern basic functionality" {
     const allocator = arena.allocator();
 
     var test_env = try create_test_server(allocator, .{});
-    defer test_env.sim_vfs.deinit();
-    defer test_env.storage.deinit();
-    defer test_env.query.deinit();
-    defer test_env.server.deinit();
+    defer {
+        test_env.server.deinit();
+        allocator.destroy(test_env.server);
+        test_env.query.deinit();
+        allocator.destroy(test_env.query);
+        test_env.storage.deinit();
+        allocator.destroy(test_env.storage);
+        test_env.sim_vfs.deinit();
+        allocator.destroy(test_env.sim_vfs);
+    }
 
     // Test server follows coordinator pattern
     try testing.expectEqual(@as(u32, 0), test_env.server.connection_manager.active_connection_count());
@@ -134,10 +143,16 @@ test "server coordination delegates properly to connection manager" {
         .max_connections = 10,
         .connection_timeout_sec = 45,
     });
-    defer test_env.sim_vfs.deinit();
-    defer test_env.storage.deinit();
-    defer test_env.query.deinit();
-    defer test_env.server.deinit();
+    defer {
+        test_env.server.deinit();
+        allocator.destroy(test_env.server);
+        test_env.query.deinit();
+        allocator.destroy(test_env.query);
+        test_env.storage.deinit();
+        allocator.destroy(test_env.storage);
+        test_env.sim_vfs.deinit();
+        allocator.destroy(test_env.sim_vfs);
+    }
 
     // Verify server properly configures connection manager
     try testing.expectEqual(@as(u32, 10), test_env.server.connection_manager.config.max_connections);
@@ -387,7 +402,7 @@ test "connection manager resource cleanup under various failure modes" {
         defer test_env.server.deinit();
 
         // Apply scenario-specific fault injection
-        scenario.setup(&test_env.sim_vfs);
+        scenario.setup(test_env.sim_vfs);
 
         // Test manager handles scenario gracefully
         const manager = &test_env.server.connection_manager;

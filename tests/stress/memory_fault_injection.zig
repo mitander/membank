@@ -15,6 +15,7 @@ const assert = kausaldb.assert.assert;
 const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
 const StorageEngine = kausaldb.storage.StorageEngine;
 const MemtableManager = kausaldb.storage.MemtableManager;
+const ArenaCoordinator = kausaldb.memory.ArenaCoordinator;
 const ContextBlock = kausaldb.types.ContextBlock;
 const BlockId = kausaldb.types.BlockId;
 const GraphEdge = kausaldb.types.GraphEdge;
@@ -99,18 +100,10 @@ test "allocation failure during memtable operations" {
         var sim_vfs = try SimulationVFS.init(backing_allocator);
         defer sim_vfs.deinit();
 
-        // Create mock storage engine for MemtableManager
-        const MockStorageEngine = struct {
-            allocator: std.mem.Allocator,
-            pub fn duplicate_storage(self: *@This(), comptime T: type, slice: []const T) ![]T {
-                return self.allocator.dupe(T, slice);
-            }
-        };
-
         var test_arena = std.heap.ArenaAllocator.init(backing_allocator);
         defer test_arena.deinit();
-        var mock_engine = MockStorageEngine{ .allocator = test_arena.allocator() };
-        var memtable = MemtableManager.init(@ptrCast(&mock_engine), backing_allocator, sim_vfs.vfs(), "test_data", 1024 * 1024) catch |err| {
+        const arena_coordinator = ArenaCoordinator.init(&test_arena);
+        var memtable = MemtableManager.init(&arena_coordinator, backing_allocator, sim_vfs.vfs(), "test_data", 1024 * 1024) catch |err| {
             // This shouldn't fail with backing allocator
             return err;
         };
@@ -216,18 +209,10 @@ test "arena corruption detection" {
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 789);
     defer sim_vfs.deinit();
 
-    // Create mock storage engine for MemtableManager
-    const MockStorageEngine = struct {
-        allocator: std.mem.Allocator,
-        pub fn duplicate_storage(self: *@This(), comptime T: type, slice: []const T) ![]T {
-            return self.allocator.dupe(T, slice);
-        }
-    };
-
     var test_arena = std.heap.ArenaAllocator.init(allocator);
     defer test_arena.deinit();
-    var mock_engine = MockStorageEngine{ .allocator = test_arena.allocator() };
-    var memtable = try MemtableManager.init(@ptrCast(&mock_engine), allocator, sim_vfs.vfs(), "test_data", 1024 * 1024);
+    const arena_coordinator = ArenaCoordinator.init(&test_arena);
+    var memtable = try MemtableManager.init(&arena_coordinator, allocator, sim_vfs.vfs(), "test_data", 1024 * 1024);
     defer memtable.deinit();
 
     // Add some normal data first
@@ -366,18 +351,10 @@ test "sustained operations under memory pressure" {
     var sim_vfs = try SimulationVFS.init_with_fault_seed(backing_allocator, 101112);
     defer sim_vfs.deinit();
 
-    // Create mock storage engine for MemtableManager
-    const MockStorageEngine = struct {
-        allocator: std.mem.Allocator,
-        pub fn duplicate_storage(self: *@This(), comptime T: type, slice: []const T) ![]T {
-            return self.allocator.dupe(T, slice);
-        }
-    };
-
     var test_arena = std.heap.ArenaAllocator.init(backing_allocator);
     defer test_arena.deinit();
-    var mock_engine = MockStorageEngine{ .allocator = test_arena.allocator() };
-    var memtable = try MemtableManager.init(@ptrCast(&mock_engine), backing_allocator, sim_vfs.vfs(), "test_data", 1024 * 1024); // Use backing allocator for memtable
+    const arena_coordinator = ArenaCoordinator.init(&test_arena);
+    var memtable = try MemtableManager.init(&arena_coordinator, backing_allocator, sim_vfs.vfs(), "test_data", 1024 * 1024); // Use backing allocator for memtable
     defer memtable.deinit();
 
     const total_cycles = 50;

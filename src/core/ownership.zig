@@ -78,7 +78,7 @@ pub const OwnedBlock = struct {
     /// Create owned block from existing block with ownership transfer.
     pub fn take_ownership(block: ContextBlock, new_ownership: BlockOwnership) OwnedBlock {
         if (builtin.mode == .Debug) {
-            std.log.debug("Taking ownership of block {any} as {s}", .{ block.id.bytes, new_ownership.name() });
+            std.log.debug("Taking ownership of block {} as {s}", .{ block.id, new_ownership.name() });
         }
         return OwnedBlock{
             .block = block,
@@ -162,7 +162,7 @@ pub const OwnedBlock = struct {
         };
 
         if (builtin.mode == .Debug) {
-            std.log.debug("Cloned block {any} from {s} to {s}", .{ self.block.id.bytes, self.ownership.name(), new_ownership.name() });
+            std.log.debug("Cloned block {} from {s} to {s}", .{ self.block.id, self.ownership.name(), new_ownership.name() });
         }
 
         return OwnedBlock{
@@ -181,7 +181,7 @@ pub const OwnedBlock = struct {
         new_arena: anytype,
     ) void {
         if (builtin.mode == .Debug) {
-            std.log.warn("Ownership transfer: block {any} from {s} to {s} (DANGEROUS - ensure original owner won't access)", .{ self.block.id.bytes, self.ownership.name(), new_ownership.name() });
+            std.log.warn("Ownership transfer: block {} from {s} to {s} (DANGEROUS - ensure original owner won't access)", .{ self.block.id, self.ownership.name(), new_ownership.name() });
         }
         self.ownership = new_ownership;
         if (builtin.mode == .Debug) {
@@ -229,7 +229,7 @@ pub const OwnedBlock = struct {
     /// Only call this when you're certain the block is no longer needed.
     pub fn deinit(self: *OwnedBlock, allocator: std.mem.Allocator) void {
         if (builtin.mode == .Debug) {
-            std.log.debug("Deallocating {s}-owned block {any}", .{ self.ownership.name(), self.block.id.bytes });
+            std.log.debug("Deallocating {s}-owned block {}", .{ self.ownership.name(), self.block.id });
         }
 
         // Free dynamic allocations
@@ -358,7 +358,7 @@ pub const OwnedBlockCollection = struct {
         try self.blocks.append(mut_block.*);
 
         if (builtin.mode == .Debug) {
-            std.log.debug("Added block {any} to {s} collection (total: {})", .{ mut_block.block.id.bytes, self.ownership.name(), self.blocks.items.len });
+            std.log.debug("Added block {} to {s} collection (total: {})", .{ mut_block.block.id, self.ownership.name(), self.blocks.items.len });
         }
     }
 
@@ -377,7 +377,7 @@ pub const OwnedBlockCollection = struct {
     pub fn find_block(
         self: *const OwnedBlockCollection,
         block_id: BlockId,
-        accessor: BlockOwnership,
+        comptime accessor: BlockOwnership,
     ) ?*const ContextBlock {
         for (self.blocks.items) |*owned_block| {
             if (owned_block.block.id.eql(block_id)) {
@@ -388,7 +388,7 @@ pub const OwnedBlockCollection = struct {
     }
 
     /// Query all blocks as slice with ownership validation.
-    pub fn query_blocks(self: *const OwnedBlockCollection, accessor: BlockOwnership) []const OwnedBlock {
+    pub fn query_blocks(self: *const OwnedBlockCollection, comptime accessor: BlockOwnership) []const OwnedBlock {
         // Validate accessor can read from this collection
         if (builtin.mode == .Debug) {
             assert_fmt(accessor.can_read_from(self.ownership), "Collection access violation: {s} cannot read {s} collection", .{ accessor.name(), self.ownership.name() });
@@ -437,7 +437,7 @@ pub const OwnershipTransfer = struct {
     /// Record ownership transfer for debugging.
     pub fn record(source: BlockOwnership, destination: BlockOwnership, block_id: BlockId) OwnershipTransfer {
         if (builtin.mode == .Debug) {
-            std.log.debug("Ownership transfer: block {any} from {s} to {s}", .{ block_id.bytes, source.name(), destination.name() });
+            std.log.debug("Ownership transfer: block {} from {s} to {s}", .{ block_id, source.name(), destination.name() });
         }
 
         return OwnershipTransfer{
@@ -488,7 +488,7 @@ pub const OwnershipTracker = struct {
                 std.log.warn("Failed to track block allocation: {}", .{err});
                 return;
             };
-            std.log.debug("Tracking allocation: block {any} owned by {s}", .{ block_id.bytes, ownership.name() });
+            std.log.debug("Tracking allocation: block {} owned by {s}", .{ block_id, ownership.name() });
         }
     }
 
@@ -513,9 +513,9 @@ pub const OwnershipTracker = struct {
     pub fn track_deallocation(self: *OwnershipTracker, block_id: BlockId) void {
         if (builtin.mode == .Debug) {
             if (self.active_blocks.remove(block_id)) {
-                std.log.debug("Tracked deallocation: block {any}", .{block_id.bytes});
+                std.log.debug("Tracked deallocation: block {}", .{block_id});
             } else {
-                std.log.warn("Deallocating untracked block: {any}", .{block_id.bytes});
+                std.log.warn("Deallocating untracked block: {}", .{block_id});
             }
         }
     }
@@ -528,7 +528,7 @@ pub const OwnershipTracker = struct {
                     fatal_assert(false, "Ownership validation failed", .{});
                 }
             } else {
-                std.log.warn("Accessing untracked block: {any} by {s}", .{ block_id.bytes, accessor.name() });
+                std.log.warn("Accessing untracked block: {} by {s}", .{ block_id, accessor.name() });
             }
         }
     }
@@ -683,10 +683,15 @@ test "OwnedBlock basic operations" {
         // Safety: Valid hex string is statically verified
         .id = BlockId.from_hex("00112233445566778899AABBCCDDEEFF") catch unreachable,
         .version = 1,
-        .source_uri = "test://block",
-        .metadata_json = "{}",
-        .content = "test content",
+        .source_uri = try std.testing.allocator.dupe(u8, "test://block"),
+        .metadata_json = try std.testing.allocator.dupe(u8, "{}"),
+        .content = try std.testing.allocator.dupe(u8, "test content"),
     };
+    defer {
+        std.testing.allocator.free(block.source_uri);
+        std.testing.allocator.free(block.metadata_json);
+        std.testing.allocator.free(block.content);
+    }
 
     var owned = OwnedBlock.init(block, .simulation_test, null);
 
@@ -708,10 +713,15 @@ test "OwnedBlock ownership transfer" {
         // Safety: Valid hex string is statically verified
         .id = BlockId.from_hex("FFEEDDCCBBAA99887766554433221100") catch unreachable,
         .version = 1,
-        .source_uri = "test://transfer",
-        .metadata_json = "{}",
-        .content = "transfer test",
+        .source_uri = try std.testing.allocator.dupe(u8, "test://transfer"),
+        .metadata_json = try std.testing.allocator.dupe(u8, "{}"),
+        .content = try std.testing.allocator.dupe(u8, "transfer test"),
     };
+    defer {
+        std.testing.allocator.free(block.source_uri);
+        std.testing.allocator.free(block.metadata_json);
+        std.testing.allocator.free(block.content);
+    }
 
     var owned = OwnedBlock.init(block, .memtable_manager, null);
 
@@ -729,10 +739,15 @@ test "OwnedBlock cloning with ownership" {
         // Safety: Valid hex string is statically verified
         .id = BlockId.from_hex("1122334455667788AABBCCDDEEFF0099") catch unreachable,
         .version = 1,
-        .source_uri = "test://clone",
-        .metadata_json = "{}",
-        .content = "clone test",
+        .source_uri = try std.testing.allocator.dupe(u8, "test://clone"),
+        .metadata_json = try std.testing.allocator.dupe(u8, "{}"),
+        .content = try std.testing.allocator.dupe(u8, "clone test"),
     };
+    defer {
+        std.testing.allocator.free(block.source_uri);
+        std.testing.allocator.free(block.metadata_json);
+        std.testing.allocator.free(block.content);
+    }
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -758,18 +773,18 @@ test "OwnedBlockCollection management" {
         // Safety: Valid hex string is statically verified
         .id = BlockId.from_hex("1111111111111111AAAAAAAAAAAAAAAA") catch unreachable,
         .version = 1,
-        .source_uri = "test://block1",
-        .metadata_json = "{}",
-        .content = "content1",
+        .source_uri = try std.testing.allocator.dupe(u8, "test://block1"),
+        .metadata_json = try std.testing.allocator.dupe(u8, "{}"),
+        .content = try std.testing.allocator.dupe(u8, "content1"),
     };
 
     const block2 = ContextBlock{
         // Safety: Valid hex string is statically verified
         .id = BlockId.from_hex("2222222222222222BBBBBBBBBBBBBBBB") catch unreachable,
         .version = 1,
-        .source_uri = "test://block2",
-        .metadata_json = "{}",
-        .content = "content2",
+        .source_uri = try std.testing.allocator.dupe(u8, "test://block2"),
+        .metadata_json = try std.testing.allocator.dupe(u8, "{}"),
+        .content = try std.testing.allocator.dupe(u8, "content2"),
     };
 
     var owned1 = OwnedBlock.init(block1, .temporary, null);
@@ -859,10 +874,15 @@ test "zero-cost compile-time ownership system" {
     const test_block = ContextBlock{
         .id = block_id,
         .version = 1,
-        .source_uri = "test://block",
-        .metadata_json = "{}",
-        .content = "test content for zero-cost ownership",
+        .source_uri = try std.testing.allocator.dupe(u8, "test://block"),
+        .metadata_json = try std.testing.allocator.dupe(u8, "{}"),
+        .content = try std.testing.allocator.dupe(u8, "test content for zero-cost ownership"),
     };
+    defer {
+        std.testing.allocator.free(test_block.source_uri);
+        std.testing.allocator.free(test_block.metadata_json);
+        std.testing.allocator.free(test_block.content);
+    }
 
     // Test compile-time owned block creation with zero runtime overhead
     var storage_block = StorageEngineBlock.init(test_block);

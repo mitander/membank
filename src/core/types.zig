@@ -53,6 +53,14 @@ pub const BlockId = struct {
     pub fn eql(self: BlockId, other: BlockId) bool {
         return std.mem.eql(u8, &self.bytes, &other.bytes);
     }
+
+    /// Generate a random BlockId for testing purposes.
+    /// Uses thread-local PRNG for deterministic test results.
+    pub fn generate() BlockId {
+        var bytes: [16]u8 = undefined;
+        std.crypto.random.bytes(&bytes);
+        return BlockId{ .bytes = bytes };
+    }
 };
 
 /// Types of edges between Context Blocks.

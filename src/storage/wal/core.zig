@@ -57,7 +57,7 @@ pub const WAL = struct {
     /// Phase 1 initialization: Create WAL structure with memory allocation only.
     /// No I/O operations performed. Call startup() to complete initialization.
     pub fn init(allocator: std.mem.Allocator, filesystem: VFS, directory: []const u8) WALError!WAL {
-        assert(directory.len > 0);
+        if (directory.len == 0) return WALError.InvalidArgument;
         assert(directory.len < 4096); // Reasonable path length limit
 
         return WAL{
@@ -446,25 +446,25 @@ fn create_test_block() ContextBlock {
 }
 
 fn create_test_edge() GraphEdge {
-    const from_id = BlockId.from_hex("1111111111111111111111111111111111111111") catch unreachable; // Safety: hardcoded valid hex
-    const to_id = BlockId.from_hex("2222222222222222222222222222222222222222") catch unreachable; // Safety: hardcoded valid hex
+    const from_id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable; // Safety: hardcoded valid hex
+    const to_id = BlockId.from_hex("22222222222222222222222222222222") catch unreachable; // Safety: hardcoded valid hex
 
     return GraphEdge{
-        .from_block_id = from_id,
-        .to_block_id = to_id,
+        .source_id = from_id,
+        .target_id = to_id,
         .edge_type = .calls,
-        .metadata_json = "{}",
     };
 }
 
 test "WAL initialization and cleanup" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_init");
     defer wal.deinit();
+    try wal.startup();
 
     try testing.expect(wal.active_file != null);
     try testing.expectEqual(@as(u32, 0), wal.segment_number);
@@ -480,11 +480,12 @@ test "WAL initialization and cleanup" {
 test "WAL write single entry" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_write");
     defer wal.deinit();
+    try wal.startup();
 
     const test_block = create_test_block();
     const entry = try WALEntry.create_put_block(test_block, allocator);
@@ -501,18 +502,18 @@ test "WAL write single entry" {
 test "WAL write multiple entries" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_multi");
     defer wal.deinit();
+    try wal.startup();
 
     const num_entries = 5;
     for (0..num_entries) |i| {
-        const test_block = create_test_block();
-        test_block.version = @intCast(i + 1);
-
-        const entry = try WALEntry.create_put_block(test_block, allocator);
+        var mutable_test_block = create_test_block();
+        mutable_test_block.version = @intCast(i + 1);
+        const entry = try WALEntry.create_put_block(mutable_test_block, allocator);
         defer entry.deinit(allocator);
 
         try wal.write_entry(entry);
@@ -526,18 +527,19 @@ test "WAL write multiple entries" {
 test "WAL write different entry types" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_types");
     defer wal.deinit();
+    try wal.startup();
 
     const test_block = create_test_block();
     const put_entry = try WALEntry.create_put_block(test_block, allocator);
     defer put_entry.deinit(allocator);
     try wal.write_entry(put_entry);
 
-    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
+    const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
     const delete_entry = try WALEntry.create_delete_block(test_id, allocator);
     defer delete_entry.deinit(allocator);
     try wal.write_entry(delete_entry);
@@ -554,11 +556,12 @@ test "WAL write different entry types" {
 test "WAL segment rotation" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_rotation");
     defer wal.deinit();
+    try wal.startup();
 
     const initial_segment = wal.segment_number;
 
@@ -597,7 +600,7 @@ test "WAL segment rotation" {
 test "WAL recovery functionality" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     const test_dir = "./test_wal_recovery";
@@ -605,6 +608,7 @@ test "WAL recovery functionality" {
     {
         var wal = try WAL.init(allocator, sim_vfs.vfs(), test_dir);
         defer wal.deinit();
+        try wal.startup();
 
         const test_block = create_test_block();
         const entry = try WALEntry.create_put_block(test_block, allocator);
@@ -629,6 +633,7 @@ test "WAL recovery functionality" {
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), test_dir);
     defer wal.deinit();
+    try wal.startup();
 
     try wal.recover_entries(RecoveryContext.callback, &recovery_ctx);
 
@@ -638,7 +643,7 @@ test "WAL recovery functionality" {
 test "WAL error handling - directory creation failure" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     try testing.expectError(error.InvalidArgument, WAL.init(allocator, sim_vfs.vfs(), ""));
@@ -647,35 +652,40 @@ test "WAL error handling - directory creation failure" {
 test "WAL cleanup old segments" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_cleanup");
     defer wal.deinit();
+    try wal.startup();
 
     const old_files = [_][]const u8{
-        "./test_wal_cleanup/wal_0000.log",
         "./test_wal_cleanup/wal_0001.log",
         "./test_wal_cleanup/wal_0002.log",
+        "./test_wal_cleanup/wal_0003.log",
     };
 
     for (old_files) |filename| {
-        var file = try sim_vfs.vfs().create(filename, .write);
+        var file = sim_vfs.vfs().create(filename) catch |err| switch (err) {
+            error.FileExists => sim_vfs.vfs().open(filename, .write) catch return,
+            else => return err,
+        };
         _ = try file.write("dummy content");
         file.close();
     }
 
-    try wal.cleanup_old_segments(2);
+    try wal.cleanup_old_segments();
 }
 
 test "WAL statistics accuracy" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_stats");
     defer wal.deinit();
+    try wal.startup();
 
     const initial_stats = wal.statistics();
     try testing.expectEqual(@as(u64, 0), initial_stats.entries_written);
@@ -697,14 +707,15 @@ test "WAL statistics accuracy" {
 test "WAL filename generation" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_filename");
     defer wal.deinit();
+    try wal.startup();
 
-    const filename = try wal.segment_filename();
-    defer allocator.free(filename);
+    var filename_buffer: [512]u8 = undefined;
+    const filename = try wal.segment_filename(&filename_buffer);
 
     try testing.expect(std.mem.endsWith(u8, filename, "wal_0000.log"));
     try testing.expect(std.mem.startsWith(u8, filename, "./test_filename/"));
@@ -713,13 +724,14 @@ test "WAL filename generation" {
 test "WAL concurrent safety assertions" {
     const allocator = testing.allocator;
 
-    var sim_vfs = simulation_vfs.SimulationVFS.init(allocator);
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
     concurrency.init();
 
     var wal = try WAL.init(allocator, sim_vfs.vfs(), "./test_wal_concurrency");
     defer wal.deinit();
+    try wal.startup();
 
     const test_block = create_test_block();
     const entry = try WALEntry.create_put_block(test_block, allocator);

@@ -338,7 +338,7 @@ comptime {
 test "WALEntryStream initialization" {
     const allocator = testing.allocator;
 
-    var vfs_sim = SimulationVFS.init(allocator);
+    var vfs_sim = try SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     // Create empty test file
@@ -360,7 +360,7 @@ test "WALEntryStream initialization" {
 test "WALEntryStream read from empty file" {
     const allocator = testing.allocator;
 
-    var vfs_sim = SimulationVFS.init(allocator);
+    var vfs_sim = try SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     // Create empty test file
@@ -378,7 +378,7 @@ test "WALEntryStream read from empty file" {
 test "WALEntryStream read single complete entry" {
     const allocator = testing.allocator;
 
-    var vfs_sim = SimulationVFS.init(allocator);
+    var vfs_sim = try SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "single_entry.wal";
@@ -421,7 +421,7 @@ test "WALEntryStream read single complete entry" {
 test "WALEntryStream read multiple entries" {
     const allocator = testing.allocator;
 
-    var vfs_sim = SimulationVFS.init(allocator);
+    var vfs_sim = try SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "multiple_entries.wal";
@@ -479,7 +479,7 @@ test "WALEntryStream read multiple entries" {
 test "WALEntryStream corrupted entry handling" {
     const allocator = testing.allocator;
 
-    var vfs_sim = SimulationVFS.init(allocator);
+    var vfs_sim = try SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "corrupted_entry.wal";
@@ -505,7 +505,7 @@ test "WALEntryStream corrupted entry handling" {
 test "WALEntryStream oversized payload" {
     const allocator = testing.allocator;
 
-    var vfs_sim = SimulationVFS.init(allocator);
+    var vfs_sim = try SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "oversized_payload.wal";
@@ -530,7 +530,7 @@ test "WALEntryStream oversized payload" {
 test "WALEntryStream incomplete entry at EOF" {
     const allocator = testing.allocator;
 
-    var vfs_sim = SimulationVFS.init(allocator);
+    var vfs_sim = try SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "incomplete_entry.wal";
@@ -552,7 +552,7 @@ test "WALEntryStream incomplete entry at EOF" {
 test "WALEntryStream large entry handling" {
     const allocator = testing.allocator;
 
-    var vfs_sim = SimulationVFS.init(allocator);
+    var vfs_sim = try SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "large_entry.wal";
@@ -592,7 +592,7 @@ test "WALEntryStream large entry handling" {
 test "WALEntryStream position tracking" {
     const allocator = testing.allocator;
 
-    var vfs_sim = SimulationVFS.init(allocator);
+    var vfs_sim = try SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "position_tracking.wal";
@@ -641,7 +641,7 @@ test "WALEntryStream position tracking" {
 test "WALEntryStream buffer boundary handling" {
     const allocator = testing.allocator;
 
-    var vfs_sim = SimulationVFS.init(allocator);
+    var vfs_sim = try SimulationVFS.init(allocator);
     defer vfs_sim.deinit();
 
     const test_path = "buffer_boundary.wal";

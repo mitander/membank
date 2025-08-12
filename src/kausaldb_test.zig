@@ -84,6 +84,7 @@ pub const assert = @import("core/assert.zig");
 pub const concurrency = @import("core/concurrency.zig");
 pub const error_context = @import("core/error_context.zig");
 pub const stdx = @import("core/stdx.zig");
+pub const memory = @import("core/memory.zig");
 
 // Core type safety modules
 pub const arena = @import("core/arena.zig");

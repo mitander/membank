@@ -513,7 +513,7 @@ test "git source creation and cleanup" {
     var config = try GitSourceConfig.init(allocator, "/test/repo");
     defer config.deinit(allocator);
 
-    var git_source = try GitSource.init(allocator, config);
+    var git_source = GitSource.init(allocator, config);
     defer git_source.deinit(allocator);
 
     const source = git_source.source();

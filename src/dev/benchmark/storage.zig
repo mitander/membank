@@ -56,8 +56,11 @@ pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
 /// Creates test blocks and measures time to write them to storage engine.
 /// Used for understanding ingestion pipeline performance.
 pub fn run_block_writes(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_writes");
     defer storage_engine.deinit();
@@ -71,8 +74,11 @@ pub fn run_block_writes(allocator: std.mem.Allocator) !BenchmarkResult {
 /// Pre-populates storage with test blocks then measures retrieval time.
 /// Used for understanding query response characteristics.
 pub fn run_block_reads(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_reads");
     defer storage_engine.deinit();
@@ -86,8 +92,11 @@ pub fn run_block_reads(allocator: std.mem.Allocator) !BenchmarkResult {
 /// Updates existing blocks with new versions and measures performance.
 /// Used for understanding version management overhead.
 pub fn run_block_updates(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_updates");
     defer storage_engine.deinit();
@@ -101,8 +110,11 @@ pub fn run_block_updates(allocator: std.mem.Allocator) !BenchmarkResult {
 /// Creates blocks to delete and measures time to remove them from storage.
 /// Includes tombstone handling and compaction effects.
 pub fn run_block_deletes(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_deletes");
     defer storage_engine.deinit();
@@ -116,8 +128,11 @@ pub fn run_block_deletes(allocator: std.mem.Allocator) !BenchmarkResult {
 /// Measures time to flush Write-Ahead Log to persistent storage.
 /// Used for understanding commit latency characteristics.
 pub fn run_wal_flush(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_wal");
     defer storage_engine.deinit();
@@ -128,8 +143,11 @@ pub fn run_wal_flush(allocator: std.mem.Allocator) !BenchmarkResult {
 
 /// Run zero-cost ownership benchmark comparing compile-time vs runtime validation
 pub fn run_zero_cost_ownership(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
-    defer sim_vfs.deinit();
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
     var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_ownership");
     defer storage_engine.deinit();

@@ -18,15 +18,15 @@ The system is designed as a series of coordinated, specialized components that f
 
 ### 2.1. The Hierarchical Coordinator Pattern
 
-Components follow a clear hierarchy where coordinators own memory and delegate computation to specialized submodules.
+Components follow a clear hierarchy using the **Arena Coordinator Pattern** where coordinators provide stable allocation interfaces that remain valid across arena operations.
 
-**Memory-Owning Coordinators:** Top-level components like `StorageEngine` own exactly one arena allocator for their entire subsystem and coordinate operations between specialized managers.
+**Memory-Owning Coordinators:** Top-level components like `StorageEngine` own exactly one arena allocator and expose it through a coordinator interface that never becomes invalid.
 
-**Computation Submodules:** Mid-level components like `MemtableManager` and `SSTableManager` receive arena references from coordinators and focus on domain logic without memory ownership complexity.
+**Computation Submodules:** Mid-level components like `MemtableManager` and `SSTableManager` receive coordinator interfaces (not direct arena references) and focus on domain logic without memory ownership complexity.
 
-**Pure Computation Modules:** Low-level components like `BlockIndex` and `GraphEdgeIndex` perform specialized operations using parent-provided memory, eliminating allocator conflicts by design.
+**Pure Computation Modules:** Low-level components like `BlockIndex` and `GraphEdgeIndex` perform specialized operations using coordinator-provided allocation, eliminating temporal coupling between arena operations and component access.
 
-This hierarchy eliminates the allocator conflicts that previously caused HashMap corruption during fault injection, while achieving 20-30% performance improvements through reduced allocator indirection.
+This pattern eliminates arena corruption that occurred when structs containing embedded arenas were copied, while maintaining 20-30% performance improvements through reduced allocator indirection.
 
 ### 2.2. Single-Threaded Core with Async I/O
 
@@ -41,23 +41,24 @@ The ownership system provides memory safety with zero runtime overhead through c
 - **Zero Overhead:** Release builds have identical performance to raw pointers - ownership is purely a compile-time concept.
 - **Type-Safe Transfers:** `OwnedBlock` and `OwnedGraphEdge` enable safe memory transfer between subsystems with compile-time guarantees.
 
-### 2.4. Hierarchical Memory Model (Arena-per-Coordinator)
+### 2.4. Arena Coordinator Pattern
 
-Memory safety and performance are achieved through a strict hierarchical allocation pattern that enforces clear ownership boundaries.
+Memory safety and performance are achieved through coordinator interfaces that provide stable allocation access regardless of underlying arena operations.
 
-**Coordinator Level:** Top-level components (StorageEngine, QueryEngine, ConnectionManager) own exactly one arena allocator for their entire subsystem.
+**Arena Coordinator Interface:** Provides allocation methods that remain valid even when the underlying arena is reset or modified. Eliminates temporal coupling between arena operations and component access.
 
-**Submodule Level:** Mid-level components (MemtableManager, SSTableManager) receive arena references from their coordinator and use compile-time ownership types for type safety.
+**Coordinator Ownership:** Top-level components (StorageEngine, QueryEngine, ConnectionManager) own exactly one arena and expose it through a coordinator interface for their entire subsystem.
 
-**Sub-submodule Level:** Low-level components (BlockIndex, GraphEdgeIndex) reference their parent's arena and focus purely on computation, owning no memory.
+**Interface Usage:** All subcomponents receive coordinator interfaces instead of direct arena references, ensuring they cannot be invalidated by arena operations.
 
 **Benefits:**
 
-- **Impossible Memory Corruption:** Single allocator source eliminates conflicts that caused HashMap metadata corruption during fault injection.
-- **Trivial Debugging:** All storage memory traces to StorageEngine's single arena, making leak detection immediate.
-- **Superior Performance:** 20-30% performance improvement from eliminating TypedArenaType wrapper overhead and allocator indirections.
+- **Eliminates Arena Corruption:** Coordinator interfaces remain valid when structs are copied, preventing the segmentation faults caused by embedded arena allocators.
+- **Stable APIs:** Components only need `.deinit()` - no complex heap allocation or cleanup patterns required.
+- **Trivial Debugging:** All storage memory traces to StorageEngine's single arena through the coordinator.
+- **Superior Performance:** 20-30% performance improvement maintained while eliminating corruption.
 - **O(1) Cleanup:** Single arena reset clears ALL subsystem memory in constant time.
-- **Zero Leaks:** Hierarchical ownership prevents cross-component memory conflicts that were causing intermittent corruption.
+- **Zero Temporal Coupling:** Arena refresh operations don't invalidate component interfaces.
 
 ### 2.5. LSM-Tree Storage Engine
 

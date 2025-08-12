@@ -437,6 +437,15 @@ pub const SimulationVFS = struct {
         return self.current_time_ns;
     }
 
+    /// Apply read corruption fault injection to buffer
+    fn read_corruption_fn(vfs_ptr: *anyopaque, buffer: []u8) void {
+        assert(@intFromPtr(vfs_ptr) >= 0x1000);
+        if (buffer.len == 0) return;
+
+        const self: *SimulationVFS = @ptrCast(@alignCast(vfs_ptr));
+        self.fault_injection.apply_read_corruption(buffer);
+    }
+
     /// Apply fault injection logic for VFile write operations
     /// Returns actual bytes to write (may be less than requested for torn writes)
     fn fault_injection_fn(vfs_ptr: *anyopaque, write_size: usize) VFileWriteError!usize {
@@ -616,6 +625,7 @@ pub const SimulationVFS = struct {
                 .file_data_fn = file_data_fn,
                 .current_time_fn = current_time_fn,
                 .fault_injection_fn = fault_injection_fn,
+                .read_corruption_fn = read_corruption_fn,
             } },
         };
     }
@@ -656,6 +666,7 @@ pub const SimulationVFS = struct {
                 .file_data_fn = file_data_fn,
                 .current_time_fn = current_time_fn,
                 .fault_injection_fn = fault_injection_fn,
+                .read_corruption_fn = read_corruption_fn,
             } },
         };
     }
@@ -730,6 +741,26 @@ pub const SimulationVFS = struct {
             }
         }
 
+        // Create all intermediate directories
+        var path_buffer: [MAX_PATH_LENGTH]u8 = undefined;
+        @memcpy(path_buffer[0..path.len], path);
+        var current_path = path_buffer[0..path.len];
+
+        var i: usize = 0;
+        while (i < current_path.len) {
+            if (current_path[i] == '/') {
+                const intermediate_path = current_path[0..i];
+                if (intermediate_path.len > 0) {
+                    mkdir(ptr, intermediate_path) catch |err| switch (err) {
+                        VFSError.FileExists => {}, // Already exists, continue
+                        else => return err,
+                    };
+                }
+            }
+            i += 1;
+        }
+
+        // Create the final directory
         return mkdir(ptr, path);
     }
 
@@ -1015,7 +1046,7 @@ test "SimulationVFS fault injection - disk full" {
     }
 
     const result = file.write(test_data);
-    try testing.expectError(VFileError.WriteError, result);
+    try testing.expectError(VFileError.NoSpaceLeft, result);
 }
 
 test "SimulationVFS fault injection - io failures" {
@@ -1064,7 +1095,7 @@ test "SimulationVFS deterministic behavior" {
 test "simulation_vfs_memory_safety_arraylist_expansion_resilience" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
     const vfs_interface = sim_vfs.vfs();
 
@@ -1097,8 +1128,8 @@ test "simulation_vfs_memory_safety_arraylist_expansion_resilience" {
     const read_after = try file.read(&verify_after_expansion);
     try testing.expectEqual(8, read_after);
 
-    if (!std.mem.eql(u8, header_data, verify_after_expansion)) {
-        return VFileError.CorruptedData;
+    if (!std.mem.eql(u8, header_data, &verify_after_expansion)) {
+        return error.TestFailed; // Data corruption detected in test
     }
 
     _ = try file.seek(8, .start);
@@ -1114,7 +1145,7 @@ test "simulation_vfs_memory_safety_arraylist_expansion_resilience" {
 test "simulation_vfs_memory_safety_concurrent_file_creation_stress" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
     const vfs_interface = sim_vfs.vfs();
 
@@ -1129,7 +1160,6 @@ test "simulation_vfs_memory_safety_concurrent_file_creation_stress" {
         defer {
             file.close();
             file.deinit();
-            vfs_interface.remove(file_name) catch {};
         }
 
         const pattern_base = @as(u64, i) ^ 0xFEEDFACE;
@@ -1156,19 +1186,26 @@ test "simulation_vfs_memory_safety_concurrent_file_creation_stress" {
         try testing.expectEqual(24, bytes_read);
 
         if (!std.mem.eql(u8, &file_patterns[i], &read_pattern)) {
-            return VFileError.CorruptedData;
+            return error.TestFailed; // Data corruption detected
         }
 
         const read_base = std.mem.readInt(u64, read_pattern[0..8], .little);
         const expected_base = @as(u64, i) ^ 0xFEEDFACE;
         try testing.expectEqual(expected_base, read_base);
     }
+
+    // Clean up all test files
+    for (0..num_files) |i| {
+        const file_name = try std.fmt.allocPrint(allocator, "stress_file_{}.dat", .{i});
+        defer allocator.free(file_name);
+        vfs_interface.remove(file_name) catch {};
+    }
 }
 
 test "simulation_vfs_memory_safety_zero_initialization_gap_filling" {
     const allocator = testing.allocator;
 
-    var sim_vfs = SimulationVFS.init(allocator);
+    var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
     const vfs_interface = sim_vfs.vfs();
 
@@ -1208,7 +1245,7 @@ test "simulation_vfs_memory_safety_zero_initialization_gap_filling" {
     }
 
     if (gap_corruption_count > 0) {
-        return VFileError.CorruptedData;
+        return error.TestFailed; // Data corruption detected
     }
 
     const final_start = gap_start;

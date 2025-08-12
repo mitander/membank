@@ -14,6 +14,7 @@ const BlockId = kausaldb.types.BlockId;
 const GraphEdge = kausaldb.types.GraphEdge;
 const EdgeType = kausaldb.types.EdgeType;
 const StorageEngine = kausaldb.storage.StorageEngine;
+const QueryEngine = kausaldb.query_engine.QueryEngine;
 const TestData = kausaldb.TestData;
 const StorageHarness = kausaldb.StorageHarness;
 
@@ -83,9 +84,18 @@ test "streaming recovery basic" {
     try harness.storage_engine.delete_block(test_block3.id);
 
     // Test recovery by shutting down and restarting storage engine
+    // CRITICAL: Must recreate both storage engine AND query engine to prevent arena use-after-free
     harness.storage_engine.deinit();
+    harness.allocator.destroy(harness.storage_engine);
+    harness.query_engine.deinit();
+    harness.allocator.destroy(harness.query_engine);
+
+    harness.storage_engine = try harness.allocator.create(StorageEngine);
     harness.storage_engine.* = try StorageEngine.init_default(harness.allocator, harness.node().filesystem_interface(), "streaming_test_dir");
     try harness.storage_engine.startup();
+
+    harness.query_engine = try harness.allocator.create(QueryEngine);
+    harness.query_engine.* = QueryEngine.init(harness.allocator, harness.storage_engine);
 
     // Validate recovery results by checking storage engine state
     // Should have 2 blocks remaining (3 created, 1 deleted)
@@ -138,9 +148,18 @@ test "streaming recovery large entries" {
     defer allocator.free(normal_block2.metadata_json);
 
     // Recovery should handle large entries correctly
+    // CRITICAL: Must recreate both storage engine AND query engine to prevent arena use-after-free
     harness.storage_engine.deinit();
+    harness.allocator.destroy(harness.storage_engine);
+    harness.query_engine.deinit();
+    harness.allocator.destroy(harness.query_engine);
+
+    harness.storage_engine = try harness.allocator.create(StorageEngine);
     harness.storage_engine.* = try StorageEngine.init_default(harness.allocator, harness.node().filesystem_interface(), "large_entries_test_dir");
     try harness.storage_engine.startup();
+
+    harness.query_engine = try harness.allocator.create(QueryEngine);
+    harness.query_engine.* = QueryEngine.init(harness.allocator, harness.storage_engine);
 
     try testing.expectEqual(@as(u32, 3), harness.storage_engine.block_count());
 }
@@ -171,9 +190,18 @@ test "streaming recovery memory efficiency" {
     }
 
     // Recovery should process all entries without excessive memory usage
+    // CRITICAL: Must recreate both storage engine AND query engine to prevent arena use-after-free
     harness.storage_engine.deinit();
+    harness.allocator.destroy(harness.storage_engine);
+    harness.query_engine.deinit();
+    harness.allocator.destroy(harness.query_engine);
+
+    harness.storage_engine = try harness.allocator.create(StorageEngine);
     harness.storage_engine.* = try StorageEngine.init_default(harness.allocator, harness.node().filesystem_interface(), "memory_efficiency_test_dir");
     try harness.storage_engine.startup();
+
+    harness.query_engine = try harness.allocator.create(QueryEngine);
+    harness.query_engine.* = QueryEngine.init(harness.allocator, harness.storage_engine);
 
     try testing.expectEqual(@as(u32, 100), harness.storage_engine.block_count());
 }
@@ -187,9 +215,18 @@ test "streaming recovery empty WAL" {
     // Don't write any data - WAL should be empty
 
     // Recovery from empty WAL should complete without errors
+    // CRITICAL: Must recreate both storage engine AND query engine to prevent arena use-after-free
     harness.storage_engine.deinit();
+    harness.allocator.destroy(harness.storage_engine);
+    harness.query_engine.deinit();
+    harness.allocator.destroy(harness.query_engine);
+
+    harness.storage_engine = try harness.allocator.create(StorageEngine);
     harness.storage_engine.* = try StorageEngine.init_default(harness.allocator, harness.node().filesystem_interface(), "empty_wal_test_dir");
     try harness.storage_engine.startup();
+
+    harness.query_engine = try harness.allocator.create(QueryEngine);
+    harness.query_engine.* = QueryEngine.init(harness.allocator, harness.storage_engine);
 
     try testing.expectEqual(@as(u32, 0), harness.storage_engine.block_count());
     try testing.expectEqual(@as(u32, 0), harness.storage_engine.edge_count());

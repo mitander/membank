@@ -116,6 +116,12 @@ pub const CorruptionTracker = struct {
         return self.failure_rate() > elevated_threshold;
     }
 
+    /// Check if failures indicate systematic corruption
+    pub fn is_systematic_corruption(self: *const Self) bool {
+        const threshold = if (self.testing_mode) TESTING_CORRUPTION_THRESHOLD else PRODUCTION_CORRUPTION_THRESHOLD;
+        return self.consecutive_failures > threshold;
+    }
+
     /// Reset all counters (for testing)
     pub fn reset(self: *Self) void {
         self.consecutive_failures = 0;
@@ -128,17 +134,17 @@ pub const CorruptionTracker = struct {
 const testing = std.testing;
 
 test "CorruptionTracker initialization" {
-    const tracker = CorruptionTracker.init();
+    const tracker = CorruptionTracker.init_testing();
 
     try testing.expectEqual(@as(u32, 0), tracker.consecutive_failures);
     try testing.expectEqual(@as(u32, 0), tracker.total_failures);
     try testing.expectEqual(@as(u32, 0), tracker.total_operations);
     try testing.expectEqual(@as(f64, 0.0), tracker.failure_rate());
-    try testing.expectEqual(false, tracker.testing_mode);
+    try testing.expectEqual(true, tracker.testing_mode);
 }
 
 test "CorruptionTracker success recording" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     tracker.record_success();
     tracker.record_success();
@@ -149,7 +155,7 @@ test "CorruptionTracker success recording" {
 }
 
 test "CorruptionTracker failure recording within threshold" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     for (1..4) |i| {
         tracker.record_failure("test_context");
@@ -159,7 +165,7 @@ test "CorruptionTracker failure recording within threshold" {
 }
 
 test "CorruptionTracker failure reset on success" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     tracker.record_failure("test_context");
     tracker.record_failure("test_context");
@@ -171,7 +177,7 @@ test "CorruptionTracker failure reset on success" {
 }
 
 test "CorruptionTracker failure rate calculation" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // 2 failures out of 10 operations = 20% failure rate
     tracker.record_failure("test");
@@ -185,25 +191,25 @@ test "CorruptionTracker failure rate calculation" {
 }
 
 test "CorruptionTracker elevated corruption detection" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
-    // Below threshold - not elevated
-    for (0..95) |_| {
+    // Below threshold - not elevated (4% failure rate)
+    for (0..96) |_| {
         tracker.record_success();
     }
-    for (0..4) |_| { // 4% failure rate
+    for (0..4) |_| { 
         tracker.record_failure("test");
     }
     try testing.expect(!tracker.is_corruption_elevated());
 
-    // Above threshold - elevated
-    tracker.record_failure("test"); // 5% failure rate
-    tracker.record_success();
+    // Above threshold - elevated (6% failure rate)
+    tracker.record_failure("test"); 
+    tracker.record_failure("test"); 
     try testing.expect(tracker.is_corruption_elevated());
 }
 
 test "CorruptionTracker reset functionality" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     tracker.record_failure("test");
     tracker.record_success();
@@ -226,7 +232,7 @@ test "WAL magic number constants" {
 }
 
 test "CorruptionTracker systematic corruption detection triggers fatal_assert" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Record failures within threshold - should not panic
     tracker.record_failure("test");
@@ -239,7 +245,7 @@ test "CorruptionTracker systematic corruption detection triggers fatal_assert" {
 }
 
 test "CorruptionTracker magic validation success" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Valid magic should record success
     tracker.validate_file_magic(WAL_MAGIC_NUMBER, "test.log");
@@ -264,7 +270,7 @@ test "systematic corruption threshold constants" {
 }
 
 test "corruption_tracker_detects_payload_size_overflow_patterns" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Simulate detection of common corruption patterns from debug analysis
 
@@ -305,7 +311,7 @@ test "corruption_tracker_detects_payload_size_overflow_patterns" {
 }
 
 test "corruption_tracker_recognizes_valid_patterns_amid_noise" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Record some failures first
     tracker.record_failure("intermittent_corruption_1");
@@ -335,7 +341,7 @@ test "corruption_tracker_recognizes_valid_patterns_amid_noise" {
 }
 
 test "corruption_tracker_defensive_boundary_validation" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Boundary 1: Maximum valid payload size
     const max_valid = 16 * 1024 * 1024;

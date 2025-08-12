@@ -54,6 +54,7 @@ pub const WALError = error{
     OutOfMemory,
     IoError,
     CallbackFailed,
+    InvalidArgument,
 } || std.mem.Allocator.Error;
 
 /// WAL entry types as defined in the data model specification
@@ -166,8 +167,8 @@ test "WALError enum contains expected errors" {
         WALError.CallbackFailed,
     };
 
-    for (test_errors) |err| {
-        _ = err; // Verify error type exists
+    for (test_errors) |_| {
+        // Just verify error type exists
     }
 }
 
