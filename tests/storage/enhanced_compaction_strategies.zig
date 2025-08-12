@@ -13,6 +13,7 @@ const SSTableManager = kausaldb.storage.SSTableManager;
 const StorageEngine = kausaldb.storage.StorageEngine;
 const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
 const ContextBlock = kausaldb.types.ContextBlock;
+const ArenaCoordinator = kausaldb.memory.ArenaCoordinator;
 const BlockId = kausaldb.types.BlockId;
 const TestData = kausaldb.TestData;
 const StorageHarness = kausaldb.StorageHarness;
@@ -61,8 +62,13 @@ test "cross level compaction with realistic SSTable sizes" {
     var harness = try StorageHarness.init_and_startup(allocator, "test_cross_level");
     defer harness.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     // Access the tiered compaction manager through the storage engine
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         harness.sim_vfs.vfs(),
         "/test_cross_level",
@@ -196,7 +202,12 @@ test "compaction strategy adaptability to workload patterns" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
         "/test_adaptability",
@@ -275,7 +286,12 @@ test "compaction robustness under concurrent modifications" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
         "/test_concurrent",
@@ -350,7 +366,12 @@ test "large scale compaction validation with realistic data distribution" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
         "/test_large_scale",
@@ -444,7 +465,12 @@ test "compaction edge cases and error resilience" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
         "/test_edge_cases",
@@ -521,7 +547,12 @@ test "compaction performance under stress conditions" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
         "/test_performance_stress",

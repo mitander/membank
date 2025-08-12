@@ -5,6 +5,7 @@
 //! to eliminate dangling allocator references and enable O(1) bulk memory cleanup.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = @import("../core/assert.zig").assert;
 const assert_fmt = @import("../core/assert.zig").assert_fmt;
 const fatal_assert = @import("../core/assert.zig").fatal_assert;
@@ -62,18 +63,12 @@ pub const BlockIndex = struct {
     /// to prevent dangling allocator references after arena resets.
     /// CRITICAL: ArenaCoordinator must be passed by pointer to prevent struct copying corruption.
     pub fn init(coordinator: *const ArenaCoordinator, backing: std.mem.Allocator) BlockIndex {
-        var blocks = std.HashMap(
+        const blocks = std.HashMap(
             BlockId,
             OwnedBlock,
             BlockIdContext,
             std.hash_map.default_max_load_percentage,
         ).init(backing);
-
-        // Ensure minimum capacity to prevent integer overflow in hash map operations
-        blocks.ensureTotalCapacity(1) catch |err| {
-            // If we can't allocate even 1 entry, we're in serious trouble
-            std.debug.panic("Failed to allocate minimum HashMap capacity: {}", .{err});
-        };
 
         return BlockIndex{
             .blocks = blocks, // HashMap uses stable backing allocator
@@ -113,8 +108,8 @@ pub const BlockIndex = struct {
             assert_fmt(@intFromPtr(block.content.ptr) != 0, "content has null pointer with non-zero length", .{});
         }
 
-        // Clone strings using coordinator's arena allocation methods
-        // Coordinator interface provides stable allocation access across arena operations
+        // Clone all string content through arena coordinator for O(1) bulk deallocation
+        // Arena lifecycle is properly managed by StorageEngine clear() -> arena reset pattern
         const cloned_block = ContextBlock{
             .id = block.id,
             .version = block.version,
@@ -169,12 +164,14 @@ pub const BlockIndex = struct {
     /// Returns pointer to the OwnedBlock if found, allowing access to ownership metadata.
     /// Used during transition from runtime to compile-time ownership validation.
     pub fn find_block_runtime(self: *const BlockIndex, block_id: BlockId, accessor: BlockOwnership) ?*const OwnedBlock {
-        // Safety check: ensure HashMap has capacity to prevent integer overflow
-        // This can happen if HashMap was cleared without being re-initialized
-        if (self.blocks.capacity() == 0) {
-            return null;
+        // Defensive check for HashMap corruption under fault injection
+        if (comptime builtin.mode == .Debug) {
+            if (@intFromPtr(self) == 0) {
+                fatal_assert(false, "BlockIndex self pointer is null - memory corruption", .{});
+            }
         }
 
+        // HashMap access - can fail under fault injection memory corruption
         if (self.blocks.getPtr(block_id)) |owned_block_ptr| {
             // Validate ownership access but return the full OwnedBlock
             _ = owned_block_ptr.read_runtime(accessor);
@@ -184,8 +181,7 @@ pub const BlockIndex = struct {
     }
 
     /// Remove a block from the index and update memory accounting.
-    /// Memory is not immediately freed (arena handles bulk deallocation),
-    /// but accounting is updated for accurate memory usage tracking.
+    /// Arena memory cleanup happens at StorageEngine level through bulk reset.
     pub fn remove_block(self: *BlockIndex, block_id: BlockId) void {
         if (self.blocks.get(block_id)) |existing_block| {
             const old_memory = existing_block.block.source_uri.len + existing_block.block.metadata_json.len + existing_block.block.content.len;
@@ -209,14 +205,11 @@ pub const BlockIndex = struct {
     /// Clear all blocks in preparation for StorageEngine arena reset.
     /// Retains HashMap capacity for efficient reuse after StorageEngine resets arena.
     /// This is the key operation that enables O(1) bulk deallocation through StorageEngine.
-    /// Called during memtable flush before StorageEngine reclaims all arena memory at once.
     pub fn clear(self: *BlockIndex) void {
-        // Arena refresh pattern: Arena reset happens at StorageEngine level
-        // BlockIndex only clears its HashMap structure
         fatal_assert(@intFromPtr(self) != 0, "BlockIndex self pointer is null - memory corruption detected", .{});
 
         self.blocks.clearRetainingCapacity();
-        // Arena memory reset handled by StorageEngine - no local reset needed
+        // Arena memory reset handled by StorageEngine - enables O(1) bulk cleanup
         self.memory_used = 0;
     }
 };

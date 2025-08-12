@@ -8,7 +8,7 @@
 //! **Design Principles:**
 //! - Struct-of-Arrays (SOA) layout for cache-optimal iteration
 //! - Contiguous memory blocks for related data
-//! - O(1) lookups via dense index mapping 
+//! - O(1) lookups via dense index mapping
 //! - Arena-based allocation for O(1) bulk cleanup
 //! - Zero-copy access patterns where possible
 
@@ -37,25 +37,25 @@ pub const BlockIndexDOD = struct {
     contents: std.ArrayList([]const u8),
     metadata_json: std.ArrayList([]const u8),
     ownerships: std.ArrayList(BlockOwnership),
-    
+
     /// Sparse index for O(1) lookup: BlockId -> dense array index
     /// Maps block IDs to positions in the dense arrays above
     lookup: std.HashMap(BlockId, u32, BlockIdContext, std.hash_map.default_max_load_percentage),
-    
+
     /// Free list for recycling slots after deletions
     /// Maintains list of available indices for reuse
     free_slots: std.ArrayList(u32),
-    
+
     /// Arena coordinator for stable string allocation
     /// Strings are allocated through coordinator interface
     arena_coordinator: *const ArenaCoordinator,
-    
+
     /// Backing allocator for array structures (not content)
     backing_allocator: std.mem.Allocator,
-    
+
     /// Track total memory used by string content (for flush threshold)
     memory_used: u64,
-    
+
     /// Total number of active blocks (excludes free slots)
     active_count: u32,
 
@@ -80,7 +80,7 @@ pub const BlockIndexDOD = struct {
     /// Pre-allocates reasonable capacity to minimize reallocations during ingestion.
     pub fn init(coordinator: *const ArenaCoordinator, backing: std.mem.Allocator) !Self {
         const initial_capacity = 1024; // Start with capacity for 1K blocks
-        
+
         var self = Self{
             .ids = std.ArrayList(BlockId).init(backing),
             .versions = std.ArrayList(u64).init(backing),
@@ -130,15 +130,15 @@ pub const BlockIndexDOD = struct {
         const content_copy = try self.arena_coordinator.duplicate_slice(u8, block.content);
         const source_uri_copy = try self.arena_coordinator.duplicate_slice(u8, block.source_uri);
         const metadata_copy = try self.arena_coordinator.duplicate_slice(u8, block.metadata_json);
-        
+
         const content_size = content_copy.len + source_uri_copy.len + metadata_copy.len;
 
         // Check if block already exists for update
         if (self.lookup.get(block.id)) |existing_index| {
-            // Update existing block in-place
+            // In-place update preserves array compactness and avoids costly array resize operations
             self.update_block_at_index(existing_index, block, content_copy, source_uri_copy, metadata_copy);
         } else {
-            // Insert new block
+            // Append to arrays maintains SOA layout for optimal cache performance during scans
             try self.insert_new_block(block, content_copy, source_uri_copy, metadata_copy);
         }
 
@@ -181,15 +181,24 @@ pub const BlockIndexDOD = struct {
             // Update existing slot
             self.update_block_at_index(index, block, content, source_uri, metadata);
         } else {
-            // Append to all arrays (they're pre-allocated so this should be fast)
+            // Append to all arrays - ensure capacity for efficient batch append
             index = @intCast(self.ids.items.len);
-            
-            try self.ids.append(block.id);
-            try self.versions.append(block.version);
-            try self.source_uris.append(source_uri);
-            try self.contents.append(content);
-            try self.metadata_json.append(metadata);
-            try self.ownerships.append(.storage_engine);
+
+            // Ensure capacity for all arrays before appending
+            try self.ids.ensureUnusedCapacity(1);
+            try self.versions.ensureUnusedCapacity(1);
+            try self.source_uris.ensureUnusedCapacity(1);
+            try self.contents.ensureUnusedCapacity(1);
+            try self.metadata_json.ensureUnusedCapacity(1);
+            try self.ownerships.ensureUnusedCapacity(1);
+
+            // Now append assuming capacity is available
+            self.ids.appendAssumeCapacity(block.id);
+            self.versions.appendAssumeCapacity(block.version);
+            self.source_uris.appendAssumeCapacity(source_uri);
+            self.contents.appendAssumeCapacity(content);
+            self.metadata_json.appendAssumeCapacity(metadata);
+            self.ownerships.appendAssumeCapacity(.storage_engine);
         }
 
         // Update lookup table and counts
@@ -201,7 +210,7 @@ pub const BlockIndexDOD = struct {
     /// Returns direct pointer to block data for zero-allocation reads.
     pub fn find_block_zero_copy(self: *const Self, block_id: BlockId) ?*const ContextBlock {
         const index = self.lookup.get(block_id) orelse return null;
-        
+
         // Construct ContextBlock view directly from arrays
         // This is zero-copy - we return a view into existing data
         // SAFETY: All arrays maintain parallel indexing
@@ -212,11 +221,11 @@ pub const BlockIndexDOD = struct {
             .content = self.contents.items[index],
             .metadata_json = self.metadata_json.items[index],
         };
-        
+
         // Return pointer to temporary on stack - THIS IS NOT SAFE
         // TODO: Need to return arena-allocated block or use different pattern
         _ = block_view;
-        
+
         // For now, return null to indicate this needs different approach
         return null;
     }
@@ -225,7 +234,7 @@ pub const BlockIndexDOD = struct {
     /// Creates new OwnedBlock with cloned content for caller management.
     pub fn find_block(self: *const Self, block_id: BlockId) ?OwnedBlock {
         const index = self.lookup.get(block_id) orelse return null;
-        
+
         // Construct ContextBlock from parallel arrays
         const block = ContextBlock{
             .id = self.ids.items[index],
@@ -234,7 +243,7 @@ pub const BlockIndexDOD = struct {
             .content = self.contents.items[index],
             .metadata_json = self.metadata_json.items[index],
         };
-        
+
         // Create owned block (caller must manage lifetime)
         // TODO: For DOD implementation, consider if we need OwnedBlock at all
         // since we're moving to zero-copy patterns
@@ -245,6 +254,7 @@ pub const BlockIndexDOD = struct {
     /// Cache-optimal scan using SOA layout - this is where DOD shines.
     pub fn find_blocks_by_version(self: *const Self, min_version: u64, allocator: std.mem.Allocator) ![]BlockId {
         var results = std.ArrayList(BlockId).init(allocator);
+        try results.ensureTotalCapacity(self.count() / 4); // Estimate 25% match rate
         errdefer results.deinit();
 
         // Cache-friendly linear scan through versions array
@@ -262,6 +272,7 @@ pub const BlockIndexDOD = struct {
     /// Another cache-optimal scan demonstrating SOA performance benefits.
     pub fn find_blocks_by_source(self: *const Self, source_uri: []const u8, allocator: std.mem.Allocator) ![]BlockId {
         var results = std.ArrayList(BlockId).init(allocator);
+        try results.ensureTotalCapacity(self.count() / 10); // Estimate 10% match rate for source URI
         errdefer results.deinit();
 
         // Linear scan through source URIs - very cache friendly
@@ -278,13 +289,11 @@ pub const BlockIndexDOD = struct {
     /// Maintains dense packing by marking slot as available for reuse.
     pub fn remove_block(self: *Self, block_id: BlockId) bool {
         const index = self.lookup.fetchRemove(block_id) orelse return false;
-        
-        // Add to free list for reuse
-        self.free_slots.append(index.value) catch {
-            // If we can't track the free slot, that's not critical
-            // We'll just lose some density but functionality remains
-        };
-        
+
+        // Add to free list for reuse - ensure capacity for efficient append
+        self.free_slots.ensureUnusedCapacity(1) catch {};
+        self.free_slots.appendAssumeCapacity(index.value);
+
         self.active_count -= 1;
         return true;
     }
@@ -310,11 +319,11 @@ pub const BlockIndexDOD = struct {
         self.ownerships.clearRetainingCapacity();
         self.lookup.clearRetainingCapacity();
         self.free_slots.clearRetainingCapacity();
-        
+
         // Reset arena through coordinator interface
         // This invalidates all string pointers but that's expected for clear()
         // TODO: self.arena_coordinator.reset();
-        
+
         self.memory_used = 0;
         self.active_count = 0;
     }
@@ -375,10 +384,10 @@ const testing = std.testing;
 
 test "BlockIndexDOD basic operations" {
     const allocator = testing.allocator;
-    
+
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    
+
     const coordinator = ArenaCoordinator.init(&arena);
     var index = try BlockIndexDOD.init(&coordinator, allocator);
     defer index.deinit();
@@ -389,7 +398,7 @@ test "BlockIndexDOD basic operations" {
 
     // Create test block
     const test_block = ContextBlock{
-        .id = BlockId.from_hex("0123456789abcdef0123456789abcdef") catch unreachable,
+        .id = BlockId.from_hex("0123456789abcdef0123456789abcdef") catch unreachable, // Safety: valid 32-char hex string
         .version = 1,
         .source_uri = "test://source",
         .content = "test content",
@@ -410,10 +419,10 @@ test "BlockIndexDOD basic operations" {
 
 test "BlockIndexDOD cache-optimal scan operations" {
     const allocator = testing.allocator;
-    
+
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    
+
     const coordinator = ArenaCoordinator.init(&arena);
     var index = try BlockIndexDOD.init(&coordinator, allocator);
     defer index.deinit();
@@ -421,24 +430,24 @@ test "BlockIndexDOD cache-optimal scan operations" {
     // Insert test blocks with different versions
     const blocks = [_]ContextBlock{
         ContextBlock{
-            .id = BlockId.from_hex("1111111111111111111111111111111") catch unreachable,
+            .id = BlockId.from_hex("11111111111111111111111111111111") catch unreachable, // Safety: valid 32-char hex string
             .version = 10,
             .source_uri = "source1",
             .content = "content1",
             .metadata_json = "{}",
         },
         ContextBlock{
-            .id = BlockId.from_hex("2222222222222222222222222222222") catch unreachable,
+            .id = BlockId.from_hex("22222222222222222222222222222222") catch unreachable, // Safety: valid 32-char hex string
             .version = 5,
-            .source_uri = "source2", 
+            .source_uri = "source2",
             .content = "content2",
             .metadata_json = "{}",
         },
         ContextBlock{
-            .id = BlockId.from_hex("3333333333333333333333333333333") catch unreachable,
+            .id = BlockId.from_hex("33333333333333333333333333333333") catch unreachable, // Safety: valid 32-char hex string
             .version = 15,
             .source_uri = "source1",
-            .content = "content3", 
+            .content = "content3",
             .metadata_json = "{}",
         },
     };
@@ -450,31 +459,33 @@ test "BlockIndexDOD cache-optimal scan operations" {
     // Test version-based scan (should be very fast with SOA layout)
     const version_results = try index.find_blocks_by_version(10, allocator);
     defer allocator.free(version_results);
-    
+
     try testing.expectEqual(@as(usize, 2), version_results.len);
-    
+
     // Test source-based scan
     const source_results = try index.find_blocks_by_source("source1", allocator);
     defer allocator.free(source_results);
-    
+
     try testing.expectEqual(@as(usize, 2), source_results.len);
 }
 
 test "BlockIndexDOD iterator traversal" {
     const allocator = testing.allocator;
-    
+
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    
+
     const coordinator = ArenaCoordinator.init(&arena);
     var index = try BlockIndexDOD.init(&coordinator, allocator);
     defer index.deinit();
 
-    // Insert several blocks
+    // Insert several blocks with different IDs
     var i: u32 = 0;
     while (i < 5) : (i += 1) {
+        var id_bytes: [16]u8 = undefined;
+        std.mem.writeInt(u128, &id_bytes, i + 1, .little);
         const block = ContextBlock{
-            .id = BlockId.from_hex("1111111111111111111111111111111") catch unreachable, // Same ID for simplicity
+            .id = BlockId.from_bytes(id_bytes),
             .version = i,
             .source_uri = "test",
             .content = "content",
@@ -489,6 +500,6 @@ test "BlockIndexDOD iterator traversal" {
     while (iter.next()) |_| {
         count += 1;
     }
-    
+
     try testing.expectEqual(@as(u32, 5), count);
 }

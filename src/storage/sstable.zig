@@ -690,7 +690,7 @@ pub const Compactor = struct {
 
         for (input_paths) |path| {
             self.filesystem.remove(path) catch |err| {
-                log.warn("Failed to remove input SSTable {s}: {}", .{ path, err });
+                log.warn("Failed to remove input SSTable {s}: {any}", .{ path, err });
             };
         }
     }

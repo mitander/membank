@@ -213,7 +213,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 
     for (found_blocks.items, 0..) |block, i| {
         std.debug.print("--- BEGIN CONTEXT BLOCK ---\n", .{});
-        std.debug.print("Block {} (ID: {}):\n", .{ i + 1, block.id });
+        std.debug.print("Block {} (ID: {any}):\n", .{ i + 1, block.id });
         std.debug.print("Source: {s}\n", .{block.source_uri});
         std.debug.print("Version: {}\n", .{block.version});
         std.debug.print("Metadata: {s}\n", .{block.metadata_json});

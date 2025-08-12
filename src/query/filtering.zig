@@ -140,8 +140,8 @@ pub const FilterCondition = struct {
     /// Evaluate the comparison operation between target and filter values
     fn evaluate_comparison(self: FilterCondition, target_value: []const u8) bool {
         return switch (self.operator) {
-            .equal => std.mem.eql(u8, target_value, self.value),
-            .not_equal => !std.mem.eql(u8, target_value, self.value),
+            .equal => compare_numeric_or_lexical(target_value, self.value) == 0,
+            .not_equal => compare_numeric_or_lexical(target_value, self.value) != 0,
             .greater_than => compare_numeric_or_lexical(target_value, self.value) > 0,
             .greater_equal => compare_numeric_or_lexical(target_value, self.value) >= 0,
             .less_than => compare_numeric_or_lexical(target_value, self.value) < 0,

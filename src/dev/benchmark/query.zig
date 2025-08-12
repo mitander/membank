@@ -55,7 +55,7 @@ pub fn run_single_queries(allocator: std.mem.Allocator) !BenchmarkResult {
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    var query_eng = QueryEngine.init(allocator, storage_engine);
+    var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();
 
     return benchmark_single_block_queries(&query_eng, allocator);
@@ -77,7 +77,7 @@ pub fn run_batch_queries(allocator: std.mem.Allocator) !BenchmarkResult {
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    var query_eng = QueryEngine.init(allocator, storage_engine);
+    var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();
 
     return benchmark_batch_queries_impl(&query_eng, allocator);

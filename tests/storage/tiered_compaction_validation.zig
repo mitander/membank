@@ -13,6 +13,7 @@ const simulation_vfs = kausaldb.simulation_vfs;
 const types = kausaldb.types;
 
 const TieredCompactionManager = storage.TieredCompactionManager;
+const ArenaCoordinator = kausaldb.memory.ArenaCoordinator;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
@@ -23,7 +24,12 @@ test "init cleanup" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
         "/test_compaction",
@@ -40,10 +46,15 @@ test "L0 threshold trigger" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
-        "/test_l0_threshold",
+        "/test_compaction",
     );
     defer manager.deinit();
 
@@ -87,10 +98,15 @@ test "size based higher levels" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
-        "/test_size_based",
+        "/test_compaction",
     );
     defer manager.deinit();
 
@@ -129,10 +145,15 @@ test "tier state management and tracking" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
-        "/test_tier_state",
+        "/test_compaction",
     );
     defer manager.deinit();
 
@@ -174,10 +195,15 @@ test "compaction job creation and validation" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
-        "/test_compaction_jobs",
+        "/test_compaction",
     );
     defer manager.deinit();
 
@@ -215,10 +241,15 @@ test "compaction configuration validation" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
-        "/test_config",
+        "/test_compaction",
     );
     defer manager.deinit();
 
@@ -266,10 +297,15 @@ test "multi level compaction scenarios" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
-        "/test_multi_level",
+        "/test_compaction",
     );
     defer manager.deinit();
 
@@ -313,10 +349,15 @@ test "compaction with large SSTables" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
-        "/test_large_sstables",
+        "/test_compaction",
     );
     defer manager.deinit();
 
@@ -355,10 +396,15 @@ test "compaction edge cases and error conditions" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
-        "/test_edge_cases",
+        "/test_compaction",
     );
     defer manager.deinit();
 
@@ -398,10 +444,15 @@ test "compaction performance characteristics" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
-        "/test_performance",
+        "/test_compaction",
     );
     defer manager.deinit();
 
@@ -459,10 +510,15 @@ test "tier state consistency under operations" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
-        "/test_consistency",
+        "/test_compaction",
     );
     defer manager.deinit();
 
@@ -527,10 +583,15 @@ test "compaction strategies across tier sizes" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator{ .arena = &arena };
+
     var manager = TieredCompactionManager.init(
+        &coordinator,
         allocator,
         sim_vfs.vfs(),
-        "/test_strategies",
+        "/test_compaction",
     );
     defer manager.deinit();
 

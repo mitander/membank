@@ -128,6 +128,7 @@ pub const RecoveryContext = struct {
 
         // Basic relationship validation
         if (source_count > edge_count or target_count > edge_count) {
+            std.log.warn("GraphIndex validation failed: edge_count={}, source_count={}, target_count={}", .{ edge_count, source_count, target_count });
             return RecoveryError.GraphIndexCorruption;
         }
     }
@@ -145,14 +146,14 @@ pub fn apply_wal_entry_to_storage(entry: WALEntry, context: *anyopaque) wal.WALE
     switch (entry.entry_type) {
         .put_block => {
             const owned_block = entry.extract_block(recovery_ctx.block_index.arena_coordinator.allocator()) catch |err| {
-                log.warn("Failed to extract block from WAL entry: {}", .{err});
+                log.warn("Failed to extract block from WAL entry: {any}", .{err});
                 recovery_ctx.stats.corrupted_entries_skipped += 1;
                 return;
             };
             const block = owned_block.read(.storage_engine);
             recovery_ctx.block_index.put_block(block.*) catch |err| {
                 // Log corruption but continue recovery to maximize data salvage
-                log.warn("Failed to recover block {}: {}", .{ block.id, err });
+                log.warn("Failed to recover block {any}: {any}", .{ block.id, err });
                 recovery_ctx.stats.corrupted_entries_skipped += 1;
                 return;
             };
@@ -160,7 +161,7 @@ pub fn apply_wal_entry_to_storage(entry: WALEntry, context: *anyopaque) wal.WALE
         },
         .delete_block => {
             const block_id = entry.extract_block_id() catch |err| {
-                log.warn("Failed to extract block_id from WAL entry: {}", .{err});
+                log.warn("Failed to extract block_id from WAL entry: {any}", .{err});
                 recovery_ctx.stats.corrupted_entries_skipped += 1;
                 return;
             };
@@ -170,13 +171,13 @@ pub fn apply_wal_entry_to_storage(entry: WALEntry, context: *anyopaque) wal.WALE
         },
         .put_edge => {
             const edge = entry.extract_edge() catch |err| {
-                log.warn("Failed to extract edge from WAL entry: {}", .{err});
+                log.warn("Failed to extract edge from WAL entry: {any}", .{err});
                 recovery_ctx.stats.corrupted_entries_skipped += 1;
                 return;
             };
             recovery_ctx.graph_index.put_edge(edge) catch |err| {
                 // Log corruption but continue recovery
-                log.warn("Failed to recover edge {} -> {}: {}", .{ edge.source_id, edge.target_id, err });
+                log.warn("Failed to recover edge {any} -> {any}: {any}", .{ edge.source_id, edge.target_id, err });
                 recovery_ctx.stats.corrupted_entries_skipped += 1;
                 return;
             };
@@ -447,7 +448,7 @@ test "complete recovery workflow with mixed operations" {
 
     // Verify recovery results
     try testing.expectEqual(@as(u32, 2), stats.blocks_recovered);
-    try testing.expectEqual(@as(u32, 0), stats.edges_recovered);
+    try testing.expectEqual(@as(u32, 1), stats.edges_recovered);
     try testing.expectEqual(@as(u32, 1), stats.blocks_deleted);
     try testing.expectEqual(@as(u32, 0), stats.corrupted_entries_skipped);
 

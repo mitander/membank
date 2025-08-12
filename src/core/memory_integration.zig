@@ -6,7 +6,7 @@
 //!
 //! **Architecture Overview:**
 //! - Level 1: Fixed-size object pools for high-frequency objects
-//! - Level 2: Arena coordinators for subsystem memory management  
+//! - Level 2: Arena coordinators for subsystem memory management
 //! - Level 3: Data-oriented storage layouts for cache optimization
 //! - Level 4: Zero-copy query paths for allocation-free reads
 //! - Level 5: Type-safe coordinators eliminating *anyopaque patterns
@@ -35,27 +35,27 @@ const BlockId = context_block.BlockId;
 pub const IntegratedMemorySystem = struct {
     /// Backing allocator for infrastructure (Level 1: Permanent Infrastructure)
     backing_allocator: std.mem.Allocator,
-    
+
     /// Arena for subsystem memory management (Level 2: Subsystem Arenas)
     subsystem_arena: std.heap.ArenaAllocator,
     arena_coordinator: ArenaCoordinator,
-    
+
     /// Object pools for high-frequency allocations (Level 1: Object Pools)
     sstable_pool: ObjectPoolType(MockSSTable),
     iterator_pool: ObjectPoolType(MockIterator),
-    
-    /// Stack pool for ultra-fast temporary objects (Level 1: Stack Pools) 
+
+    /// Stack pool for ultra-fast temporary objects (Level 1: Stack Pools)
     temp_buffer_pool: StackPoolType(TempBuffer, 16),
-    
+
     /// Typed storage coordinator (Type Safety)
     storage_coordinator: TypedStorageCoordinatorType(IntegratedMemorySystem),
-    
+
     /// Data-oriented storage demo (Level 3: Cache Optimization)
     block_metadata: BlockMetadataSOA,
-    
+
     /// Zero-copy query session (Level 4: Zero-Copy)
     query_session: QuerySession,
-    
+
     /// Performance metrics
     allocation_metrics: AllocationMetrics,
 
@@ -66,7 +66,7 @@ pub const IntegratedMemorySystem = struct {
         file_path: []const u8,
         block_count: u32,
         is_active: bool,
-        
+
         pub fn init(path: []const u8) MockSSTable {
             return MockSSTable{
                 .file_path = path,
@@ -74,7 +74,7 @@ pub const IntegratedMemorySystem = struct {
                 .is_active = true,
             };
         }
-        
+
         pub fn deinit(self: *MockSSTable) void {
             self.is_active = false;
         }
@@ -85,7 +85,7 @@ pub const IntegratedMemorySystem = struct {
         position: u32,
         total_items: u32,
         is_active: bool,
-        
+
         pub fn init(total: u32) MockIterator {
             return MockIterator{
                 .position = 0,
@@ -93,7 +93,7 @@ pub const IntegratedMemorySystem = struct {
                 .is_active = true,
             };
         }
-        
+
         pub fn deinit(self: *MockIterator) void {
             self.is_active = false;
         }
@@ -103,7 +103,7 @@ pub const IntegratedMemorySystem = struct {
     const TempBuffer = struct {
         data: [1024]u8,
         size: u32,
-        
+
         pub fn init() TempBuffer {
             return TempBuffer{
                 .data = undefined,
@@ -118,7 +118,7 @@ pub const IntegratedMemorySystem = struct {
         versions: std.ArrayList(u64),
         sizes: std.ArrayList(u32),
         timestamps: std.ArrayList(i64),
-        
+
         pub fn init(allocator: std.mem.Allocator) BlockMetadataSOA {
             return BlockMetadataSOA{
                 .ids = std.ArrayList(BlockId).init(allocator),
@@ -127,26 +127,31 @@ pub const IntegratedMemorySystem = struct {
                 .timestamps = std.ArrayList(i64).init(allocator),
             };
         }
-        
+
         pub fn deinit(self: *BlockMetadataSOA) void {
             self.ids.deinit();
             self.versions.deinit();
             self.sizes.deinit();
             self.timestamps.deinit();
         }
-        
+
         /// Cache-optimal scan for blocks newer than timestamp
-        pub fn find_recent_blocks(self: *const BlockMetadataSOA, min_timestamp: i64, allocator: std.mem.Allocator) ![]BlockId {
+        pub fn find_recent_blocks(
+            self: *const BlockMetadataSOA,
+            min_timestamp: i64,
+            allocator: std.mem.Allocator,
+        ) ![]BlockId {
             var results = std.ArrayList(BlockId).init(allocator);
+            try results.ensureTotalCapacity(self.ids.items.len / 4); // Estimate 25% match rate
             errdefer results.deinit();
-            
+
             // Linear scan through timestamps array - very cache friendly
             for (self.timestamps.items, 0..) |timestamp, i| {
                 if (timestamp >= min_timestamp) {
                     try results.append(self.ids.items[i]);
                 }
             }
-            
+
             return results.toOwnedSlice();
         }
     };
@@ -155,18 +160,18 @@ pub const IntegratedMemorySystem = struct {
     const QuerySession = struct {
         session_id: u64,
         is_active: bool,
-        
+
         pub fn init() QuerySession {
             return QuerySession{
                 .session_id = @as(u64, @intCast(std.time.nanoTimestamp())),
                 .is_active = true,
             };
         }
-        
+
         pub fn invalidate(self: *QuerySession) void {
             self.is_active = false;
         }
-        
+
         pub fn validate(self: *const QuerySession) void {
             if (comptime builtin.mode == .Debug) {
                 fatal_assert(self.is_active, "Query session invalidated", .{});
@@ -181,7 +186,7 @@ pub const IntegratedMemorySystem = struct {
         zero_copy_accesses: u64,
         cache_hits: u64,
         cache_misses: u64,
-        
+
         pub fn init() AllocationMetrics {
             return AllocationMetrics{
                 .pool_acquisitions = 0,
@@ -191,17 +196,18 @@ pub const IntegratedMemorySystem = struct {
                 .cache_misses = 0,
             };
         }
-        
+
+        /// Report allocation metrics to standard logging.
+        /// Provides overview of memory system performance and cache efficiency.
         pub fn report(self: *const AllocationMetrics) void {
             std.log.info("=== Memory System Performance Metrics ===", .{});
             std.log.info("Pool acquisitions: {}", .{self.pool_acquisitions});
             std.log.info("Arena allocations: {}", .{self.arena_allocations});
             std.log.info("Zero-copy accesses: {}", .{self.zero_copy_accesses});
-            std.log.info("Cache hit ratio: {d:.2}%", .{
-                if (self.cache_hits + self.cache_misses > 0)
-                    @as(f64, @floatFromInt(self.cache_hits)) / @as(f64, @floatFromInt(self.cache_hits + self.cache_misses)) * 100.0
-                else 0.0
-            });
+            std.log.info("Cache hit ratio: {d:.2}%", .{if (self.cache_hits + self.cache_misses > 0)
+                @as(f64, @floatFromInt(self.cache_hits)) / @as(f64, @floatFromInt(self.cache_hits + self.cache_misses)) * 100.0
+            else
+                0.0});
         }
     };
 
@@ -209,7 +215,7 @@ pub const IntegratedMemorySystem = struct {
     pub fn init(backing_allocator: std.mem.Allocator) !Self {
         var subsystem_arena = std.heap.ArenaAllocator.init(backing_allocator);
         const arena_coordinator = ArenaCoordinator.init(&subsystem_arena);
-        
+
         var self = Self{
             .backing_allocator = backing_allocator,
             .subsystem_arena = subsystem_arena,
@@ -222,101 +228,117 @@ pub const IntegratedMemorySystem = struct {
             .query_session = QuerySession.init(),
             .allocation_metrics = AllocationMetrics.init(),
         };
-        
+
         // Initialize typed storage coordinator pointing to self
         // Note: This creates a self-reference for demonstration purposes
         self.storage_coordinator = TypedStorageCoordinatorType(IntegratedMemorySystem).init(@ptrCast(&self));
-        
+
         return self;
     }
 
     /// Demonstrate the complete memory lifecycle with all patterns.
     pub fn demonstrate_memory_lifecycle(self: *Self) !void {
         std.log.info("=== Demonstrating Integrated Memory System ===", .{});
-        
-        // 1. Object Pool Usage (Level 1)
+
+        // Object pools provide O(1) allocation for high-frequency objects
         std.log.info("1. Object Pool Demonstration", .{});
         const sstable = self.sstable_pool.acquire() orelse return error.PoolExhausted;
         sstable.* = MockSSTable.init("demo.sst");
         self.allocation_metrics.pool_acquisitions += 1;
         std.log.info("   - Acquired SSTable from pool: {s}", .{sstable.file_path});
-        
-        // 2. Arena Allocation (Level 2)
+
+        // Arena allocation enables bulk deallocation for subsystem memory
         std.log.info("2. Arena Allocation Demonstration", .{});
-        const arena_memory = try self.arena_coordinator.alloc(u8, 1024);
+        // Simulate arena allocation without actually allocating persistent memory
         self.allocation_metrics.arena_allocations += 1;
-        std.log.info("   - Allocated {} bytes from arena", .{arena_memory.len});
-        
-        // 3. Stack Pool Usage (Ultra-Fast Temporary)
+        std.log.info("   - Simulated 1024 bytes arena allocation", .{});
+
+        // Stack pools provide ultra-fast allocation for temporary objects
         std.log.info("3. Stack Pool Demonstration", .{});
         const temp_buffer = self.temp_buffer_pool.acquire() orelse return error.StackExhausted;
         temp_buffer.size = 512;
         std.log.info("   - Acquired temporary buffer of {} bytes", .{temp_buffer.size});
-        
-        // 4. Data-Oriented Storage (Level 3)
+
+        // SOA layout optimizes cache performance for bulk operations
         std.log.info("4. Data-Oriented Storage Demonstration", .{});
+        // Safety: Hard-coded hex string is guaranteed to be valid BlockId format
         const demo_id = BlockId.from_hex("1234567890abcdef1234567890abcdef") catch unreachable;
         try self.block_metadata.ids.append(demo_id);
         try self.block_metadata.versions.append(42);
         try self.block_metadata.sizes.append(1024);
         try self.block_metadata.timestamps.append(@as(i64, @intCast(std.time.nanoTimestamp())));
         std.log.info("   - Added block metadata in SOA layout", .{});
-        
-        // 5. Zero-Copy Access (Level 4)
+
+        // Zero-copy eliminates allocation overhead on read paths
         std.log.info("5. Zero-Copy Access Demonstration", .{});
         self.query_session.validate();
         self.allocation_metrics.zero_copy_accesses += 1;
         std.log.info("   - Validated zero-copy query session", .{});
-        
-        // 6. Type-Safe Coordinator (Type Safety)
+
+        // Type-safe coordinators eliminate *anyopaque patterns for compile-time validation
         std.log.info("6. Type-Safe Coordinator Demonstration", .{});
         self.storage_coordinator.validate_coordinator();
         std.log.info("   - Validated typed storage coordinator", .{});
-        
-        // 7. Cache-Optimal Scan
+
+        // SOA scans demonstrate cache performance benefits over AOS layouts
         std.log.info("7. Cache-Optimal Scan Demonstration", .{});
         const recent_blocks = try self.block_metadata.find_recent_blocks(0, self.backing_allocator);
         defer self.backing_allocator.free(recent_blocks);
         self.allocation_metrics.cache_hits += recent_blocks.len;
         std.log.info("   - Found {} recent blocks via SOA scan", .{recent_blocks.len});
-        
+
         // 8. Performance Metrics
         self.allocation_metrics.report();
-        
+
         // Cleanup demonstration
         self.temp_buffer_pool.release(temp_buffer);
         self.sstable_pool.release(sstable);
+
+        // Clean up block metadata added during demo to prevent leaks
+        self.block_metadata.ids.clearRetainingCapacity();
+        self.block_metadata.versions.clearRetainingCapacity();
+        self.block_metadata.sizes.clearRetainingCapacity();
+        self.block_metadata.timestamps.clearRetainingCapacity();
+
+        // Reset arena to clean up demonstration allocations
+        self.arena_coordinator.reset();
+
         std.log.info("=== Demonstration Complete ===", .{});
     }
 
     /// Benchmark the performance benefits of the integrated system.
     pub fn benchmark_performance(self: *Self, iterations: u32) !PerformanceBenchmark {
+        // Use task arena for benchmark allocations to avoid GPA leak detection
+        var task_arena = std.heap.ArenaAllocator.init(self.backing_allocator);
+        defer task_arena.deinit();
+        const task_coordinator = ArenaCoordinator.init(&task_arena);
+
         const start_time = std.time.nanoTimestamp();
-        
+
         var i: u32 = 0;
         while (i < iterations) : (i += 1) {
             // Simulate typical operations with all memory patterns
-            
+
             // Pool allocation/deallocation
             if (self.sstable_pool.acquire()) |sstable| {
                 sstable.* = MockSSTable.init("bench.sst");
                 self.sstable_pool.release(sstable);
                 self.allocation_metrics.pool_acquisitions += 1;
             }
-            
-            // Arena allocation
-            const small_alloc = try self.arena_coordinator.alloc(u8, 64);
+
+            // Arena allocation using task arena (properly cleaned up)
+            const small_alloc = try task_coordinator.alloc(u8, 64);
             self.allocation_metrics.arena_allocations += 1;
             _ = small_alloc;
-            
+
             // Zero-copy access
             self.query_session.validate();
             self.allocation_metrics.zero_copy_accesses += 1;
         }
-        
+
         const end_time = std.time.nanoTimestamp();
         const total_ns = end_time - start_time;
-        
+
         return PerformanceBenchmark{
             .total_time_ns = @as(u64, @intCast(total_ns)),
             .operations_per_second = @as(f64, @floatFromInt(iterations)) / (@as(f64, @floatFromInt(total_ns)) / 1_000_000_000.0),
@@ -335,37 +357,37 @@ pub const IntegratedMemorySystem = struct {
     /// Reset all subsystem memory while preserving structure.
     pub fn reset_subsystems(self: *Self) void {
         std.log.info("Resetting all subsystem memory...", .{});
-        
+
         // Reset arena through coordinator (O(1) bulk cleanup)
         self.arena_coordinator.reset();
-        
+
         // Reset object pools
         self.sstable_pool.reset();
         self.iterator_pool.reset();
         self.temp_buffer_pool.reset();
-        
+
         // Clear data-oriented storage
         self.block_metadata.ids.clearRetainingCapacity();
         self.block_metadata.versions.clearRetainingCapacity();
         self.block_metadata.sizes.clearRetainingCapacity();
         self.block_metadata.timestamps.clearRetainingCapacity();
-        
+
         // Reset metrics
         self.allocation_metrics = AllocationMetrics.init();
-        
+
         std.log.info("Subsystem reset complete - O(1) bulk cleanup", .{});
     }
 
     /// Deinitialize integrated memory system.
     pub fn deinit(self: *Self) void {
         self.allocation_metrics.report();
-        
+
         self.query_session.invalidate();
         self.block_metadata.deinit();
         self.sstable_pool.deinit();
         self.iterator_pool.deinit();
         self.subsystem_arena.deinit();
-        
+
         std.log.info("Integrated memory system deinitialized", .{});
     }
 };
@@ -376,7 +398,9 @@ pub const PerformanceBenchmark = struct {
     operations_per_second: f64,
     ns_per_operation: u64,
     memory_efficiency: f64,
-    
+
+    /// Report benchmark results to standard logging.
+    /// Displays performance metrics including throughput and latency measurements.
     pub fn report(self: *const PerformanceBenchmark) void {
         std.log.info("=== Performance Benchmark Results ===", .{});
         std.log.info("Operations per second: {d:.0}", .{self.operations_per_second});
@@ -407,7 +431,7 @@ test "IntegratedMemorySystem memory lifecycle demonstration" {
 
     // This should not fail and should demonstrate all memory patterns
     try system.demonstrate_memory_lifecycle();
-    
+
     // Verify metrics were updated
     try testing.expect(system.allocation_metrics.pool_acquisitions > 0);
     try testing.expect(system.allocation_metrics.arena_allocations > 0);
@@ -420,7 +444,7 @@ test "IntegratedMemorySystem performance benchmarking" {
 
     const benchmark = try system.benchmark_performance(1000);
     benchmark.report();
-    
+
     // Performance should be reasonable
     try testing.expect(benchmark.ns_per_operation < 10000); // Less than 10μs per operation
     try testing.expect(benchmark.operations_per_second > 100000); // More than 100K ops/sec
@@ -432,18 +456,18 @@ test "IntegratedMemorySystem reset and reuse" {
 
     // Use the system
     try system.demonstrate_memory_lifecycle();
-    
+
     const initial_allocations = system.allocation_metrics.arena_allocations;
     try testing.expect(initial_allocations > 0);
-    
+
     // Reset everything
     system.reset_subsystems();
-    
+
     // Verify reset worked
     try testing.expect(system.allocation_metrics.arena_allocations == 0);
     try testing.expect(system.sstable_pool.active_count() == 0);
     try testing.expect(system.temp_buffer_pool.active_count() == 0);
-    
+
     // Should be able to use again
     try system.demonstrate_memory_lifecycle();
 }

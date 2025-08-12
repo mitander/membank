@@ -305,7 +305,7 @@ pub fn OwnedPtrType(comptime T: type) type {
         /// The original owner must not access this pointer after transfer.
         pub fn transfer_ownership(self: *Ptr, new_ownership: ArenaOwnership) void {
             if (builtin.mode == .Debug) {
-                std.log.debug("Ownership transfer: {} -> {} for {s}", .{ self.ownership, new_ownership, @typeName(T) });
+                std.log.debug("Ownership transfer: {any} -> {any} for {s}", .{ self.ownership, new_ownership, @typeName(T) });
             }
             self.ownership = new_ownership;
         }

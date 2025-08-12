@@ -313,7 +313,7 @@ pub fn log_ingestion_error(err: anyerror, context: IngestionContext) void {
 /// Log a server error with context in debug builds only.
 pub fn log_server_error(err: anyerror, context: ServerContext) void {
     if (builtin.mode == .Debug) {
-        log.warn("Server operation failed: {any} - {}", .{ err, context });
+        log.warn("Server operation failed: {any} - {any}", .{ err, context });
     }
 }
 

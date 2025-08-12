@@ -165,7 +165,7 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
 
 fn test_block_lookup(query_engine: *QueryEngine, random: std.Random) !void {
     const random_id = common.generate_random_block_id(random);
-    _ = query_engine.storage_engine.find_block(random_id) catch {
+    _ = query_engine.storage_engine.find_block(random_id, .query_engine) catch {
         // Expected errors are fine - focus on crashes
         return;
     };

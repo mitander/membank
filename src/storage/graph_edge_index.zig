@@ -231,6 +231,11 @@ pub const GraphEdgeIndex = struct {
                             target_edge.edge_type == edge.edge_type)
                         {
                             _ = target_incoming.swapRemove(i);
+                            // Clean up HashMap entry if list becomes empty
+                            if (target_incoming.items.len == 0) {
+                                target_incoming.deinit();
+                                _ = self.incoming_edges.remove(edge.target_id);
+                            }
                             break;
                         }
                         i += 1;
@@ -255,6 +260,11 @@ pub const GraphEdgeIndex = struct {
                             source_edge.edge_type == edge.edge_type)
                         {
                             _ = source_outgoing.swapRemove(i);
+                            // Clean up HashMap entry if list becomes empty
+                            if (source_outgoing.items.len == 0) {
+                                source_outgoing.deinit();
+                                _ = self.outgoing_edges.remove(edge.source_id);
+                            }
                             break;
                         }
                         i += 1;

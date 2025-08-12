@@ -198,7 +198,6 @@ pub const ScenarioExecutor = struct {
 
         // Baseline data population establishes pre-fault state
         try self.populate_initial_data(&storage_engine);
-        const initial_block_count = storage_engine.block_count();
 
         // Optional golden master captures expected state before faults
         if (self.scenario.golden_master_file) |golden_file| {
@@ -213,6 +212,9 @@ pub const ScenarioExecutor = struct {
 
         // Operations under hostile conditions test system resilience
         try self.execute_fault_operations(&storage_engine);
+
+        // Count blocks after all operations (including fault operations) for accurate survival rate
+        const total_blocks_before_crash = storage_engine.block_count();
 
         // Clean shutdown simulates system crash for recovery testing
         storage_engine.deinit();
@@ -233,11 +235,11 @@ pub const ScenarioExecutor = struct {
 
             const recovered_block_count = recovered_engine.block_count();
             const survival_rate = @as(f32, @floatFromInt(recovered_block_count)) /
-                @as(f32, @floatFromInt(initial_block_count));
+                @as(f32, @floatFromInt(total_blocks_before_crash));
 
             std.debug.print("Recovery stats: {d}/{d} blocks survived ({:.1}% survival rate)\n", .{
                 recovered_block_count,
-                initial_block_count,
+                total_blocks_before_crash,
                 survival_rate * 100.0,
             });
 

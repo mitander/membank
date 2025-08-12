@@ -236,7 +236,7 @@ pub const ArenaAllocationTracker = struct {
 pub fn TypedStorageCoordinatorType(comptime StorageEngineType: type) type {
     return struct {
         const Self = @This();
-        
+
         storage_engine: *StorageEngineType,
 
         /// Initialize coordinator with storage engine reference.
@@ -257,7 +257,7 @@ pub fn TypedStorageCoordinatorType(comptime StorageEngineType: type) type {
 
         /// Get allocator from storage engine for temporary allocations.
         /// Returns the underlying allocator used by the storage engine.
-        pub fn get_allocator(self: Self) std.mem.Allocator {
+        pub fn allocator(self: Self) std.mem.Allocator {
             // Implementation deferred - different storage engines may expose allocators differently
             _ = self;
             @panic("get_allocator must be implemented at usage site");

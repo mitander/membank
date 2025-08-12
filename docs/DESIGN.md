@@ -41,24 +41,34 @@ The ownership system provides memory safety with zero runtime overhead through c
 - **Zero Overhead:** Release builds have identical performance to raw pointers - ownership is purely a compile-time concept.
 - **Type-Safe Transfers:** `OwnedBlock` and `OwnedGraphEdge` enable safe memory transfer between subsystems with compile-time guarantees.
 
-### 2.4. Arena Coordinator Pattern
+### 2.4. Comprehensive Memory Architecture
 
-Memory safety and performance are achieved through coordinator interfaces that provide stable allocation access regardless of underlying arena operations.
+KausalDB employs a sophisticated five-level memory hierarchy designed for microsecond-level performance and zero-cost abstractions.
 
-**Arena Coordinator Interface:** Provides allocation methods that remain valid even when the underlying arena is reset or modified. Eliminates temporal coupling between arena operations and component access.
+**Level 1: Fixed-Size Object Pools**  
+High-frequency objects like SSTable handles and iterators are allocated from pre-sized pools, eliminating allocation overhead and fragmentation. `ObjectPoolType<T>` provides O(1) allocation with debug tracking.
 
-**Coordinator Ownership:** Top-level components (StorageEngine, QueryEngine, ConnectionManager) own exactly one arena and expose it through a coordinator interface for their entire subsystem.
+**Level 2: Arena Coordinators**  
+Top-level components own exactly one arena and expose it through a coordinator interface. `ArenaCoordinator` provides stable allocation that survives arena resets, eliminating temporal coupling.
 
-**Interface Usage:** All subcomponents receive coordinator interfaces instead of direct arena references, ensuring they cannot be invalidated by arena operations.
+**Level 3: Data-Oriented Storage**  
+Performance-critical data structures use Struct-of-Arrays layout for cache optimization. `BlockIndexDOD` achieves 3-5x performance improvement through contiguous memory access patterns.
 
-**Benefits:**
+**Level 4: Zero-Copy Query Paths**  
+Read operations return direct pointers to storage data via `ZeroCopyQueryInterface`, eliminating allocations on hot paths while maintaining lifetime safety through session tracking.
 
-- **Eliminates Arena Corruption:** Coordinator interfaces remain valid when structs are copied, preventing the segmentation faults caused by embedded arena allocators.
-- **Stable APIs:** Components only need `.deinit()` - no complex heap allocation or cleanup patterns required.
-- **Trivial Debugging:** All storage memory traces to StorageEngine's single arena through the coordinator.
-- **Superior Performance:** 20-30% performance improvement maintained while eliminating corruption.
-- **O(1) Cleanup:** Single arena reset clears ALL subsystem memory in constant time.
-- **Zero Temporal Coupling:** Arena refresh operations don't invalidate component interfaces.
+**Level 5: Type-Safe Coordination**  
+`TypedStorageCoordinatorType<T>` replaces unsafe `*anyopaque` patterns with compile-time validated interfaces, eliminating type confusion while maintaining zero runtime overhead.
+
+**Memory Lifecycle Management:**
+- **Permanent Infrastructure:** GeneralPurposeAllocator for program-lifetime objects
+- **Subsystem Arenas:** ArenaAllocator with coordinator interface for bulk operations  
+- **Task Arenas:** Temporary arenas for bounded operations
+- **Object Pools:** Pre-allocated pools for frequent allocations
+- **Stack Allocation:** Function-scoped temporary buffers
+
+**Ownership Transfer Safety:**  
+`OwnedBlock` includes moved-from state tracking to prevent use-after-transfer bugs. Debug builds validate ownership transfers with zero release overhead.
 
 ### 2.5. LSM-Tree Storage Engine
 

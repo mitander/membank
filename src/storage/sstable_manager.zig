@@ -177,7 +177,7 @@ pub const SSTableManager = struct {
 
             // CRITICAL: Track SSTable index loading failures,
             sstable_file.read_index() catch |err| {
-                log.warn("SSTable index loading failed for '{s}': {} - block lookup will fail for this SSTable", .{ sstable_path, err });
+                log.warn("SSTable index loading failed for '{s}': {any} - block lookup will fail for this SSTable", .{ sstable_path, err });
                 continue; // Skip this SSTable but log the failure
             };
             defer sstable_file.deinit();
@@ -370,7 +370,7 @@ pub const SSTableManager = struct {
 
             // Corruption tracking: Validate ArrayList before append
             self.validate_sstable_paths_integrity("before append") catch |err| {
-                log.err("CORRUPTION: ArrayList corrupted before appending path '{s}': {}", .{ full_path, err });
+                log.err("CORRUPTION: ArrayList corrupted before appending path '{s}': {any}", .{ full_path, err });
                 self.backing_allocator.free(full_path);
                 return err;
             };

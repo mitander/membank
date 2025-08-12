@@ -156,7 +156,7 @@ fn test_block_insertion(engine: *StorageEngine, allocator: std.mem.Allocator, ra
 
 fn test_block_lookup(engine: *StorageEngine, random: std.Random) !void {
     const random_id = common.generate_random_block_id(random);
-    _ = engine.find_block(random_id) catch {
+    _ = engine.find_block(random_id, .storage_engine) catch {
         // Expected errors are fine - focus on crashes
         return;
     };

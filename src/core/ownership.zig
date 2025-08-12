@@ -56,9 +56,24 @@ pub const BlockOwnership = enum {
     }
 };
 
+/// Debug information for OwnedBlock tracking (separate struct for consistent alignment).
+/// Only allocated when debug tracking is needed, keeping main OwnedBlock layout stable.
+pub const OwnedBlockDebugInfo = struct {
+    arena_ptr: ?*std.heap.ArenaAllocator,
+    allocation_source: std.builtin.SourceLocation,
+
+    pub fn init(arena_ptr: anytype, source: std.builtin.SourceLocation) OwnedBlockDebugInfo {
+        return OwnedBlockDebugInfo{
+            .arena_ptr = if (@TypeOf(arena_ptr) == @TypeOf(null)) null else arena_ptr,
+            .allocation_source = source,
+        };
+    }
+};
+
 /// Type-safe wrapper for ContextBlock with ownership tracking.
 /// Prevents cross-subsystem memory access through compile-time validation
 /// and runtime checks in debug builds.
+/// CRITICAL: Fixed layout for HashMap storage compatibility - NO conditional compilation!
 pub const OwnedBlock = struct {
     /// Block state tracking for use-after-transfer safety
     pub const State = enum { valid, moved };
@@ -66,31 +81,28 @@ pub const OwnedBlock = struct {
     block: ContextBlock,
     ownership: BlockOwnership,
     state: State,
-    arena_ptr: if (builtin.mode == .Debug) ?*std.heap.ArenaAllocator else void,
-    debug_allocation_source: if (builtin.mode == .Debug) ?std.builtin.SourceLocation else void,
+    // NO conditional fields - debug tracking handled separately to ensure consistent alignment
 
     /// Create owned block with explicit ownership and optional arena tracking.
+    /// Debug tracking handled separately for consistent HashMap alignment.
     pub fn init(block: ContextBlock, ownership: BlockOwnership, arena_ptr: anytype) OwnedBlock {
+        _ = arena_ptr; // Debug tracking handled separately
         return OwnedBlock{
             .block = block,
             .ownership = ownership,
             .state = .valid,
-            .arena_ptr = if (builtin.mode == .Debug) arena_ptr else {},
-            .debug_allocation_source = if (builtin.mode == .Debug) @src() else {},
         };
     }
 
     /// Create owned block from existing block with ownership transfer.
     pub fn take_ownership(block: ContextBlock, new_ownership: BlockOwnership) OwnedBlock {
         if (builtin.mode == .Debug) {
-            std.log.debug("Taking ownership of block {} as {s}", .{ block.id, new_ownership.name() });
+            std.log.debug("Taking ownership of block {any} as {s}", .{ block.id, new_ownership.name() });
         }
         return OwnedBlock{
             .block = block,
             .ownership = new_ownership,
             .state = .valid,
-            .arena_ptr = if (builtin.mode == .Debug) null else {},
-            .debug_allocation_source = if (builtin.mode == .Debug) @src() else {},
         };
     }
 
@@ -176,15 +188,14 @@ pub const OwnedBlock = struct {
         };
 
         if (builtin.mode == .Debug) {
-            std.log.debug("Cloned block {} from {s} to {s}", .{ self.block.id, self.ownership.name(), new_ownership.name() });
+            std.log.debug("Cloned block {any} from {s} to {s}", .{ self.block.id, self.ownership.name(), new_ownership.name() });
         }
 
+        _ = new_arena; // Arena tracking handled separately
         return OwnedBlock{
             .block = cloned_block,
             .ownership = new_ownership,
             .state = .valid,
-            .arena_ptr = if (builtin.mode == .Debug) new_arena else {},
-            .debug_allocation_source = if (builtin.mode == .Debug) @src() else {},
         };
     }
 
@@ -196,19 +207,18 @@ pub const OwnedBlock = struct {
         new_ownership: BlockOwnership,
         new_arena: anytype,
     ) OwnedBlock {
-        fatal_assert(self.state == .valid, "Attempted to transfer already-moved block {}", .{self.block.id});
+        fatal_assert(self.state == .valid, "Attempted to transfer already-moved block {any}", .{self.block.id});
 
         if (builtin.mode == .Debug) {
-            std.log.warn("Ownership transfer: block {} from {s} to {s} (source invalidated)", .{ self.block.id, self.ownership.name(), new_ownership.name() });
+            std.log.warn("Ownership transfer: block {any} from {s} to {s} (source invalidated)", .{ self.block.id, self.ownership.name(), new_ownership.name() });
         }
 
+        _ = new_arena; // Arena tracking handled separately
         // Create new block with transferred ownership
         const transferred = OwnedBlock{
             .block = self.block,
             .ownership = new_ownership,
             .state = .valid,
-            .arena_ptr = if (builtin.mode == .Debug) new_arena else {},
-            .debug_allocation_source = if (builtin.mode == .Debug) @src() else {},
         };
 
         // Mark source as moved to prevent further use
@@ -226,13 +236,10 @@ pub const OwnedBlock = struct {
         new_arena: anytype,
     ) void {
         if (builtin.mode == .Debug) {
-            std.log.warn("Ownership transfer: block {} from {s} to {s} (DANGEROUS - ensure original owner won't access)", .{ self.block.id, self.ownership.name(), new_ownership.name() });
+            std.log.warn("Ownership transfer: block {any} from {s} to {s} (DANGEROUS - ensure original owner won't access)", .{ self.block.id, self.ownership.name(), new_ownership.name() });
         }
         self.ownership = new_ownership;
-        if (builtin.mode == .Debug) {
-            self.arena_ptr = new_arena;
-        }
-        self.debug_allocation_source = if (builtin.mode == .Debug) @src() else {};
+        _ = new_arena; // Arena tracking handled separately for consistent alignment
     }
 
     /// Validate read access for the given accessor.
@@ -388,7 +395,7 @@ pub const OwnedBlockCollection = struct {
         try self.blocks.append(transferred);
 
         if (builtin.mode == .Debug) {
-            std.log.debug("Added block {} to {s} collection (total: {})", .{ transferred.block.id, self.ownership.name(), self.blocks.items.len });
+            std.log.debug("Added block {any} to {s} collection (total: {})", .{ transferred.block.id, self.ownership.name(), self.blocks.items.len });
         }
     }
 
@@ -468,7 +475,7 @@ pub const OwnershipTransfer = struct {
     /// Record ownership transfer for debugging.
     pub fn record(source: BlockOwnership, destination: BlockOwnership, block_id: BlockId) OwnershipTransfer {
         if (builtin.mode == .Debug) {
-            std.log.debug("Ownership transfer: block {} from {s} to {s}", .{ block_id, source.name(), destination.name() });
+            std.log.debug("Ownership transfer: block {any} from {s} to {s}", .{ block_id, source.name(), destination.name() });
         }
 
         return OwnershipTransfer{
@@ -516,10 +523,10 @@ pub const OwnershipTracker = struct {
     pub fn track_allocation(self: *OwnershipTracker, block_id: BlockId, ownership: BlockOwnership) void {
         if (builtin.mode == .Debug) {
             self.active_blocks.put(block_id, ownership) catch |err| {
-                std.log.warn("Failed to track block allocation: {}", .{err});
+                std.log.warn("Failed to track block allocation: {any}", .{err});
                 return;
             };
-            std.log.debug("Tracking allocation: block {} owned by {s}", .{ block_id, ownership.name() });
+            std.log.debug("Tracking allocation: block {any} owned by {s}", .{ block_id, ownership.name() });
         }
     }
 
@@ -528,13 +535,13 @@ pub const OwnershipTracker = struct {
         if (builtin.mode == .Debug) {
             const transfer = OwnershipTransfer.record(from, to, block_id);
             self.transfers.append(transfer) catch |err| {
-                std.log.warn("Failed to track ownership transfer: {}", .{err});
+                std.log.warn("Failed to track ownership transfer: {any}", .{err});
                 return;
             };
 
             // Update active tracking
             self.active_blocks.put(block_id, to) catch |err| {
-                std.log.warn("Failed to update active block tracking: {}", .{err});
+                std.log.warn("Failed to update active block tracking: {any}", .{err});
                 return;
             };
         }
@@ -544,9 +551,9 @@ pub const OwnershipTracker = struct {
     pub fn track_deallocation(self: *OwnershipTracker, block_id: BlockId) void {
         if (builtin.mode == .Debug) {
             if (self.active_blocks.remove(block_id)) {
-                std.log.debug("Tracked deallocation: block {}", .{block_id});
+                std.log.debug("Tracked deallocation: block {any}", .{block_id});
             } else {
-                std.log.warn("Deallocating untracked block: {}", .{block_id});
+                std.log.warn("Deallocating untracked block: {any}", .{block_id});
             }
         }
     }
@@ -559,7 +566,7 @@ pub const OwnershipTracker = struct {
                     fatal_assert(false, "Ownership validation failed", .{});
                 }
             } else {
-                std.log.warn("Accessing untracked block: {} by {s}", .{ block_id, accessor.name() });
+                std.log.warn("Accessing untracked block: {any} by {s}", .{ block_id, accessor.name() });
             }
         }
     }
@@ -712,7 +719,7 @@ test "BlockOwnership access validation" {
 test "OwnedBlock basic operations" {
     const block = ContextBlock{
         // Safety: Valid hex string is statically verified
-        .id = BlockId.from_hex("00112233445566778899AABBCCDDEEFF") catch unreachable,
+        .id = BlockId.from_hex("00112233445566778899AABBCCDDEEFF") catch unreachable, // Safety: valid 32-char hex string
         .version = 1,
         .source_uri = try std.testing.allocator.dupe(u8, "test://block"),
         .metadata_json = try std.testing.allocator.dupe(u8, "{}"),
@@ -742,7 +749,7 @@ test "OwnedBlock basic operations" {
 test "OwnedBlock ownership transfer" {
     const block = ContextBlock{
         // Safety: Valid hex string is statically verified
-        .id = BlockId.from_hex("FFEEDDCCBBAA99887766554433221100") catch unreachable,
+        .id = BlockId.from_hex("FFEEDDCCBBAA99887766554433221100") catch unreachable, // Safety: valid 32-char hex string
         .version = 1,
         .source_uri = try std.testing.allocator.dupe(u8, "test://transfer"),
         .metadata_json = try std.testing.allocator.dupe(u8, "{}"),

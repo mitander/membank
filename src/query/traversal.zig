@@ -10,6 +10,7 @@ const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
 const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const kausaldb_test = @import("../kausaldb_test.zig");
 const testing = std.testing;
 
 const StorageEngine = storage.StorageEngine;
@@ -1352,13 +1353,7 @@ pub fn traverse_astar(
     return execute_traversal(allocator, storage_engine, query);
 }
 
-fn create_test_storage_engine(allocator: std.mem.Allocator) !StorageEngine {
-    var sim_vfs = try SimulationVFS.init(allocator);
-    const storage_config = @import("../storage/config.zig").Config{};
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_traversal", storage_config);
-    try storage_engine.startup();
-    return storage_engine;
-}
+const StorageHarness = kausaldb_test.StorageHarness;
 
 fn create_test_block(id: BlockId, content: []const u8) ContextBlock {
     return ContextBlock{
@@ -1421,7 +1416,7 @@ test "traversal result memory management" {
 
     const empty_paths: []const []const BlockId = &.{};
     const empty_depths: []const u32 = &.{};
-    var result = TraversalResult.init(allocator, &[_]QueryEngineBlock{QueryEngineBlock.init(test_block)}, empty_paths, empty_depths, 1, 0);
+    var result = TraversalResult.init(allocator, &[_]QueryEngineBlock{QueryEngineBlock.init(test_block)}, empty_paths, empty_depths, 1, 1);
     defer result.deinit();
 
     try testing.expectEqual(@as(usize, 1), result.count());
@@ -1433,15 +1428,16 @@ test "traversal result memory management" {
 test "basic traversal with empty graph" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
     const start_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const start_block = create_test_block(start_id, "isolated block");
     try storage_engine.put_block(start_block);
 
     const query = TraversalQuery.init(start_id, .outgoing);
-    const result = try execute_traversal(allocator, &storage_engine, query);
+    const result = try execute_traversal(allocator, storage_engine, query);
     defer result.deinit();
 
     try testing.expectEqual(@as(usize, 1), result.count());
@@ -1452,12 +1448,13 @@ test "basic traversal with empty graph" {
 test "outgoing traversal with linear chain" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
     const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
+    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccc");
 
     const block_a = create_test_block(id_a, "block A");
     const block_b = create_test_block(id_b, "block B");
@@ -1481,7 +1478,7 @@ test "outgoing traversal with linear chain" {
         .edge_filter = .all_types,
     };
 
-    const result = try execute_traversal(allocator, &storage_engine, query);
+    const result = try execute_traversal(allocator, storage_engine, query);
     defer result.deinit();
 
     try testing.expectEqual(@as(usize, 3), result.count());
@@ -1501,12 +1498,13 @@ test "outgoing traversal with linear chain" {
 test "incoming traversal" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
     const id_a = try BlockId.from_hex("11111111111111111111111111111111");
-    const id_b = try BlockId.from_hex("2222222222222222222222222222222222222222");
-    const id_c = try BlockId.from_hex("3333333333333333333333333333333333333333");
+    const id_b = try BlockId.from_hex("22222222222222222222222222222222");
+    const id_c = try BlockId.from_hex("33333333333333333333333333333333");
 
     const block_a = create_test_block(id_a, "block A");
     const block_b = create_test_block(id_b, "block B");
@@ -1521,7 +1519,7 @@ test "incoming traversal" {
     try storage_engine.put_edge(edge_ab);
     try storage_engine.put_edge(edge_bc);
 
-    const result = try traverse_incoming(allocator, &storage_engine, id_c, 2);
+    const result = try traverse_incoming(allocator, storage_engine, id_c, 2);
     defer result.deinit();
 
     try testing.expectEqual(@as(usize, 3), result.count());
@@ -1540,12 +1538,13 @@ test "incoming traversal" {
 test "bidirectional traversal" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
     const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
+    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccc");
 
     const block_a = create_test_block(id_a, "block A");
     const block_b = create_test_block(id_b, "block B");
@@ -1560,7 +1559,7 @@ test "bidirectional traversal" {
     try storage_engine.put_edge(edge_ab);
     try storage_engine.put_edge(edge_cb);
 
-    const result = try traverse_bidirectional(allocator, &storage_engine, id_b, 1);
+    const result = try traverse_bidirectional(allocator, storage_engine, id_b, 1);
     defer result.deinit();
 
     try testing.expectEqual(@as(usize, 3), result.count());
@@ -1579,12 +1578,13 @@ test "bidirectional traversal" {
 test "edge type filtering" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
     const id_a = try BlockId.from_hex("11111111111111111111111111111111");
-    const id_b = try BlockId.from_hex("2222222222222222222222222222222222222222");
-    const id_c = try BlockId.from_hex("3333333333333333333333333333333333333333");
+    const id_b = try BlockId.from_hex("22222222222222222222222222222222");
+    const id_c = try BlockId.from_hex("33333333333333333333333333333333");
 
     const block_a = create_test_block(id_a, "block A");
     const block_b = create_test_block(id_b, "block B");
@@ -1608,7 +1608,7 @@ test "edge type filtering" {
         .edge_filter = .{ .only_type = .calls },
     };
 
-    const result_calls = try execute_traversal(allocator, &storage_engine, query_calls);
+    const result_calls = try execute_traversal(allocator, storage_engine, query_calls);
     defer result_calls.deinit();
 
     try testing.expectEqual(@as(usize, 2), result_calls.count());
@@ -1627,13 +1627,14 @@ test "edge type filtering" {
 test "max depth limit enforcement" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
     const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
-    const id_d = try BlockId.from_hex("dddddddddddddddddddddddddddddddddddddddd");
+    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccc");
+    const id_d = try BlockId.from_hex("dddddddddddddddddddddddddddddddd");
 
     const blocks = [_]ContextBlock{
         create_test_block(id_a, "block A"),
@@ -1665,7 +1666,7 @@ test "max depth limit enforcement" {
         .edge_filter = .all_types,
     };
 
-    const result = try execute_traversal(allocator, &storage_engine, query);
+    const result = try execute_traversal(allocator, storage_engine, query);
     defer result.deinit();
 
     try testing.expectEqual(@as(usize, 3), result.count());
@@ -1681,14 +1682,15 @@ test "max depth limit enforcement" {
 test "max results limit enforcement" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
     const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
-    const id_d = try BlockId.from_hex("dddddddddddddddddddddddddddddddddddddddd");
-    const id_e = try BlockId.from_hex("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccc");
+    const id_d = try BlockId.from_hex("dddddddddddddddddddddddddddddddd");
+    const id_e = try BlockId.from_hex("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
 
     const blocks = [_]ContextBlock{
         create_test_block(id_a, "block A"),
@@ -1722,7 +1724,7 @@ test "max results limit enforcement" {
         .edge_filter = .all_types,
     };
 
-    const result = try execute_traversal(allocator, &storage_engine, query);
+    const result = try execute_traversal(allocator, storage_engine, query);
     defer result.deinit();
 
     try testing.expectEqual(@as(usize, 3), result.count());
@@ -1731,8 +1733,9 @@ test "max results limit enforcement" {
 test "breadth-first vs depth-first traversal ordering" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
     //     A
     //   /   \
@@ -1740,10 +1743,10 @@ test "breadth-first vs depth-first traversal ordering" {
     //  |     |
     //  D     E
     const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
-    const id_d = try BlockId.from_hex("dddddddddddddddddddddddddddddddddddddddd");
-    const id_e = try BlockId.from_hex("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccc");
+    const id_d = try BlockId.from_hex("dddddddddddddddddddddddddddddddd");
+    const id_e = try BlockId.from_hex("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
 
     const blocks = [_]ContextBlock{
         create_test_block(id_a, "block A"),
@@ -1777,7 +1780,7 @@ test "breadth-first vs depth-first traversal ordering" {
         .edge_filter = .all_types,
     };
 
-    const bfs_result = try execute_traversal(allocator, &storage_engine, bfs_query);
+    const bfs_result = try execute_traversal(allocator, storage_engine, bfs_query);
     defer bfs_result.deinit();
 
     const dfs_query = TraversalQuery{
@@ -1789,7 +1792,7 @@ test "breadth-first vs depth-first traversal ordering" {
         .edge_filter = .all_types,
     };
 
-    const dfs_result = try execute_traversal(allocator, &storage_engine, dfs_query);
+    const dfs_result = try execute_traversal(allocator, storage_engine, dfs_query);
     defer dfs_result.deinit();
 
     try testing.expectEqual(@as(usize, 5), bfs_result.count());
@@ -1817,13 +1820,14 @@ test "breadth-first vs depth-first traversal ordering" {
 test "traversal error handling" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
-    const missing_id = try BlockId.from_hex("0000000000000000000000000000000000000000");
+    const missing_id = try BlockId.from_hex("99999999999999999999999999999999");
 
     const query = TraversalQuery.init(missing_id, .outgoing);
-    const result = try execute_traversal(allocator, &storage_engine, query);
+    const result = try execute_traversal(allocator, storage_engine, query);
     defer result.deinit();
 
     try testing.expect(result.is_empty());
@@ -1833,20 +1837,21 @@ test "traversal error handling" {
 test "convenience traversal functions" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
     const start_id = try BlockId.from_hex("11111111111111111111111111111111");
     const test_block = create_test_block(start_id, "convenience test");
     try storage_engine.put_block(test_block);
 
-    const outgoing_result = try traverse_outgoing(allocator, &storage_engine, start_id, 2);
+    const outgoing_result = try traverse_outgoing(allocator, storage_engine, start_id, 2);
     defer outgoing_result.deinit();
 
-    const incoming_result = try traverse_incoming(allocator, &storage_engine, start_id, 2);
+    const incoming_result = try traverse_incoming(allocator, storage_engine, start_id, 2);
     defer incoming_result.deinit();
 
-    const bidirectional_result = try traverse_bidirectional(allocator, &storage_engine, start_id, 2);
+    const bidirectional_result = try traverse_bidirectional(allocator, storage_engine, start_id, 2);
     defer bidirectional_result.deinit();
 
     try testing.expect(!outgoing_result.is_empty());
@@ -1861,12 +1866,13 @@ test "convenience traversal functions" {
 test "A* search algorithm basic functionality" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
     const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
+    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccc");
 
     const block_a = create_test_block(id_a, "block A");
     const block_b = create_test_block(id_b, "block B");
@@ -1890,7 +1896,7 @@ test "A* search algorithm basic functionality" {
         .edge_filter = .all_types,
     };
 
-    const result = try execute_traversal(allocator, &storage_engine, query);
+    const result = try execute_traversal(allocator, storage_engine, query);
     defer result.deinit();
 
     try testing.expectEqual(@as(usize, 3), result.count());
@@ -1910,12 +1916,13 @@ test "A* search algorithm basic functionality" {
 test "bidirectional search algorithm" {
     const allocator = testing.allocator;
 
-    var storage_engine = try create_test_storage_engine(allocator);
-    defer storage_engine.deinit();
+    var harness = try StorageHarness.init_and_startup(allocator, "test_traversal");
+    defer harness.deinit();
+    const storage_engine = harness.storage_engine;
 
     const id_a = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccccccccccc");
+    const id_b = try BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    const id_c = try BlockId.from_hex("cccccccccccccccccccccccccccccccc");
 
     const block_a = create_test_block(id_a, "block A");
     const block_b = create_test_block(id_b, "block B");
@@ -1939,7 +1946,7 @@ test "bidirectional search algorithm" {
         .edge_filter = .all_types,
     };
 
-    const result = try execute_traversal(allocator, &storage_engine, query);
+    const result = try execute_traversal(allocator, storage_engine, query);
     defer result.deinit();
 
     try testing.expect(result.count() >= 1); // At least A itself

@@ -922,6 +922,16 @@ pub const StorageEngine = struct {
             .current_sstable = null,
         };
     }
+
+    /// Clear query cache arena if it exceeds memory threshold to prevent unbounded growth.
+    /// Called after SSTable reads to maintain bounded memory usage for query operations.
+    fn maybe_clear_query_cache(self: *StorageEngine) void {
+        const QUERY_CACHE_THRESHOLD = 50 * 1024 * 1024; // 50MB threshold
+
+        if (self.query_cache_arena.queryCapacity() > QUERY_CACHE_THRESHOLD) {
+            _ = self.query_cache_arena.reset(.retain_capacity);
+        }
+    }
 };
 
 /// Type-safe storage coordinator for subsystem interactions.
@@ -1019,16 +1029,6 @@ pub const TypedStorageCoordinator = struct {
             .sstables_active = self.storage_engine.sstable_pool.active_count(),
             .iterators_active = self.storage_engine.iterator_pool.active_count(),
         };
-    }
-
-    /// Clear query cache arena if it exceeds memory threshold to prevent unbounded growth.
-    /// Called after SSTable reads to maintain bounded memory usage for query operations.
-    fn maybe_clear_query_cache(self: *StorageEngine) void {
-        const QUERY_CACHE_THRESHOLD = 50 * 1024 * 1024; // 50MB threshold
-
-        if (self.query_cache_arena.queryCapacity() > QUERY_CACHE_THRESHOLD) {
-            _ = self.query_cache_arena.reset(.retain_capacity);
-        }
     }
 
     /// Check for compaction opportunities and execute if beneficial.

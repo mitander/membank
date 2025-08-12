@@ -284,7 +284,7 @@ pub const FileHandleRegistry = struct {
         }
 
         if (builtin.mode == .Debug) {
-            std.log.debug("Registered file handle {} for {s} (mode: {})", .{ handle_id.id, path, access_mode });
+            std.log.debug("Registered file handle {} for {s} (mode: {any})", .{ handle_id.id, path, access_mode });
         }
 
         return handle_id;
@@ -415,7 +415,7 @@ pub const FileOperations = struct {
         const handle_id = try self.registry.register_handle(path, access_mode);
 
         if (builtin.mode == .Debug) {
-            std.log.debug("Opened file {s} with mode {} (handle: {})", .{ path, access_mode, handle_id.id });
+            std.log.debug("Opened file {s} with mode {any} (handle: {})", .{ path, access_mode, handle_id.id });
         }
 
         return handle_id;

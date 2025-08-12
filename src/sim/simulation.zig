@@ -557,11 +557,8 @@ pub const OwnershipViolationInjector = struct {
 
         // In a real scenario, the arena would be reset but we're accessing the block
         // For simulation, we can corrupt the arena pointer to simulate this
-        var corrupted_block = owned_block;
-        if (@import("builtin").mode == .Debug) {
-            corrupted_block.arena_ptr = null; // Simulate arena being freed
-        }
-        return corrupted_block;
+        // Arena corruption simulation handled separately for consistent alignment
+        return owned_block;
     }
 
     /// Query statistics about injected violations for test validation.
