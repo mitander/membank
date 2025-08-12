@@ -272,29 +272,6 @@ pub const OwnedBlock = struct {
         fatal_assert(self.state == .valid, "Attempted to check temporality of moved-from block {}", .{self.block.id});
         return self.ownership == .temporary;
     }
-
-    /// Free block memory if arena is tracked.
-    /// Only call this when you're certain the block is no longer needed.
-    pub fn deinit(self: *OwnedBlock, allocator: std.mem.Allocator) void {
-        fatal_assert(self.state == .valid, "Attempted to deinit moved-from block {}", .{self.block.id});
-
-        if (builtin.mode == .Debug) {
-            std.log.debug("Deallocating {s}-owned block {}", .{ self.ownership.name(), self.block.id });
-        }
-
-        // Free dynamic allocations
-        allocator.free(self.block.source_uri);
-        allocator.free(self.block.metadata_json);
-        allocator.free(self.block.content);
-
-        // Mark as moved to prevent double-free
-        self.state = .moved;
-
-        // If we have arena tracking, we could validate arena consistency here
-        if (self.arena_ptr) |arena| {
-            _ = arena; // Arena will be reset by owner
-        }
-    }
 };
 
 /// Zero-cost ownership wrapper for hot paths where ownership is known at compile time.
@@ -450,13 +427,14 @@ pub const OwnedBlockCollection = struct {
     }
 
     /// Clear all blocks and free memory.
-    pub fn clear(self: *OwnedBlockCollection, allocator: std.mem.Allocator) void {
+    pub fn clear(self: *OwnedBlockCollection) void {
         if (builtin.mode == .Debug) {
             std.log.debug("Clearing {s} collection with {} blocks", .{ self.ownership.name(), self.blocks.items.len });
         }
 
         for (self.blocks.items) |*owned_block| {
-            owned_block.deinit(allocator);
+            // Mark as moved to prevent use-after-clear
+            owned_block.state = .moved;
         }
         self.blocks.clearAndFree();
     }
@@ -472,8 +450,8 @@ pub const OwnedBlockCollection = struct {
     }
 
     /// Deinitialize collection and free all resources.
-    pub fn deinit(self: *OwnedBlockCollection, allocator: std.mem.Allocator) void {
-        self.clear(allocator);
+    pub fn deinit(self: *OwnedBlockCollection) void {
+        self.clear();
         self.blocks.deinit();
     }
 };
@@ -820,7 +798,7 @@ test "OwnedBlock cloning with ownership" {
 
 test "OwnedBlockCollection management" {
     var collection = OwnedBlockCollection.init(std.testing.allocator, .storage_engine);
-    defer collection.deinit(std.testing.allocator);
+    defer collection.deinit();
 
     const block1 = ContextBlock{
         // Safety: Valid hex string is statically verified
@@ -830,6 +808,11 @@ test "OwnedBlockCollection management" {
         .metadata_json = try std.testing.allocator.dupe(u8, "{}"),
         .content = try std.testing.allocator.dupe(u8, "content1"),
     };
+    defer {
+        std.testing.allocator.free(block1.source_uri);
+        std.testing.allocator.free(block1.metadata_json);
+        std.testing.allocator.free(block1.content);
+    }
 
     const block2 = ContextBlock{
         // Safety: Valid hex string is statically verified
@@ -839,6 +822,11 @@ test "OwnedBlockCollection management" {
         .metadata_json = try std.testing.allocator.dupe(u8, "{}"),
         .content = try std.testing.allocator.dupe(u8, "content2"),
     };
+    defer {
+        std.testing.allocator.free(block2.source_uri);
+        std.testing.allocator.free(block2.metadata_json);
+        std.testing.allocator.free(block2.content);
+    }
 
     var owned1 = OwnedBlock.init(block1, .temporary, null);
     var owned2 = OwnedBlock.init(block2, .temporary, null);
@@ -976,6 +964,7 @@ test "zero-cost compile-time ownership system" {
 
 test "moved-from state prevents use-after-transfer" {
     const block = ContextBlock{
+        // Safety: Valid hex string is statically verified
         .id = BlockId.from_hex("DEADBEEFCAFEBABE1234567890ABCDEF") catch unreachable,
         .version = 1,
         .source_uri = try std.testing.allocator.dupe(u8, "test://move"),

@@ -18,6 +18,7 @@ const assert = @import("../core/assert.zig");
 const fatal_assert = @import("../core/assert.zig").fatal_assert;
 const vfs = @import("../core/vfs.zig");
 const context_block = @import("../core/types.zig");
+const pools = @import("../core/pools.zig");
 const error_context = @import("../core/error_context.zig");
 const concurrency = @import("../core/concurrency.zig");
 const state_machines = @import("../core/state_machines.zig");
@@ -103,6 +104,10 @@ pub const StorageEngine = struct {
     storage_arena: *std.heap.ArenaAllocator,
     arena_coordinator: *ArenaCoordinator,
     query_cache_arena: std.heap.ArenaAllocator,
+    /// Fixed-size object pools for frequently allocated/deallocated objects.
+    /// Eliminates allocation overhead and fragmentation for SSTable and iterator objects.
+    sstable_pool: pools.ObjectPoolType(SSTable),
+    iterator_pool: pools.ObjectPoolType(StorageEngine.BlockIterator),
 
     /// Initialize storage engine with default configuration.
     /// Uses Arena Coordinator Pattern to eliminate arena corruption from struct copying.
@@ -151,6 +156,30 @@ pub const StorageEngine = struct {
         const arena_coordinator = try allocator.create(ArenaCoordinator);
         arena_coordinator.* = ArenaCoordinator.init(storage_arena);
 
+        // Initialize object pools for frequently allocated objects
+        // Pool sizes chosen based on typical usage patterns:
+        // - SSTable pool: 16 objects (handles concurrent reads + compaction)
+        // - Iterator pool: 32 objects (query parallelism + background operations)
+        const sstable_pool = pools.ObjectPoolType(SSTable).init(allocator, 16) catch |err| {
+            storage_arena.deinit();
+            allocator.destroy(storage_arena);
+            allocator.destroy(arena_coordinator);
+            query_cache_arena.deinit();
+            allocator.free(owned_data_dir);
+            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "sstable_pool_init" });
+            return err;
+        };
+
+        const iterator_pool = pools.ObjectPoolType(StorageEngine.BlockIterator).init(allocator, 32) catch |err| {
+            storage_arena.deinit();
+            allocator.destroy(storage_arena);
+            allocator.destroy(arena_coordinator);
+            query_cache_arena.deinit();
+            allocator.free(owned_data_dir);
+            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "iterator_pool_init" });
+            return err;
+        };
+
         var engine = StorageEngine{
             .backing_allocator = allocator,
             .vfs = filesystem,
@@ -163,6 +192,8 @@ pub const StorageEngine = struct {
             .storage_arena = storage_arena,
             .arena_coordinator = arena_coordinator,
             .query_cache_arena = query_cache_arena,
+            .sstable_pool = sstable_pool,
+            .iterator_pool = iterator_pool,
         };
 
         // Coordinator already points to stable heap-allocated arena
@@ -279,9 +310,18 @@ pub const StorageEngine = struct {
             };
         }
 
-        // Hierarchical cleanup: Deinit submodules first, then coordinator arena
+        // Hierarchical cleanup: Deinit submodules first, then pools, then coordinator arena
         self.memtable_manager.deinit();
         self.sstable_manager.deinit();
+
+        // Clean up object pools - must be done after submodules that might use pooled objects
+        // Note: Pools are const so we need temporary mutable copies for deinit
+        {
+            var mut_sstable_pool = self.sstable_pool;
+            var mut_iterator_pool = self.iterator_pool;
+            mut_sstable_pool.deinit();
+            mut_iterator_pool.deinit();
+        }
 
         // StorageEngine owns and cleans up the heap-allocated storage arena
         // This frees ALL storage memory in O(1) time
@@ -293,6 +333,70 @@ pub const StorageEngine = struct {
         self.backing_allocator.free(self.data_dir);
         // Mark as deinitialized to prevent double-free
         self.data_dir = "";
+    }
+
+    /// Coordinate memtable flush operation without containing business logic.
+    /// Pure delegation to subsystems for flush orchestration.
+    fn coordinate_memtable_flush(self: *StorageEngine) !void {
+        assert.assert_fmt(@intFromPtr(&self.sstable_manager) != 0, "SSTableManager corrupted before flush", .{});
+        self.flush_memtable() catch |err| {
+            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "coordinate_memtable_flush" });
+            return err;
+        };
+    }
+
+    /// Flush current memtable to SSTable with coordinated subsystem management.
+    /// Core LSM-tree operation that delegates to SSTableManager for SSTable creation
+    /// and coordinates cleanup with MemtableManager. Follows the coordinator pattern.
+    fn flush_memtable(self: *StorageEngine) !void {
+        concurrency.assert_main_thread();
+
+        // Transition to flushing state during operation
+        self.state.transition(.flushing);
+        defer self.state.transition(.running); // Always return to running
+
+        self.memtable_manager.flush_to_sstable(&self.sstable_manager) catch |err| {
+            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "flush_to_sstable" });
+            return err;
+        };
+
+        if (self.sstable_manager.should_compact()) {
+            // First transition back to running, then to compacting (required by state machine)
+            self.state.transition(.running);
+            self.state.transition(.compacting);
+            self.sstable_manager.execute_compaction() catch |err| {
+                error_context.log_storage_error(err, error_context.StorageContext{ .operation = "post_flush_compaction" });
+                return err;
+            };
+            // State will be transitioned back to running by defer
+        }
+
+        self.storage_metrics.sstable_writes.incr();
+    }
+
+    /// Public wrapper for memtable flush - backward compatibility.
+    /// Delegates to internal flush_memtable method for coordinated subsystem management.
+    pub fn flush_memtable_to_sstable(self: *StorageEngine) !void {
+        self.flush_memtable() catch |err| {
+            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "flush_memtable_to_sstable" });
+            return err;
+        };
+    }
+
+    /// Track write operation metrics without business logic.
+    /// Pure metrics recording delegation to storage metrics subsystem.
+    fn track_write_metrics(self: *StorageEngine, start_time: i128, content_len: usize) void {
+        const end_time = std.time.nanoTimestamp();
+        assert.assert_fmt(end_time >= start_time, "Invalid timestamp sequence: {} < {}", .{ end_time, start_time });
+
+        const blocks_before = self.storage_metrics.blocks_written.load();
+        self.storage_metrics.blocks_written.incr();
+
+        const write_duration = @as(u64, @intCast(end_time - start_time));
+        self.storage_metrics.total_write_time_ns.add(write_duration);
+        self.storage_metrics.total_bytes_written.add(content_len);
+
+        assert.assert_fmt(self.storage_metrics.blocks_written.load() == blocks_before + 1, "Blocks written counter update failed", .{});
     }
 
     /// Create directory structure and discover existing data files.
@@ -818,69 +922,103 @@ pub const StorageEngine = struct {
             .current_sstable = null,
         };
     }
+};
 
-    /// Flush current memtable to SSTable with coordinated subsystem management.
-    /// Core LSM-tree operation that delegates to SSTableManager for SSTable creation
-    /// and coordinates cleanup with MemtableManager. Follows the coordinator pattern.
-    fn flush_memtable(self: *StorageEngine) !void {
-        concurrency.assert_main_thread();
+/// Type-safe storage coordinator for subsystem interactions.
+/// Replaces *anyopaque patterns with compile-time validated interfaces.
+/// Provides minimal, type-safe access to storage engine capabilities for subsystems.
+pub const TypedStorageCoordinator = struct {
+    storage_engine: *StorageEngine,
 
-        // Transition to flushing state during operation
-        self.state.transition(.flushing);
-        defer self.state.transition(.running); // Always return to running
+    /// Initialize coordinator with storage engine reference.
+    /// Storage engine must outlive all coordinators.
+    pub fn init(storage_engine: *StorageEngine) TypedStorageCoordinator {
+        return TypedStorageCoordinator{ .storage_engine = storage_engine };
+    }
 
-        self.memtable_manager.flush_to_sstable(&self.sstable_manager) catch |err| {
-            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "flush_to_sstable" });
-            return err;
-        };
+    /// Allocate storage-owned memory for block content.
+    /// Uses storage engine's arena for content that lives until next flush.
+    pub fn duplicate_storage_content(self: TypedStorageCoordinator, comptime T: type, slice: []const T) ![]T {
+        return self.storage_engine.storage_arena.allocator().dupe(T, slice);
+    }
 
-        if (self.sstable_manager.should_compact()) {
-            // First transition back to running, then to compacting (required by state machine)
-            self.state.transition(.running);
-            self.state.transition(.compacting);
-            self.sstable_manager.execute_compaction() catch |err| {
-                error_context.log_storage_error(err, error_context.StorageContext{ .operation = "post_flush_compaction" });
-                return err;
-            };
-            // State will be transitioned back to running by defer
+    /// Get storage arena allocator for subsystem operations.
+    /// Memory allocated from this arena is freed on next memtable flush.
+    pub fn storage_allocator(self: TypedStorageCoordinator) std.mem.Allocator {
+        return self.storage_engine.storage_arena.allocator();
+    }
+
+    /// Get query cache allocator for temporary query data.
+    /// Memory allocated from this arena is freed when query cache is cleared.
+    pub fn query_cache_allocator(self: TypedStorageCoordinator) std.mem.Allocator {
+        return self.storage_engine.query_cache_arena.allocator();
+    }
+
+    /// Validate storage engine is ready for read operations.
+    /// Zero-cost in release builds through comptime evaluation.
+    pub fn validate_read_state(self: TypedStorageCoordinator) bool {
+        if (comptime builtin.mode == .Debug) {
+            return self.storage_engine.state.can_read();
         }
-
-        self.storage_metrics.sstable_writes.incr();
+        return true;
     }
 
-    /// Public wrapper for memtable flush - backward compatibility.
-    /// Delegates to internal flush_memtable method for coordinated subsystem management.
-    pub fn flush_memtable_to_sstable(self: *StorageEngine) !void {
-        self.flush_memtable() catch |err| {
-            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "flush_memtable_to_sstable" });
-            return err;
+    /// Validate storage engine is ready for write operations.
+    /// Zero-cost in release builds through comptime evaluation.
+    pub fn validate_write_state(self: TypedStorageCoordinator) bool {
+        if (comptime builtin.mode == .Debug) {
+            return self.storage_engine.state.can_write();
+        }
+        return true;
+    }
+
+    /// Get read-only access to storage metrics.
+    /// Provides safe interface for subsystems to query storage state.
+    pub fn query_metrics(self: TypedStorageCoordinator) *const StorageMetrics {
+        return self.storage_engine.query_metrics();
+    }
+
+    /// Acquire SSTable from pool for temporary operations.
+    /// Returns null if pool is exhausted - caller should fall back to heap allocation.
+    pub fn acquire_pooled_sstable(self: TypedStorageCoordinator) ?*SSTable {
+        return self.storage_engine.sstable_pool.acquire();
+    }
+
+    /// Release SSTable back to pool for reuse.
+    /// CRITICAL: Caller must not access SSTable after release.
+    pub fn release_pooled_sstable(self: TypedStorageCoordinator, table: *SSTable) void {
+        // Ensure SSTable is properly reset before returning to pool
+        table.deinit();
+        self.storage_engine.sstable_pool.release(table);
+    }
+
+    /// Acquire BlockIterator from pool for temporary iteration.
+    /// Returns null if pool is exhausted - caller should fall back to heap allocation.
+    pub fn acquire_pooled_iterator(self: TypedStorageCoordinator) ?*StorageEngine.BlockIterator {
+        return self.storage_engine.iterator_pool.acquire();
+    }
+
+    /// Release BlockIterator back to pool for reuse.
+    /// CRITICAL: Caller must not access iterator after release.
+    pub fn release_pooled_iterator(self: TypedStorageCoordinator, iterator: *StorageEngine.BlockIterator) void {
+        // Iterator cleanup is handled by its own deinit
+        self.storage_engine.iterator_pool.release(iterator);
+    }
+
+    /// Get pool utilization statistics for monitoring.
+    /// High utilization indicates potential need for pool size increases.
+    pub fn pool_utilization_stats(self: TypedStorageCoordinator) struct {
+        sstable_utilization: f32,
+        iterator_utilization: f32,
+        sstables_active: u32,
+        iterators_active: u32,
+    } {
+        return .{
+            .sstable_utilization = self.storage_engine.sstable_pool.utilization(),
+            .iterator_utilization = self.storage_engine.iterator_pool.utilization(),
+            .sstables_active = self.storage_engine.sstable_pool.active_count(),
+            .iterators_active = self.storage_engine.iterator_pool.active_count(),
         };
-    }
-
-    /// Coordinate memtable flush operation without containing business logic.
-    /// Pure delegation to subsystems for flush orchestration.
-    fn coordinate_memtable_flush(self: *StorageEngine) !void {
-        assert.assert_fmt(@intFromPtr(&self.sstable_manager) != 0, "SSTableManager corrupted before flush", .{});
-        self.flush_memtable() catch |err| {
-            error_context.log_storage_error(err, error_context.StorageContext{ .operation = "coordinate_memtable_flush" });
-            return err;
-        };
-    }
-
-    /// Track write operation metrics without business logic.
-    /// Pure metrics recording delegation to storage metrics subsystem.
-    fn track_write_metrics(self: *StorageEngine, start_time: i128, content_len: usize) void {
-        const end_time = std.time.nanoTimestamp();
-        assert.assert_fmt(end_time >= start_time, "Invalid timestamp sequence: {} < {}", .{ end_time, start_time });
-
-        const blocks_before = self.storage_metrics.blocks_written.load();
-        self.storage_metrics.blocks_written.incr();
-
-        const write_duration = @as(u64, @intCast(end_time - start_time));
-        self.storage_metrics.total_write_time_ns.add(write_duration);
-        self.storage_metrics.total_bytes_written.add(content_len);
-
-        assert.assert_fmt(self.storage_metrics.blocks_written.load() == blocks_before + 1, "Blocks written counter update failed", .{});
     }
 
     /// Clear query cache arena if it exceeds memory threshold to prevent unbounded growth.
