@@ -60,8 +60,12 @@ pub const BlockOwnership = enum {
 /// Prevents cross-subsystem memory access through compile-time validation
 /// and runtime checks in debug builds.
 pub const OwnedBlock = struct {
+    /// Block state tracking for use-after-transfer safety
+    pub const State = enum { valid, moved };
+
     block: ContextBlock,
     ownership: BlockOwnership,
+    state: State,
     arena_ptr: if (builtin.mode == .Debug) ?*std.heap.ArenaAllocator else void,
     debug_allocation_source: if (builtin.mode == .Debug) ?std.builtin.SourceLocation else void,
 
@@ -70,6 +74,7 @@ pub const OwnedBlock = struct {
         return OwnedBlock{
             .block = block,
             .ownership = ownership,
+            .state = .valid,
             .arena_ptr = if (builtin.mode == .Debug) arena_ptr else {},
             .debug_allocation_source = if (builtin.mode == .Debug) @src() else {},
         };
@@ -83,6 +88,7 @@ pub const OwnedBlock = struct {
         return OwnedBlock{
             .block = block,
             .ownership = new_ownership,
+            .state = .valid,
             .arena_ptr = if (builtin.mode == .Debug) null else {},
             .debug_allocation_source = if (builtin.mode == .Debug) @src() else {},
         };
@@ -91,6 +97,9 @@ pub const OwnedBlock = struct {
     /// Get read access to the underlying block with compile-time ownership validation.
     /// Zero runtime cost in release builds - ownership validation is compile-time only.
     pub fn read(self: *const OwnedBlock, comptime accessor: BlockOwnership) *const ContextBlock {
+        // Validate block hasn't been moved
+        fatal_assert(self.state == .valid, "Attempted to read moved-from block {}", .{self.block.id});
+
         // Compile-time validation when ownership is known at compile time
         if (comptime @TypeOf(self.ownership) == BlockOwnership) {
             // Runtime ownership - use debug validation only
@@ -104,6 +113,9 @@ pub const OwnedBlock = struct {
     /// Get write access to the underlying block with compile-time ownership validation.
     /// Zero runtime cost in release builds - ownership validation is compile-time only.
     pub fn write(self: *OwnedBlock, comptime accessor: BlockOwnership) *ContextBlock {
+        // Validate block hasn't been moved
+        fatal_assert(self.state == .valid, "Attempted to write moved-from block {}", .{self.block.id});
+
         // Compile-time validation when ownership is known at compile time
         if (comptime @TypeOf(self.ownership) == BlockOwnership) {
             // Runtime ownership - use debug validation only
@@ -124,6 +136,7 @@ pub const OwnedBlock = struct {
     /// Use this during transition period when ownership is not compile-time known.
     /// Prefer read() with comptime ownership for zero-cost hot paths.
     pub fn read_runtime(self: *const OwnedBlock, accessor: BlockOwnership) *const ContextBlock {
+        fatal_assert(self.state == .valid, "Attempted to read moved-from block {}", .{self.block.id});
         if (comptime builtin.mode == .Debug) {
             self.validate_read_access(accessor);
         }
@@ -134,6 +147,7 @@ pub const OwnedBlock = struct {
     /// Use this during transition period when ownership is not compile-time known.
     /// Prefer write() with comptime ownership for zero-cost hot paths.
     pub fn write_runtime(self: *OwnedBlock, accessor: BlockOwnership) *ContextBlock {
+        fatal_assert(self.state == .valid, "Attempted to write moved-from block {}", .{self.block.id});
         if (comptime builtin.mode == .Debug) {
             self.validate_write_access(accessor);
         }
@@ -168,11 +182,42 @@ pub const OwnedBlock = struct {
         return OwnedBlock{
             .block = cloned_block,
             .ownership = new_ownership,
+            .state = .valid,
             .arena_ptr = if (builtin.mode == .Debug) new_arena else {},
             .debug_allocation_source = if (builtin.mode == .Debug) @src() else {},
         };
     }
 
+    /// Transfer ownership without cloning data - SAFE version with move semantics.
+    /// The original block is marked as moved and cannot be used after this call.
+    /// Returns a new OwnedBlock with the transferred ownership.
+    pub fn transfer(
+        self: *OwnedBlock,
+        new_ownership: BlockOwnership,
+        new_arena: anytype,
+    ) OwnedBlock {
+        fatal_assert(self.state == .valid, "Attempted to transfer already-moved block {}", .{self.block.id});
+
+        if (builtin.mode == .Debug) {
+            std.log.warn("Ownership transfer: block {} from {s} to {s} (source invalidated)", .{ self.block.id, self.ownership.name(), new_ownership.name() });
+        }
+
+        // Create new block with transferred ownership
+        const transferred = OwnedBlock{
+            .block = self.block,
+            .ownership = new_ownership,
+            .state = .valid,
+            .arena_ptr = if (builtin.mode == .Debug) new_arena else {},
+            .debug_allocation_source = if (builtin.mode == .Debug) @src() else {},
+        };
+
+        // Mark source as moved to prevent further use
+        self.state = .moved;
+
+        return transferred;
+    }
+
+    /// Legacy transfer method - DEPRECATED, use transfer() instead.
     /// Transfer ownership without cloning data.
     /// DANGEROUS: Only use when you're certain the original owner won't access the block.
     pub fn transfer_ownership(
@@ -212,22 +257,27 @@ pub const OwnedBlock = struct {
 
     /// Get ownership information for debugging.
     pub fn query_owner(self: *const OwnedBlock) BlockOwnership {
+        fatal_assert(self.state == .valid, "Attempted to query moved-from block {}", .{self.block.id});
         return self.ownership;
     }
 
     /// Check if block is owned by specific subsystem.
     pub fn is_owned_by(self: *const OwnedBlock, ownership: BlockOwnership) bool {
+        fatal_assert(self.state == .valid, "Attempted to check ownership of moved-from block {}", .{self.block.id});
         return self.ownership == ownership;
     }
 
     /// Check if block has temporary ownership (can be accessed by any subsystem).
     pub fn is_temporary(self: *const OwnedBlock) bool {
+        fatal_assert(self.state == .valid, "Attempted to check temporality of moved-from block {}", .{self.block.id});
         return self.ownership == .temporary;
     }
 
     /// Free block memory if arena is tracked.
     /// Only call this when you're certain the block is no longer needed.
     pub fn deinit(self: *OwnedBlock, allocator: std.mem.Allocator) void {
+        fatal_assert(self.state == .valid, "Attempted to deinit moved-from block {}", .{self.block.id});
+
         if (builtin.mode == .Debug) {
             std.log.debug("Deallocating {s}-owned block {}", .{ self.ownership.name(), self.block.id });
         }
@@ -236,6 +286,9 @@ pub const OwnedBlock = struct {
         allocator.free(self.block.source_uri);
         allocator.free(self.block.metadata_json);
         allocator.free(self.block.content);
+
+        // Mark as moved to prevent double-free
+        self.state = .moved;
 
         // If we have arena tracking, we could validate arena consistency here
         if (self.arena_ptr) |arena| {
@@ -353,12 +406,12 @@ pub const OwnedBlockCollection = struct {
 
     /// Add block to collection, transferring ownership.
     pub fn add_block(self: *OwnedBlockCollection, mut_block: *OwnedBlock) !void {
-        // Transfer ownership to collection's ownership
-        mut_block.transfer_ownership(self.ownership, null);
-        try self.blocks.append(mut_block.*);
+        // Transfer ownership to collection's ownership using safe transfer
+        const transferred = mut_block.transfer(self.ownership, null);
+        try self.blocks.append(transferred);
 
         if (builtin.mode == .Debug) {
-            std.log.debug("Added block {} to {s} collection (total: {})", .{ mut_block.block.id, self.ownership.name(), self.blocks.items.len });
+            std.log.debug("Added block {} to {s} collection (total: {})", .{ transferred.block.id, self.ownership.name(), self.blocks.items.len });
         }
     }
 
@@ -725,7 +778,7 @@ test "OwnedBlock ownership transfer" {
 
     var owned = OwnedBlock.init(block, .memtable_manager, null);
 
-    // Transfer ownership
+    // Transfer ownership using legacy method (demonstrates old pattern)
     owned.transfer_ownership(.query_engine, null);
     try std.testing.expect(owned.is_owned_by(.query_engine));
 
@@ -919,6 +972,42 @@ test "zero-cost compile-time ownership system" {
     // These would fail at compile time if uncommented:
     // const bad_read = storage_block.read(.query_engine); // Compile error!
     // const bad_write = memtable_block.write(.sstable_manager); // Compile error!
+}
+
+test "moved-from state prevents use-after-transfer" {
+    const block = ContextBlock{
+        .id = BlockId.from_hex("DEADBEEFCAFEBABE1234567890ABCDEF") catch unreachable,
+        .version = 1,
+        .source_uri = try std.testing.allocator.dupe(u8, "test://move"),
+        .metadata_json = try std.testing.allocator.dupe(u8, "{}"),
+        .content = try std.testing.allocator.dupe(u8, "move test content"),
+    };
+    defer {
+        std.testing.allocator.free(block.source_uri);
+        std.testing.allocator.free(block.metadata_json);
+        std.testing.allocator.free(block.content);
+    }
+
+    var original = OwnedBlock.init(block, .memtable_manager, null);
+
+    // Original block should work before transfer
+    _ = original.read(.memtable_manager);
+    try std.testing.expect(original.query_owner() == .memtable_manager);
+    try std.testing.expect(original.state == .valid);
+
+    // Transfer ownership using safe method
+    const transferred = original.transfer(.query_engine, null);
+
+    // Transferred block should work and have valid state
+    _ = transferred.read(.query_engine);
+    try std.testing.expect(transferred.query_owner() == .query_engine);
+    try std.testing.expect(transferred.state == .valid);
+
+    // Original block should now be in moved state
+    try std.testing.expect(original.state == .moved);
+
+    // Note: In debug builds, accessing original.read() would trigger fatal_assert
+    // We validate state directly rather than testing the assertion mechanism
 }
 
 test "compile-time ownership size verification" {
