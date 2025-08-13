@@ -150,14 +150,20 @@ test "memory efficiency during large dataset operations" {
 test "query engine performance benchmark" {
     const allocator = testing.allocator;
 
+    std.debug.print("DEBUG: Starting query engine performance benchmark\n", .{});
+
     var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "query_perf_test");
     defer harness.deinit();
+
+    std.debug.print("DEBUG: Harness initialized successfully\n", .{});
 
     // Phase 1: Setup test data with relationships
     const block_count = 500;
     var block_ids = std.ArrayList(BlockId).init(allocator);
     defer block_ids.deinit();
     try block_ids.ensureTotalCapacity(block_count);
+
+    std.debug.print("DEBUG: Starting to create {} blocks\n", .{block_count});
 
     // Create blocks using TestData
     for (0..block_count) |i| {
@@ -171,7 +177,15 @@ test "query engine performance benchmark" {
 
         try harness.storage_engine().put_block(block);
         try block_ids.append(block.id);
+
+        if (i % 100 == 0) {
+            std.debug.print("DEBUG: Created {} blocks so far\n", .{i + 1});
+        }
     }
+
+    std.debug.print("DEBUG: Finished creating {} blocks\n", .{block_count});
+
+    std.debug.print("DEBUG: Starting to create {} edges\n", .{block_count - 1});
 
     // Create edges for graph traversal testing
     for (0..block_count - 1) |i| {
@@ -181,7 +195,13 @@ test "query engine performance benchmark" {
             .edge_type = EdgeType.calls,
         };
         try harness.storage_engine().put_edge(edge);
+
+        if (i % 100 == 0) {
+            std.debug.print("DEBUG: Created {} edges so far\n", .{i + 1});
+        }
     }
+
+    std.debug.print("DEBUG: Finished creating edges, starting single query tests\n", .{});
 
     // Phase 3: Single block query performance
     var single_measurement = BatchPerformanceMeasurement.init(allocator);
@@ -205,6 +225,10 @@ test "query engine performance benchmark" {
     var batch_measurement = BatchPerformanceMeasurement.init(allocator);
     defer batch_measurement.deinit();
 
+    // Debug: Print database state for performance analysis
+    const db_stats = harness.storage_engine().memory_usage();
+    std.debug.print("DB_STATE: blocks={}, edges={}, total_bytes={}\n", .{ db_stats.block_count, db_stats.edge_count, db_stats.total_bytes });
+
     const batch_sizes = [_]usize{ 5, 10, 25, 50 };
     for (batch_sizes) |batch_size| {
         var batch_ids = try allocator.alloc(BlockId, batch_size);
@@ -226,11 +250,21 @@ test "query engine performance benchmark" {
         }
         const end_time = std.time.nanoTimestamp();
 
+        const duration_ns = end_time - start_time;
+        const per_block_ns = @divTrunc(duration_ns, found_count);
+
+        // Always print performance data for debugging platform differences
+        std.debug.print("BATCH_PERF: size={}, found={}, total={}ns ({}µs), per_block={}ns ({}µs)\n", .{ batch_size, found_count, duration_ns, @divTrunc(duration_ns, 1000), per_block_ns, @divTrunc(per_block_ns, 1000) });
+
         try testing.expect(found_count > 0);
-        try batch_measurement.add_measurement(@intCast(end_time - start_time));
+        try batch_measurement.add_measurement(@intCast(duration_ns));
     }
 
+    std.debug.print("DEBUG: About to call assert_statistics with target={}ns\n", .{TARGET_BATCH_QUERY_LATENCY_NS});
+
     try batch_measurement.assert_statistics("query_engine_batch", TARGET_BATCH_QUERY_LATENCY_NS, "batch block query");
+
+    std.debug.print("DEBUG: Successfully completed batch query assertions\n", .{});
 
     log.info("Query performance completed successfully", .{});
 }

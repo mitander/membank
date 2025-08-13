@@ -368,6 +368,10 @@ test "performance regression detection" {
 
         // Regression detection with tier-aware thresholds
         const tier = PerformanceTier.detect();
+
+        // Always log performance data for CI threshold calibration
+        std.debug.print("PERF_DATA: tier={}, baseline_per_op={}ns, stress_per_op={}ns, ratio={d:.2}\n", .{ tier, baseline_per_op, stress_per_op, @as(f64, @floatFromInt(stress_per_op)) / @as(f64, @floatFromInt(baseline_per_op)) });
+
         const thresholds = PerformanceThresholds.for_tier(@as(u64, @intCast(baseline_per_op)), 0, tier);
         try testing.expect(stress_per_op < thresholds.max_latency_ns);
     }
@@ -383,8 +387,11 @@ test "performance regression detection" {
 
     const recovery_time = std.time.nanoTimestamp() - recovery_start;
 
-    // Recovery should use tier-aware performance thresholds
+    // Always log recovery performance data for CI threshold calibration
     const tier = PerformanceTier.detect();
+    std.debug.print("RECOVERY_DATA: tier={}, baseline_per_op={}ns, recovery_time={}ns, ratio={d:.2}\n", .{ tier, baseline_per_op, recovery_time, @as(f64, @floatFromInt(recovery_time)) / @as(f64, @floatFromInt(baseline_per_op)) });
+
+    // Recovery should use tier-aware performance thresholds
     const thresholds = PerformanceThresholds.for_tier(@as(u64, @intCast(baseline_per_op)), 0, tier);
     try testing.expect(recovery_time < thresholds.max_latency_ns);
 }
