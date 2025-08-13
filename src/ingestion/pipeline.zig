@@ -559,6 +559,10 @@ pub const IngestionPipeline = struct {
         }
 
         if (batch_buffer.items.len > 0) {
+            // Check pressure for final batch to ensure stats are recorded
+            if (self.should_check_storage_pressure()) {
+                try self.adapt_batch_size_to_pressure(storage_engine);
+            }
             try self.flush_batch_to_storage(storage_engine, &batch_buffer);
         }
     }
@@ -566,6 +570,11 @@ pub const IngestionPipeline = struct {
     /// Check if it's time to evaluate storage memory pressure.
     /// Avoids expensive pressure calculations on every block by using time-based sampling.
     fn should_check_storage_pressure(self: *IngestionPipeline) bool {
+        // Special case: interval_ms = 0 means check on every batch for testing
+        if (self.config.backpressure.pressure_check_interval_ms == 0) {
+            return true;
+        }
+
         const now = std.time.nanoTimestamp();
         const elapsed_ms = @divTrunc(now - self.last_pressure_check, std.time.ns_per_ms);
         return elapsed_ms >= self.config.backpressure.pressure_check_interval_ms;

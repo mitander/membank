@@ -3,6 +3,7 @@ const std = @import("std");
 const TestCategory = enum {
     unit,
     integration,
+    ingestion,
     simulation,
     stress,
     performance,
@@ -15,6 +16,7 @@ const TestCategory = enum {
         return switch (self) {
             .unit => "unit tests from src/ modules",
             .integration => "integration and server tests",
+            .ingestion => "ingestion pipeline and backpressure tests",
             .simulation => "deterministic simulation tests",
             .stress => "stress and memory pressure tests",
             .performance => "performance benchmarks and validations",
@@ -33,6 +35,7 @@ const TestGroup = struct {
 
 const test_groups = [_]TestGroup{
     .{ .category = .integration, .patterns = &.{ "integration_", "server_", "cli_" } },
+    .{ .category = .ingestion, .patterns = &.{"ingestion_"} },
     .{ .category = .simulation, .patterns = &.{"simulation_"} },
     .{ .category = .stress, .patterns = &.{"stress_"} },
     .{ .category = .performance, .patterns = &.{"performance_"} },
@@ -199,6 +202,7 @@ fn create_test_executable(
 const CategorizedTests = struct {
     unit: std.ArrayList(*std.Build.Step.Run),
     integration: std.ArrayList(*std.Build.Step.Run),
+    ingestion: std.ArrayList(*std.Build.Step.Run),
     simulation: std.ArrayList(*std.Build.Step.Run),
     stress: std.ArrayList(*std.Build.Step.Run),
     performance: std.ArrayList(*std.Build.Step.Run),
@@ -211,6 +215,7 @@ const CategorizedTests = struct {
         return switch (category) {
             .unit => &self.unit,
             .integration => &self.integration,
+            .ingestion => &self.ingestion,
             .simulation => &self.simulation,
             .stress => &self.stress,
             .performance => &self.performance,
@@ -225,6 +230,7 @@ const CategorizedTests = struct {
         return CategorizedTests{
             .unit = std.ArrayList(*std.Build.Step.Run).init(allocator),
             .integration = std.ArrayList(*std.Build.Step.Run).init(allocator),
+            .ingestion = std.ArrayList(*std.Build.Step.Run).init(allocator),
             .simulation = std.ArrayList(*std.Build.Step.Run).init(allocator),
             .stress = std.ArrayList(*std.Build.Step.Run).init(allocator),
             .performance = std.ArrayList(*std.Build.Step.Run).init(allocator),
@@ -329,6 +335,11 @@ fn create_workflow_steps(
         test_integration_step.dependOn(&test_run.step);
     }
 
+    const test_ingestion_step = b.step("test-ingestion", "Run ingestion tests");
+    for (categorized.ingestion.items) |test_run| {
+        test_ingestion_step.dependOn(&test_run.step);
+    }
+
     const test_simulation_step = b.step("test-simulation", "Run simulation tests");
     for (categorized.simulation.items) |test_run| {
         test_simulation_step.dependOn(&test_run.step);
@@ -372,6 +383,7 @@ fn create_workflow_steps(
 
     const test_all_step = b.step("test-all", "Run all tests including stress tests");
     test_all_step.dependOn(test_fast_step);
+    test_all_step.dependOn(test_ingestion_step);
     test_all_step.dependOn(test_simulation_step);
     test_all_step.dependOn(test_stress_step);
     test_all_step.dependOn(test_performance_step);
@@ -414,6 +426,7 @@ fn create_workflow_steps(
             std.debug.print("Core test categories:\n", .{});
             std.debug.print("  test                 - Run unit tests\n", .{});
             std.debug.print("  test-integration     - Run integration tests\n", .{});
+            std.debug.print("  test-ingestion       - Run ingestion tests\n", .{});
             std.debug.print("  test-simulation      - Run simulation tests\n", .{});
             std.debug.print("  test-stress          - Run stress tests\n", .{});
             std.debug.print("  test-performance     - Run performance tests\n", .{});
