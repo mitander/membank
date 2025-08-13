@@ -105,7 +105,7 @@ TIDY_PID=$!
 
 # 3. Start compilation check in background
 (
-    if ./zig/zig build check >"$CHECK_OUTPUT" 2>&1; then
+    if ./zig/zig build test >"$CHECK_OUTPUT" 2>&1; then
         echo "0" > "$CHECK_STATUS"
     else
         echo "1" > "$CHECK_STATUS"
@@ -154,7 +154,7 @@ else
     print_status "FAIL" "Compilation check failed"
     echo ""
     echo "Please fix compilation errors before committing."
-    echo "Run './zig/zig build check' to see detailed error messages."
+    echo "Run './zig/zig build test' to see detailed error messages."
     if [ -s "$CHECK_OUTPUT" ]; then
         echo "Compilation check output:"
         cat "$CHECK_OUTPUT"

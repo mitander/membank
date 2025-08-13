@@ -170,7 +170,7 @@ test_job() {
     fi
 
     log_step "Running tests"
-    if ! ./zig/zig build test-fast -Doptimize="$OPTIMIZE"; then
+    if ! ./zig/zig build test-all -Doptimize="$OPTIMIZE"; then
         log_error "Test suite failed"
         return 1
     fi

@@ -8,31 +8,15 @@ const std = @import("std");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
-const IngestionPipeline = kausaldb.IngestionPipeline;
-const PipelineConfig = kausaldb.PipelineConfig;
-const BackpressureConfig = kausaldb.pipeline.BackpressureConfig;
-const BackpressureStats = kausaldb.pipeline.BackpressureStats;
-const ContextBlock = kausaldb.types.ContextBlock;
-const BlockId = kausaldb.types.BlockId;
-const TestData = kausaldb.TestData;
-const StorageHarness = kausaldb.StorageHarness;
-
-test "ingestion backpressure under normal memory conditions" {
-    return error.SkipZigTest; // TODO: Reimplement with correct pipeline API - add_block method doesn't exist
-}
-
-test "ingestion backpressure under memory pressure" {
-    return error.SkipZigTest; // TODO: Reimplement with correct pipeline API - add_block method doesn't exist
-}
-
-test "ingestion backpressure recovery after pressure relief" {
-    return error.SkipZigTest; // TODO: Reimplement with correct pipeline API - add_block method doesn't exist
-}
-
-test "ingestion backpressure adaptive batch sizing" {
-    return error.SkipZigTest; // TODO: Reimplement with correct pipeline API - add_block method doesn't exist
-}
-
-test "ingestion backpressure memory recovery behavior" {
-    return error.SkipZigTest; // TODO: Reimplement with correct pipeline API - add_block method doesn't exist
-}
+// NOTE: These backpressure integration tests have been removed as the
+// ingestion pipeline API has evolved. They should be reimplemented
+// with the current API in a future release.
+//
+// Original tests covered:
+// - Backpressure under normal memory conditions
+// - Backpressure under memory pressure
+// - Recovery after pressure relief
+// - Adaptive batch sizing
+// - Memory recovery behavior
+//
+// To reimplement, use the current IngestionPipeline API from kausaldb module.
