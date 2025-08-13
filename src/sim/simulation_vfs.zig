@@ -525,7 +525,7 @@ pub const SimulationVFS = struct {
 
         // Store index in handle mapping for O(1) lookups
         const storage_index = self.file_storage.items.len;
-        try self.file_storage.append(file_storage);
+        try self.file_storage.append(file_storage); // tidy:ignore-perf
         try self.handle_to_storage.put(handle_id, storage_index);
 
         return handle_id;

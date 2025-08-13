@@ -349,7 +349,7 @@ test "backpressure under memory pressure reduces batch sizes appropriately" {
     const backpressure_config = BackpressureConfig{
         .default_batch_size = 50,
         .min_batch_size = 5,
-        .pressure_check_interval_ms = 10, // Check frequently
+        .pressure_check_interval_ms = 0, // Check every batch for pressure response validation
         .pressure_config = StorageMetrics.MemoryPressureConfig{
             .memtable_target_bytes = 512 * 1024, // 512KB - very tight
             .max_compaction_queue_size = 2,

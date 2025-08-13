@@ -6,6 +6,7 @@
 
 const kausaldb = @import("kausaldb");
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 
 const simulation = kausaldb.simulation;
@@ -404,7 +405,7 @@ test "performance regression detection" {
 
         // Always log comprehensive performance data for debugging
         std.debug.print("\n=== PERFORMANCE DEBUG INFO ===\n", .{});
-        std.debug.print("Platform: Linux, Tier: {}, Build: ReleaseSafe\n", .{tier});
+        std.debug.print("Platform: {s}, Tier: {}, Build: ReleaseSafe\n", .{ @tagName(builtin.os.tag), tier });
         std.debug.print("BASELINE - count: 50, min: {}ns, max: {}ns, median: {}ns, avg: {}ns\n", .{ baseline_min, baseline_max, baseline_median, baseline_per_op });
         std.debug.print("STRESS - count: {}, failed: {}, min: {}ns, max: {}ns, median: {}ns, avg: {}ns\n", .{ successful_ops, failed_ops, stress_min, stress_max, stress_median, stress_per_op });
         std.debug.print("DEGRADATION - ratio: {d:.2}x, max_single_op: {}ns\n", .{ @as(f64, @floatFromInt(stress_per_op)) / @as(f64, @floatFromInt(baseline_per_op)), stress_max });

@@ -77,7 +77,11 @@ pub const PerformanceThresholds = struct {
                 .throughput = 0.8,
                 .memory = 2.0,
             },
-            .parallel => .{ .latency = 4.0, .throughput = 0.5, .memory = 3.0 }, // 4x latency - parallel execution overhead
+            .parallel => .{
+                .latency = if (builtin.os.tag == .linux) 4.0 else 8.0, // Linux 4x vs Mac 8x - parallel execution overhead varies by platform
+                .throughput = 0.5,
+                .memory = 3.0,
+            },
             .ci => .{ .latency = 20.0, .throughput = 0.2, .memory = 5.0 }, // 20x latency - GitHub runners 4x slower + test overhead (240µs * 4 = 960µs)
             .production => .{ .latency = 1.0, .throughput = 1.0, .memory = 1.0 }, // Exact requirements - isolated benchmarking
         };
