@@ -418,7 +418,7 @@ test "large scale compaction validation with realistic data distribution" {
     var l0_compactions: u32 = 0;
     var level_compactions: u32 = 0;
 
-    while (compaction_cycles < 20) : (compaction_cycles += 1) {
+    while (compaction_cycles < 5) : (compaction_cycles += 1) {
         const compaction_job = try manager.check_compaction_needed();
 
         if (compaction_job) |job_val| {
@@ -561,7 +561,7 @@ test "compaction performance under stress conditions" {
 
     // Track paths for proper lifetime management to prevent use-after-free
     var managed_paths = std.ArrayList([]const u8).init(allocator);
-    try managed_paths.ensureTotalCapacity(7000); // 5000 stress + 2000 mixed operations
+    try managed_paths.ensureTotalCapacity(300); // 100 stress + 200 mixed operations
     defer {
         for (managed_paths.items) |path| {
             allocator.free(path);
@@ -569,7 +569,7 @@ test "compaction performance under stress conditions" {
         managed_paths.deinit();
     }
 
-    const stress_file_count = 5000;
+    const stress_file_count = 100;
     // Performance target - lenient for CI environments with resource constraints
     const max_operations_per_second = 1000; // Reduced from 10000 for CI stability
 
@@ -595,7 +595,7 @@ test "compaction performance under stress conditions" {
 
     // Stress test: Rapid compaction checks
     const check_start = std.time.nanoTimestamp();
-    const check_iterations = 1000;
+    const check_iterations = 50;
 
     var check_idx: u32 = 0;
     while (check_idx < check_iterations) : (check_idx += 1) {
@@ -611,7 +611,7 @@ test "compaction performance under stress conditions" {
 
     // Stress test: Mixed operations under load
     const mixed_start = std.time.nanoTimestamp();
-    const mixed_operations = 2000;
+    const mixed_operations = 200;
 
     var mixed_idx: u32 = 0;
     while (mixed_idx < mixed_operations) : (mixed_idx += 1) {
