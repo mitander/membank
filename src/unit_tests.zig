@@ -16,12 +16,6 @@ comptime {
     _ = @import("core/state_machines.zig");
     _ = @import("core/types.zig");
     _ = @import("core/vfs.zig");
-    _ = @import("dev/allocator_torture_test.zig");
-    _ = @import("dev/commit_msg_validator.zig");
-    _ = @import("dev/debug_allocator.zig");
-    _ = @import("dev/fuzz/common.zig");
-    _ = @import("dev/shell.zig");
-    _ = @import("dev/tidy.zig");
     _ = @import("ingestion/git_source.zig");
     _ = @import("ingestion/glob_matcher.zig");
     _ = @import("ingestion/pipeline.zig");
@@ -145,7 +139,7 @@ fn unit_test_files(arena: std.mem.Allocator, src_dir: std.fs.Dir) ![]const []con
         if (std.mem.eql(u8, entry_path, "unit_tests.zig")) continue;
         if (std.mem.eql(u8, entry_path, "integration_tests.zig")) continue;
         if (std.mem.eql(u8, entry_path, "main.zig")) continue;
-        if (std.mem.startsWith(u8, entry_path, "dev/fuzz/main.zig")) continue;
+        if (std.mem.startsWith(u8, entry_path, "dev/")) continue;
 
         const contents = try src_dir.readFileAlloc(arena, entry_path, 1024 * 1024); // 1MB max
         var line_iterator = std.mem.splitScalar(u8, contents, '\n');

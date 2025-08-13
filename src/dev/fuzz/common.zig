@@ -5,8 +5,10 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const types = @import("../../core/types.zig");
-const concurrency = @import("../../core/concurrency.zig");
+const kausaldb = @import("kausaldb");
+
+const types = kausaldb.types;
+const concurrency = kausaldb.concurrency;
 
 const BlockId = types.BlockId;
 const ContextBlock = types.ContextBlock;

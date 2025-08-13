@@ -17,8 +17,10 @@ const mem = std.mem;
 const math = std.math;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const stdx = @import("../core/stdx.zig");
-const assert = @import("../core/assert.zig");
+const kausaldb = @import("kausaldb");
+
+const stdx = kausaldb.stdx;
+const assert = kausaldb.assert;
 
 /// Magic values for allocation validation
 const ALLOCATION_MAGIC: u32 = 0xDEAD_BEEF;
