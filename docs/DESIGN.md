@@ -45,29 +45,30 @@ The ownership system provides memory safety with zero runtime overhead through c
 
 KausalDB employs a sophisticated five-level memory hierarchy designed for microsecond-level performance and zero-cost abstractions.
 
-**Level 1: Fixed-Size Object Pools**  
+**Level 1: Fixed-Size Object Pools**
 High-frequency objects like SSTable handles and iterators are allocated from pre-sized pools, eliminating allocation overhead and fragmentation. `ObjectPoolType<T>` provides O(1) allocation with debug tracking.
 
-**Level 2: Arena Coordinators**  
+**Level 2: Arena Coordinators**
 Top-level components own exactly one arena and expose it through a coordinator interface. `ArenaCoordinator` provides stable allocation that survives arena resets, eliminating temporal coupling.
 
-**Level 3: Data-Oriented Storage**  
+**Level 3: Data-Oriented Storage**
 Performance-critical data structures use Struct-of-Arrays layout for cache optimization. `BlockIndexDOD` achieves 3-5x performance improvement through contiguous memory access patterns.
 
-**Level 4: Zero-Copy Query Paths**  
+**Level 4: Zero-Copy Query Paths**
 Read operations return direct pointers to storage data via `ZeroCopyQueryInterface`, eliminating allocations on hot paths while maintaining lifetime safety through session tracking.
 
-**Level 5: Type-Safe Coordination**  
+**Level 5: Type-Safe Coordination**
 `TypedStorageCoordinatorType<T>` replaces unsafe `*anyopaque` patterns with compile-time validated interfaces, eliminating type confusion while maintaining zero runtime overhead.
 
 **Memory Lifecycle Management:**
+
 - **Permanent Infrastructure:** GeneralPurposeAllocator for program-lifetime objects
-- **Subsystem Arenas:** ArenaAllocator with coordinator interface for bulk operations  
+- **Subsystem Arenas:** ArenaAllocator with coordinator interface for bulk operations
 - **Task Arenas:** Temporary arenas for bounded operations
 - **Object Pools:** Pre-allocated pools for frequent allocations
 - **Stack Allocation:** Function-scoped temporary buffers
 
-**Ownership Transfer Safety:**  
+**Ownership Transfer Safety:**
 `OwnedBlock` includes moved-from state tracking to prevent use-after-transfer bugs. Debug builds validate ownership transfers with zero release overhead.
 
 ### 2.5. LSM-Tree Storage Engine
@@ -78,6 +79,30 @@ The storage engine is a custom Log-Structured Merge-Tree optimized for high writ
 - **Memtable (`BlockIndex`):** An in-memory `HashMap` that stores recent writes for fast access, backed by an arena allocator. [94]
 - **SSTables (Sorted String Tables):** When the memtable reaches its size threshold, its contents are sorted and flushed to immutable on-disk files. The SSTable on-disk format uses a 64-byte aligned header and Bloom filters to optimize read performance. [102, 103]
 - **Tiered Compaction:** A background process merges SSTables using a size-tiered strategy to reduce read amplification and reclaim space from deleted or updated blocks. [99]
+
+### 2.6. Ingestion Backpressure System
+
+KausalDB includes a sophisticated backpressure mechanism to prevent out-of-memory crashes during high-volume ingestion while maintaining system responsiveness.
+
+**Memory Pressure Detection**: The system continuously monitors storage memory usage through two key metrics:
+
+- **Memtable Memory Usage**: Tracks current in-memory block index size against configurable targets (default: 64MB)
+- **Compaction Queue Size**: Monitors pending compaction operations to detect backlog accumulation
+
+**Adaptive Batch Sizing**: The ingestion pipeline dynamically adjusts batch sizes based on detected memory pressure:
+
+- **Low Pressure** (< 50% of target): Full batch size for maximum throughput
+- **Medium Pressure** (50-70% of target): Reduced batch size (50% of default)
+- **High Pressure** (> 70% of target): Minimum batch size to allow system recovery
+
+**Graceful Degradation**: Under sustained memory pressure, the system prioritizes stability over throughput:
+
+- Automatic batch size reduction prevents memory exhaustion
+- Background compaction given time to process accumulated data
+- System remains responsive and never crashes due to memory pressure
+- Recovery is automatic as memory pressure subsides
+
+This design ensures KausalDB can safely ingest entire codebases without manual tuning or risk of system failure under load.
 
 ## 3. Data Model
 
