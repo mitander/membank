@@ -9,6 +9,7 @@ const builtin = @import("builtin");
 const assert = @import("../core/assert.zig").assert;
 const stdx = @import("../core/stdx.zig");
 const storage = @import("../storage/engine.zig");
+const Config = @import("../storage/config.zig").Config;
 const context_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
 const ownership = @import("../core/ownership.zig");
@@ -692,9 +693,6 @@ pub const QueryCommand = enum(u8) {
     }
 };
 
-const kausaldb_test = @import("../kausaldb_test.zig");
-const QueryHarness = kausaldb_test.QueryHarness;
-
 fn create_test_block(id: BlockId, content: []const u8) ContextBlock {
     return ContextBlock{
         .id = id,
@@ -707,35 +705,57 @@ fn create_test_block(id: BlockId, content: []const u8) ContextBlock {
 
 test "query engine initialization and deinitialization" {
     const allocator = testing.allocator;
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
-    var harness = try QueryHarness.init_and_startup(allocator, "test_harness.query_engine");
-    defer harness.deinit();
-    defer harness.query_engine.deinit();
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_init");
+    defer storage_engine.deinit();
+    defer {
+        storage_engine.shutdown() catch {};
+    }
+    try storage_engine.startup();
 
-    try testing.expect(harness.query_engine.initialized);
-    try testing.expect(harness.query_engine.queries_executed.load() == 0);
-    try testing.expect(harness.query_engine.find_blocks_queries.load() == 0);
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
+
+    try testing.expect(query_engine.initialized);
+    try testing.expect(query_engine.queries_executed.load() == 0);
+    try testing.expect(query_engine.find_blocks_queries.load() == 0);
 }
 
 test "query engine statistics tracking" {
     const allocator = testing.allocator;
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
-    var harness = try QueryHarness.init_and_startup(allocator, "test_harness.query_engine");
-    defer harness.deinit();
-    defer harness.query_engine.deinit();
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_stats");
+    defer storage_engine.deinit();
+    defer {
+        storage_engine.shutdown() catch {};
+    }
+    try storage_engine.startup();
 
-    const initial_stats = harness.query_engine.statistics();
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
+
+    const initial_stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 0), initial_stats.queries_executed);
     try testing.expectEqual(@as(u64, 0), initial_stats.find_blocks_queries);
     try testing.expectEqual(@as(u64, 0), initial_stats.traversal_queries);
 
     const test_id = try BlockId.from_hex("12345678901234567890123456789012");
     const test_block = create_test_block(test_id, "test content");
-    try harness.storage_harness.storage_engine.put_block(test_block);
+    try storage_engine.put_block(test_block);
 
-    _ = try harness.query_engine.find_block(test_id);
+    _ = try query_engine.find_block(test_id);
 
-    const updated_stats = harness.query_engine.statistics();
+    const updated_stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 1), updated_stats.queries_executed);
     try testing.expectEqual(@as(u64, 1), updated_stats.find_blocks_queries);
     try testing.expectEqual(@as(u64, 0), updated_stats.traversal_queries);
@@ -744,37 +764,59 @@ test "query engine statistics tracking" {
 
 test "query engine statistics calculations" {
     const allocator = testing.allocator;
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
-    var harness = try QueryHarness.init_and_startup(allocator, "test_harness.query_engine");
-    defer harness.deinit();
-    defer harness.query_engine.deinit();
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_calc");
+    defer storage_engine.deinit();
+    defer {
+        storage_engine.shutdown() catch {};
+    }
+    try storage_engine.startup();
 
-    const empty_stats = harness.query_engine.statistics();
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
+
+    const empty_stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 0), empty_stats.average_query_latency_ns());
     try testing.expectEqual(@as(f64, 0.0), empty_stats.queries_per_second());
 
-    harness.query_engine.queries_executed.store(10);
-    harness.query_engine.total_query_time_ns.store(1_000_000_000); // 1 second
+    query_engine.queries_executed.store(10);
+    query_engine.total_query_time_ns.store(1_000_000_000); // 1 second
 
-    const stats_with_data = harness.query_engine.statistics();
+    const stats_with_data = query_engine.statistics();
     try testing.expectEqual(@as(u64, 100_000_000), stats_with_data.average_query_latency_ns()); // 100ms average
     try testing.expectEqual(@as(f64, 10.0), stats_with_data.queries_per_second());
 }
 
 test "query engine statistics reset" {
     const allocator = testing.allocator;
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
-    var harness = try QueryHarness.init_and_startup(allocator, "test_harness.query_engine");
-    defer harness.deinit();
-    defer harness.query_engine.deinit();
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_reset");
+    defer storage_engine.deinit();
+    defer {
+        storage_engine.shutdown() catch {};
+    }
+    try storage_engine.startup();
 
-    harness.query_engine.queries_executed.store(5);
-    harness.query_engine.find_blocks_queries.store(3);
-    harness.query_engine.total_query_time_ns.store(1000000);
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
 
-    harness.query_engine.reset_statistics();
+    query_engine.queries_executed.store(5);
+    query_engine.find_blocks_queries.store(3);
+    query_engine.total_query_time_ns.store(1000000);
 
-    const reset_stats = harness.query_engine.statistics();
+    query_engine.reset_statistics();
+
+    const reset_stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 0), reset_stats.queries_executed);
     try testing.expectEqual(@as(u64, 0), reset_stats.find_blocks_queries);
     try testing.expectEqual(@as(u64, 0), reset_stats.traversal_queries);
@@ -783,63 +825,95 @@ test "query engine statistics reset" {
 
 test "query engine find_blocks execution" {
     const allocator = testing.allocator;
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
-    var harness = try QueryHarness.init_and_startup(allocator, "test_harness.query_engine");
-    defer harness.deinit();
-    defer harness.query_engine.deinit();
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_find");
+    defer storage_engine.deinit();
+    defer {
+        storage_engine.shutdown() catch {};
+    }
+    try storage_engine.startup();
+
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
 
     const test_id1 = try BlockId.from_hex("11111111111111111111111111111111");
     const test_id2 = try BlockId.from_hex("22222222222222222222222222222222");
     const test_block1 = create_test_block(test_id1, "content 1");
     const test_block2 = create_test_block(test_id2, "content 2");
 
-    try harness.storage_harness.storage_engine.put_block(test_block1);
-    try harness.storage_harness.storage_engine.put_block(test_block2);
+    try storage_engine.put_block(test_block1);
+    try storage_engine.put_block(test_block2);
 
     var found_count: u32 = 0;
-    if (try harness.query_engine.find_block(test_id1)) |_| found_count += 1;
-    if (try harness.query_engine.find_block(test_id2)) |_| found_count += 1;
+    if (try query_engine.find_block(test_id1)) |_| found_count += 1;
+    if (try query_engine.find_block(test_id2)) |_| found_count += 1;
 
     try testing.expectEqual(@as(u32, 2), found_count);
 }
 
 test "query engine find_block convenience method" {
     const allocator = testing.allocator;
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
-    var harness = try QueryHarness.init_and_startup(allocator, "test_harness.query_engine");
-    defer harness.deinit();
-    defer harness.query_engine.deinit();
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_convenience");
+    defer storage_engine.deinit();
+    defer {
+        storage_engine.shutdown() catch {};
+    }
+    try storage_engine.startup();
+
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
 
     const test_id = try BlockId.from_hex("33333333333333333333333333333333");
     const test_block = create_test_block(test_id, "single block content");
-    try harness.storage_harness.storage_engine.put_block(test_block);
+    try storage_engine.put_block(test_block);
 
-    const result_opt = try harness.query_engine.find_block(test_id);
+    const result = try query_engine.find_block(test_id);
 
-    try testing.expect(result_opt != null);
-    const found_block = result_opt.?;
-    const block_data = found_block.read(.query_engine);
-    try testing.expect(block_data.id.eql(test_id));
+    try testing.expect(result != null);
+    const found_block = result.?;
+    try testing.expect(found_block.block.id.eql(test_id));
 }
 
 test "query engine block_exists check" {
     const allocator = testing.allocator;
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
-    var harness = try QueryHarness.init_and_startup(allocator, "test_harness.query_engine");
-    defer harness.deinit();
-    defer harness.query_engine.deinit();
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_exists");
+    defer storage_engine.deinit();
+    defer {
+        storage_engine.shutdown() catch {};
+    }
+    try storage_engine.startup();
+
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
 
     const existing_id = try BlockId.from_hex("44444444444444444444444444444444");
     const missing_id = try BlockId.from_hex("55555555555555555555555555555555");
 
-    try testing.expect(!harness.query_engine.block_exists(existing_id));
-    try testing.expect(!harness.query_engine.block_exists(missing_id));
+    try testing.expect(!query_engine.block_exists(existing_id));
+    try testing.expect(!query_engine.block_exists(missing_id));
 
-    const test_block = create_test_block(existing_id, "exists test");
-    try harness.storage_harness.storage_engine.put_block(test_block);
+    const test_block = create_test_block(existing_id, "existence test");
+    try storage_engine.put_block(test_block);
 
-    try testing.expect(harness.query_engine.block_exists(existing_id));
-    try testing.expect(!harness.query_engine.block_exists(missing_id));
+    try testing.expect(query_engine.block_exists(existing_id));
+    try testing.expect(!query_engine.block_exists(missing_id));
 }
 
 test "query engine uninitialized error handling" {
@@ -848,13 +922,21 @@ test "query engine uninitialized error handling" {
     if (builtin.mode == .Debug) return;
 
     const allocator = testing.allocator;
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
-    // Create storage harness for storage engine
-    var storage_harness = try kausaldb_test.StorageHarness.init_and_startup(allocator, "test_uninitialized");
-    defer storage_harness.deinit();
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_uninit");
+    defer storage_engine.deinit();
+    defer {
+        storage_engine.shutdown() catch {};
+    }
+    try storage_engine.startup();
 
     // Create query engine manually without initialization
-    var query_engine = QueryEngine.init(allocator, storage_harness.storage_engine);
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
     defer query_engine.deinit();
 
     // Manually set to uninitialized for testing error handling
@@ -876,61 +958,94 @@ test "query command enum parsing" {
 
 test "query engine traversal integration" {
     const allocator = testing.allocator;
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
-    var harness = try QueryHarness.init_and_startup(allocator, "test_harness.query_engine");
-    defer harness.deinit();
-    defer harness.query_engine.deinit();
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_traversal");
+    defer storage_engine.deinit();
+    defer {
+        storage_engine.shutdown() catch {};
+    }
+    try storage_engine.startup();
+
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
 
     const start_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const test_block = create_test_block(start_id, "traversal start");
-    try harness.storage_harness.storage_engine.put_block(test_block);
+    try storage_engine.put_block(test_block);
 
-    const outgoing_result = try harness.query_engine.traverse_outgoing(start_id, 2);
+    const outgoing_result = try query_engine.traverse_outgoing(start_id, 2);
     defer outgoing_result.deinit();
 
-    const incoming_result = try harness.query_engine.traverse_incoming(start_id, 2);
+    const incoming_result = try query_engine.traverse_incoming(start_id, 2);
     defer incoming_result.deinit();
 
-    const bidirectional_result = try harness.query_engine.traverse_bidirectional(start_id, 2);
+    const bidirectional_result = try query_engine.traverse_bidirectional(start_id, 2);
     defer bidirectional_result.deinit();
 
-    const stats = harness.query_engine.statistics();
+    const stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 3), stats.traversal_queries);
     try testing.expectEqual(@as(u64, 3), stats.queries_executed);
 }
 
 test "query engine ownership transfer from storage" {
     const allocator = testing.allocator;
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
-    var harness = try QueryHarness.init_and_startup(allocator, "test_harness.query_engine");
-    defer harness.deinit();
-    defer harness.query_engine.deinit();
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_ownership");
+    defer storage_engine.deinit();
+    defer {
+        storage_engine.shutdown() catch {};
+    }
+    try storage_engine.startup();
+
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
 
     // Create test block and store it
     const test_id = try BlockId.from_hex("11111111111111111111111111111111");
     const test_block = create_test_block(test_id, "ownership transfer test");
-    try harness.storage_harness.storage_engine.put_block(test_block);
+    try storage_engine.put_block(test_block);
 
-    // Query engine should get ownership transfer from storage
-    const found_block_opt = try harness.query_engine.find_block(test_id);
-    try testing.expect(found_block_opt != null);
+    // Query for the block - this should transfer ownership from storage to query
+    const maybe_block = try query_engine.find_block(test_id);
+    try testing.expect(maybe_block != null);
 
-    const found_block = found_block_opt.?;
+    const found_block = maybe_block.?;
 
-    // Verify we can read the block as harness.query_engine
-    const block_data = found_block.read(.query_engine);
-    try testing.expect(block_data.id.eql(test_id));
-    try testing.expect(std.mem.eql(u8, block_data.content, "ownership transfer test"));
+    // Verify we can read the block data
+    const block_data = found_block;
+    try testing.expect(block_data.block.id.eql(test_id));
+    try testing.expect(std.mem.eql(u8, block_data.block.content, "ownership transfer test"));
 
     // Ownership is properly transferred via find_block(.query_engine) parameter
 }
 
 test "query engine zero-copy read operations" {
     const allocator = testing.allocator;
+    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
+    defer {
+        sim_vfs.deinit();
+        allocator.destroy(sim_vfs);
+    }
 
-    var harness = try QueryHarness.init_and_startup(allocator, "test_harness.query_engine");
-    defer harness.deinit();
-    defer harness.query_engine.deinit();
+    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "test_zero_copy");
+    defer storage_engine.deinit();
+    defer {
+        storage_engine.shutdown() catch {};
+    }
+    try storage_engine.startup();
+
+    var query_engine = QueryEngine.init(allocator, &storage_engine);
+    defer query_engine.deinit();
 
     // Create test blocks and store them
     const test_blocks = [_]ContextBlock{
@@ -940,33 +1055,33 @@ test "query engine zero-copy read operations" {
     };
 
     for (test_blocks) |block| {
-        try harness.storage_harness.storage_engine.put_block(block);
+        try storage_engine.put_block(block);
     }
 
     // Use a fail allocator to detect any unexpected allocations during read operations
     const failing_allocator = testing.FailingAllocator.init(allocator, .{ .fail_index = 0 }); // Fail on first allocation attempt
 
     // Query engine read operations should be zero-copy - no allocations needed
-    const found_block1 = try harness.query_engine.find_block(test_blocks[0].id);
+    const found_block1 = try query_engine.find_block(test_blocks[0].id);
     try testing.expect(found_block1 != null);
 
-    const found_block2 = try harness.query_engine.find_block(test_blocks[1].id);
+    const found_block2 = try query_engine.find_block(test_blocks[1].id);
     try testing.expect(found_block2 != null);
 
-    const found_block3 = try harness.query_engine.find_block(test_blocks[2].id);
+    const found_block3 = try query_engine.find_block(test_blocks[2].id);
     try testing.expect(found_block3 != null);
 
     // Verify that reading block data is also zero-copy
-    const block1_data = found_block1.?.read(.query_engine);
-    try testing.expect(block1_data.id.eql(test_blocks[0].id));
-    try testing.expect(std.mem.eql(u8, block1_data.content, "zero copy test 1"));
+    const block1_data = found_block1.?;
+    try testing.expect(block1_data.block.id.eql(test_blocks[0].id));
+    try testing.expect(std.mem.eql(u8, block1_data.block.content, "zero copy test 1"));
 
     // Test multiple reads don't allocate
-    const block2_data = found_block2.?.read(.query_engine);
-    const block3_data = found_block3.?.read(.query_engine);
+    const block2_data = found_block2.?;
+    const block3_data = found_block3.?;
 
-    try testing.expect(std.mem.eql(u8, block2_data.content, "zero copy test 2"));
-    try testing.expect(std.mem.eql(u8, block3_data.content, "zero copy test 3"));
+    try testing.expect(std.mem.eql(u8, block2_data.block.content, "zero copy test 2"));
+    try testing.expect(std.mem.eql(u8, block3_data.block.content, "zero copy test 3"));
 
     // If we reach here without allocation errors, zero-copy is working
     try testing.expect(failing_allocator.allocations == 0);
