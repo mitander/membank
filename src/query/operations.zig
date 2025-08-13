@@ -355,10 +355,9 @@ pub fn find_block(
     storage_engine: *StorageEngine,
     block_id: BlockId,
 ) !QueryResult {
-    const query = FindBlocksQuery{
-        .block_ids = &[_]BlockId{block_id},
-    };
-    return execute_find_blocks(allocator, storage_engine, query);
+    // Create owned copy to prevent use-after-free from temporary array
+    const owned_block_ids = try allocator.dupe(BlockId, &[_]BlockId{block_id});
+    return QueryResult.init_with_owned_ids(allocator, storage_engine, owned_block_ids);
 }
 
 /// Get count of blocks that exist from a list of IDs

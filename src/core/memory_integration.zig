@@ -18,6 +18,7 @@ const fatal_assert = @import("assert.zig").fatal_assert;
 const memory = @import("memory.zig");
 const pools = @import("pools.zig");
 const ownership = @import("ownership.zig");
+const PerformanceAssertion = @import("../test/performance_assertions.zig");
 const context_block = @import("types.zig");
 
 const ArenaCoordinator = memory.ArenaCoordinator;
@@ -36,8 +37,8 @@ pub const IntegratedMemorySystem = struct {
     /// Backing allocator for infrastructure (Level 1: Permanent Infrastructure)
     backing_allocator: std.mem.Allocator,
 
-    /// Arena for subsystem memory management (Level 2: Subsystem Arenas)
-    subsystem_arena: std.heap.ArenaAllocator,
+    // Level 2: Arena-per-subsystem with coordinator interface
+    subsystem_arena: *std.heap.ArenaAllocator,
     arena_coordinator: ArenaCoordinator,
 
     /// Object pools for high-frequency allocations (Level 1: Object Pools)
@@ -213,13 +214,14 @@ pub const IntegratedMemorySystem = struct {
 
     /// Initialize integrated memory system with all architectural improvements.
     pub fn init(backing_allocator: std.mem.Allocator) !Self {
-        var subsystem_arena = std.heap.ArenaAllocator.init(backing_allocator);
-        const arena_coordinator = ArenaCoordinator.init(&subsystem_arena);
+        // Allocate arena on heap to ensure stable address across struct moves
+        const subsystem_arena = try backing_allocator.create(std.heap.ArenaAllocator);
+        subsystem_arena.* = std.heap.ArenaAllocator.init(backing_allocator);
 
         var self = Self{
             .backing_allocator = backing_allocator,
             .subsystem_arena = subsystem_arena,
-            .arena_coordinator = arena_coordinator,
+            .arena_coordinator = ArenaCoordinator.init(subsystem_arena),
             .sstable_pool = try ObjectPoolType(MockSSTable).init(backing_allocator, 32),
             .iterator_pool = try ObjectPoolType(MockIterator).init(backing_allocator, 64),
             .temp_buffer_pool = StackPoolType(TempBuffer, 16).init(),
@@ -387,6 +389,7 @@ pub const IntegratedMemorySystem = struct {
         self.sstable_pool.deinit();
         self.iterator_pool.deinit();
         self.subsystem_arena.deinit();
+        self.backing_allocator.destroy(self.subsystem_arena);
 
         std.log.info("Integrated memory system deinitialized", .{});
     }
@@ -445,9 +448,12 @@ test "IntegratedMemorySystem performance benchmarking" {
     const benchmark = try system.benchmark_performance(1000);
     benchmark.report();
 
-    // Performance should be reasonable
-    try testing.expect(benchmark.ns_per_operation < 10000); // Less than 10μs per operation
-    try testing.expect(benchmark.operations_per_second > 100000); // More than 100K ops/sec
+    // Use tiered performance assertions for cross-platform compatibility
+    const tier = PerformanceAssertion.PerformanceTier.detect();
+    const thresholds = PerformanceAssertion.PerformanceThresholds.for_tier(10000, 100000, tier); // 10μs base, 100K ops/sec base
+
+    try testing.expect(benchmark.ns_per_operation < thresholds.max_latency_ns);
+    try testing.expect(benchmark.operations_per_second > @as(f64, @floatFromInt(thresholds.min_throughput_ops_per_sec)));
 }
 
 test "IntegratedMemorySystem reset and reuse" {
