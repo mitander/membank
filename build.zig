@@ -382,7 +382,6 @@ fn create_workflow_steps(
 
     // Code quality steps
     const tidy_step = b.step("tidy", "Run code quality checks");
-    tidy_step.dependOn(test_step);
 
     const fmt_check = b.addFmt(.{
         .paths = &.{ "src", "tests", "build.zig" },

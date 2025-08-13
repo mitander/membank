@@ -179,10 +179,10 @@ TESTS_START=$(date +%s)
 
 # These are the tests that frequently fail in CI and should be caught locally
 CRITICAL_TESTS=(
-    "integration_server_coordinator"  # Server lifecycle (frequent CI failure)
-    "memory_profiling_validation"    # Memory profiling (frequent CI failure)
-    "unit-test"                      # Core functionality
-    "fault_injection_storage_faults"        # Storage fault tolerance
+    "test"                      # Core unit tests
+    "test-integration"          # Integration tests
+    "test-fault-injection"      # Fault injection tests
+    "test-simulation"           # Simulation tests
 )
 
 CRITICAL_TESTS_SUCCESS=true
@@ -270,7 +270,7 @@ if grep -r "linkLibC\|@cImport" src/ tests/ 2>/dev/null | grep -v "// libc-ok" >
 fi
 
 # Check for missing imports (common CI failure)
-if ! ./zig/zig build check >/dev/null 2>&1; then
+if ! ./zig/zig build test >/dev/null 2>&1; then
     print_status "FAIL" "Import/dependency validation failed"
     DEP_SUCCESS=false
 else
