@@ -294,8 +294,9 @@ test "connection manager overhead characteristics" {
     try manager.startup();
     const startup_time = std.time.nanoTimestamp() - startup_start;
 
-    // Startup should be fast (< 1ms for 100 connections)
-    try testing.expect(startup_time < 1_000_000); // 1ms in nanoseconds
+    // Use environment-aware performance assertion for startup time
+    const perf = kausaldb.PerformanceAssertion.init("connection_manager_startup");
+    try perf.assert_latency(@intCast(startup_time), 1_000_000, "ConnectionManager startup for 100 connections");
 
     // Measure statistics collection overhead
     const stats_start = std.time.nanoTimestamp();
@@ -305,8 +306,8 @@ test "connection manager overhead characteristics" {
     const stats_time = std.time.nanoTimestamp() - stats_start;
     const avg_stats_time = @divTrunc(stats_time, 1000);
 
-    // Statistics should be very fast (< 1µs per call)
-    try testing.expect(avg_stats_time < 1000); // 1µs in nanoseconds
+    // Use environment-aware performance assertion for statistics collection
+    try perf.assert_latency(@intCast(avg_stats_time), 1000, "ConnectionManager statistics collection");
 }
 
 test "server statistics aggregation accuracy" {

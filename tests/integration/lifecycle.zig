@@ -216,11 +216,12 @@ test "full data lifecycle with compaction" {
 
     // Validate performance characteristics (be generous with timing in tests)
     try testing.expect(final_metrics.average_write_latency_ns() > 0);
-    // Skip read latency validation due to metrics measurement inconsistency
+    // Use environment-aware performance assertions for latency validation
+    const perf = kausaldb.PerformanceAssertion.init("data_lifecycle_performance");
     if (final_metrics.average_read_latency_ns() > 0) {
-        try testing.expect(final_metrics.average_read_latency_ns() < 50_000_000); // < 50ms
+        try perf.assert_latency(final_metrics.average_read_latency_ns(), 50_000_000, "average read latency after compaction");
     }
-    try testing.expect(final_metrics.average_write_latency_ns() < 100_000_000); // < 100ms
+    try perf.assert_latency(final_metrics.average_write_latency_ns(), 100_000_000, "average write latency after compaction");
 
     // Validate error-free operations
     try testing.expectEqual(@as(u64, 0), final_metrics.write_errors.load());
@@ -484,14 +485,15 @@ test "large scale performance characteristics" {
     // Phase 2: Performance validation
     const metrics = harness.storage_engine.metrics();
 
-    // Validate ingestion performance (relaxed for CI environments)
+    // Use environment-aware performance assertions for ingestion performance
+    const perf = kausaldb.PerformanceAssertion.init("large_scale_performance");
     const ingestion_rate = (@as(f64, @floatFromInt(large_block_count)) * 1_000_000_000.0) /
         @as(f64, @floatFromInt(ingestion_time));
-    try testing.expect(ingestion_rate > 100.0); // > 100 blocks/second (reasonable for CI)
+    try perf.assert_throughput(@intFromFloat(ingestion_rate), 100, "ingestion rate (blocks/second)");
 
-    // Validate write latency (relaxed for CI environments)
+    // Validate write latency with environment-aware thresholds
     const avg_write_latency = metrics.average_write_latency_ns();
-    try testing.expect(avg_write_latency < 10_000_000); // < 10ms average (reasonable for CI)
+    try perf.assert_latency(avg_write_latency, 10_000_000, "average write latency during large scale ingestion");
 
     // Phase 3: Query performance validation
     const query_start = std.time.nanoTimestamp();

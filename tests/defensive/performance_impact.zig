@@ -318,9 +318,10 @@ test "storage operations performance with defensive programming" {
     try testing.expect(write_result.throughput_ops_per_sec >= 5); // At least 5 writes/sec
     try testing.expect(read_result.throughput_ops_per_sec >= 50); // At least 50 reads/sec
 
-    // Verify reasonable latency bounds (generous limits to avoid flaky tests)
-    try testing.expect(write_result.mean_ns <= 200_000_000); // Less than 200ms per write
-    try testing.expect(read_result.mean_ns <= 10_000_000); // Less than 10ms per read
+    // Use environment-aware performance assertions for latency validation
+    const perf = kausaldb.PerformanceAssertion.init("storage_operations_performance");
+    try perf.assert_latency(write_result.mean_ns, 200_000_000, "mean write latency with defensive programming");
+    try perf.assert_latency(read_result.mean_ns, 10_000_000, "mean read latency with defensive programming");
 }
 
 test "graph operations performance with defensive programming" {

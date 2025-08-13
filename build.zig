@@ -193,6 +193,40 @@ pub fn build(b: *std.Build) void {
     tidy_tests.root_module.addImport("kausaldb_test", kausaldb_test_module);
     const run_tidy_tests = b.addRunArtifact(tidy_tests);
 
+    // Individual dev tool tests that don't have circular dependencies
+    const commit_validator_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/dev/commit_msg_validator.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_commit_validator_tests = b.addRunArtifact(commit_validator_tests);
+
+    const shell_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/dev/shell.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_shell_tests = b.addRunArtifact(shell_tests);
+
+    const allocator_torture_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/dev/allocator_torture_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    allocator_torture_tests.root_module.addImport("kausaldb", kausaldb_test_module);
+    const run_allocator_torture_tests = b.addRunArtifact(allocator_torture_tests);
+
+    const dev_test_step = b.step("dev-test", "Run development tools tests");
+    dev_test_step.dependOn(&run_commit_validator_tests.step);
+    dev_test_step.dependOn(&run_shell_tests.step);
+    dev_test_step.dependOn(&run_allocator_torture_tests.step);
+
     // Fast developer workflow: unit tests only
     const unit_test_run_step = blk: {
         for (test_configs.items, test_steps.items) |config, test_run| {
@@ -202,18 +236,27 @@ pub fn build(b: *std.Build) void {
     };
     const test_step = b.step("test", "Run all unit tests from src/ modules (developer default)");
     test_step.dependOn(&unit_test_run_step.step);
+    test_step.dependOn(&run_commit_validator_tests.step);
+    test_step.dependOn(&run_shell_tests.step);
+    test_step.dependOn(&run_allocator_torture_tests.step);
 
     // CI validation: full coverage with reasonable runtime
     const test_fast_step = b.step("test-fast", "Run tests (fast CI validation)");
     for (test_steps.items) |test_run| {
         test_fast_step.dependOn(&test_run.step);
     }
+    test_fast_step.dependOn(&run_commit_validator_tests.step);
+    test_fast_step.dependOn(&run_shell_tests.step);
+    test_fast_step.dependOn(&run_allocator_torture_tests.step);
 
     // Complete validation: includes memory stress and edge cases
     const test_all_step = b.step("test-all", "Run all tests including problematic ones");
     for (test_steps.items) |test_run| {
         test_all_step.dependOn(&test_run.step);
     }
+    test_all_step.dependOn(&run_commit_validator_tests.step);
+    test_all_step.dependOn(&run_shell_tests.step);
+    test_all_step.dependOn(&run_allocator_torture_tests.step);
     // Enable memory debugging with external tools like Valgrind
     for (test_install_steps.items) |install_step| {
         test_all_step.dependOn(&install_step.step);
