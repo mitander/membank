@@ -14,6 +14,8 @@ const storage = kausaldb.storage;
 const types = kausaldb.types;
 const assert = kausaldb.assert.assert;
 const fatal_assert = kausaldb.assert.fatal_assert;
+const PerformanceTier = kausaldb.PerformanceTier;
+const PerformanceThresholds = kausaldb.performance_assertions.PerformanceThresholds;
 
 const Simulation = simulation.Simulation;
 const NodeId = simulation.NodeId;
@@ -302,11 +304,6 @@ test "memory safety under pressure" {
 }
 
 test "performance regression detection" {
-    // Detect CI environment for relaxed timing thresholds
-    const is_ci = std.posix.getenv("CI") != null or
-        std.posix.getenv("GITHUB_ACTIONS") != null or
-        std.posix.getenv("CONTINUOUS_INTEGRATION") != null;
-
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -369,9 +366,10 @@ test "performance regression detection" {
     if (successful_ops > 0) {
         const stress_per_op = @divTrunc(stress_time, successful_ops);
 
-        // Regression detection with CI-aware thresholds
-        const max_slowdown: u64 = if (is_ci) 100 else 20; // Much more relaxed in CI
-        try testing.expect(stress_per_op < baseline_per_op * max_slowdown);
+        // Regression detection with tier-aware thresholds
+        const tier = PerformanceTier.detect();
+        const thresholds = PerformanceThresholds.for_tier(@as(u64, @intCast(baseline_per_op)), 0, tier);
+        try testing.expect(stress_per_op < thresholds.max_latency_ns);
     }
 
     // Recovery performance
@@ -385,8 +383,10 @@ test "performance regression detection" {
 
     const recovery_time = std.time.nanoTimestamp() - recovery_start;
 
-    // Recovery should be within 5x baseline performance (relaxed for concurrent load)
-    try testing.expect(recovery_time < baseline_per_op * 5);
+    // Recovery should use tier-aware performance thresholds
+    const tier = PerformanceTier.detect();
+    const thresholds = PerformanceThresholds.for_tier(@as(u64, @intCast(baseline_per_op)), 0, tier);
+    try testing.expect(recovery_time < thresholds.max_latency_ns);
 }
 
 test "writes eventually succeed under packet loss" {
