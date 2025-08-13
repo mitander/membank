@@ -107,11 +107,31 @@ pub const SimulationVFS = struct {
     file_arena: std.heap.ArenaAllocator,
     files: std.StringHashMap(FileHandleId),
     file_storage: std.ArrayList(FileStorage),
+    // Direct handle-to-storage mapping for O(1) lookups - eliminates linear search
+    handle_to_storage: std.HashMap(
+        FileHandleId,
+        usize,
+        FileHandleIdContext,
+        std.hash_map.default_max_load_percentage,
+    ),
     handle_registry: FileHandleRegistry,
     current_time_ns: i64,
     fault_injection: FaultInjectionState,
 
     const MAGIC_NUMBER: u64 = 0xDEADBEEFCAFEBABE;
+
+    /// Context for FileHandleId hash map operations
+    const FileHandleIdContext = struct {
+        pub fn hash(self: @This(), key: FileHandleId) u64 {
+            _ = self;
+            return key.hash();
+        }
+
+        pub fn eql(self: @This(), a: FileHandleId, b: FileHandleId) bool {
+            _ = self;
+            return a.eql(b);
+        }
+    };
 
     const Self = @This();
 
@@ -258,6 +278,14 @@ pub const SimulationVFS = struct {
         const files = std.StringHashMap(FileHandleId).init(allocator);
         var file_storage = std.ArrayList(FileStorage).init(allocator);
         file_storage.ensureTotalCapacity(512) catch unreachable; // Safety: generous initial capacity for testing
+        
+        var handle_to_storage = std.HashMap(
+            FileHandleId,
+            usize,
+            FileHandleIdContext,
+            std.hash_map.default_max_load_percentage,
+        ).init(allocator);
+        handle_to_storage.ensureTotalCapacity(512) catch unreachable; // Safety: generous initial capacity for testing
 
         return SimulationVFS{
             .magic = MAGIC_NUMBER,
@@ -265,6 +293,7 @@ pub const SimulationVFS = struct {
             .file_arena = file_arena,
             .files = files,
             .file_storage = file_storage,
+            .handle_to_storage = handle_to_storage,
             .handle_registry = FileHandleRegistry.init(allocator),
             .current_time_ns = 1_700_000_000_000_000_000, // Fixed epoch for determinism
             .fault_injection = FaultInjectionState.init(seed),
@@ -293,6 +322,15 @@ pub const SimulationVFS = struct {
         sim_vfs.files = std.StringHashMap(FileHandleId).init(allocator);
         sim_vfs.file_storage = std.ArrayList(FileStorage).init(allocator);
         sim_vfs.file_storage.ensureTotalCapacity(512) catch unreachable; // Safety: generous initial capacity for testing
+        
+        sim_vfs.handle_to_storage = std.HashMap(
+            FileHandleId,
+            usize,
+            FileHandleIdContext,
+            std.hash_map.default_max_load_percentage,
+        ).init(allocator);
+        sim_vfs.handle_to_storage.ensureTotalCapacity(512) catch unreachable; // Safety: generous initial capacity for testing
+        
         sim_vfs.handle_registry = FileHandleRegistry.init(allocator);
         sim_vfs.current_time_ns = 1_700_000_000_000_000_000; // Fixed epoch for determinism
         sim_vfs.fault_injection = FaultInjectionState.init(seed);
@@ -374,24 +412,26 @@ pub const SimulationVFS = struct {
         }
     }
 
-    /// Retrieve stable pointer to file data by handle
+    /// Retrieve stable pointer to file data by handle using O(1) hash map lookup
     fn file_data_by_handle(self: *SimulationVFS, handle: FileHandleId) ?*SimulationFileData {
-        for (self.file_storage.items) |*storage| {
-            if (storage.handle.id.eql(handle) and storage.active) {
-                return &storage.data;
-            }
-        }
-        return null;
+        const storage_index = self.handle_to_storage.get(handle) orelse return null;
+        if (storage_index >= self.file_storage.items.len) return null;
+        
+        const storage = &self.file_storage.items[storage_index];
+        if (!storage.active or !storage.handle.id.eql(handle)) return null;
+        
+        return &storage.data;
     }
 
-    /// Retrieve FileStorage with state validation for operations
+    /// Retrieve FileStorage with state validation for operations using O(1) hash map lookup
     fn file_storage_by_handle(self: *SimulationVFS, handle: FileHandleId) ?*FileStorage {
-        for (self.file_storage.items) |*storage| {
-            if (storage.handle.id.eql(handle) and storage.active) {
-                return storage;
-            }
-        }
-        return null;
+        const storage_index = self.handle_to_storage.get(handle) orelse return null;
+        if (storage_index >= self.file_storage.items.len) return null;
+        
+        const storage = &self.file_storage.items[storage_index];
+        if (!storage.active or !storage.handle.id.eql(handle)) return null;
+        
+        return storage;
     }
 
     /// Retrieve file data by handle for VFile read operations with state validation
@@ -469,7 +509,7 @@ pub const SimulationVFS = struct {
         return write_size;
     }
 
-    /// Create new file storage entry using proper handle registry
+    /// Create new file storage entry using proper handle registry with O(1) mapping
     fn create_file_storage(
         self: *SimulationVFS,
         path: []const u8,
@@ -482,18 +522,22 @@ pub const SimulationVFS = struct {
         // Create file storage using the registered handle
         const path_copy = try self.file_arena.allocator().dupe(u8, path);
         const file_storage = FileStorage.init(data, path_copy, handle_id, access_mode);
+        
+        // Store index in handle mapping for O(1) lookups
+        const storage_index = self.file_storage.items.len;
         try self.file_storage.append(file_storage);
+        try self.handle_to_storage.put(handle_id, storage_index);
 
         return handle_id;
     }
 
-    /// Remove file storage entry and close handle through registry
+    /// Remove file storage entry and close handle through registry with O(1) lookup
     fn remove_file_storage(self: *SimulationVFS, handle: FileHandleId) void {
-        // Remove from file storage list
-        for (self.file_storage.items) |*storage| {
-            if (storage.handle.id.eql(handle) and storage.active) {
-                storage.active = false;
-                break;
+        // Remove from handle mapping and mark storage as inactive
+        if (self.handle_to_storage.fetchRemove(handle)) |entry| {
+            const storage_index = entry.value;
+            if (storage_index < self.file_storage.items.len) {
+                self.file_storage.items[storage_index].active = false;
             }
         }
 
@@ -514,6 +558,7 @@ pub const SimulationVFS = struct {
         }
 
         self.file_storage.deinit();
+        self.handle_to_storage.deinit();
         self.handle_registry.deinit();
         self.file_arena.deinit();
     }
