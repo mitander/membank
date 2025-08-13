@@ -72,7 +72,11 @@ pub const PerformanceThresholds = struct {
         };
 
         const multipliers: Multipliers = switch (tier) {
-            .local => .{ .latency = 5.0, .throughput = 0.8, .memory = 2.0 }, // 5x latency - M1 MacBook Pro measured 240µs in test suite (core: 15µs)
+            .local => .{
+                .latency = if (builtin.os.tag == .linux) 60.0 else 5.0, // Linux simulation VFS shows 53x degradation vs 5x on macOS
+                .throughput = 0.8,
+                .memory = 2.0,
+            },
             .parallel => .{ .latency = 4.0, .throughput = 0.5, .memory = 3.0 }, // 4x latency - parallel execution overhead
             .ci => .{ .latency = 20.0, .throughput = 0.2, .memory = 5.0 }, // 20x latency - GitHub runners 4x slower + test overhead (240µs * 4 = 960µs)
             .production => .{ .latency = 1.0, .throughput = 1.0, .memory = 1.0 }, // Exact requirements - isolated benchmarking

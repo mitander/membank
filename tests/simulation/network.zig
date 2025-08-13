@@ -326,10 +326,11 @@ test "performance regression detection" {
     var baseline_max: i128 = 0;
     var baseline_times = std.ArrayList(i128).init(allocator);
     defer baseline_times.deinit();
-    
+    try baseline_times.ensureTotalCapacity(50); // Pre-allocate for known baseline operation count
+
     for (0..50) |i| {
         const op_start = std.time.nanoTimestamp();
-        
+
         const file_path = try std.fmt.allocPrint(allocator, "perf_test/file_{}.dat", .{i});
         var file = try node_vfs.create(file_path);
         defer file.close();
@@ -338,7 +339,7 @@ test "performance regression detection" {
         _ = try file.write(data);
 
         sim.tick();
-        
+
         const op_time = std.time.nanoTimestamp() - op_start;
         try baseline_times.append(op_time);
         baseline_min = @min(baseline_min, op_time);
@@ -356,13 +357,14 @@ test "performance regression detection" {
     var successful_ops: u32 = 0;
     var stress_times = std.ArrayList(i128).init(allocator);
     defer stress_times.deinit();
+    try stress_times.ensureTotalCapacity(50); // Pre-allocate for known stress operation count
     var stress_min: i128 = std.math.maxInt(i128);
     var stress_max: i128 = 0;
     var failed_ops: u32 = 0;
-    
+
     for (50..100) |i| {
         const op_start = std.time.nanoTimestamp();
-        
+
         const file_path = try std.fmt.allocPrint(allocator, "perf_test/stress_file_{}.dat", .{i});
         if (node_vfs.create(file_path)) |file_result| {
             var file = file_result;
@@ -395,31 +397,22 @@ test "performance regression detection" {
 
         // Comprehensive performance analysis
         const tier = PerformanceTier.detect();
-        
+
         // Calculate detailed statistics
         const baseline_median = baseline_times.items[baseline_times.items.len / 2];
         const stress_median = stress_times.items[stress_times.items.len / 2];
-        
+
         // Always log comprehensive performance data for debugging
         std.debug.print("\n=== PERFORMANCE DEBUG INFO ===\n", .{});
         std.debug.print("Platform: Linux, Tier: {}, Build: ReleaseSafe\n", .{tier});
-        std.debug.print("BASELINE - count: 50, min: {}ns, max: {}ns, median: {}ns, avg: {}ns\n", .{
-            baseline_min, baseline_max, baseline_median, baseline_per_op
-        });
-        std.debug.print("STRESS - count: {}, failed: {}, min: {}ns, max: {}ns, median: {}ns, avg: {}ns\n", .{
-            successful_ops, failed_ops, stress_min, stress_max, stress_median, stress_per_op
-        });
-        std.debug.print("DEGRADATION - ratio: {d:.2}x, max_single_op: {}ns\n", .{
-            @as(f64, @floatFromInt(stress_per_op)) / @as(f64, @floatFromInt(baseline_per_op)), stress_max
-        });
-        
+        std.debug.print("BASELINE - count: 50, min: {}ns, max: {}ns, median: {}ns, avg: {}ns\n", .{ baseline_min, baseline_max, baseline_median, baseline_per_op });
+        std.debug.print("STRESS - count: {}, failed: {}, min: {}ns, max: {}ns, median: {}ns, avg: {}ns\n", .{ successful_ops, failed_ops, stress_min, stress_max, stress_median, stress_per_op });
+        std.debug.print("DEGRADATION - ratio: {d:.2}x, max_single_op: {}ns\n", .{ @as(f64, @floatFromInt(stress_per_op)) / @as(f64, @floatFromInt(baseline_per_op)), stress_max });
+
         const thresholds = PerformanceThresholds.for_tier(@as(u64, @intCast(baseline_per_op)), 0, tier);
-        std.debug.print("THRESHOLD - expected_max: {}ns, actual: {}ns, status: {s}\n", .{
-            thresholds.max_latency_ns, stress_per_op, 
-            if (stress_per_op < thresholds.max_latency_ns) "PASS" else "FAIL"
-        });
+        std.debug.print("THRESHOLD - expected_max: {}ns, actual: {}ns, status: {s}\n", .{ thresholds.max_latency_ns, stress_per_op, if (stress_per_op < thresholds.max_latency_ns) "PASS" else "FAIL" });
         std.debug.print("===============================\n\n", .{});
-        
+
         // Performance assertion re-enabled after fixing simulation framework O(n²) bottleneck
         // The O(1) hash map optimization eliminated 45x degradation in file handle lookups
         try testing.expect(stress_per_op < thresholds.max_latency_ns);
