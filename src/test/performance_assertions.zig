@@ -165,6 +165,7 @@ pub const PerformanceAssertion = struct {
             const tier_name = switch (self.tier) {
                 .local => "LOCAL",
                 .ci => "CI",
+                .parallel => "PARALLEL",
                 .production => "PRODUCTION",
             };
 
@@ -191,6 +192,7 @@ pub const PerformanceAssertion = struct {
             const tier_name = switch (self.tier) {
                 .local => "LOCAL",
                 .ci => "CI",
+                .parallel => "PARALLEL",
                 .production => "PROD",
             };
             std.debug.print("[OK] [{s}] {s}: {d} ops/sec (min: {d} ops/sec, {d:.1}% above minimum)\n", .{
