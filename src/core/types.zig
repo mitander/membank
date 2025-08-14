@@ -54,11 +54,24 @@ pub const BlockId = struct {
         return std.mem.eql(u8, &self.bytes, &other.bytes);
     }
 
-    /// Generate a random BlockId for testing purposes.
-    /// Uses thread-local PRNG for deterministic test results.
+    /// Global counter for deterministic BlockId generation.
+    /// Ensures reproducible test behavior and maintains architectural determinism.
+    /// Single-threaded design eliminates need for synchronization.
+    var generation_counter: u64 = 1;
+
+    /// Generate a deterministic BlockId for testing purposes.
+    /// Uses simple counter to ensure unique, reproducible IDs across test runs.
+    /// This maintains KausalDB's core principle of deterministic behavior.
     pub fn generate() BlockId {
+        const counter_value = generation_counter;
+        generation_counter += 1;
         var bytes: [16]u8 = undefined;
-        std.crypto.random.bytes(&bytes);
+
+        // Use counter as seed for deterministic generation
+        // Split 64-bit counter across the 128-bit ID space
+        std.mem.writeInt(u64, bytes[0..8], counter_value, .little);
+        std.mem.writeInt(u64, bytes[8..16], counter_value ^ 0xDEADBEEFCAFEBABE, .little);
+
         return BlockId{ .bytes = bytes };
     }
 };

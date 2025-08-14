@@ -179,23 +179,48 @@ pub fn ZeroCopyQueryInterfaceType(comptime StorageEngineType: type) type {
         // These are implementation placeholders that must be filled by actual storage integration
 
         fn query_block_pointer_from_storage(self: *const Self, block_id: BlockId) ?*const ContextBlock {
-            // Implementation deferred to storage engine integration
-            _ = self;
-            _ = block_id;
+            // Coordinator pattern provides type-safe storage access while maintaining
+            // stable references across potential arena operations
+            const storage_engine = self.coordinator.storage_engine;
+
+            // Check memtable first - this provides true zero-copy access
+            if (storage_engine.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
+                return block_ptr;
+            }
+
+            // For SSTables, we cannot provide zero-copy access since they require
+            // loading from disk into query cache. Zero-copy is only available
+            // for memtable blocks that are already in memory.
             return null;
         }
 
         fn check_block_existence_in_storage(self: *const Self, block_id: BlockId) bool {
-            // Implementation deferred to storage engine integration
-            _ = self;
-            _ = block_id;
-            return false;
+            const storage_engine = self.coordinator.storage_engine;
+
+            // Check memtable first
+            if (storage_engine.memtable_manager.find_block_in_memtable(block_id) != null) {
+                return true;
+            }
+
+            // Check SSTables (this may involve disk I/O)
+            // For existence check, we can use the storage engine's full lookup
+            const result = storage_engine.find_storage_block(block_id) catch return false;
+            return result != null;
         }
 
         fn query_version_from_storage(self: *const Self, block_id: BlockId) ?u64 {
-            // Implementation deferred to storage engine integration
-            _ = self;
-            _ = block_id;
+            const storage_engine = self.coordinator.storage_engine;
+
+            // Check memtable first for zero-copy version access
+            if (storage_engine.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
+                return block_ptr.version;
+            }
+
+            // For SSTables, we need to load the block (not zero-copy)
+            if (storage_engine.find_storage_block(block_id) catch null) |storage_block| {
+                return storage_block.read(.storage_engine).version;
+            }
+
             return null;
         }
     };
