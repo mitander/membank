@@ -257,8 +257,11 @@ pub const ContextBlock = struct {
         const required_size = self.serialized_size();
         if (buffer.len < required_size) return error.BufferTooSmall;
 
-        // Zero-initialize entire buffer to prevent garbage data
-        @memset(buffer[0..required_size], 0);
+        // Zero-initialize only the header padding area to prevent garbage data
+        // The serialize() function will overwrite all data areas, so we only need to 
+        // clear areas that might contain garbage (like padding in the header)
+        // This optimization reduces memset from 1MB+ to just 64 bytes for large blocks
+        @memset(buffer[0..@min(BlockHeader.SIZE, required_size)], 0);
 
         const header = BlockHeader{
             .magic = MAGIC,

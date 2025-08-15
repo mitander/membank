@@ -109,13 +109,17 @@ pub const BlockIndex = struct {
         }
 
         // Clone all string content through arena coordinator for O(1) bulk deallocation
-        // Arena lifecycle is properly managed by StorageEngine clear() -> arena reset pattern
-        const cloned_block = ContextBlock{
-            .id = block.id,
-            .version = block.version,
-            .source_uri = try self.arena_coordinator.duplicate_slice(u8, block.source_uri),
-            .metadata_json = try self.arena_coordinator.duplicate_slice(u8, block.metadata_json),
-            .content = try self.arena_coordinator.duplicate_slice(u8, block.content),
+        // Large blocks use chunked copying to avoid cache misses during multi-MB allocations
+        const cloned_block = if (block.content.len >= 512 * 1024) blk: {
+            break :blk try self.clone_large_block(block);
+        } else blk: {
+            break :blk ContextBlock{
+                .id = block.id,
+                .version = block.version,
+                .source_uri = try self.arena_coordinator.duplicate_slice(u8, block.source_uri),
+                .metadata_json = try self.arena_coordinator.duplicate_slice(u8, block.metadata_json),
+                .content = try self.arena_coordinator.duplicate_slice(u8, block.content),
+            };
         };
 
         // Debug-time validation that coordinator correctly clones strings.
@@ -211,6 +215,33 @@ pub const BlockIndex = struct {
         self.blocks.clearRetainingCapacity();
         // Arena memory reset handled by StorageEngine - enables O(1) bulk cleanup
         self.memory_used = 0;
+    }
+    
+    /// Large block cloning with chunked copy to improve cache locality.
+    /// Standard dupe() performs large single allocations that can cause cache misses.
+    fn clone_large_block(self: *BlockIndex, block: ContextBlock) !ContextBlock {
+        const content_buffer = try self.arena_coordinator.alloc(u8, block.content.len);
+        
+        // Chunked copying improves cache performance for multi-megabyte blocks
+        const CHUNK_SIZE = 64 * 1024;
+        if (block.content.len > CHUNK_SIZE) {
+            var offset: usize = 0;
+            while (offset < block.content.len) {
+                const chunk_size = @min(CHUNK_SIZE, block.content.len - offset);
+                @memcpy(content_buffer[offset..offset + chunk_size], block.content[offset..offset + chunk_size]);
+                offset += chunk_size;
+            }
+        } else {
+            @memcpy(content_buffer, block.content);
+        }
+        
+        return ContextBlock{
+            .id = block.id,
+            .version = block.version,
+            .source_uri = try self.arena_coordinator.duplicate_slice(u8, block.source_uri),
+            .metadata_json = try self.arena_coordinator.duplicate_slice(u8, block.metadata_json),
+            .content = content_buffer,
+        };
     }
 };
 

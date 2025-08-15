@@ -738,6 +738,13 @@ pub const StorageEngine = struct {
         };
     }
 
+    /// Configure WAL immediate sync behavior for performance optimization.
+    /// WARNING: Disabling immediate sync reduces durability guarantees.
+    /// Should only be used for benchmarking or testing purposes.
+    pub fn configure_wal_immediate_sync(self: *StorageEngine, enable: bool) void {
+        self.memtable_manager.configure_wal_immediate_sync(enable);
+    }
+
     /// Memory usage information structure for testing and monitoring
     pub const MemoryUsage = struct {
         total_bytes: u64,

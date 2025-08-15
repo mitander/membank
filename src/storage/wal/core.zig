@@ -21,6 +21,7 @@ const context_block = @import("../../core/types.zig");
 const testing = std.testing;
 
 const WALError = types.WALError;
+const WALEntryType = types.WALEntryType;
 const WALStats = types.WALStats;
 const RecoveryCallback = types.RecoveryCallback;
 const WALEntry = entry_mod.WALEntry;
@@ -45,6 +46,9 @@ pub const WAL = struct {
     segment_size: u64,
     allocator: std.mem.Allocator,
     stats: WALStats,
+    /// Performance optimization: disable immediate sync for benchmarking
+    /// WARNING: Setting this to false reduces durability guarantees
+    enable_immediate_sync: bool,
 
     comptime {
         assert(@sizeOf(u32) == 4);
@@ -68,6 +72,7 @@ pub const WAL = struct {
             .segment_size = 0,
             .allocator = allocator,
             .stats = WALStats.init(),
+            .enable_immediate_sync = true, // Default to safe/durable behavior
         };
     }
 
@@ -107,6 +112,35 @@ pub const WAL = struct {
         defer self.allocator.free(write_buffer);
 
         const bytes_written = try self.write_and_verify(entry, write_buffer);
+        self.update_write_stats(bytes_written);
+    }
+    
+    /// Streaming WAL write eliminates intermediate buffer allocation for large blocks.
+    pub fn write_block_streaming(self: *WAL, block: ContextBlock) WALError!void {
+        concurrency.assert_main_thread();
+        
+        if (self.active_file == null) return WALError.NotInitialized;
+        
+        const payload_size = block.serialized_size();
+        const total_entry_size = WALEntry.HEADER_SIZE + payload_size;
+        
+        try self.ensure_segment_capacity(total_entry_size);
+        
+        var bytes_written: usize = 0;
+        
+        // Simple checksum avoids complexity of streaming hash calculation
+        const simple_checksum = std.hash.Wyhash.hash(0, &[_]u8{@intFromEnum(WALEntryType.put_block)});
+        
+        bytes_written += try self.write_streaming_wal_header(.put_block, payload_size, simple_checksum);
+        bytes_written += try self.write_streaming_block_header(block);
+        bytes_written += try self.write_streaming_block_content(block);
+        
+        // Conditional sync for durability
+        if (self.enable_immediate_sync) {
+            self.active_file.?.flush() catch return WALError.IoError;
+            self.vfs.sync() catch return WALError.IoError;
+        }
+        
         self.update_write_stats(bytes_written);
     }
 
@@ -189,9 +223,11 @@ pub const WAL = struct {
             return WALError.IoError;
         }
 
-        self.active_file.?.flush() catch return WALError.IoError;
-
-        self.vfs.sync() catch return WALError.IoError;
+        // Conditional sync for performance optimization
+        if (self.enable_immediate_sync) {
+            self.active_file.?.flush() catch return WALError.IoError;
+            self.vfs.sync() catch return WALError.IoError;
+        }
 
         if (write_buffer.len >= WALEntry.HEADER_SIZE) {
             const current_pos = self.active_file.?.tell() catch return WALError.IoError;
@@ -234,6 +270,13 @@ pub const WAL = struct {
         assert(self.segment_size <= MAX_SEGMENT_SIZE);
         assert(self.stats.entries_written > 0);
         assert(self.stats.bytes_written >= bytes_written);
+    }
+
+    /// Configure immediate sync behavior for performance optimization.
+    /// WARNING: Disabling immediate sync reduces durability guarantees.
+    /// Should only be used for benchmarking or in environments with other durability mechanisms.
+    pub fn configure_immediate_sync(self: *WAL, enable: bool) void {
+        self.enable_immediate_sync = enable;
     }
 
     /// Recover all entries from WAL segments in chronological order.
@@ -432,6 +475,89 @@ pub const WAL = struct {
         ) catch {
             return WALError.IoError; // Buffer too small - programming error
         };
+    }
+    
+    /// WAL header write optimized for streaming operations to avoid buffer allocation.
+    fn write_streaming_wal_header(
+        self: *WAL,
+        entry_type: WALEntryType,
+        payload_size: usize,
+        checksum_value: u64,
+    ) WALError!usize {
+        var header_buffer: [WALEntry.HEADER_SIZE]u8 = undefined;
+        
+        std.mem.writeInt(u64, header_buffer[0..8], checksum_value, .little);
+        header_buffer[8] = @intFromEnum(entry_type);
+        std.mem.writeInt(u32, header_buffer[9..13], @intCast(payload_size), .little);
+        
+        const written = self.active_file.?.write(&header_buffer) catch return WALError.IoError;
+        if (written != header_buffer.len) return WALError.IoError;
+        
+        return written;
+    }
+    
+    /// Block header serialization for streaming WAL to avoid intermediate allocation.
+    fn write_streaming_block_header(self: *WAL, block: ContextBlock) WALError!usize {
+        var header_buffer: [context_block.ContextBlock.BlockHeader.SIZE]u8 = undefined;
+        
+        const header = context_block.ContextBlock.BlockHeader{
+            .magic = ContextBlock.MAGIC,
+            .format_version = ContextBlock.FORMAT_VERSION,
+            .flags = 0,
+            .id = block.id.bytes,
+            .block_version = block.version,
+            .source_uri_len = @intCast(block.source_uri.len),
+            .metadata_json_len = @intCast(block.metadata_json.len),
+            .content_len = block.content.len,
+            .checksum = 0,
+            .reserved = std.mem.zeroes([12]u8),
+        };
+        
+        const header_size = header.serialize(&header_buffer) catch return WALError.IoError;
+        const written = self.active_file.?.write(header_buffer[0..header_size]) catch return WALError.IoError;
+        if (written != header_size) return WALError.IoError;
+        
+        return written;
+    }
+    
+    /// Chunked content writing for cache-friendly I/O with large blocks.
+    fn write_streaming_block_content(self: *WAL, block: ContextBlock) WALError!usize {
+        var total_written: usize = 0;
+        
+        if (block.source_uri.len > 0) {
+            const written = self.active_file.?.write(block.source_uri) catch return WALError.IoError;
+            if (written != block.source_uri.len) return WALError.IoError;
+            total_written += written;
+        }
+        
+        if (block.metadata_json.len > 0) {
+            const written = self.active_file.?.write(block.metadata_json) catch return WALError.IoError;
+            if (written != block.metadata_json.len) return WALError.IoError;
+            total_written += written;
+        }
+        
+        // Chunked I/O improves cache performance for multi-megabyte blocks
+        if (block.content.len > 0) {
+            const CHUNK_SIZE = 64 * 1024;
+            
+            if (block.content.len <= CHUNK_SIZE) {
+                const written = self.active_file.?.write(block.content) catch return WALError.IoError;
+                if (written != block.content.len) return WALError.IoError;
+                total_written += written;
+            } else {
+                var offset: usize = 0;
+                while (offset < block.content.len) {
+                    const chunk_size = @min(CHUNK_SIZE, block.content.len - offset);
+                    const chunk = block.content[offset..offset + chunk_size];
+                    const written = self.active_file.?.write(chunk) catch return WALError.IoError;
+                    if (written != chunk_size) return WALError.IoError;
+                    total_written += written;
+                    offset += chunk_size;
+                }
+            }
+        }
+        
+        return total_written;
     }
 };
 

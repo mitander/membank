@@ -22,12 +22,16 @@ const BlockId = context_block.BlockId;
 const StorageEngineBlock = ownership.StorageEngineBlock;
 const OwnedBlock = ownership.OwnedBlock;
 
+
+
 /// WAL entry header structure with corruption detection
 pub const WALEntry = struct {
     checksum: u64,
     entry_type: WALEntryType,
     payload_size: u32,
     payload: []const u8,
+    /// Reserved for future pool optimization
+    _reserved: u8 = 0,
 
     pub const HEADER_SIZE = 13; // 8 bytes checksum + 1 byte type + 4 bytes payload_size
 
@@ -155,9 +159,9 @@ pub const WALEntry = struct {
             return WALError.CorruptedEntry;
         }
 
+        // Allocate payload buffer for WAL entry
         const payload = try allocator.alloc(u8, payload_size);
         errdefer allocator.free(payload);
-        @memset(payload, 0);
 
         const bytes_written = try context_block_data.serialize(payload);
 
@@ -188,6 +192,7 @@ pub const WALEntry = struct {
 
         return entry;
     }
+
 
     /// Create WAL entry for deleting a Context Block.
     /// Payload contains only the 16-byte BlockId for efficient deletion replay.

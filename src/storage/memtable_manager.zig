@@ -107,6 +107,13 @@ pub const MemtableManager = struct {
         try self.wal.startup();
     }
 
+    /// Configure WAL sync behavior for performance optimization.
+    /// WARNING: Disabling immediate sync reduces durability guarantees.
+    /// Should only be used for benchmarking or testing purposes.
+    pub fn configure_wal_immediate_sync(self: *MemtableManager, enable: bool) void {
+        self.wal.configure_immediate_sync(enable);
+    }
+
     /// Clean up all memtable resources including arena-allocated memory.
     /// Must be called to prevent memory leaks. Coordinates cleanup of
     /// both block and edge indexes atomically plus WAL cleanup.
@@ -131,9 +138,14 @@ pub const MemtableManager = struct {
     pub fn put_block_durable(self: *MemtableManager, block: ContextBlock) !void {
         concurrency.assert_main_thread();
 
-        const wal_entry = try WALEntry.create_put_block(block, self.backing_allocator);
-        defer wal_entry.deinit(self.backing_allocator);
-        try self.wal.write_entry(wal_entry);
+        // Streaming writes eliminate WALEntry buffer allocation for multi-MB blocks
+        if (block.content.len >= 512 * 1024) {
+            try self.wal.write_block_streaming(block);
+        } else {
+            const wal_entry = try WALEntry.create_put_block(block, self.backing_allocator);
+            defer wal_entry.deinit(self.backing_allocator);
+            try self.wal.write_entry(wal_entry);
+        }
 
         try self.block_index.put_block(block);
     }
@@ -231,9 +243,14 @@ pub const MemtableManager = struct {
         // Extract block for storage - MemtableManager accessing owned block for persistence
         const block = owned_block.read(.memtable_manager);
 
-        const wal_entry = try WALEntry.create_put_block(block.*, self.backing_allocator);
-        defer wal_entry.deinit(self.backing_allocator);
-        try self.wal.write_entry(wal_entry);
+        // Streaming writes eliminate WALEntry buffer allocation for multi-MB blocks
+        if (block.content.len >= 512 * 1024) {
+            try self.wal.write_block_streaming(block.*);
+        } else {
+            const wal_entry = try WALEntry.create_put_block(block.*, self.backing_allocator);
+            defer wal_entry.deinit(self.backing_allocator);
+            try self.wal.write_entry(wal_entry);
+        }
 
         try self.block_index.put_block(block.*);
     }
