@@ -4,10 +4,12 @@
 //! in a controlled, deterministic environment for testing.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = @import("../core/assert.zig");
 const vfs = @import("../core/vfs.zig");
 const sim_vfs = @import("simulation_vfs.zig");
 const ownership = @import("../core/ownership.zig");
+const DeterministicLogger = @import("deterministic_logger.zig").DeterministicLogger;
 
 /// Deterministic simulation harness.
 pub const Simulation = struct {
@@ -17,6 +19,7 @@ pub const Simulation = struct {
     nodes: std.ArrayList(Node),
     network: Network,
     ownership_injector: OwnershipViolationInjector,
+    logger: ?DeterministicLogger,
 
     const Self = @This();
 
@@ -24,14 +27,22 @@ pub const Simulation = struct {
     pub fn init(allocator: std.mem.Allocator, seed: u64) !Self {
         var prng = std.Random.DefaultPrng.init(seed);
 
-        return Self{
+        var sim = Self{
             .allocator = allocator,
             .prng = prng,
             .tick_count = 0,
             .nodes = std.ArrayList(Node).init(allocator),
             .network = Network.init(allocator, &prng),
             .ownership_injector = OwnershipViolationInjector.init(seed),
+            .logger = if (builtin.mode == .Debug) DeterministicLogger{ .sim = undefined } else null,
         };
+
+        // Set the self-reference if logger exists
+        if (sim.logger) |*logger| {
+            logger.sim = &sim;
+        }
+
+        return sim;
     }
 
     pub fn deinit(self: *Self) void {

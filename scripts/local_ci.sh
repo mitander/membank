@@ -45,6 +45,7 @@ OPTIMIZE="ReleaseSafe"
 SKIP_SETUP=false
 PARALLEL=false
 MEMORY_TESTS=false
+PROFILE="safety"
 
 show_help() {
     cat << EOF
@@ -57,15 +58,18 @@ OPTIONS:
                          Options: all, test, build, lint, security, performance, sanitizer, memory
     --optimize LEVEL      Optimization level (default: ReleaseSafe)
                          Options: Debug, ReleaseSafe, ReleaseFast, ReleaseSmall
+    --profile PROFILE     Testing profile (default: safety)
+                         Options: safety, liveness
     --skip-setup         Skip Zig installation (faster for repeated runs)
     --parallel           Run compatible jobs in parallel
     --memory-tests       Include memory safety tests (requires longer runtime)
     --help               Show this help message
 
 EXAMPLES:
-    $0                                    # Run all checks
+    $0                                    # Run all checks (safety profile)
     $0 --jobs test                        # Run only tests
     $0 --jobs "test,lint"                 # Run tests and linting
+    $0 --profile liveness                 # Run liveness testing profile
     $0 --jobs "test,sanitizer"            # Run tests and sanitizer checks
     $0 --optimize Debug --skip-setup      # Fast debug run, no setup
     $0 --parallel --memory-tests          # Full parallel run with memory checks
@@ -86,6 +90,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --optimize)
             OPTIMIZE="$2"
+            shift 2
+            ;;
+        --profile)
+            PROFILE="$2"
+            if [[ "$PROFILE" != "safety" && "$PROFILE" != "liveness" ]]; then
+                echo "Invalid profile: $PROFILE. Must be 'safety' or 'liveness'."
+                exit 1
+            fi
             shift 2
             ;;
         --skip-setup)
@@ -169,10 +181,17 @@ test_job() {
         return 1
     fi
 
-    log_step "Running tests"
-    if ! ./zig/zig build test-all -Doptimize="$OPTIMIZE"; then
-        log_error "Test suite failed"
-        return 1
+    log_step "Running tests (${PROFILE} profile)"
+    if [[ "$PROFILE" == "liveness" ]]; then
+        if ! ./zig/zig build test-simulation -Doptimize="$OPTIMIZE"; then
+            log_error "Liveness test suite (simulation) failed"
+            return 1
+        fi
+    else
+        if ! ./zig/zig build test-all -Doptimize="$OPTIMIZE"; then
+            log_error "Test suite failed"
+            return 1
+        fi
     fi
 
     log_step "Running tidy checks"

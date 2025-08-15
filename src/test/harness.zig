@@ -224,6 +224,7 @@ pub const SimulationHarness = struct {
     storage_engine: *StorageEngine,
     query_engine: *QueryEngine,
     node_id: NodeId,
+    seed: u64,
 
     const Self = @This();
 
@@ -258,6 +259,7 @@ pub const SimulationHarness = struct {
             .storage_engine = storage_engine,
             .query_engine = query_engine_ptr,
             .node_id = node_id,
+            .seed = seed,
         };
     }
 
@@ -303,8 +305,10 @@ pub const FaultInjectionConfig = struct {
         operations: struct {
             read: bool = false,
             write: bool = false,
-            sync: bool = false,
+            create: bool = false,
             remove: bool = false,
+            mkdir: bool = false,
+            sync: bool = false,
         } = .{},
     } = .{},
 
@@ -333,6 +337,7 @@ pub const FaultInjectionConfig = struct {
 pub const FaultInjectionHarness = struct {
     simulation_harness: SimulationHarness,
     fault_config: FaultInjectionConfig,
+    seed: u64,
 
     const Self = @This();
 
@@ -347,6 +352,7 @@ pub const FaultInjectionHarness = struct {
         return Self{
             .simulation_harness = simulation_harness,
             .fault_config = fault_config,
+            .seed = seed,
         };
     }
 
@@ -359,6 +365,18 @@ pub const FaultInjectionHarness = struct {
         self.simulation_harness.deinit();
     }
 
+    /// Convenience method combining init_with_faults and startup phases
+    pub fn init_and_startup(
+        allocator: std.mem.Allocator,
+        seed: u64,
+        db_name: []const u8,
+    ) !Self {
+        const default_fault_config = FaultInjectionConfig{};
+        var harness = try Self.init_with_faults(allocator, seed, db_name, default_fault_config);
+        try harness.startup();
+        return harness;
+    }
+
     /// Configure fault injection parameters in simulation VFS
     pub fn apply_fault_configuration(self: *Self) !void {
         const node = self.simulation_harness.node();
@@ -369,8 +387,10 @@ pub const FaultInjectionHarness = struct {
             const operations = SimulationVFS.FaultInjectionState.IoFailureConfig.OperationType{
                 .read = self.fault_config.io_failures.operations.read,
                 .write = self.fault_config.io_failures.operations.write,
-                .sync = self.fault_config.io_failures.operations.sync,
+                .create = self.fault_config.io_failures.operations.create,
                 .remove = self.fault_config.io_failures.operations.remove,
+                .mkdir = self.fault_config.io_failures.operations.mkdir,
+                .sync = self.fault_config.io_failures.operations.sync,
             };
             sim_vfs.enable_io_failures(
                 self.fault_config.io_failures.failure_rate_per_thousand,
@@ -410,5 +430,52 @@ pub const FaultInjectionHarness = struct {
         const node = self.simulation_harness.node();
         const sim_vfs = node.filesystem;
         sim_vfs.disable_all_fault_injection();
+    }
+
+    /// Enable I/O failures with specified rate and operation types
+    pub fn enable_io_failures(
+        self: *Self,
+        rate_per_thousand: u32,
+        operations: struct {
+            read: bool = false,
+            write: bool = false,
+            create: bool = false,
+            remove: bool = false,
+            mkdir: bool = false,
+            sync: bool = false,
+        },
+    ) void {
+        const node = self.simulation_harness.node();
+        const sim_vfs = node.filesystem;
+
+        const vfs_operations = SimulationVFS.FaultInjectionState.IoFailureConfig.OperationType{
+            .read = operations.read,
+            .write = operations.write,
+            .create = operations.create,
+            .remove = operations.remove,
+            .mkdir = operations.mkdir,
+            .sync = operations.sync,
+        };
+
+        sim_vfs.enable_io_failures(rate_per_thousand, vfs_operations);
+    }
+
+    /// Enable memory allocation failures with specified rate
+    /// Note: This is a placeholder - memory failures are simulated through allocation patterns
+    pub fn enable_memory_failures(self: *Self, rate_per_thousand: u32) void {
+        _ = self;
+        _ = rate_per_thousand;
+        // Memory failures are simulated through test allocator configuration
+        // This method is provided for API completeness but actual implementation
+        // would require coordination with test allocator
+    }
+
+    /// Disable memory allocation failures
+    /// Note: This is a placeholder - memory failures are simulated through allocation patterns
+    pub fn disable_memory_failures(self: *Self) void {
+        _ = self;
+        // Memory failures are simulated through test allocator configuration
+        // This method is provided for API completeness but actual implementation
+        // would require coordination with test allocator
     }
 };
