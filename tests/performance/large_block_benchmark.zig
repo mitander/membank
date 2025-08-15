@@ -98,7 +98,7 @@ test "large block storage engine performance" {
 
             // Disable immediate sync for performance testing
             // WARNING: This reduces durability guarantees but allows measuring optimal performance
-            harness.storage_engine.set_wal_immediate_sync(false);
+            harness.storage_engine.configure_wal_immediate_sync(false);
 
             // Profile WAL entry creation separately
             const wal_start = std.time.nanoTimestamp();
