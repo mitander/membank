@@ -212,6 +212,34 @@ pub fn generate_random_block(allocator: std.mem.Allocator, random: std.Random) !
     };
 }
 
+/// Generate large context block for performance testing
+pub fn generate_large_block(allocator: std.mem.Allocator, random: std.Random, size: usize) !ContextBlock {
+    const id = generate_random_block_id(random);
+    const version = random.int(u64);
+
+    const source_uri = try generate_random_string(allocator, random, 10, 100);
+    const metadata_json = try generate_random_json_like_string(allocator, random);
+
+    // Generate large content with patterns for validation
+    const content = try allocator.alloc(u8, size);
+    for (content, 0..) |*byte, i| {
+        // Mix of random data and patterns for realistic testing
+        if (i % 1024 < 512) {
+            byte.* = @intCast(i % 256);
+        } else {
+            byte.* = random.int(u8);
+        }
+    }
+
+    return ContextBlock{
+        .id = id,
+        .version = version,
+        .source_uri = source_uri,
+        .metadata_json = metadata_json,
+        .content = content,
+    };
+}
+
 /// Generate random string with edge cases (nulls, control chars, unicode)
 pub fn generate_random_string(
     allocator: std.mem.Allocator,

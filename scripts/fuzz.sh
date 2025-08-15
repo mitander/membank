@@ -28,9 +28,9 @@ NC='\033[0m' # No Color
 # Profile configurations (using functions for compatibility)
 get_profile_iterations() {
     case "$1" in
-        "quick") echo "10000" ;;
-        "ci") echo "50000" ;;
-        "deep") echo "500000" ;;
+        "quick") echo "500000" ;;     # ~30s
+        "ci") echo "2000000" ;;       # ~2min
+        "deep") echo "10000000" ;;    # ~10min
         "continuous") echo "continuous" ;;
         "production") echo "continuous" ;;
         *) echo "" ;;
@@ -39,9 +39,9 @@ get_profile_iterations() {
 
 get_profile_description() {
     case "$1" in
-        "quick") echo "Quick 5-minute fuzz for local development" ;;
-        "ci") echo "Balanced 20-minute fuzz for CI/PR validation" ;;
-        "deep") echo "Intensive multi-hour fuzz for nightly testing" ;;
+        "quick") echo "Quick 30-second fuzz for local development (500K iterations)" ;;
+        "ci") echo "Balanced 2-minute fuzz for CI/PR validation (2M iterations)" ;;
+        "deep") echo "Intensive 10-minute fuzz for nightly testing (10M iterations)" ;;
         "continuous") echo "Restart loop with git updates (simple)" ;;
         "production") echo "Full-featured continuous fuzzing with notifications" ;;
         *) echo "" ;;
