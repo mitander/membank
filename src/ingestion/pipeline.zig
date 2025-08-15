@@ -17,6 +17,7 @@ const std = @import("std");
 const context_block = @import("../core/types.zig");
 const vfs = @import("../core/vfs.zig");
 const assert = @import("../core/assert.zig");
+const error_context = @import("../core/error_context.zig");
 const concurrency = @import("../core/concurrency.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
@@ -397,6 +398,12 @@ pub const IngestionPipeline = struct {
         for (self.sources.items) |source| {
             self.process_source(source, &all_blocks) catch |err| {
                 self.current_stats.sources_failed += 1;
+                const ctx = error_context.IngestionContext{
+                    .operation = "process_source",
+                    .repository_path = source.repository_path orelse "unknown",
+                    .content_type = "source",
+                };
+                error_context.log_ingestion_error(err, ctx);
                 if (!self.config.continue_on_error) {
                     return err;
                 }
@@ -423,6 +430,12 @@ pub const IngestionPipeline = struct {
         for (self.sources.items) |source| {
             self.process_source_with_backpressure(source, storage_engine) catch |err| {
                 self.current_stats.sources_failed += 1;
+                const ctx = error_context.IngestionContext{
+                    .operation = "process_source_with_backpressure",
+                    .repository_path = source.repository_path orelse "unknown",
+                    .content_type = "source",
+                };
+                error_context.log_ingestion_error(err, ctx);
                 if (!self.config.continue_on_error) {
                     return err;
                 }
@@ -687,7 +700,15 @@ pub const IngestionPipeline = struct {
         for (batch_buffer.items) |block| {
             storage_engine.put_block(block) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                else => return error.SourceFetchFailed, // Generic storage failure
+                else => {
+                    const ctx = error_context.IngestionContext{
+                        .operation = "flush_batch_to_storage",
+                        .content_type = "context_block",
+                        .unit_count = batch_buffer.items.len,
+                    };
+                    error_context.log_ingestion_error(err, ctx);
+                    return error.SourceFetchFailed; // Generic storage failure
+                },
             };
             self.current_stats.blocks_generated += 1;
         }

@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = @import("../core/assert.zig").assert;
+const error_context = @import("../core/error_context.zig");
 const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
 const ownership = @import("../core/ownership.zig");
@@ -49,8 +50,22 @@ pub const FindBlocksQuery = struct {
 
     /// Validate query parameters before execution
     pub fn validate(self: FindBlocksQuery) QueryError!void {
-        if (self.block_ids.len == 0) return QueryError.EmptyQuery;
-        if (self.block_ids.len > MAX_BLOCKS) return QueryError.TooManyResults;
+        if (self.block_ids.len == 0) {
+            const ctx = error_context.ServerContext{
+                .operation = "find_blocks_query_validation",
+                .message_size = 0,
+            };
+            error_context.log_server_error(QueryError.EmptyQuery, ctx);
+            return QueryError.EmptyQuery;
+        }
+        if (self.block_ids.len > MAX_BLOCKS) {
+            const ctx = error_context.ServerContext{
+                .operation = "find_blocks_query_validation",
+                .message_size = self.block_ids.len,
+            };
+            error_context.log_server_error(QueryError.TooManyResults, ctx);
+            return QueryError.TooManyResults;
+        }
     }
 };
 
@@ -208,10 +223,35 @@ pub const SemanticQuery = struct {
     /// Checks that query text is non-empty, result limits are reasonable, and similarity thresholds are valid.
     /// Prevents crashes from invalid query parameters.
     pub fn validate(self: SemanticQuery) QueryError!void {
-        if (self.query_text.len == 0) return QueryError.InvalidSemanticQuery;
-        if (self.max_results == 0) return QueryError.EmptyQuery;
-        if (self.max_results > MAX_RESULTS) return QueryError.TooManyResults;
+        if (self.query_text.len == 0) {
+            const ctx = error_context.ServerContext{
+                .operation = "semantic_query_validation",
+                .message_size = 0,
+            };
+            error_context.log_server_error(QueryError.InvalidSemanticQuery, ctx);
+            return QueryError.InvalidSemanticQuery;
+        }
+        if (self.max_results == 0) {
+            const ctx = error_context.ServerContext{
+                .operation = "semantic_query_validation",
+                .message_size = 0,
+            };
+            error_context.log_server_error(QueryError.EmptyQuery, ctx);
+            return QueryError.EmptyQuery;
+        }
+        if (self.max_results > MAX_RESULTS) {
+            const ctx = error_context.ServerContext{
+                .operation = "semantic_query_validation",
+                .message_size = self.max_results,
+            };
+            error_context.log_server_error(QueryError.TooManyResults, ctx);
+            return QueryError.TooManyResults;
+        }
         if (self.similarity_threshold < 0.0 or self.similarity_threshold > 1.0) {
+            const ctx = error_context.ServerContext{
+                .operation = "semantic_query_validation",
+            };
+            error_context.log_server_error(QueryError.InvalidSemanticQuery, ctx);
             return QueryError.InvalidSemanticQuery;
         }
     }

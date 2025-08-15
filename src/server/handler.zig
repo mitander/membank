@@ -149,7 +149,7 @@ pub const Server = struct {
 
     /// Clean up all server resources including managers
     pub fn deinit(self: *Server) void {
-        self.stop();
+        self.shutdown();
 
         self.connection_manager.deinit();
     }
@@ -272,7 +272,7 @@ pub const Server = struct {
     }
 
     /// Stop the server
-    pub fn stop(self: *Server) void {
+    pub fn shutdown(self: *Server) void {
         if (self.listener) |*listener| {
             listener.deinit();
             self.listener = null;

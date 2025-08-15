@@ -230,6 +230,51 @@ pub const StorageState = enum {
     }
 };
 
+/// Query engine state machine for proper lifecycle management.
+/// Follows same pattern as StorageState for consistency.
+pub const QueryState = enum {
+    uninitialized,
+    initialized,
+    running,
+    shutdown,
+    stopped,
+
+    /// Validate if transition to next state is allowed.
+    pub fn can_transition_to(self: QueryState, next: QueryState) bool {
+        return switch (self) {
+            .uninitialized => next == .initialized,
+            .initialized => next == .running or next == .stopped,
+            .running => next == .shutdown,
+            .shutdown => next == .stopped,
+            .stopped => false, // Terminal state
+        };
+    }
+
+    /// Perform validated state transition.
+    pub fn transition(self: *QueryState, next: QueryState) void {
+        if (builtin.mode == .Debug) {
+            if (!self.can_transition_to(next)) {
+                fatal_assert(false, "Invalid query state transition: {} -> {}", .{ self.*, next });
+            }
+            std.log.debug("Query state transition: {} -> {}", .{ self.*, next });
+        }
+        self.* = next;
+    }
+
+    /// Check if query engine can execute queries.
+    pub fn can_query(self: QueryState) bool {
+        return switch (self) {
+            .running => true,
+            else => false,
+        };
+    }
+
+    /// Assert that query engine can execute queries.
+    pub fn assert_can_query(self: QueryState) void {
+        fatal_assert(self.can_query(), "Cannot execute queries in state: {}", .{self});
+    }
+};
+
 /// Generic state machine validation for custom enum states.
 /// Provides compile-time validation that state machines have proper transition methods.
 pub fn validate_state_machine(comptime StateEnum: type) void {

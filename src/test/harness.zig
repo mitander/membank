@@ -189,7 +189,7 @@ pub const QueryHarness = struct {
     /// Phase 2 initialization: perform I/O operations to complete startup
     pub fn startup(self: *Self) !void {
         try self.storage_harness.startup();
-        // Query engine requires no separate I/O initialization
+        self.query_engine.startup();
     }
 
     /// Clean up all harness resources

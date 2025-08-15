@@ -78,8 +78,8 @@ const TestServer = struct {
     }
 
     /// Stop server and clean up resources
-    pub fn stop(self: *Self) void {
-        self.server.stop();
+    pub fn shutdown(self: *Self) void {
+        self.server.shutdown();
     }
 
     /// Query the actual bound port (useful for ephemeral ports)
@@ -131,7 +131,7 @@ test "server startup and shutdown with ProductionVFS" {
     std.debug.print("Server bound to port: {d}\n", .{bound_port});
 
     // Test graceful shutdown
-    test_server.stop();
+    test_server.shutdown();
 
     // Cleanup test directory
     std.fs.cwd().deleteTree(test_dir) catch {}; // Best effort cleanup // tidy:ignore-simulation
@@ -161,7 +161,7 @@ test "server startup with SimulationVFS integration" {
     const bound_port = test_server.bound_port();
     try testing.expect(bound_port > 0);
 
-    test_server.stop();
+    test_server.shutdown();
 }
 
 // Server resource cleanup validation
@@ -201,13 +201,13 @@ test "server resource cleanup and lifecycle management" {
     try testing.expect(bound_port > 0);
 
     // Test graceful shutdown and resource cleanup
-    test_server.stop();
+    test_server.shutdown();
 
     // Verify server can be rebound after stop (demonstrates proper cleanup)
     try test_server.bind();
     const second_port = test_server.bound_port();
     try testing.expect(second_port > 0);
-    test_server.stop();
+    test_server.shutdown();
 
     // Cleanup test directory
     std.fs.cwd().deleteTree(test_dir) catch {}; // tidy:ignore-simulation
@@ -237,7 +237,7 @@ test "server initialization error handling patterns" {
     try testing.expect(bound_port > 0);
 
     // Test proper cleanup
-    test_server.stop();
+    test_server.shutdown();
 
     // This test demonstrates that our errdefer cleanup patterns work correctly
     // by successfully creating and destroying a server without memory leaks
@@ -272,7 +272,7 @@ test "multiple server instances with ephemeral ports" {
             error.AccessDenied => {
                 // Clean up any servers we already started
                 for (0..i) |j| {
-                    servers[j].stop();
+                    servers[j].shutdown();
                     servers[j].deinit();
                 }
                 std.debug.print("Skipping multi-server test - no /tmp access\n", .{});
@@ -295,7 +295,7 @@ test "multiple server instances with ephemeral ports" {
 
     // Clean up all servers
     for (0..3) |i| {
-        servers[i].stop();
+        servers[i].shutdown();
         servers[i].deinit();
 
         // Best effort cleanup

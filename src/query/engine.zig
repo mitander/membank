@@ -12,6 +12,7 @@ const storage = @import("../storage/engine.zig");
 const Config = @import("../storage/config.zig").Config;
 const context_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
+const state_machines = @import("../core/state_machines.zig");
 const ownership = @import("../core/ownership.zig");
 const operations = @import("operations.zig");
 const traversal = @import("traversal.zig");
@@ -27,6 +28,7 @@ const SimulationVFS = simulation_vfs.SimulationVFS;
 const OwnedBlock = ownership.OwnedBlock;
 const BlockOwnership = ownership.BlockOwnership;
 const QueryEngineBlock = ownership.QueryEngineBlock;
+const QueryState = state_machines.QueryState;
 
 pub const QueryError = operations.QueryError;
 pub const QueryResult = operations.QueryResult;
@@ -218,7 +220,7 @@ pub const QueryStatistics = struct {
 pub const QueryEngine = struct {
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
-    initialized: bool,
+    state: QueryState,
 
     query_cache: cache.QueryCache,
     caching_enabled: bool,
@@ -238,7 +240,7 @@ pub const QueryEngine = struct {
         return QueryEngine{
             .allocator = allocator,
             .storage_engine = storage_engine,
-            .initialized = true,
+            .state = .initialized,
             .query_cache = cache.QueryCache.init(allocator, cache.QueryCache.DEFAULT_MAX_ENTRIES, cache.QueryCache.DEFAULT_TTL_MINUTES),
             .caching_enabled = true, // Enable caching by default for performance
             .next_query_id = stdx.MetricsCounter.init(1),
@@ -252,10 +254,23 @@ pub const QueryEngine = struct {
         };
     }
 
+    /// Start query engine operations
+    pub fn startup(self: *QueryEngine) void {
+        self.state.transition(.running);
+    }
+
+    /// Stop query engine operations gracefully
+    pub fn shutdown(self: *QueryEngine) void {
+        self.state.transition(.shutdown);
+        self.state.transition(.stopped);
+    }
+
     /// Clean up query engine resources
     pub fn deinit(self: *QueryEngine) void {
+        if (self.state == .running) {
+            self.shutdown();
+        }
         self.query_cache.deinit();
-        self.initialized = false;
     }
 
     /// Generate a new unique query ID in a thread-safe manner
@@ -376,8 +391,8 @@ pub const QueryEngine = struct {
     /// Find a single block by ID with direct storage access for maximum performance
     /// Returns QueryEngineBlock with ownership transfer to caller
     pub fn find_block(self: *QueryEngine, block_id: BlockId) !?QueryEngineBlock {
-        assert(self.initialized);
-        if (!self.initialized) return EngineError.NotInitialized;
+        self.state.assert_can_query();
+        if (!self.state.can_query()) return EngineError.NotInitialized;
 
         const start_time = std.time.nanoTimestamp();
         defer self.record_direct_query(start_time);
@@ -390,7 +405,7 @@ pub const QueryEngine = struct {
 
     /// Check if a block exists without retrieving its content
     pub fn block_exists(self: *QueryEngine, block_id: BlockId) bool {
-        assert(self.initialized);
+        self.state.assert_can_query();
         return operations.block_exists(self.storage_engine, block_id);
     }
 
@@ -399,8 +414,8 @@ pub const QueryEngine = struct {
         const start_time = std.time.nanoTimestamp();
         defer self.record_traversal_query(start_time);
 
-        assert(self.initialized);
-        if (!self.initialized) return EngineError.NotInitialized;
+        self.state.assert_can_query();
+        if (!self.state.can_query()) return EngineError.NotInitialized;
 
         try query.validate();
 
@@ -576,8 +591,8 @@ pub const QueryEngine = struct {
         const start_time = std.time.nanoTimestamp();
         defer self.record_semantic_query(start_time);
 
-        assert(self.initialized);
-        if (!self.initialized) return EngineError.NotInitialized;
+        self.state.assert_can_query();
+        if (!self.state.can_query()) return EngineError.NotInitialized;
 
         const query_id = self.generate_query_id();
         const plan = self.create_query_plan(.semantic, query.max_results orelse 100);
@@ -719,9 +734,10 @@ test "query engine initialization and deinitialization" {
     try storage_engine.startup();
 
     var query_engine = QueryEngine.init(allocator, &storage_engine);
+    query_engine.startup();
     defer query_engine.deinit();
 
-    try testing.expect(query_engine.initialized);
+    try testing.expect(query_engine.state == .running);
     try testing.expect(query_engine.queries_executed.load() == 0);
     try testing.expect(query_engine.find_blocks_queries.load() == 0);
 }
@@ -742,6 +758,7 @@ test "query engine statistics tracking" {
     try storage_engine.startup();
 
     var query_engine = QueryEngine.init(allocator, &storage_engine);
+    query_engine.startup();
     defer query_engine.deinit();
 
     const initial_stats = query_engine.statistics();
@@ -785,6 +802,7 @@ test "query engine statistics calculations" {
     try storage_engine.startup();
 
     var query_engine = QueryEngine.init(allocator, &storage_engine);
+    query_engine.startup();
     defer query_engine.deinit();
 
     const empty_stats = query_engine.statistics();
@@ -815,6 +833,7 @@ test "query engine statistics reset" {
     try storage_engine.startup();
 
     var query_engine = QueryEngine.init(allocator, &storage_engine);
+    query_engine.startup();
     defer query_engine.deinit();
 
     query_engine.queries_executed.store(5);
@@ -846,6 +865,7 @@ test "query engine find_blocks execution" {
     try storage_engine.startup();
 
     var query_engine = QueryEngine.init(allocator, &storage_engine);
+    query_engine.startup();
     defer query_engine.deinit();
 
     const test_id1 = try BlockId.from_hex("11111111111111111111111111111111");
@@ -879,6 +899,7 @@ test "query engine find_block convenience method" {
     try storage_engine.startup();
 
     var query_engine = QueryEngine.init(allocator, &storage_engine);
+    query_engine.startup();
     defer query_engine.deinit();
 
     const test_id = try BlockId.from_hex("33333333333333333333333333333333");
@@ -908,6 +929,7 @@ test "query engine block_exists check" {
     try storage_engine.startup();
 
     var query_engine = QueryEngine.init(allocator, &storage_engine);
+    query_engine.startup();
     defer query_engine.deinit();
 
     const existing_id = try BlockId.from_hex("44444444444444444444444444444444");
@@ -947,7 +969,7 @@ test "query engine uninitialized error handling" {
     defer query_engine.deinit();
 
     // Manually set to uninitialized for testing error handling
-    query_engine.initialized = false;
+    query_engine.state = .uninitialized;
 
     const test_id = try BlockId.from_hex("66666666666666666666666666666666");
 
@@ -979,6 +1001,7 @@ test "query engine traversal integration" {
     try storage_engine.startup();
 
     var query_engine = QueryEngine.init(allocator, &storage_engine);
+    query_engine.startup();
     defer query_engine.deinit();
 
     const start_id = try BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -1015,6 +1038,7 @@ test "query engine ownership transfer from storage" {
     try storage_engine.startup();
 
     var query_engine = QueryEngine.init(allocator, &storage_engine);
+    query_engine.startup();
     defer query_engine.deinit();
 
     // Create test block and store it
@@ -1052,6 +1076,7 @@ test "query engine zero-copy read operations" {
     try storage_engine.startup();
 
     var query_engine = QueryEngine.init(allocator, &storage_engine);
+    query_engine.startup();
     defer query_engine.deinit();
 
     // Create test blocks and store them

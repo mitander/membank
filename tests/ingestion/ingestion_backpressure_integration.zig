@@ -589,6 +589,68 @@ test "memory recovery behavior stabilizes after sustained pressure" {
         try harness.storage_engine.put_block(sustained_block);
     }
 
+    test "ingestion pipeline fault tolerance with systematic corruption" {
+        const allocator = testing.allocator;
+
+        // Manual setup required because: Ingestion fault testing needs precise control
+        // over when faults are injected relative to pipeline stages to test recovery
+        var fault_config = kausaldb.FaultInjectionConfig{};
+        fault_config.io_failures.enabled = true;
+        fault_config.io_failures.failure_rate_per_thousand = 100; // 10% failure rate
+        fault_config.io_failures.operations.write = true;
+        fault_config.io_failures.operations.read = true;
+
+        var harness = try kausaldb.FaultInjectionHarness.init_with_faults(
+            allocator, 0xF4ULT_TEST, "ingestion_fault_test", fault_config
+        );
+        defer harness.deinit();
+        try harness.startup();
+
+        // Create ingestion pipeline with conservative settings for fault testing
+        var pipeline_config = PipelineConfig{
+            .batch_size = 10, // Small batches for granular fault isolation
+            .continue_on_error = true, // Test recovery behavior
+            .max_concurrent_sources = 1, // Single-threaded for deterministic faults
+        };
+
+        var pipeline = try IngestionPipeline.init(allocator, pipeline_config);
+        defer pipeline.deinit();
+
+        // Add multiple mock sources to test fault recovery across sources
+        const source_configs = [_]struct { count: u32, name: []const u8 }{
+            .{ .count = 25, .name = "source_1" },
+            .{ .count = 30, .name = "source_2" },
+            .{ .count = 20, .name = "source_3" },
+        };
+
+        for (source_configs) |config| {
+            var mock_source = MockSource{ .content_count = config.count };
+            try pipeline.add_source(mock_source.source());
+        }
+
+        // Execute pipeline under fault conditions
+        const initial_stats = harness.storage_engine().storage_metrics();
+        const initial_blocks = initial_stats.blocks_stored;
+
+        try pipeline.execute_with_backpressure(harness.storage_engine());
+
+        // Validate that despite faults, some data was successfully ingested
+        const final_stats = harness.storage_engine().storage_metrics();
+        const blocks_ingested = final_stats.blocks_stored - initial_blocks;
+
+        // With 10% I/O failure rate, expect 80%+ data survival
+        const total_expected = 25 + 30 + 20; // 75 blocks total
+        const survival_rate = @as(f64, @floatFromInt(blocks_ingested)) / @as(f64, @floatFromInt(total_expected));
+
+        try testing.expect(survival_rate >= 0.8); // 80% minimum survival rate
+        try testing.expect(blocks_ingested > 0); // Some data must survive
+
+        // Validate pipeline statistics reflect fault handling
+        const pipeline_stats = pipeline.statistics();
+        try testing.expect(pipeline_stats.sources_failed > 0); // Should have fault-induced failures
+        try testing.expect(pipeline_stats.sources_processed >= 2); // Most sources should complete
+    }
+
     // Run multiple ingestion cycles to test sustained pressure
     var cumulative_adaptations: u32 = 0;
     var min_observed_batch_size: u32 = backpressure_config.default_batch_size;
