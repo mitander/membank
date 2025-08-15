@@ -400,7 +400,7 @@ pub const IngestionPipeline = struct {
                 self.current_stats.sources_failed += 1;
                 const ctx = error_context.IngestionContext{
                     .operation = "process_source",
-                    .repository_path = source.repository_path orelse "unknown",
+                    .repository_path = source.describe(),
                     .content_type = "source",
                 };
                 error_context.log_ingestion_error(err, ctx);
@@ -432,7 +432,7 @@ pub const IngestionPipeline = struct {
                 self.current_stats.sources_failed += 1;
                 const ctx = error_context.IngestionContext{
                     .operation = "process_source_with_backpressure",
-                    .repository_path = source.repository_path orelse "unknown",
+                    .repository_path = source.describe(),
                     .content_type = "source",
                 };
                 error_context.log_ingestion_error(err, ctx);

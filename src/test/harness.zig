@@ -225,6 +225,7 @@ pub const SimulationHarness = struct {
     query_engine: *QueryEngine,
     node_id: NodeId,
     seed: u64,
+    vfs_instance: VFS,
 
     const Self = @This();
 
@@ -260,6 +261,7 @@ pub const SimulationHarness = struct {
             .query_engine = query_engine_ptr,
             .node_id = node_id,
             .seed = seed,
+            .vfs_instance = node_vfs,
         };
     }
 
@@ -380,7 +382,7 @@ pub const FaultInjectionHarness = struct {
     /// Configure fault injection parameters in simulation VFS
     pub fn apply_fault_configuration(self: *Self) !void {
         const node = self.simulation_harness.node();
-        const sim_vfs = node.filesystem;
+        const node_vfs = node.filesystem;
 
         // I/O failure configuration based on fault settings
         if (self.fault_config.io_failures.enabled) {
@@ -392,7 +394,7 @@ pub const FaultInjectionHarness = struct {
                 .mkdir = self.fault_config.io_failures.operations.mkdir,
                 .sync = self.fault_config.io_failures.operations.sync,
             };
-            sim_vfs.enable_io_failures(
+            node_vfs.enable_io_failures(
                 self.fault_config.io_failures.failure_rate_per_thousand,
                 operations,
             );
@@ -400,7 +402,7 @@ pub const FaultInjectionHarness = struct {
 
         // Torn write configuration for power loss simulation
         if (self.fault_config.torn_writes.enabled) {
-            sim_vfs.enable_torn_writes(
+            node_vfs.enable_torn_writes(
                 self.fault_config.torn_writes.probability_per_thousand,
                 self.fault_config.torn_writes.min_interruption_bytes,
                 self.fault_config.torn_writes.completion_threshold_percent,
@@ -428,8 +430,26 @@ pub const FaultInjectionHarness = struct {
     /// Disable all fault injection to enable clean recovery testing
     pub fn disable_all_faults(self: *Self) void {
         const node = self.simulation_harness.node();
-        const sim_vfs = node.filesystem;
-        sim_vfs.disable_all_fault_injection();
+        const node_vfs = node.filesystem;
+        node_vfs.disable_all_fault_injection();
+    }
+
+    /// Disable torn writes while keeping other fault types active
+    pub fn disable_torn_writes(self: *Self) void {
+        const node = self.simulation_harness.node();
+        const node_vfs = node.filesystem;
+        node_vfs.disable_torn_writes();
+    }
+
+    /// Access VFS for pipeline initialization compatibility
+    pub fn vfs_ptr(self: *Self) *VFS {
+        return &self.simulation_harness.vfs_instance;
+    }
+
+    /// Access simulation VFS for direct fault injection control
+    pub fn sim_vfs(self: *Self) *SimulationVFS {
+        const node = self.simulation_harness.node();
+        return node.filesystem;
     }
 
     /// Enable I/O failures with specified rate and operation types
@@ -446,7 +466,7 @@ pub const FaultInjectionHarness = struct {
         },
     ) void {
         const node = self.simulation_harness.node();
-        const sim_vfs = node.filesystem;
+        const node_vfs = node.filesystem;
 
         const vfs_operations = SimulationVFS.FaultInjectionState.IoFailureConfig.OperationType{
             .read = operations.read,
@@ -457,7 +477,7 @@ pub const FaultInjectionHarness = struct {
             .sync = operations.sync,
         };
 
-        sim_vfs.enable_io_failures(rate_per_thousand, vfs_operations);
+        node_vfs.enable_io_failures(rate_per_thousand, vfs_operations);
     }
 
     /// Enable memory allocation failures with specified rate
