@@ -49,9 +49,10 @@ The `build.zig` file defines several targets for testing and validation.
   # Or run the script directly for more options
   ./scripts/local_ci.sh
   ```
-- **Performance Regression Detection:** Runs benchmarks and compares them against the committed baseline to detect performance regressions.
+- **Performance Benchmarking:** Manual performance testing for optimization work.
   ```bash
-  ./scripts/check_regression.sh
+  ./zig/zig build benchmark
+  ./zig-out/bin/benchmark storage --json
   ```
 - **Fuzz Testing:** Runs the fuzzer to find bugs with random inputs. Several profiles are available.
 
@@ -212,13 +213,13 @@ test "coordinator arena cleanup eliminates all subsystem memory" {
 }
 ```
 
-### Performance Regression Testing
+### Performance Benchmarking
 
-The `check_regression.sh` script provides automated regression detection:
+The benchmark tool provides manual performance validation:
 
-- **Baseline Management**: `./scripts/check_regression.sh baseline` to update performance baseline
-- **CI Integration**: Automatic regression checks with 15% latency and 10% throughput thresholds
-- **Local Validation**: Run before commits to catch performance issues early
+- **Storage Operations**: `./zig-out/bin/benchmark storage` for block read/write performance
+- **Query Operations**: `./zig-out/bin/benchmark query` for query engine performance  
+- **JSON Output**: Add `--json` flag for machine-readable results
 
 ## 6. Test Standardization Requirements
 

@@ -216,25 +216,25 @@ pub const BlockIndex = struct {
         // Arena memory reset handled by StorageEngine - enables O(1) bulk cleanup
         self.memory_used = 0;
     }
-    
+
     /// Large block cloning with chunked copy to improve cache locality.
     /// Standard dupe() performs large single allocations that can cause cache misses.
     fn clone_large_block(self: *BlockIndex, block: ContextBlock) !ContextBlock {
         const content_buffer = try self.arena_coordinator.alloc(u8, block.content.len);
-        
+
         // Chunked copying improves cache performance for multi-megabyte blocks
         const CHUNK_SIZE = 64 * 1024;
         if (block.content.len > CHUNK_SIZE) {
             var offset: usize = 0;
             while (offset < block.content.len) {
                 const chunk_size = @min(CHUNK_SIZE, block.content.len - offset);
-                @memcpy(content_buffer[offset..offset + chunk_size], block.content[offset..offset + chunk_size]);
+                @memcpy(content_buffer[offset .. offset + chunk_size], block.content[offset .. offset + chunk_size]);
                 offset += chunk_size;
             }
         } else {
             @memcpy(content_buffer, block.content);
         }
-        
+
         return ContextBlock{
             .id = block.id,
             .version = block.version,

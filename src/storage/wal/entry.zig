@@ -22,8 +22,6 @@ const BlockId = context_block.BlockId;
 const StorageEngineBlock = ownership.StorageEngineBlock;
 const OwnedBlock = ownership.OwnedBlock;
 
-
-
 /// WAL entry header structure with corruption detection
 pub const WALEntry = struct {
     checksum: u64,
@@ -192,7 +190,6 @@ pub const WALEntry = struct {
 
         return entry;
     }
-
 
     /// Create WAL entry for deleting a Context Block.
     /// Payload contains only the 16-byte BlockId for efficient deletion replay.

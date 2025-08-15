@@ -114,33 +114,33 @@ pub const WAL = struct {
         const bytes_written = try self.write_and_verify(entry, write_buffer);
         self.update_write_stats(bytes_written);
     }
-    
+
     /// Streaming WAL write eliminates intermediate buffer allocation for large blocks.
     pub fn write_block_streaming(self: *WAL, block: ContextBlock) WALError!void {
         concurrency.assert_main_thread();
-        
+
         if (self.active_file == null) return WALError.NotInitialized;
-        
+
         const payload_size = block.serialized_size();
         const total_entry_size = WALEntry.HEADER_SIZE + payload_size;
-        
+
         try self.ensure_segment_capacity(total_entry_size);
-        
+
         var bytes_written: usize = 0;
-        
+
         // Simple checksum avoids complexity of streaming hash calculation
         const simple_checksum = std.hash.Wyhash.hash(0, &[_]u8{@intFromEnum(WALEntryType.put_block)});
-        
+
         bytes_written += try self.write_streaming_wal_header(.put_block, payload_size, simple_checksum);
         bytes_written += try self.write_streaming_block_header(block);
         bytes_written += try self.write_streaming_block_content(block);
-        
+
         // Conditional sync for durability
         if (self.enable_immediate_sync) {
             self.active_file.?.flush() catch return WALError.IoError;
             self.vfs.sync() catch return WALError.IoError;
         }
-        
+
         self.update_write_stats(bytes_written);
     }
 
@@ -476,7 +476,7 @@ pub const WAL = struct {
             return WALError.IoError; // Buffer too small - programming error
         };
     }
-    
+
     /// WAL header write optimized for streaming operations to avoid buffer allocation.
     fn write_streaming_wal_header(
         self: *WAL,
@@ -485,21 +485,21 @@ pub const WAL = struct {
         checksum_value: u64,
     ) WALError!usize {
         var header_buffer: [WALEntry.HEADER_SIZE]u8 = undefined;
-        
+
         std.mem.writeInt(u64, header_buffer[0..8], checksum_value, .little);
         header_buffer[8] = @intFromEnum(entry_type);
         std.mem.writeInt(u32, header_buffer[9..13], @intCast(payload_size), .little);
-        
+
         const written = self.active_file.?.write(&header_buffer) catch return WALError.IoError;
         if (written != header_buffer.len) return WALError.IoError;
-        
+
         return written;
     }
-    
+
     /// Block header serialization for streaming WAL to avoid intermediate allocation.
     fn write_streaming_block_header(self: *WAL, block: ContextBlock) WALError!usize {
         var header_buffer: [context_block.ContextBlock.BlockHeader.SIZE]u8 = undefined;
-        
+
         const header = context_block.ContextBlock.BlockHeader{
             .magic = ContextBlock.MAGIC,
             .format_version = ContextBlock.FORMAT_VERSION,
@@ -512,34 +512,34 @@ pub const WAL = struct {
             .checksum = 0,
             .reserved = std.mem.zeroes([12]u8),
         };
-        
+
         const header_size = header.serialize(&header_buffer) catch return WALError.IoError;
         const written = self.active_file.?.write(header_buffer[0..header_size]) catch return WALError.IoError;
         if (written != header_size) return WALError.IoError;
-        
+
         return written;
     }
-    
+
     /// Chunked content writing for cache-friendly I/O with large blocks.
     fn write_streaming_block_content(self: *WAL, block: ContextBlock) WALError!usize {
         var total_written: usize = 0;
-        
+
         if (block.source_uri.len > 0) {
             const written = self.active_file.?.write(block.source_uri) catch return WALError.IoError;
             if (written != block.source_uri.len) return WALError.IoError;
             total_written += written;
         }
-        
+
         if (block.metadata_json.len > 0) {
             const written = self.active_file.?.write(block.metadata_json) catch return WALError.IoError;
             if (written != block.metadata_json.len) return WALError.IoError;
             total_written += written;
         }
-        
+
         // Chunked I/O improves cache performance for multi-megabyte blocks
         if (block.content.len > 0) {
             const CHUNK_SIZE = 64 * 1024;
-            
+
             if (block.content.len <= CHUNK_SIZE) {
                 const written = self.active_file.?.write(block.content) catch return WALError.IoError;
                 if (written != block.content.len) return WALError.IoError;
@@ -548,7 +548,7 @@ pub const WAL = struct {
                 var offset: usize = 0;
                 while (offset < block.content.len) {
                     const chunk_size = @min(CHUNK_SIZE, block.content.len - offset);
-                    const chunk = block.content[offset..offset + chunk_size];
+                    const chunk = block.content[offset .. offset + chunk_size];
                     const written = self.active_file.?.write(chunk) catch return WALError.IoError;
                     if (written != chunk_size) return WALError.IoError;
                     total_written += written;
@@ -556,7 +556,7 @@ pub const WAL = struct {
                 }
             }
         }
-        
+
         return total_written;
     }
 };

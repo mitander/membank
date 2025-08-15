@@ -62,15 +62,34 @@ The repository includes a full suite of tools for validation and performance ana
 # Run the full validation suite (mimics CI)
 ./scripts/local_ci.sh
 
-# Run performance regression detection against baseline
-./scripts/check_regression.sh
+# Run performance benchmarks manually
+./zig/zig build benchmark
+./zig-out/bin/benchmark storage
 
 # Run chaos testing with random inputs (multiple profiles available)
 ./scripts/fuzz.sh quick
 ```
+
+## Performance Monitoring
+
+KausalDB includes comprehensive performance monitoring with automated regression detection:
+
+```bash
+# Run performance benchmarks manually  
+./zig-out/bin/benchmark all
+
+# View performance dashboard
+cat .github/performance-dashboard.md
+
+# Run performance tests manually  
+./zig/zig build test-performance
+```
+
+**Current Status**: [Performance Dashboard](.github/performance-dashboard.md) | [Latest Results](.github/performance-baseline.json)
 
 ## Documentation
 
 - **[Architectural Design](docs/DESIGN.md)**
 - **[Development Workflow](docs/DEVELOPMENT.md)**
 - **[Style Guide](docs/STYLE.md)**
+- **[Performance Dashboard](.github/performance-dashboard.md)**
