@@ -178,12 +178,23 @@ print_status "PROGRESS" "Phase 4: Critical Integration Tests"
 TESTS_START=$(date +%s)
 
 # These are the tests that frequently fail in CI and should be caught locally
+# Use test-all to mirror exact CI behavior and catch integration issues
 CRITICAL_TESTS=(
-    "test"                      # Core unit tests
-    "test-integration"          # Integration tests
-    "test-fault-injection"      # Fault injection tests
-    "test-simulation"           # Simulation tests
+    "test-all"                  # Complete test suite - mirrors CI exactly
 )
+
+# For faster validation, set FAST_PREPUSH=1 to run individual test suites
+if [ "${FAST_PREPUSH:-0}" = "1" ]; then
+    CRITICAL_TESTS=(
+        "test"                      # Core unit tests
+        "test-integration"          # Integration tests
+        "test-fault-injection"      # Fault injection tests
+        "test-simulation"           # Simulation tests
+    )
+    print_status "INFO" "Running fast pre-push validation (FAST_PREPUSH=1)"
+else
+    print_status "INFO" "Running comprehensive validation - set FAST_PREPUSH=1 for faster mode"
+fi
 
 CRITICAL_TESTS_SUCCESS=true
 {
@@ -202,11 +213,19 @@ CRITICAL_TESTS_SUCCESS=true
 if [ "$CRITICAL_TESTS_SUCCESS" = true ]; then
     TESTS_END=$(date +%s)
     TESTS_DURATION=$((TESTS_END - TESTS_START))
-    print_status "OK" "Critical integration tests passed (${TESTS_DURATION}s)"
+    if [ "${FAST_PREPUSH:-0}" = "1" ]; then
+        print_status "OK" "Fast critical tests passed (${TESTS_DURATION}s)"
+    else
+        print_status "OK" "Comprehensive test suite passed (${TESTS_DURATION}s)"
+    fi
 else
-    print_status "FAIL" "Critical integration tests failed:"
+    print_status "FAIL" "Critical tests failed:"
     cat "$CRITICAL_TESTS_OUTPUT"
-    print_status "INFO" "These are the tests that frequently fail in CI"
+    if [ "${FAST_PREPUSH:-0}" = "1" ]; then
+        print_status "INFO" "Consider running full validation: git push (without FAST_PREPUSH=1)"
+    else
+        print_status "INFO" "Comprehensive test suite failed - these mirror CI exactly"
+    fi
     PIPELINE_SUCCESS=false
 fi
 
@@ -327,6 +346,9 @@ else
     echo "  • Run './zig/zig build fmt-fix' for formatting"
     echo "  • Run './zig/zig build tidy' for style issues"
     echo "  • Check build logs for specific compilation errors"
+    echo ""
+    echo "Faster testing (if time is critical):"
+    echo "  FAST_PREPUSH=1 git push"
     echo ""
     echo "Emergency bypass (not recommended):"
     echo "  SKIP_PREPUSH=1 git push"
