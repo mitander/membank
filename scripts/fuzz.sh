@@ -12,7 +12,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KAUSALDB_ROOT="$(dirname "$SCRIPT_DIR")"
 FUZZ_BINARY="$KAUSALDB_ROOT/zig-out/bin/fuzz"
-FUZZ_DEBUG_BINARY="$KAUSALDB_ROOT/zig-out/bin/fuzz-debug"
 REPORTS_DIR="$KAUSALDB_ROOT/fuzz_reports"
 LOG_FILE="$REPORTS_DIR/fuzz.log"
 NTFY_TOPIC="kausaldb_fuzz"
@@ -135,7 +134,7 @@ build_project() {
     info "Building KausalDB fuzzer..."
     cd "$KAUSALDB_ROOT" || return 1
 
-    if ./zig/zig build fuzz fuzz-debug -Doptimize=ReleaseSafe; then
+    if ./zig/zig build fuzz -Doptimize=ReleaseSafe; then
         info "Build successful"
         return 0
     else

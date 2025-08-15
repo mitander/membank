@@ -1,35 +1,26 @@
-# KausalDB Memory Model
+# Memory Architecture That Actually Works
 
-## Overview
+## The Memory Philosophy
 
-KausalDB uses a five-level memory hierarchy targeting microsecond-level performance with deterministic behavior. The design eliminates common bug classes through compile-time validation and maintains zero overhead in release builds.
+Memory is where database performance lives or dies. KausalDB's five-level hierarchy delivers microsecond performance through deliberate design, not happy accidents.
 
-## Design Principles
+## Core Design Principles
 
-1. **Zero-Cost Abstractions**: All safety mechanisms compile to zero overhead in release builds
-2. **Explicit Lifetime Management**: Every allocation has clearly defined ownership and lifetime
-3. **Data-Oriented Design**: Struct-of-Arrays layouts for cache-optimal access patterns
-4. **Type Safety First**: Compile-time validation eliminates runtime type confusion
-5. **Deterministic Performance**: Predictable allocation patterns through pools and arenas
+1. **Zero-Cost Abstractions**: Safety compiles away in release builds
+2. **Explicit Lifetime Management**: Every allocation knows who owns it and when it dies
+3. **Cache-First Design**: Memory layouts optimized for modern CPU cache hierarchies  
+4. **Type Safety at Compile Time**: Catch bugs before they run, not after they crash
+5. **Deterministic Performance**: Predictable allocation patterns, no surprise stalls
 
 ## Five-Level Memory Hierarchy
 
-### Level 1: Fixed-Size Object Pools
+### Level 1: Object Pools
 
-Pre-allocated pools for high-frequency objects with known sizes.
+Pre-allocated pools eliminate allocation overhead for hot paths.
 
-**Implementation**: `ObjectPoolType<T>`, `StackPoolType<T, N>`, `PoolManagerType<T1, T2>`
-
-**Use Cases**:
-- SSTable handles and metadata structures
-- Block iterators and temporary cursors
-- Frequently allocated/deallocated objects
-
-**Performance Characteristics**:
-- **Allocation**: O(1) with < 10ns latency
-- **Deallocation**: O(1) with automatic reuse
-- **Fragmentation**: Zero - objects are fixed-size
-- **Cache Performance**: Good locality due to contiguous allocation
+**What it fixes**: Malloc/free churn that kills performance
+**Performance**: <10ns allocation, O(1) deallocation, zero fragmentation
+**Use cases**: SSTable handles, block iterators, frequent temporary objects
 
 **Example Usage**:
 ```zig

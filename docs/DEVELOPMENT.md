@@ -1,130 +1,128 @@
-# Development Guide
+# Building Something Real
 
-This guide covers the philosophy, workflow, and tools for contributing to KausalDB. We prioritize correctness, performance, and a streamlined developer experience.
+KausalDB doesn't compromise. This guide shows you how to contribute to a system that measures performance in microseconds and proves correctness through chaos.
 
-## 1. Core Philosophy: Simulation-First Testing
+## The Underground Way
 
-Our testing philosophy is the foundation of KausalDB's reliability. We do not mock. We run the **exact same production code** inside a deterministic simulation harness that models hostile conditions.
+We build differently here. No mocking. No "it works on my machine." Every line of code runs against the same hostile simulation that production faces—disk corruption, network failures, power loss. If it survives the simulator, it survives the real world.
 
-- **Virtual File System (VFS):** All storage operations are written against a VFS abstraction (`src/vfs.zig`). In production, this VFS uses the real filesystem. In tests, it uses an in-memory, deterministic `SimulationVFS` (`src/simulation_vfs.zig`).
-- **Deterministic Simulation:** The simulation framework (`src/simulation.zig`) controls time, I/O, and networking. Our test suites use this to validate behavior against disk corruption, I/O failures, network partitions, and power loss in a byte-for-byte reproducible manner.
+### Reality-First Testing
 
-When you add a new feature, your first thought should be: _How do I test this under hostile conditions in the simulation?_
+The testing philosophy is simple: test reality, not approximations.
 
-## 2. Initial Setup
+- **Virtual File System**: All storage goes through our VFS abstraction (`src/vfs.zig`). Production uses real disks. Tests use an in-memory simulation that can corrupt bytes, fail writes, and lose power at the worst possible moment.
+- **Deterministic Chaos**: The simulation framework (`src/simulation.zig`) controls time, I/O, and networking with nanosecond precision. Every test failure is reproducible byte-for-byte.
 
-First, clone the repository. Then, install the project-specific Zig toolchain and set up the Git hooks. The hooks are **not optional**—they are a critical part of the workflow.
+When you build a feature, think like the system: *How does this break? How do I prove it won't?*
+
+## Getting Your Hands Dirty
+
+Clone, install, hook up. The Git hooks aren't suggestions—they're the immune system that keeps the codebase healthy.
 
 ```bash
-# Install the exact Zig version required by the project
+# Get the exact Zig version this project expects
 ./scripts/install_zig.sh
 
-# Install pre-commit and pre-push hooks
+# Install the quality gates
 ./scripts/setup_hooks.sh
 ```
 
-## 3. Development Workflow
+## The Development Flow
 
-### Code Quality and Validation
+### Quality Gates on Every Move
 
-The Git hooks automate our quality gates.
+Our Git hooks run the checks that matter:
 
-1.  **`pre-commit`**: Before every commit, this hook runs:
-    - **Formatter:** `zig fmt`
-    - **Tidy Check:** `zig build tidy` (checks for architectural and style violations)
-    - **Fast Tests:** `zig build test` (runs essential unit and integration tests)
-2.  **`pre-push`**: Before you push, this hook runs a comprehensive local CI pipeline (`scripts/local_ci.sh`) that mirrors the GitHub Actions workflow. It performs cross-platform compilation checks, runs critical integration tests, and checks for performance regressions. This prevents most CI failures.
+1.  **`pre-commit`**: Your code gets tested before it's committed:
+    - **Formatter:** `zig fmt` - consistent style, no arguments
+    - **Tidy Check:** `zig build tidy` - architectural violations get caught
+    - **Fast Tests:** `zig build test` - critical paths must pass
+2.  **`pre-push`**: Full local CI mirrors GitHub Actions—cross-platform builds, integration tests, performance regression checks. Most CI failures get caught here, not after you've broken main.
 
-### Build & Test Commands
+### The Build Arsenal
 
-The `build.zig` file defines several targets for testing and validation.
+Multiple ways to test, each serving a purpose:
 
-- **Fast Developer Loop:** For day-to-day development. Runs in seconds.
+- **Developer Loop**: Daily verification, runs in seconds.
   ```bash
   ./zig/zig build test
   ```
-- **Full CI Check:** Runs the complete test suite, including stress and fault-injection tests. Use this before pushing.
+- **CI Mirror**: Full suite including stress tests. Run before pushing or pay the price.
   ```bash
   ./zig/zig build ci
-  # Or run the script directly for more options
-  ./scripts/local_ci.sh
+  ./scripts/local_ci.sh  # Script version with more options
   ```
-- **Performance Benchmarking:** Manual performance testing for optimization work.
+- **Performance**: Benchmark when you're optimizing for microseconds.
   ```bash
   ./zig/zig build benchmark
   ./zig-out/bin/benchmark storage --json
   ```
-- **Fuzz Testing:** Runs the fuzzer to find bugs with random inputs. Several profiles are available.
-
+- **Chaos**: Fuzz testing with different intensity levels.
   ```bash
-  # Quick 5-minute fuzz for local validation
-  ./scripts/fuzz.sh quick storage
-
-  # Run continuously until stopped
-  ./scripts/fuzz.sh continuous all
+  ./scripts/fuzz.sh quick storage  # 30 seconds of chaos
+  ./scripts/fuzz.sh continuous all # Runs until you stop it
   ```
 
-## 4. Debugging Workflow
+## Debugging Like a Pro
 
-We follow a tiered approach to debugging, starting with the fastest and simplest tools.
+Three-tier approach: start fast, go deeper when needed.
 
-**Tier 1: Find the Source with GPA Safety**
+**Tier 1: Find the Source**
 
-The fastest way to find the origin of memory corruption is to enable the safety features of `std.heap.GeneralPurposeAllocator`. In the failing test, swap `std.testing.allocator` with a safety-enabled GPA:
+Memory corruption? Enable GPA safety mode in your failing test:
 
 ```zig
-// In your test file
 var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
 defer _ = gpa.deinit();
 const allocator = gpa.allocator();
 ```
 
-This will often pinpoint the exact location of a buffer overflow or use-after-free error.
+This catches buffer overflows and use-after-free at the source, not when they explode later.
 
-**Tier 2: Deeper Analysis with Sanitizers**
+**Tier 2: Nuclear Option**
 
-If the GPA doesn't reveal the issue, use LLVM's sanitizers for a more detailed report. Our `test-sanitizer` build target has this pre-configured.
+Still confused? Sanitizers give you the full story:
 
 ```bash
 ./zig/zig build test-sanitizer
 ```
 
-This will provide detailed stack traces for memory errors.
+LLVM's AddressSanitizer provides detailed stack traces showing exactly where memory got corrupted.
 
-**Tier 3: Interactive Inspection**
+**Tier 3: Interactive**
 
-If the "what" is still unclear, use a debugger like LLDB or GDB to set breakpoints and inspect the program state interactively.
+When you need to poke around manually, break out the debugger. Set breakpoints, inspect state, understand the "why" behind the crash.
 
-## 5. Testing Infrastructure
+## The Testing Machinery
 
-### Migrated Test Patterns
+### Battle-Tested Harnesses
 
-The project uses a unified testing infrastructure that provides:
+No more setup boilerplate. The harnesses handle the boring stuff so you can focus on breaking things properly:
 
-- **QueryHarness**: Coordinated setup for query engine and storage engine testing
-- **StorageHarness**: Dedicated storage subsystem testing with VFS integration
-- **NetworkHarness**: Server and protocol testing with deterministic I/O
-- **FaultInjectionHarness**: Systematic failure simulation and recovery testing
+- **QueryHarness**: Query engine and storage working together
+- **StorageHarness**: Pure storage testing with VFS simulation
+- **NetworkHarness**: Server protocols under deterministic I/O
+- **FaultInjectionHarness**: Systematic chaos—disk failures, network partitions, corruption
 
-### Test Organization
+### How Tests Are Organized
 
-Tests are organized by functionality and complexity:
+By complexity and intent:
 
-- **Unit Tests** (`tests/unit/`): Fast, isolated component tests
-- **Integration Tests** (`tests/integration/`): Cross-component interaction validation
+- **Unit Tests** (`tests/unit/`): Fast, isolated components
+- **Integration Tests** (`tests/integration/`): Multiple components working together
 - **Performance Tests** (`tests/performance/`): Benchmark and regression detection
-- **Fault Injection** (`tests/fault_injection/`): Hostile condition simulation
+- **Fault Injection** (`tests/fault_injection/`): Simulated disasters
 - **Recovery Tests** (`tests/recovery/`): Data corruption and recovery scenarios
 
-### Writing Tests
+### Writing Tests That Matter
 
-When adding new features:
+When you build something new:
 
-1.  **Use appropriate harness**: Select QueryHarness, StorageHarness, or NetworkHarness based on subsystem
-2.  **Test failure modes**: Every success path requires corresponding failure mode tests
-3.  **Validate memory hierarchy**: Ensure coordinators own arenas, submodules use references, sub-submodules perform pure computation
-4.  **Test allocator isolation**: Verify fault injection cannot corrupt memory across component boundaries
-5.  **Include performance tests**: Add benchmark coverage for performance-critical paths
+1.  **Pick the right harness**: QueryHarness, StorageHarness, or NetworkHarness based on what you're testing
+2.  **Test the failure modes**: Happy path is easy. Test what happens when things go wrong
+3.  **Respect the memory hierarchy**: Coordinators own arenas, submodules get references, computation is pure
+4.  **Isolate allocators**: Fault injection shouldn't corrupt memory across boundaries
+5.  **Benchmark critical paths**: If it's performance-sensitive, prove it stays fast
 
 ### Hierarchical Memory Testing
 
@@ -218,7 +216,7 @@ test "coordinator arena cleanup eliminates all subsystem memory" {
 The benchmark tool provides manual performance validation:
 
 - **Storage Operations**: `./zig-out/bin/benchmark storage` for block read/write performance
-- **Query Operations**: `./zig-out/bin/benchmark query` for query engine performance  
+- **Query Operations**: `./zig-out/bin/benchmark query` for query engine performance
 - **JSON Output**: Add `--json` flag for machine-readable results
 
 ## 6. Test Standardization Requirements
@@ -291,17 +289,6 @@ Line 45: [ARCH] Consider using StorageHarness instead of manual VFS/StorageEngin
   Context: Manual SimulationVFS + StorageEngine pattern detected
   Suggested fix: Use StorageHarness.init_and_startup() or add justification comment
 ```
-
-### Migration Guidelines
-
-When migrating existing tests:
-
-1. **Identify test type**: Storage-only, query, or simulation needs
-2. **Choose appropriate harness**: StorageHarness, QueryHarness, or SimulationHarness
-3. **Replace manual setup**: Swap VFS/StorageEngine creation with harness init
-4. **Update component access**: Use `harness.storage_engine` instead of local variable
-5. **Verify functionality**: Run `./zig/zig build test` to ensure tests still pass
-6. **Check compliance**: Run `./zig/zig build tidy` to verify no violations
 
 ### CI Integration
 

@@ -1,114 +1,184 @@
-# Design Document
+# Design Philosophy
 
-## 1. Philosophy: Simplicity is the Prerequisite for Reliability
+*"Simplicity is the prerequisite for reliability."* —Dijkstra
 
-KausalDB is an opinionated database. It is not general-purpose. Every architectural decision is optimized for its specific mission: modeling code as a queryable, causal graph for AI reasoning. Our philosophy is built on principles that lead to fast, correct, and maintainable systems.
+## The Vision
 
-- **Zero-Cost Abstractions:** Safety and type checking must have zero runtime overhead in release builds. With 0.06µs block reads, every CPU cycle matters. We use compile-time validation, not runtime checks.
-- **Correctness is Not Negotiable:** "Probably right" is wrong. We prove correctness through deterministic, simulation-first testing.
-- **Explicitness Over Magic:** All control flow, memory allocation, and component lifecycles are explicit. There are no hidden mechanics.
-- **Zero Dependencies, Zero Headaches:** The system compiles to a single static binary. Deployment is simple because the software is simple.
-- **Hierarchical Memory Ownership:** Clear coordinator→submodule→sub-submodule memory hierarchy eliminates allocator conflicts and makes debugging trivial.
+KausalDB isn't another database. It's the missing piece in how we think about code.
 
-We chose Zig because its philosophy aligns with ours: no hidden control flow, no hidden memory allocations, and a focus on explicitness. The hierarchical memory model leverages Zig's compile-time capabilities to enforce ownership at zero runtime cost.
+Every line of software you write exists in a web of relationships—functions that call each other, modules that import dependencies, classes that inherit behavior. This isn't metadata; it's the fundamental structure of computation. Yet we store and query code as if it were flat text.
 
-## 2. Core Architecture
+That disconnect breaks AI reasoning about software. Standard RAG feeds language models chunks of "semantically similar" text, hoping proximity in embedding space captures actual relationships. It doesn't. Code has *causal* structure that semantic search cannot capture.
 
-The system is designed as a series of coordinated, specialized components that follow clear ownership patterns and architectural boundaries.
+KausalDB models code as it actually exists: a directed graph of dependencies and relationships. Query the graph, get the truth.
 
-### 2.1. The Hierarchical Coordinator Pattern
+## Core Principles
 
-Components follow a clear hierarchy using the **Arena Coordinator Pattern** where coordinators provide stable allocation interfaces that remain valid across arena operations.
+### Simplicity as Strategy
 
-**Memory-Owning Coordinators:** Top-level components like `StorageEngine` own exactly one arena allocator and expose it through a coordinator interface that never becomes invalid.
+Complex systems fail in complex ways. We optimize for simplicity not because it's easy, but because it's the only path to reliability. Every abstraction must justify its existence. Every feature must solve a real problem.
 
-**Computation Submodules:** Mid-level components like `MemtableManager` and `SSTableManager` receive coordinator interfaces (not direct arena references) and focus on domain logic without memory ownership complexity.
+- **Single-threaded core**: Eliminates data races by design
+- **Zero dependencies**: One binary, no configuration, no surprises  
+- **Explicit everything**: No hidden allocations, no magic, no assumptions
+- **Arena memory**: O(1) cleanup eliminates entire classes of bugs
 
-**Pure Computation Modules:** Low-level components like `BlockIndex` and `GraphEdgeIndex` perform specialized operations using coordinator-provided allocation, eliminating temporal coupling between arena operations and component access.
+### Correctness Over Convenience  
 
-This pattern eliminates arena corruption that occurred when structs containing embedded arenas were copied, while maintaining 20-30% performance improvements through reduced allocator indirection.
+"Probably works" is another way of saying "broken." We prove correctness through simulation-first testing that validates the actual production code against catastrophic failures—disk corruption, network partitions, power loss.
 
-### 2.2. Single-Threaded Core with Async I/O
+- **Deterministic testing**: Byte-for-byte reproducible failure scenarios
+- **Comprehensive validation**: 500+ tests, chaos testing, performance regression detection
+- **Zero-cost abstractions**: Safety checks compile away in release builds
+- **Memory safety**: Arena-per-subsystem eliminates use-after-free and double-free
 
-To eliminate data races by design, KausalDB's core is single-threaded. [75] Asynchronous I/O is handled by a non-blocking event loop. This constraint forces simplicity and makes state transitions easy to reason about. Concurrency is enforced in debug builds via `assert_main_thread()`.
+### Performance Through Design
 
-### 2.3. Zero-Cost Ownership System
+Performance isn't an afterthought. The architecture optimizes for microsecond-level operations because that's what AI workloads demand.
 
-The ownership system provides memory safety with zero runtime overhead through compile-time validation.
+- **LSM-tree storage**: Optimized for high-volume code ingestion
+- **Cache-friendly layouts**: Struct-of-Arrays for hot paths
+- **Zero-copy queries**: Direct pointers into storage, no allocations
+- **Object pooling**: Pre-allocated handles for frequent operations
 
-- **Compile-Time Ownership:** Ownership checks use `comptime` parameters, making violations compilation errors rather than runtime failures.
-- **Debug-Only Validation:** Arena aliasing checks and state transitions only exist in debug builds via `if (builtin.mode == .Debug)`.
-- **Zero Overhead:** Release builds have identical performance to raw pointers - ownership is purely a compile-time concept.
-- **Type-Safe Transfers:** `OwnedBlock` and `OwnedGraphEdge` enable safe memory transfer between subsystems with compile-time guarantees.
+*Current performance: 47K writes/sec, 16.7M reads/sec, 0.06µs block access*
 
-### 2.4. Comprehensive Memory Architecture
+## Architecture
 
-KausalDB employs a sophisticated five-level memory hierarchy designed for microsecond-level performance and zero-cost abstractions.
+### The Graph Data Model
 
-**Level 1: Fixed-Size Object Pools**
-High-frequency objects like SSTable handles and iterators are allocated from pre-sized pools, eliminating allocation overhead and fragmentation. `ObjectPoolType<T>` provides O(1) allocation with debug tracking.
+Code has two fundamental primitives:
 
-**Level 2: Arena Coordinators**
-Top-level components own exactly one arena and expose it through a coordinator interface. `ArenaCoordinator` provides stable allocation that survives arena resets, eliminating temporal coupling.
+**ContextBlocks** - Units of meaning (functions, classes, documentation)
+```zig
+const ContextBlock = struct {
+    id: BlockId,        // 128-bit UUID
+    version: u64,       // For conflict resolution  
+    source_uri: []const u8,
+    metadata_json: []const u8,
+    content: []const u8,
+};
+```
 
-**Level 3: Data-Oriented Storage**
-Performance-critical data structures use Struct-of-Arrays layout for cache optimization. `BlockIndexDOD` achieves 3-5x performance improvement through contiguous memory access patterns.
+**GraphEdges** - Relationships between blocks (calls, imports, references)
+```zig  
+const GraphEdge = struct {
+    from: BlockId,
+    to: BlockId,
+    edge_type: EdgeType,
+    metadata: []const u8,
+};
+```
 
-**Level 4: Zero-Copy Query Paths**
-Read operations return direct pointers to storage data via `ZeroCopyQueryInterface`, eliminating allocations on hot paths while maintaining lifetime safety through session tracking.
+This captures the causal structure of software. A function `authenticate_user` doesn't just contain some text about authentication—it *calls* `hash_password`, *imports* `crypto`, and is *called by* `login_handler`. The graph makes these relationships queryable.
 
-**Level 5: Type-Safe Coordination**
-`TypedStorageCoordinatorType<T>` replaces unsafe `*anyopaque` patterns with compile-time validated interfaces, eliminating type confusion while maintaining zero runtime overhead.
+### LSM-Tree Storage Engine
 
-**Memory Lifecycle Management:**
+Built for high-volume code ingestion with strong durability guarantees:
 
-- **Permanent Infrastructure:** GeneralPurposeAllocator for program-lifetime objects
-- **Subsystem Arenas:** ArenaAllocator with coordinator interface for bulk operations
-- **Task Arenas:** Temporary arenas for bounded operations
-- **Object Pools:** Pre-allocated pools for frequent allocations
-- **Stack Allocation:** Function-scoped temporary buffers
+**Write Path:**
+1. **Write-Ahead Log** - Every operation goes to segmented WAL files (64MB chunks)  
+2. **Memtable** - In-memory HashMap for recent writes, backed by arena allocator
+3. **SSTable Flush** - When memtable fills, sorted flush to immutable disk files
+4. **Background Compaction** - Tiered merging reduces read amplification
 
-**Ownership Transfer Safety:**
-`OwnedBlock` includes moved-from state tracking to prevent use-after-transfer bugs. Debug builds validate ownership transfers with zero release overhead.
+**Read Path:**  
+1. **Memtable Lookup** - Check recent writes first (fastest)
+2. **SSTable Search** - Binary search through sorted disk files
+3. **Bloom Filters** - Skip SSTables that definitely don't contain the key
+4. **Zero-Copy Returns** - Direct pointers into storage, no allocations
 
-### 2.5. LSM-Tree Storage Engine
+### Memory Architecture
 
-The storage engine is a custom Log-Structured Merge-Tree optimized for high write throughput.
+Five levels of memory management optimize for different access patterns:
 
-- **Write-Ahead Log (WAL):** All writes are first appended to the WAL in 64MB segmented files to ensure durability. A `CorruptionTracker` detects systematic corruption and triggers a fail-fast response to prevent propagating bad data. [89, 91]
-- **Memtable (`BlockIndex`):** An in-memory `HashMap` that stores recent writes for fast access, backed by an arena allocator. [94]
-- **SSTables (Sorted String Tables):** When the memtable reaches its size threshold, its contents are sorted and flushed to immutable on-disk files. The SSTable on-disk format uses a 64-byte aligned header and Bloom filters to optimize read performance. [102, 103]
-- **Tiered Compaction:** A background process merges SSTables using a size-tiered strategy to reduce read amplification and reclaim space from deleted or updated blocks. [99]
+**Level 1: Object Pools**  
+High-frequency allocations (SSTable handles, iterators) use pre-allocated pools. O(1) allocation, zero fragmentation.
 
-### 2.6. Ingestion Backpressure System
+**Level 2: Arena Coordinators**  
+Top-level components own exactly one arena, exposed through a coordinator interface that survives arena resets. Eliminates temporal coupling.
 
-KausalDB includes a sophisticated backpressure mechanism to prevent out-of-memory crashes during high-volume ingestion while maintaining system responsiveness.
+**Level 3: Data-Oriented Layout**  
+Performance-critical structures use Struct-of-Arrays for cache efficiency. 3-5x performance improvement on hot paths.
 
-**Memory Pressure Detection**: The system continuously monitors storage memory usage through two key metrics:
+**Level 4: Zero-Copy Queries**  
+Read operations return direct pointers into storage via session tracking. No allocations on read path.
 
-- **Memtable Memory Usage**: Tracks current in-memory block index size against configurable targets (default: 64MB)
-- **Compaction Queue Size**: Monitors pending compaction operations to detect backlog accumulation
+**Level 5: Type-Safe Coordination**  
+Compile-time validated interfaces replace `*anyopaque` patterns. Type safety with zero runtime cost.
 
-**Adaptive Batch Sizing**: The ingestion pipeline dynamically adjusts batch sizes based on detected memory pressure:
+### Single-Threaded Core
 
-- **Low Pressure** (< 50% of target): Full batch size for maximum throughput
-- **Medium Pressure** (50-70% of target): Reduced batch size (50% of default)
-- **High Pressure** (> 70% of target): Minimum batch size to allow system recovery
+Data races are eliminated by design through a single-threaded execution model with async I/O. This constraint forces architectural simplicity and makes state transitions trivial to reason about.
 
-**Graceful Degradation**: Under sustained memory pressure, the system prioritizes stability over throughput:
+Debug builds enforce this with `assert_main_thread()` calls. The event loop handles I/O without blocking the core.
 
-- Automatic batch size reduction prevents memory exhaustion
-- Background compaction given time to process accumulated data
-- System remains responsive and never crashes due to memory pressure
-- Recovery is automatic as memory pressure subsides
+### Ownership System  
 
-This design ensures KausalDB can safely ingest entire codebases without manual tuning or risk of system failure under load.
+Memory safety through compile-time ownership tracking:
 
-## 3. Data Model
+```zig
+// Ownership transfers are explicit and type-safe
+var owned_block = try OwnedBlock.create(allocator, block_data);
+var transferred = owned_block.transfer(); // owned_block now invalid
+```
 
-The data model is purpose-built for representing code.
+- **Compile-time checks**: Ownership violations become compilation errors
+- **Zero runtime cost**: Release builds have identical performance to raw pointers  
+- **Debug validation**: Moved-from detection prevents use-after-transfer bugs
 
-- **`ContextBlock`**: The atomic unit of knowledge. It is a structured piece of information (e.g., a function, a class, a documentation paragraph) with a unique 128-bit `BlockId`, version, source URI, and JSON metadata. [79]
-- **`GraphEdge`**: A typed, directed relationship between two `ContextBlock`s, such as `calls`, `imports`, or `references`. The `GraphEdgeIndex` maintains bidirectional indexes for fast traversal in both directions. [93]
+## Why Zig?
 
-This structure allows the system to capture the rich, causal relationships in a codebase, transforming it from a collection of files into a queryable knowledge graph.
+Zig's philosophy aligns perfectly with ours: no hidden control flow, no hidden allocations, explicit everything. The compile-time system enables zero-cost abstractions while maintaining C-level performance.
+
+```zig
+// Ownership is enforced at compile time, costs nothing at runtime
+pub fn transfer(comptime T: type, owned: *Owned(T)) T {
+    if (builtin.mode == .Debug) {
+        std.debug.assert(!owned.moved_from);
+        owned.moved_from = true; 
+    }
+    return owned.data;
+}
+```
+
+## Testing Philosophy
+
+### Simulation-First Approach
+
+Instead of mocking components, we run the actual production code inside a deterministic simulation environment. Every I/O operation goes through a Virtual File System that can simulate disk corruption, network failures, and power loss.
+
+**Benefits:**
+- Test the real code, not approximations
+- Byte-for-byte reproducible scenarios  
+- Comprehensive failure mode coverage
+- No test/production differences
+
+### Chaos Testing
+
+The fuzzer runs 500K+ iterations testing random operations against the storage engine. Recent performance optimization achieved 584x improvement (48 → 28K+ iterations/second) enabling comprehensive CI integration.
+
+**Profiles:**
+- **Quick**: 500K iterations (~30s) for CI validation
+- **Deep**: 10M iterations (~10min) for nightly testing  
+- **Production**: Continuous with crash monitoring
+
+### Performance Validation
+
+Every CI run includes performance regression detection. Benchmarks validate critical paths maintain microsecond-level performance:
+
+- Block writes: <100µs target  
+- Block reads: <50µs target
+- Single queries: <10µs target
+
+## The Missing Piece
+
+Most databases are built for business applications—user records, financial transactions, content management. They optimize for different access patterns and consistency models.
+
+KausalDB is built specifically for code analysis. It understands that software is a graph, that relationships matter more than individual pieces, and that AI systems need structural truth, not semantic approximations.
+
+We're not trying to replace your primary database. We're filling the gap between flat text storage and intelligent code reasoning.
+
+---
+
+*This is the foundation. Everything else is implementation details.*

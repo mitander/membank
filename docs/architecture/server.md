@@ -1,8 +1,8 @@
-# Server Architecture
+# Server: The Network Interface
 
-## Overview
+## High-Level Design
 
-The server follows a coordinator pattern with clean separation between I/O management and request processing. The architecture eliminates the "god module" anti-pattern by delegating connection lifecycle management to a dedicated subsystem.
+Clean separation between I/O management and request processing. No "god modules" - each component has a focused responsibility. Connection management is isolated from query processing, eliminating coupling between network concerns and database operations.
 
 ## Core Components
 

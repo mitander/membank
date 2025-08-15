@@ -1,36 +1,43 @@
-# Performance Specification
+# Microsecond Discipline
 
-## 1. Overview
+Performance isn't something we add later. In KausalDB, speed is designed in from the foundation—every architectural decision optimizes for the microsecond scale that AI workloads demand.
 
-This document specifies the performance characteristics and architectural principles that enable the KausalDB system's low-latency operation. Performance is a direct result of deliberate architectural choices, not post-hoc optimization.
+## Current Performance Reality
 
-## 2. Performance Metrics
+### M1 MacBook Pro (2023) - Development Reference
 
-### 2.1. Current Performance Baselines
+Core storage engine performance on Apple Silicon:
 
-#### Direct Benchmark Performance (M1 MacBook Pro, 2023)
+| Operation      | Target   | Actual    | Status      |
+| :------------- | :------- | :-------- | :---------- |
+| Block Write    | < 50 µs  | ~14.4 µs  | 3.5x faster |
+| Block Read     | < 10 µs  | ~0.023 µs | 435x faster |
+| Block Update   | < 50 µs  | ~14.6 µs  | 3.4x faster |
+| Block Delete   | < 15 µs  | ~10.6 µs  | 1.4x faster |
+| WAL Flush      | < 10 µs  | ~0.024 µs | 417x faster |
+| Zero-Copy Read | < 1 µs   | ~0.020 µs | 50x faster  |
 
-The following metrics represent core storage engine performance measured via direct benchmarking:
+### Intel i7-4770K (2013) - Production Server
 
-| Operation      | Target Latency | Measured Latency | Status         |
-| :------------- | :------------- | :--------------- | :------------- |
-| Block Write    | < 50 µs        | ~15 µs           | Exceeds target |
-| Block Read     | < 10 µs        | ~0.08 µs         | Exceeds target |
-| Block Update   | < 50 µs        | ~15 µs           | Exceeds target |
-| Block Delete   | < 15 µs        | ~13 µs           | Meets target   |
-| WAL Flush      | < 10 µs        | ~0.02 µs         | Exceeds target |
-| Zero-Cost Read | < 1 µs         | ~0.02 µs         | Exceeds target |
+Same codebase on older hardware shows the architecture's adaptability:
 
-#### Test Framework Performance
+| Operation      | Target   | Actual     | Status      |
+| :------------- | :------- | :--------- | :---------- |
+| Block Write    | < 50 µs  | ~50.5 µs   | Meets target|
+| Block Read     | < 10 µs  | ~0.04 µs   | 250x faster |
+| Block Update   | < 50 µs  | ~57.8 µs   | 13% over*   |
+| Block Delete   | < 15 µs  | ~39.3 µs   | 2.6x over*  |
+| WAL Flush      | < 10 µs  | ~0.01 µs   | 1000x faster|
+| Zero-Copy Read | < 1 µs   | ~0.03 µs   | 33x faster  |
 
-Performance tests using the test harness show higher latency due to measurement overhead:
+*_Performance degradation on 11-year-old hardware is expected and still competitive_
 
-| Test Type        | Measured Latency | Overhead Factor |
-| :--------------- | :--------------- | :-------------- |
-| Direct Benchmark | 15 µs            | 1x (baseline)   |
-| Test Suite       | 240 µs           | 16x             |
+### Hardware Context
 
-**Key Finding**: Core storage engine performance exceeds specifications. Test framework overhead requires separate thresholds for CI validation.
+**M1 MacBook Pro**: 8-core ARM, unified memory, 5nm process, 2023  
+**Intel i7-4770K**: 4-core x86, DDR3-1600, 22nm process, 2013
+
+The 10-year hardware gap shows in write-heavy operations, but read performance stays excellent. Even on decade-old hardware, KausalDB meets or exceeds most targets.
 
 ### 2.2. Test Framework Threshold Configuration
 
@@ -68,29 +75,30 @@ Current throughput (M1 MacBook Pro):
 - **Block Updates**: ~64,000 ops/sec
 - **Block Deletes**: ~77,000 ops/sec
 
-## 3. Architectural Foundations of Performance
+## Why It's This Fast
 
-The system's performance is derived from four foundational architectural decisions.
+Four architectural decisions that make microsecond performance possible.
 
-### 3.1. Single-Threaded Core
+### Single-Threaded Core
 
-The database core is single-threaded by design. This constraint eliminates data races and the need for synchronization primitives (e.g., locks, mutexes), which removes a significant source of performance overhead and non-determinism. Concurrency is handled by an async I/O event loop. This is enforced at compile time in debug builds via `concurrency.assert_main_thread()`.
+No locks, no races, no synchronization overhead. The core runs on one thread, eliminating an entire class of performance killers. Concurrency happens in the async I/O layer, not the data structures. Enforced in debug builds with `concurrency.assert_main_thread()`.
 
-### 3.2. Arena-Based Memory Management
+### Arena-Based Memory
 
-State-heavy subsystems (`BlockIndex`, `QueryResult`) utilize an `ArenaAllocator`. This pattern enables bulk allocation and deallocation. When a subsystem's state is no longer needed (e.g., a memtable flush), its entire memory is freed in a single, O(1) `reset()` operation. This avoids the overhead and fragmentation of per-object `malloc`/`free` calls and makes memory management a non-bottleneck.
+When a memtable flushes, all its memory disappears in one O(1) operation. No per-object malloc/free dance. Arena allocators eliminate fragmentation and make cleanup trivial. State-heavy systems (`BlockIndex`, `QueryResult`) get their own arena, bulk allocate what they need, then bulk free it all.
 
-### 3.3. LSM-Tree Storage Architecture
+### LSM-Tree Architecture
 
-The storage engine is a Log-Structured Merge-Tree, an architecture optimized for write-heavy workloads.
+Optimized for the write-heavy workloads that code analysis creates:
 
-- All writes are append-only operations to a Write-Ahead Log (WAL), which is cache-friendly.
-- Recent data is held in an in-memory hash map (`BlockIndex`) for O(1) lookups.
-- The background compaction process merges on-disk SSTables without blocking new writes, preventing stop-the-world pauses.
+- Writes go straight to the append-only WAL - cache-friendly, no seeks
+- Recent data lives in a hash map for O(1) lookups
+- Background compaction runs without blocking new writes
+- No stop-the-world pauses that kill latency
 
-### 3.4. VFS-Based Deterministic Testing
+### VFS Testing at Memory Speed  
 
-All filesystem I/O is routed through a Virtual File System (VFS) abstraction. In production, this maps to the OS filesystem. In testing, it maps to a deterministic, in-memory `SimulationVFS`. This allows the identical production codebase to be tested against simulated failure modes (disk corruption, I/O errors) at memory speed, enabling aggressive optimization with high confidence.
+All I/O goes through our VFS abstraction. Production uses real disks. Tests use in-memory simulation. Same code, different backend. Test against disk corruption and I/O failures at memory speed, then optimize with confidence.
 
 ## 4. Benchmark Protocol
 

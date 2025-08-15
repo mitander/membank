@@ -1,72 +1,70 @@
-# Style Guide
+# The Code That Builds Code
 
-This document defines the mandatory code style, naming conventions, and patterns for KausalDB. These rules enforce architectural principles, improve readability, and eliminate entire classes of bugs. Adherence is enforced by the tidy checker and pre-commit hooks.
+This isn't just style—it's the disciplined thinking that makes KausalDB reliable at microsecond scales. These patterns eliminate bugs, enforce our architecture, and make the impossible debuggable.
 
-## 1. Core Philosophy: Code Shows WHAT, Comments Explain WHY
+## The Cardinal Rule: Why, Not What
 
-### The Fundamental Rule
+Code tells you what happens. Comments tell you why it matters.
 
-- **Code must be self-documenting**: A competent developer should understand WHAT the code does by reading it.
-- **Comments provide context**: Comments explain WHY decisions were made, not WHAT the code does.
+- **Code is self-documenting**: Any competent developer should understand what your code does by reading it
+- **Comments provide context**: The reasoning, the trade-offs, the constraints that led to this solution
 
 ```zig
-// BAD: Comment explains what (redundant)
+// BAD: Explaining the obvious
 // Increment the counter
 counter += 1;
 
-// GOOD: Comment explains why (valuable context)
-// We increment by 1 instead of batch size here because the WAL
-// requires sequential entry numbers for recovery validation
+// GOOD: Explaining the reasoning
+// WAL requires sequential entry numbers for recovery validation.
+// Batch incrementing would break the ordering guarantees.
 counter += 1;
 ```
 
-## 2. Naming Conventions: Verb-First and Explicit
+## Naming: Verbs Do, Nouns Are
 
-### Function Names: Actions Are Verbs
+### Functions Start With Action
 
-Functions perform actions. Their names must start with a verb that clearly indicates what they do.
+Functions do things. Their names start with verbs that tell you exactly what they do.
 
 ```zig
-// GOOD: Clear action verbs
+// GOOD: Action-first, unambiguous
 pub fn find_block(id: BlockId) !?ContextBlock
 pub fn flush_memtable() !void
 pub fn validate_checksum(data: []const u8) bool
 pub fn compact_sstables(level: u32) !void
 
-// BAD: Noun-first or ambiguous
-pub fn block_finder(id: BlockId) !?ContextBlock  // Noun, not verb
-pub fn memtable_flush() !void                     // Noun-first
-pub fn checksum(data: []const u8) bool           // Ambiguous - calculate or validate?
+// BAD: Unclear intent
+pub fn block_finder(id: BlockId) !?ContextBlock  // Are you finding or returning?
+pub fn memtable_flush() !void                     // Noun confusion
+pub fn checksum(data: []const u8) bool           // Calculate? Verify? Who knows?
 ```
 
-### Special Verb Prefixes
+### Special Prefixes for Uncertainty
 
-**Result Types**: Functions returning error unions use `try_` prefix:
-
+**Error unions get `try_`**:
 ```zig
 pub fn try_parse_header(data: []const u8) !Header
 pub fn try_connect(address: []const u8) !Connection
 ```
 
-**Optional Types**: Functions returning optionals use `maybe_` prefix:
-
+**Optionals get `maybe_`**:
 ```zig
 pub fn maybe_find_block(id: BlockId) ?ContextBlock
 pub fn maybe_get_cached_result(key: []const u8) ?QueryResult
 ```
 
-### NO Get/Set Prefixes
+### Death to Get/Set
 
-Direct field access is preferred over trivial getters/setters. When accessor logic is needed, use descriptive verbs.
+Direct field access beats trivial wrappers. When you need logic, use verbs that describe what actually happens.
 
 ```zig
-// BAD: Unnecessary get/set prefixes
+// BAD: Pointless ceremony
 pub fn get_block_count() u32
 pub fn set_memory_limit(limit: u64) void
 
-// GOOD: Direct access or descriptive verbs
-pub fn block_count() u32              // Simple accessor
-pub fn update_memory_limit(limit: u64) void  // Shows it does more than just set
+// GOOD: Clear intent
+pub fn block_count() u32              // Simple access
+pub fn update_memory_limit(limit: u64) void  // Does validation, logging, etc
 ```
 
 ### Lifecycle Methods: Standard Names Only

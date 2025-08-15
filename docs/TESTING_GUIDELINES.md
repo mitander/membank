@@ -1,17 +1,17 @@
-# Testing Guidelines
+# Testing Reality, Not Stories
 
-This document defines the mandatory testing patterns and harness usage for KausalDB. These guidelines enforce architectural principles, improve test reliability, and eliminate boilerplate through standardized test infrastructure.
+Testing in KausalDB isn't about checking boxes—it's about proving your code works when everything breaks. Our harnesses eliminate the boilerplate so you can focus on the chaos.
 
-## Philosophy: Harness-First Testing
+## Harnesses Over Setup Hell
 
-KausalDB uses a **harness-first** approach to testing that prioritizes:
+Why write 20 lines of setup when you can write 2? Our harness system handles the coordination dance of components, memory management, and cleanup automatically.
 
-- **Consistency**: All tests follow standardized setup patterns
-- **Reliability**: Arena-per-subsystem memory management prevents leaks
-- **Simplicity**: 15+ lines of manual setup reduced to 2 lines of harness init
-- **Maintainability**: Changes to test infrastructure benefit all tests automatically
+- **Consistency**: Every test starts from the same foundation
+- **Reliability**: Arena-per-subsystem prevents leaks, even when tests fail
+- **Simplicity**: Complex component initialization becomes one function call
+- **Focus**: Spend time testing edge cases, not setting up basic infrastructure
 
-The harness system provides coordinated component lifecycle management with automatic resource cleanup, eliminating complex manual setup and teardown logic.
+Harnesses provide coordinated component lifecycle with automatic cleanup. Write the test, not the setup.
 
 ## Three-Tier Classification System
 

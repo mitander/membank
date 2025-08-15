@@ -1,53 +1,33 @@
-# Query Engine Architecture
+# Query Engine: Code Intelligence
 
-## Overview
+## What It Does
 
-The query engine provides graph traversal and block retrieval operations over the LSM-Tree storage layer. The design prioritizes simplicity and performance with zero-allocation iteration patterns.
+The query engine turns code relationships into AI context. It traverses the knowledge graph and retrieves blocks at microsecond speed, delivering exactly the code context that LLMs need to reason about software.
 
-## Core Components
+## The Architecture
 
-### Query Operations (`src/query/operations.zig`)
+### Query Operations
+- **FindBlocksQuery**: Get specific blocks by ID
+- **SemanticQuery**: Keyword search with relevance scoring
+- **QueryResult**: Zero-allocation streaming over results
 
-Provides fundamental block retrieval operations:
+### Query Engine
+- **Block retrieval**: Direct storage access
+- **Result formatting**: LLM-optimized output
+- **Caching**: LRU cache with TTL for expensive operations
 
-- **`FindBlocksQuery`**: Retrieve specific blocks by ID list
-- **`QueryResult`**: Zero-allocation streaming iterator over results
-- **`SemanticQuery`**: Keyword-based search with similarity scoring
-- **`SemanticQueryResult`**: Results container for semantic search
+### Graph Traversal
+- **A* pathfinding**: Optimal paths with heuristics
+- **Bidirectional search**: Meet-in-the-middle for efficiency
+- **Depth-limited exploration**: Controlled traversal scope
 
-### Query Engine (`src/query/engine.zig`)
+## Speed Optimizations
 
-High-level query coordination and caching:
+### Zero-Allocation Queries
+QueryResult returns direct pointers, not copies. Arena memory gets bulk-reset every 100 iterations. Result: <10μs per iteration, even for large result sets.
 
-- **Block retrieval**: Direct storage lookups
-- **Query result formatting**: LLM-optimized output
-- **Query caching**: LRU cache with TTL for expensive operations
-
-### Graph Traversal (`src/query/traversal.zig`)
-
-Advanced graph algorithms for relationship exploration:
-
-- **A* search**: Optimal pathfinding with heuristics
-- **Bidirectional search**: Efficient path discovery
-- **Depth-limited traversal**: Controlled exploration depth
-
-## Performance Optimizations
-
-### Zero-Allocation Iteration
-
-**QueryResult** uses arena-based memory management to eliminate per-result allocation overhead:
-
-- Returns `*const ContextBlock` pointers instead of cloned values
-- Uses temporary arena with periodic reset (every 100 iterations)
-- Achieves <10μs per iteration for large result sets
-
-### Query Caching (`src/query/cache.zig`)
-
-LRU-based caching for expensive operations:
-
-- **Cache key**: Query hash for deterministic lookup
-- **TTL**: Configurable time-based expiration
-- **Invalidation**: Cache cleared on storage mutations
+### Smart Caching
+LRU cache with configurable TTL. Cache keys are query hashes for deterministic lookups. Gets invalidated when storage changes.
 - **Memory**: Arena-based cache entries for O(1) cleanup
 
 ## Query Types
