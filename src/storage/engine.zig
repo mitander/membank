@@ -387,12 +387,17 @@ pub const StorageEngine = struct {
     /// Pure metrics recording delegation to storage metrics subsystem.
     fn track_write_metrics(self: *StorageEngine, start_time: i128, content_len: usize) void {
         const end_time = std.time.nanoTimestamp();
-        assert.assert_fmt(end_time >= start_time, "Invalid timestamp sequence: {} < {}", .{ end_time, start_time });
+
+        // System clock can go backwards due to NTP adjustments or high-frequency operations.
+        // In such cases, record a minimal duration (1ns) to maintain metric consistency.
+        const write_duration: u64 = if (end_time >= start_time)
+            @as(u64, @intCast(end_time - start_time))
+        else
+            1; // Minimum measurable duration when time goes backwards
 
         const blocks_before = self.storage_metrics.blocks_written.load();
         self.storage_metrics.blocks_written.incr();
 
-        const write_duration = @as(u64, @intCast(end_time - start_time));
         self.storage_metrics.total_write_time_ns.add(write_duration);
         self.storage_metrics.total_bytes_written.add(content_len);
 
@@ -532,8 +537,13 @@ pub const StorageEngine = struct {
         // avoiding disk I/O for hot data and maintaining read-after-write consistency
         if (try self.memtable_manager.find_block_with_ownership(block_id, block_ownership)) |owned_block| {
             const end_time = std.time.nanoTimestamp();
+            const read_duration: u64 = if (end_time >= start_time)
+                @as(u64, @intCast(end_time - start_time))
+            else
+                1; // Minimum measurable duration when time goes backwards
+
             self.storage_metrics.blocks_read.incr();
-            self.storage_metrics.total_read_time_ns.add(@intCast(end_time - start_time));
+            self.storage_metrics.total_read_time_ns.add(read_duration);
             self.storage_metrics.total_bytes_read.add(owned_block.block.content.len);
             return owned_block;
         }
@@ -547,9 +557,14 @@ pub const StorageEngine = struct {
 
         if (sstable_result) |owned_block| {
             const end_time = std.time.nanoTimestamp();
+            const read_duration: u64 = if (end_time >= start_time)
+                @as(u64, @intCast(end_time - start_time))
+            else
+                1; // Minimum measurable duration when time goes backwards
+
             self.storage_metrics.blocks_read.incr();
             self.storage_metrics.sstable_reads.incr();
-            self.storage_metrics.total_read_time_ns.add(@intCast(end_time - start_time));
+            self.storage_metrics.total_read_time_ns.add(read_duration);
             self.storage_metrics.total_bytes_read.add(owned_block.block.content.len);
 
             self.maybe_clear_query_cache();

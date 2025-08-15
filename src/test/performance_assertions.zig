@@ -225,7 +225,10 @@ pub const PerformanceAssertion = struct {
         _ = @call(.auto, operation_fn, args);
         const end_time = std.time.nanoTimestamp();
 
-        const duration_ns = @as(u64, @intCast(end_time - start_time));
+        const duration_ns: u64 = if (end_time >= start_time)
+            @as(u64, @intCast(end_time - start_time))
+        else
+            1; // Minimum measurable duration when time goes backwards
         try self.assert_latency(duration_ns, base_requirement_ns, operation_description);
     }
 
