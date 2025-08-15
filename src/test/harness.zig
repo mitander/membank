@@ -268,6 +268,7 @@ pub const SimulationHarness = struct {
     /// Phase 2 initialization: perform I/O operations to complete startup
     pub fn startup(self: *Self) !void {
         try self.storage_engine.startup();
+        self.query_engine.startup();
     }
 
     /// Clean up all harness resources
