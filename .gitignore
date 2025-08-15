@@ -9,6 +9,7 @@ CLAUDE.md
 TODO.md
 performance-baseline.json
 fuzz_reports/
+.fuzzing_monitoring
 
 # Data directories (runtime generated)
 kausaldb_data/

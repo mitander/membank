@@ -195,7 +195,7 @@ if [ "${RUN_TESTS:-0}" = "1" ]; then
 else
     print_status "INFO" "Unit tests skipped (set RUN_TESTS=1 to enable)"
     echo "         Fast commit mode: only formatting and quality checks run"
-    echo "         Full test suite runs in CI to ensure code quality"
+    echo "         Full test suite and fuzzing run in CI to ensure code quality"
 fi
 
 # Final result
@@ -215,6 +215,9 @@ else
     echo "Quick fixes:"
     echo "  Format: ./zig/zig build fmt-fix"
     echo "  View issues: ./zig/zig build tidy"
+    echo ""
+    echo "Optional checks for critical changes:"
+    echo "  Unit tests: RUN_TESTS=1 git commit"
     echo ""
     echo "To bypass these checks (not recommended), use:"
     echo "  git commit --no-verify"
