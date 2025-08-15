@@ -52,6 +52,13 @@ jobs:
       - name: Run tidy checks
         run: ./zig/zig build tidy -Doptimize=ReleaseSafe
 
+      - name: Quick fuzzing
+        run: |
+          echo "-> Running quick fuzzing for critical paths..."
+          chmod +x scripts/fuzz.sh
+          ./scripts/fuzz.sh quick storage
+          echo "Quick fuzzing completed successfully"
+
       - name: Build all targets
         run: |
           echo "-> Building benchmark target..."

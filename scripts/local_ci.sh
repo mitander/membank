@@ -200,6 +200,16 @@ test_job() {
         return 1
     fi
 
+    log_step "Running quick fuzzing for critical storage paths"
+    if ! chmod +x scripts/fuzz.sh; then
+        log_error "Failed to make fuzz script executable"
+        return 1
+    fi
+    if ! ./scripts/fuzz.sh quick storage; then
+        log_error "Quick fuzzing failed - check fuzz_reports/ for crash details"
+        return 1
+    fi
+
     log_step "Building all targets"
     echo "-> Building benchmark target..."
     if ! ./zig/zig build benchmark; then
