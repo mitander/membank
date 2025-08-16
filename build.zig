@@ -73,6 +73,9 @@ fn component_needs_libc(name: []const u8) bool {
 const BuildModules = struct {
     kausaldb: *std.Build.Module,
     kausaldb_test: *std.Build.Module,
+    build_options: *std.Build.Module,
+    enable_thread_sanitizer: bool,
+    enable_ubsan: bool,
 };
 
 fn create_build_modules(
@@ -83,11 +86,18 @@ fn create_build_modules(
     const enable_statistics = b.option(bool, "enable-stats", "Enable runtime statistics collection") orelse false;
     const enable_detailed_logging = b.option(bool, "enable-detailed-logs", "Enable detailed debug logging") orelse false;
     const enable_fault_injection = b.option(bool, "enable-fault-injection", "Enable fault injection testing") orelse false;
+    const enable_thread_sanitizer = b.option(bool, "enable-thread-sanitizer", "Enable Thread Sanitizer") orelse false;
+    const enable_ubsan = b.option(bool, "enable-ubsan", "Enable Undefined Behavior Sanitizer") orelse false;
+
+    const sanitizers_active = enable_thread_sanitizer or enable_ubsan;
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_statistics", enable_statistics);
     build_options.addOption(bool, "enable_detailed_logging", enable_detailed_logging);
     build_options.addOption(bool, "enable_fault_injection", enable_fault_injection);
+    build_options.addOption(bool, "enable_thread_sanitizer", enable_thread_sanitizer);
+    build_options.addOption(bool, "enable_ubsan", enable_ubsan);
+    build_options.addOption(bool, "sanitizers_active", sanitizers_active);
     build_options.addOption(bool, "is_debug_build", optimize == .Debug);
 
     const kausaldb_module = b.createModule(.{
@@ -95,6 +105,15 @@ fn create_build_modules(
         .target = target,
         .optimize = optimize,
     });
+
+    // Apply sanitizer flags to main module
+    if (enable_thread_sanitizer) {
+        kausaldb_module.sanitize_thread = true;
+    }
+    if (enable_ubsan) {
+        kausaldb_module.sanitize_c = .full;
+    }
+
     kausaldb_module.addImport("build_options", build_options.createModule());
 
     const kausaldb_test_module = b.createModule(.{
@@ -102,11 +121,23 @@ fn create_build_modules(
         .target = target,
         .optimize = optimize,
     });
+
+    // Apply sanitizer flags to test module
+    if (enable_thread_sanitizer) {
+        kausaldb_test_module.sanitize_thread = true;
+    }
+    if (enable_ubsan) {
+        kausaldb_test_module.sanitize_c = .full;
+    }
+
     kausaldb_test_module.addImport("build_options", build_options.createModule());
 
     return BuildModules{
         .kausaldb = kausaldb_module,
         .kausaldb_test = kausaldb_test_module,
+        .build_options = build_options.createModule(),
+        .enable_thread_sanitizer = enable_thread_sanitizer,
+        .enable_ubsan = enable_ubsan,
     };
 }
 
@@ -183,18 +214,44 @@ fn create_test_executable(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Step.Compile {
+    // Performance tests should run in release mode for accurate measurements
+    const test_optimize = if (test_file.category == .performance) .ReleaseFast else optimize;
+
     const test_exe = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path(test_file.path),
             .target = target,
-            .optimize = optimize,
+            .optimize = test_optimize,
         }),
     });
 
     if (component_needs_libc(test_file.name)) {
         test_exe.linkLibC();
     }
-    test_exe.root_module.addImport("kausaldb", modules.kausaldb_test);
+
+    // For performance tests, create release-mode kausaldb module
+    const kausaldb_module = if (test_file.category == .performance) blk: {
+        const perf_kausaldb_module = b.createModule(.{
+            .root_source_file = b.path("src/kausaldb_test.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        });
+        perf_kausaldb_module.addImport("build_options", modules.build_options);
+        break :blk perf_kausaldb_module;
+    } else modules.kausaldb_test;
+
+    // Apply sanitizer flags if enabled (skip for performance tests to avoid overhead)
+    if (test_file.category != .performance) {
+        if (modules.enable_thread_sanitizer) {
+            test_exe.root_module.sanitize_thread = true;
+        }
+        if (modules.enable_ubsan) {
+            test_exe.root_module.sanitize_c = .full;
+        }
+    }
+
+    test_exe.root_module.addImport("kausaldb", kausaldb_module);
+    test_exe.root_module.addImport("build_options", modules.build_options);
 
     return test_exe;
 }
@@ -261,6 +318,17 @@ fn create_categorized_tests(
         }),
     });
     unit_test_exe.linkLibC();
+
+    // Apply sanitizer flags if enabled
+    if (modules.enable_thread_sanitizer) {
+        unit_test_exe.root_module.sanitize_thread = true;
+    }
+    if (modules.enable_ubsan) {
+        unit_test_exe.root_module.sanitize_c = .full;
+    }
+
+    unit_test_exe.root_module.addImport("build_options", modules.build_options);
+
     const unit_test_run = b.addRunArtifact(unit_test_exe);
     try categorized.unit.append(unit_test_run);
 
@@ -461,6 +529,15 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+
+    // Apply sanitizer flags to main executable
+    if (modules.enable_thread_sanitizer) {
+        exe.root_module.sanitize_thread = true;
+    }
+    if (modules.enable_ubsan) {
+        exe.root_module.sanitize_c = .full;
+    }
+
     exe.linkLibC();
     exe.root_module.addImport("kausaldb", modules.kausaldb);
     b.installArtifact(exe);

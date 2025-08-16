@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 
 /// Performance assertion tier configuration
 pub const PerformanceTier = enum {
@@ -23,7 +24,12 @@ pub const PerformanceTier = enum {
 
     /// Detect performance tier from environment
     pub fn detect() PerformanceTier {
-        // Check for sanitizer builds first (highest priority due to extreme overhead)
+        // Check for build-time sanitizer flags first (highest priority)
+        if (build_options.sanitizers_active) {
+            return .sanitizer;
+        }
+
+        // Check for sanitizer builds from environment (fallback)
         if (std.process.getEnvVarOwned(std.heap.page_allocator, "KAUSALDB_SANITIZER_BUILD")) |sanitizer_value| {
             defer std.heap.page_allocator.free(sanitizer_value);
             if (std.mem.eql(u8, sanitizer_value, "true")) return .sanitizer;

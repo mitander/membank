@@ -13,7 +13,7 @@ The testing philosophy is simple: test reality, not approximations.
 - **Virtual File System**: All storage goes through our VFS abstraction (`src/vfs.zig`). Production uses real disks. Tests use an in-memory simulation that can corrupt bytes, fail writes, and lose power at the worst possible moment.
 - **Deterministic Chaos**: The simulation framework (`src/simulation.zig`) controls time, I/O, and networking with nanosecond precision. Every test failure is reproducible byte-for-byte.
 
-When you build a feature, think like the system: *How does this break? How do I prove it won't?*
+When you build a feature, think like the system: _How does this break? How do I prove it won't?_
 
 ## Getting Your Hands Dirty
 
@@ -93,6 +93,66 @@ LLVM's AddressSanitizer provides detailed stack traces showing exactly where mem
 
 When you need to poke around manually, break out the debugger. Set breakpoints, inspect state, understand the "why" behind the crash.
 
+## Memory Safety Strategy
+
+KausalDB uses a tiered memory safety approach that combines fast feedback with comprehensive analysis:
+
+### Tier 1: Sanitizers (Fast Development Feedback)
+
+Use compiler-integrated sanitizers for rapid detection during development:
+
+```bash
+# Fast memory safety checks (~10x overhead)
+./zig/zig build test -Denable-thread-sanitizer=true -Denable-ubsan=true
+
+# Run full test suite with sanitizers
+./zig/zig build test-all -Denable-thread-sanitizer=true -Denable-ubsan=true
+```
+
+**What Sanitizers Catch:**
+
+- **Thread Sanitizer (TSan)**: Race conditions, data races, lock ordering issues
+- **UB Sanitizer (UBSan)**: Undefined behavior, integer overflows, null pointer dereferences
+- **Some Memory Errors**: Buffer overflows, use-after-free (limited coverage)
+
+**Benefits:**
+
+- IDE integration for immediate feedback
+- Fast enough for CI on every commit
+- Compiler-optimized detection with precise stack traces
+
+### Tier 2: Valgrind (Deep Memory Analysis)
+
+Use Valgrind for comprehensive memory validation:
+
+```bash
+# Deep memory analysis (~100x overhead)
+valgrind --tool=memcheck --leak-check=full ./zig-out/bin/test
+```
+
+**What Valgrind Catches:**
+
+- **Memory Leaks**: Comprehensive leak detection and categorization
+- **Buffer Errors**: Detailed overflow/underflow analysis with exact byte locations
+- **Use-After-Free**: Superior tracking of freed memory access
+- **Uninitialized Memory**: Detection of reads from uninitialized memory
+
+**Benefits:**
+
+- Battle-tested for database workloads
+- Superior memory pattern analysis
+- Comprehensive leak categorization
+- Excellent debugging information
+
+### When to Use Each
+
+**Daily Development**: Sanitizers for fast feedback
+**CI Pipeline**: Both sanitizers (fast) and Valgrind (thorough)
+**Release Validation**: Full Valgrind analysis for maximum confidence
+**Debugging Sessions**: Sanitizers first, then Valgrind for deep analysis
+
+This tiered approach follows KausalDB's philosophy of **deterministic simulation first** - use fast tools for frequent testing, deep tools for validation.
+
 ## The Testing Machinery
 
 ### Battle-Tested Harnesses
@@ -149,12 +209,14 @@ test "storage coordinator memory ownership" {
 KausalDB uses an **arena refresh pattern** to eliminate dangling allocator references after arena resets:
 
 **Pattern Design:**
+
 - **Coordinator Interface**: Subcomponents use `ArenaCoordinator` interface instead of direct allocator references
 - **Safe Allocation**: All arena allocation goes through coordinator methods that always use current arena state
 - **No Temporal Coupling**: Coordinator interface remains valid after arena resets
 - **Zero Runtime Overhead**: Interface dispatches through vtable with minimal cost
 
 **Implementation Example:**
+
 ```zig
 // OLD (Broken): Direct arena reference becomes invalid after reset
 pub const BlockIndex = struct {
@@ -171,6 +233,7 @@ const content = try self.arena_coordinator.duplicate_u8(input_string);
 ```
 
 **Benefits:**
+
 - **Memory Safety**: Eliminates segmentation faults from dangling arena references
 - **Performance**: Still enables O(1) bulk memory cleanup through coordinator
 - **Simplicity**: Coordinator pattern is easier to reason about than reference management

@@ -120,6 +120,9 @@ pub fn recover_from_segment(
     }
 
     stats.entries_recovered += entries_recovered;
+    // Update entries_written to maintain consistency with memtable during recovery
+    // These recovered entries should be counted as "written" for current session
+    stats.entries_written += entries_recovered;
 
     if (entries_recovered > 0) {
         log.info("Recovered {d} entries from segment: {s}", .{ entries_recovered, file_path });

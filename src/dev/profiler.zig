@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 
 /// Memory profiler for tracking RSS usage patterns
 pub const MemoryProfiler = struct {
@@ -45,14 +46,30 @@ pub const MemoryProfiler = struct {
     }
 
     /// Check if memory usage is within efficiency thresholds
+    /// Automatically adjusts limits based on build configuration (sanitizers, etc.)
     pub fn is_memory_efficient(self: *const Self, operations: u64) bool {
-        const MAX_PEAK_MEMORY_BYTES = 100 * 1024 * 1024; // 100MB for 10K operations
-        const MAX_MEMORY_GROWTH_PER_OP = 1024; // 1KB average growth per operation
+        // Base thresholds for production builds
+        const BASE_PEAK_MEMORY_BYTES = 100 * 1024 * 1024; // 100MB for 10K operations
+        const BASE_MEMORY_GROWTH_PER_OP = 1024; // 1KB average growth per operation
+
+        // Apply tier-based multipliers for different build configurations
+        const memory_multiplier: f64 = if (build_options.sanitizers_active) 100.0 else 1.0;
+
+        const max_peak_memory = @as(u64, @intFromFloat(@as(f64, @floatFromInt(BASE_PEAK_MEMORY_BYTES)) * memory_multiplier));
+        const max_growth_per_op = @as(u64, @intFromFloat(@as(f64, @floatFromInt(BASE_MEMORY_GROWTH_PER_OP)) * memory_multiplier));
 
         const growth_bytes = self.calculate_memory_growth();
-        const peak_efficient = self.peak_rss_bytes <= MAX_PEAK_MEMORY_BYTES;
+        const peak_efficient = self.peak_rss_bytes <= max_peak_memory;
         const growth_per_op = if (operations > 0) growth_bytes / operations else 0;
-        const growth_efficient = growth_per_op <= MAX_MEMORY_GROWTH_PER_OP;
+        const growth_efficient = growth_per_op <= max_growth_per_op;
+
+        // Debug output for sanitizer threshold debugging
+        if (builtin.mode == .Debug or !peak_efficient or !growth_efficient) {
+            std.debug.print("\n[MEMORY_EFFICIENCY] sanitizers_active={any}, multiplier={d:.1}\n", .{ build_options.sanitizers_active, memory_multiplier });
+            std.debug.print("[MEMORY_EFFICIENCY] peak_rss={d}MB, max_allowed={d}MB, peak_ok={any}\n", .{ self.peak_rss_bytes / (1024 * 1024), max_peak_memory / (1024 * 1024), peak_efficient });
+            std.debug.print("[MEMORY_EFFICIENCY] growth_per_op={d}bytes, max_allowed={d}bytes, growth_ok={any}\n", .{ growth_per_op, max_growth_per_op, growth_efficient });
+        }
+
         return peak_efficient and growth_efficient;
     }
 };

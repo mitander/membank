@@ -236,8 +236,10 @@ jobs:
             exit 1
           fi
 
+  # Fast memory safety feedback using compiler-integrated sanitizers
+  # Complements Valgrind with faster execution (10x vs 100x overhead)
   sanitizer:
-    name: Thread Sanitizer and C UBSan Memory Safety
+    name: Sanitizer Memory Safety (TSan + UBSan)
     runs-on: ubuntu-latest
     needs: test
     timeout-minutes: 20
@@ -274,15 +276,18 @@ jobs:
         env:
           KAUSALDB_SANITIZER_BUILD: "true"
         run: |
-          echo "Running tests with Thread Sanitizer and C UBSan..."
-          ./zig/zig build test-defensive -Doptimize=ReleaseSafe -fsanitize-thread -fsanitize-c
+          echo "Running main test suite with Thread Sanitizer and UBSan..."
+          ./zig/zig build test -Doptimize=ReleaseSafe -Denable-thread-sanitizer=true -Denable-ubsan=true
+
+          echo "Running defensive tests with Thread Sanitizer and UBSan..."
+          ./zig/zig build test-defensive -Doptimize=ReleaseSafe -Denable-thread-sanitizer=true -Denable-ubsan=true
 
       - name: Run sanitizer benchmarks
         env:
           KAUSALDB_SANITIZER_BUILD: "true"
         run: |
           echo "Running benchmarks with sanitizers..."
-          ./zig/zig build benchmark -fsanitize-thread -fsanitize-c
+          ./zig/zig build benchmark -Denable-thread-sanitizer=true -Denable-ubsan=true
           timeout 180s ./zig-out/bin/benchmark storage || echo "Benchmark completed or timed out (expected with sanitizer overhead)"
 
       - name: Upload sanitizer artifacts
@@ -295,8 +300,10 @@ jobs:
             zig-out/
           retention-days: 7
 
+  # Deep memory analysis using Valgrind for comprehensive leak detection
+  # Slower but more thorough than sanitizers - catches different bug classes
   memory-safety:
-    name: Memory Safety Testing
+    name: Valgrind Deep Memory Analysis
     runs-on: ubuntu-latest
     needs: test
     timeout-minutes: 30
@@ -348,6 +355,12 @@ jobs:
 
       - name: Valgrind memory error detection
         run: |
+          echo "-> Valgrind provides deep memory analysis complementing sanitizers:"
+          echo "   • Sanitizers: Fast feedback (10x overhead) for development"
+          echo "   • Valgrind: Comprehensive analysis (100x overhead) for validation"
+          echo "   • Different detection capabilities: sanitizers catch race conditions,"
+          echo "     Valgrind excels at memory leaks and complex buffer issues"
+          echo ""
           echo "-> Building test executable for Valgrind analysis..."
           ./zig/zig build test-all -Doptimize=ReleaseSafe
 
