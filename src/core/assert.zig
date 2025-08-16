@@ -47,14 +47,6 @@ pub fn fatal_assert(condition: bool, comptime format: []const u8, args: anytype)
     }
 }
 
-/// @deprecated Use fatal_assert instead. This alias is provided for backward compatibility.
-/// Assert that a condition is true with a descriptive message.
-/// This variant is always active, even in release builds.
-/// Use fatal_assert for critical safety violations that must never occur.
-pub fn assert_always(condition: bool, comptime format: []const u8, args: anytype) void {
-    fatal_assert(condition, format, args);
-}
-
 /// Assert that a value is within a valid range.
 /// # Examples
 /// ```zig
@@ -480,7 +472,6 @@ test "assertion behavior matches documentation" {
 
     // Test that fatal assertions always work regardless of build mode
     fatal_assert(true, "Fatal assertion should always be active", .{});
-    assert_always(true, "Backward compatibility alias works", .{});
 
     // This test validates our fix to P0.2: Assertion Framework Inconsistency
     // The implementation now matches the documentation:

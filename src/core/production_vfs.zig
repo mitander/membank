@@ -352,10 +352,7 @@ test "ProductionVFS basic file operations" {
 
     {
         var write_file = try vfs_interface.create(test_path);
-        defer {
-            write_file.close();
-            write_file.deinit();
-        }
+        defer write_file.close();
 
         const bytes_written = try write_file.write(test_data);
         try testing.expectEqual(test_data.len, bytes_written);
@@ -366,7 +363,6 @@ test "ProductionVFS basic file operations" {
         var read_file = try vfs_interface.open(test_path, .read);
         defer {
             read_file.close();
-            read_file.deinit();
             vfs_interface.remove(test_path) catch {};
         }
 
@@ -416,10 +412,7 @@ test "ProductionVFS global filesystem sync" {
     // Create and write test file
     {
         var test_file = try vfs_interface.create(test_path);
-        defer {
-            test_file.close();
-            test_file.deinit();
-        }
+        defer test_file.close();
 
         _ = try test_file.write(test_data);
         try test_file.flush();
@@ -432,7 +425,6 @@ test "ProductionVFS global filesystem sync" {
         var verify_file = try vfs_interface.open(test_path, .read);
         defer {
             verify_file.close();
-            verify_file.deinit();
             vfs_interface.remove(test_path) catch {};
         }
 

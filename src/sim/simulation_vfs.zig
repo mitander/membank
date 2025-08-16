@@ -969,7 +969,6 @@ test "SimulationVFS basic file operations" {
     var file = try vfs_interface.create(test_path);
     defer {
         file.close();
-        file.deinit();
         vfs_interface.remove(test_path) catch {};
     }
 
@@ -1025,7 +1024,7 @@ test "SimulationVFS fault injection - torn writes" {
     var file = try vfs_interface.create("test.txt");
     defer {
         file.close();
-        file.deinit();
+
         vfs_interface.remove("test.txt") catch {};
     }
 
@@ -1057,7 +1056,7 @@ test "SimulationVFS fault injection - read corruption" {
     var file = try vfs_interface.create("test.txt");
     defer {
         file.close();
-        file.deinit();
+
         vfs_interface.remove("test.txt") catch {};
     }
 
@@ -1094,7 +1093,7 @@ test "SimulationVFS fault injection - disk full" {
     var file = try vfs_interface.create("test.txt");
     defer {
         file.close();
-        file.deinit();
+
         vfs_interface.remove("test.txt") catch {};
     }
 
@@ -1135,7 +1134,7 @@ test "SimulationVFS deterministic behavior" {
         var file = try vfs_interface.create("test.txt");
         defer {
             file.close();
-            file.deinit();
+
             vfs_interface.remove("test.txt") catch {};
         }
 
@@ -1155,7 +1154,7 @@ test "simulation_vfs_memory_safety_arraylist_expansion_resilience" {
     var file = try vfs_interface.create("expansion_test.log");
     defer {
         file.close();
-        file.deinit();
+
         vfs_interface.remove("expansion_test.log") catch {};
     }
 
@@ -1212,7 +1211,6 @@ test "simulation_vfs_memory_safety_concurrent_file_creation_stress" {
         var file = try vfs_interface.create(file_name);
         defer {
             file.close();
-            file.deinit();
         }
 
         const pattern_base = @as(u64, i) ^ 0xFEEDFACE;
@@ -1231,7 +1229,6 @@ test "simulation_vfs_memory_safety_concurrent_file_creation_stress" {
         var file = try vfs_interface.open(file_name, .read);
         defer {
             file.close();
-            file.deinit();
         }
 
         var read_pattern: [24]u8 = undefined;
@@ -1265,7 +1262,7 @@ test "simulation_vfs_memory_safety_zero_initialization_gap_filling" {
     var file = try vfs_interface.create("gap_fill_test.dat");
     defer {
         file.close();
-        file.deinit();
+
         vfs_interface.remove("gap_fill_test.dat") catch {};
     }
 

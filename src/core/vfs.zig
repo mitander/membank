@@ -608,12 +608,6 @@ pub const VFile = struct {
             },
         };
     }
-
-    /// No-op for value type - resources managed by parent systems
-    pub fn deinit(self: VFile) void {
-        // TODO: remove?
-        _ = self;
-    }
 };
 
 /// Simulation file data structure used by VFile.

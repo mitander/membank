@@ -37,7 +37,6 @@ comptime {
     _ = @import("sim/simulation.zig");
     _ = @import("sim/simulation_vfs.zig");
     _ = @import("storage/block_index.zig");
-    _ = @import("storage/block_index_dod.zig");
     _ = @import("storage/bloom_filter.zig");
     _ = @import("storage/config.zig");
     _ = @import("storage/engine.zig");
