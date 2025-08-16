@@ -199,6 +199,7 @@ pub const PerformanceAssertion = struct {
                 .ci => "CI",
                 .parallel => "PARALLEL",
                 .production => "PRODUCTION",
+                .sanitizer => "SANITIZER",
             };
 
             std.debug.print("\nThroughput assertion failed in {s} mode\n" ++
@@ -225,6 +226,7 @@ pub const PerformanceAssertion = struct {
                 .local => "LOCAL",
                 .ci => "CI",
                 .parallel => "PARALLEL",
+                .sanitizer => "SANITIZER",
                 .production => "PROD",
             };
             std.debug.print("[OK] [{s}] {s}: {d} ops/sec (min: {d} ops/sec, {d:.1}% above minimum)\n", .{
