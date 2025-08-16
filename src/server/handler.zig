@@ -41,6 +41,8 @@ const BlockId = ctx_block.BlockId;
 pub const ServerConfig = struct {
     /// Port to listen on
     port: u16 = 8080,
+    /// Host address to bind to (IPv4 string like "127.0.0.1" or "0.0.0.0")
+    host: []const u8 = "127.0.0.1",
     /// Maximum number of concurrent client connections
     max_connections: u32 = 100,
     /// Connection timeout in seconds
@@ -169,14 +171,14 @@ pub const Server = struct {
     pub fn bind(self: *Server) !void {
         concurrency.assert_main_thread();
 
-        const address = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, self.config.port);
+        const address = try std.net.Address.parseIp4(self.config.host, self.config.port);
         self.listener = try address.listen(.{ .reuse_address = true });
 
         const flags = try std.posix.fcntl(self.listener.?.stream.handle, std.posix.F.GETFL, 0);
         const nonblock_flag = 1 << @bitOffsetOf(std.posix.O, "NONBLOCK");
         _ = try std.posix.fcntl(self.listener.?.stream.handle, std.posix.F.SETFL, flags | nonblock_flag);
 
-        log.info("KausalDB server bound to port {d}", .{self.bound_port()});
+        log.info("KausalDB server bound to {s}:{d}", .{ self.config.host, self.bound_port() });
         log.info("Server config: max_connections={d}, timeout={d}s", .{ self.config.max_connections, self.config.connection_timeout_sec });
     }
 
