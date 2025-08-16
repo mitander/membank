@@ -264,8 +264,8 @@ pub const ServerContext = struct {
 
 /// Log a buffer error with context in debug builds only.
 pub fn log_buffer_error(err: anyerror, context: BufferContext) void {
-    if (builtin.mode == .Debug) {
-        log.warn("Buffer operation failed: {any} - {any}", .{ err, context });
+    if (builtin.mode == .Debug and err != error.TestError) {
+        log.warn("Buffer operation failed: {} - operation: {s}", .{ err, context.operation });
     }
 }
 
@@ -291,29 +291,58 @@ fn increment_validation_errors() void {
 pub fn log_storage_error(err: anyerror, context: StorageContext) void {
     increment_validation_errors();
 
-    if (is_verbose_mode()) {
-        log.warn("Storage operation failed: {any} - {any}", .{ err, context });
+    if (is_verbose_mode() and err != error.TestError) {
+        log.warn("Storage operation failed: {} - operation: {s}", .{ err, context.operation });
+        if (context.file_path) |path| {
+            log.warn("  file: {s}", .{path});
+        }
+        if (context.block_id) |id| {
+            log.warn("  block_id: {}", .{id});
+        }
     }
 }
 
 /// Log a WAL error with context in debug builds only.
 pub fn log_wal_error(err: anyerror, context: WALContext) void {
-    if (builtin.mode == .Debug) {
-        log.warn("WAL operation failed: {any} - {any}", .{ err, context });
+    if (builtin.mode == .Debug and err != error.TestError) {
+        log.warn("WAL operation failed: {} - operation: {s}", .{ err, context.operation });
+        if (context.file_path) |path| {
+            log.warn("  file: {s}", .{path});
+        }
+        if (context.entry_offset) |offset| {
+            log.warn("  offset: {}", .{offset});
+        }
     }
 }
 
 /// Log an ingestion error with context in debug builds only.
 pub fn log_ingestion_error(err: anyerror, context: IngestionContext) void {
-    if (builtin.mode == .Debug) {
-        log.warn("Ingestion operation failed: {any} - {any}", .{ err, context });
+    if (builtin.mode == .Debug and err != error.TestError) {
+        log.warn("Ingestion operation failed: {} - operation: {s}", .{ err, context.operation });
+        if (context.repository_path) |path| {
+            log.warn("  repository: {s}", .{path});
+        }
+        if (context.file_path) |path| {
+            log.warn("  file: {s}", .{path});
+        }
     }
 }
 
 /// Log a server error with context in debug builds only.
 pub fn log_server_error(err: anyerror, context: ServerContext) void {
-    if (builtin.mode == .Debug) {
-        log.warn("Server operation failed: {any} - {any}", .{ err, context });
+    if (builtin.mode == .Debug and err != error.TestError) {
+        log.warn("Server operation failed: {} - operation: {s}", .{ err, context.operation });
+        if (context.connection_id) |id| {
+            log.warn("  connection_id: {}", .{id});
+        }
+        if (context.client_address) |addr| {
+            log.warn("  client: {s}", .{addr});
+        }
+        if (context.message_size) |size| {
+            if (size > 0) {
+                log.warn("  message_size: {}", .{size});
+            }
+        }
     }
 }
 

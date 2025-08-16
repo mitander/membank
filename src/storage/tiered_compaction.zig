@@ -119,7 +119,7 @@ pub const TieredCompactionManager = struct {
 
             // Path not found - log warning instead of crashing to unblock tests
             // This indicates a logic error in compaction management that needs investigation
-            log.warn("SSTable path not found in tier for removal: '{s}' - test may have path lifetime issue", .{path});
+            log.debug("SSTable path not found in tier for removal: '{s}' - test may have path lifetime issue", .{path});
         }
 
         /// Calculate target size for this tier level

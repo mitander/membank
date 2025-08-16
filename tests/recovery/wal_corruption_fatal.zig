@@ -14,7 +14,7 @@ const WAL_MAGIC_NUMBER = corruption_tracker_mod.WAL_MAGIC_NUMBER;
 const WAL_ENTRY_MAGIC = corruption_tracker_mod.WAL_ENTRY_MAGIC;
 
 test "normal operation no fatal assertions" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Normal success/failure patterns should not trigger fatal assertions
     tracker.record_success();
@@ -31,7 +31,7 @@ test "normal operation no fatal assertions" {
 }
 
 test "at systematic corruption threshold" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Record exactly 3 consecutive failures (at threshold)
     tracker.record_failure("test_operation");
@@ -47,7 +47,7 @@ test "systematic corruption detection expects panic" {
     // This test expects the 4th consecutive failure to trigger fatal_assert
     // In a real scenario, this would terminate the process
 
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Record 3 consecutive failures (at threshold)
     tracker.record_failure("test_operation");
@@ -65,7 +65,7 @@ test "systematic corruption detection expects panic" {
 }
 
 test "success resets consecutive failures" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Build up consecutive failures
     tracker.record_failure("test_operation");
@@ -166,7 +166,7 @@ test "reset functionality" {
 }
 
 test "different failure contexts" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Different failure contexts should all count toward systematic corruption
     tracker.record_failure("checksum_validation");

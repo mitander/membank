@@ -137,7 +137,7 @@ pub fn TypedArenaType(comptime T: type, comptime Owner: type) type {
         pub fn deinit(self: *Arena) void {
             if (builtin.mode == .Debug) {
                 if (self.debug_allocation_count > 0) {
-                    std.log.warn("{s} arena deinit with {} unfreed objects ({} bytes)", .{ self.ownership.name(), self.debug_allocation_count, self.debug_total_bytes });
+                    std.log.debug("{s} arena deinit with {} unfreed objects ({} bytes)", .{ self.ownership.name(), self.debug_allocation_count, self.debug_total_bytes });
                 }
             }
             self.arena.deinit();

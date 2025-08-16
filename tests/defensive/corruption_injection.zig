@@ -136,7 +136,7 @@ test "VFS handle integrity validation" {
 test "systematic corruption detection thresholds" {
 
     // Test the corruption tracker behavior without triggering fatal assertions
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Normal operation - mixed success and failure
     tracker.record_success();
@@ -167,7 +167,7 @@ test "systematic corruption detection thresholds" {
 }
 
 test "WAL magic number validation" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Valid magic numbers should work
     const WAL_MAGIC = corruption_tracker_mod.WAL_MAGIC_NUMBER;
@@ -287,7 +287,7 @@ test "empty WAL file recovery" {
 }
 
 test "mixed corruption and valid data" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Simulate a pattern of mixed corruption and valid data
     // This represents realistic scenarios where some entries are corrupted
@@ -358,7 +358,7 @@ test "assertion overhead measurement" {
 }
 
 test "corruption detection overhead" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     const iterations = 10000;
     var timer = std.time.Timer.start() catch unreachable;
@@ -435,7 +435,7 @@ test "graceful vs fail fast classification" {
 }
 
 test "diagnostic information quality" {
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
 
     // Build up failure history
     tracker.record_failure("checksum_validation");
@@ -471,7 +471,7 @@ test "compatibility with existing assertion framework" {
     }
 
     // Fatal assertions should always be active (but we don't trigger them)
-    var tracker = CorruptionTracker.init();
+    var tracker = CorruptionTracker.init_testing();
     tracker.record_success();
 
     // Verify assertion framework is functional

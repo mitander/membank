@@ -210,7 +210,7 @@ pub const OwnedBlock = struct {
         fatal_assert(self.state == .valid, "Attempted to transfer already-moved block {any}", .{self.block.id});
 
         if (builtin.mode == .Debug) {
-            std.log.warn("Ownership transfer: block {any} from {s} to {s} (source invalidated)", .{ self.block.id, self.ownership.name(), new_ownership.name() });
+            std.log.debug("Ownership transfer: block {any} from {s} to {s} (source invalidated)", .{ self.block.id, self.ownership.name(), new_ownership.name() });
         }
 
         _ = new_arena; // Arena tracking handled separately
@@ -236,7 +236,7 @@ pub const OwnedBlock = struct {
         new_arena: anytype,
     ) void {
         if (builtin.mode == .Debug) {
-            std.log.warn("Ownership transfer: block {any} from {s} to {s} (DANGEROUS - ensure original owner won't access)", .{ self.block.id, self.ownership.name(), new_ownership.name() });
+            std.log.debug("Ownership transfer: block {any} from {s} to {s} (DANGEROUS - ensure original owner won't access)", .{ self.block.id, self.ownership.name(), new_ownership.name() });
         }
         self.ownership = new_ownership;
         _ = new_arena; // Arena tracking handled separately for consistent alignment
