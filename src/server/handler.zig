@@ -16,6 +16,7 @@ const comptime_assert = custom_assert.comptime_assert;
 const comptime_no_padding = custom_assert.comptime_no_padding;
 const log = std.log.scoped(.server);
 const concurrency = @import("../core/concurrency.zig");
+const signals = @import("../core/signals.zig");
 const storage = @import("../storage/engine.zig");
 const query_engine = @import("../query/engine.zig");
 const ctx_block = @import("../core/types.zig");
@@ -196,10 +197,11 @@ pub const Server = struct {
 
     /// Main coordination loop: delegate I/O to ConnectionManager, handle requests.
     /// Demonstrates coordinator pattern - no direct I/O, only orchestration.
+    /// Checks for shutdown signals to enable graceful termination.
     fn run_coordination_loop(self: *Server) !void {
         const listener = &self.listener.?;
 
-        while (true) {
+        while (!signals.should_shutdown()) {
             const ready_connections = self.connection_manager.poll_for_ready_connections(listener) catch |err| {
                 const ctx = error_context.ServerContext{ .operation = "poll_connections" };
                 error_context.log_server_error(err, ctx);
@@ -221,6 +223,8 @@ pub const Server = struct {
 
             self.update_aggregated_statistics();
         }
+
+        log.info("Server coordination loop exiting due to shutdown signal", .{});
     }
 
     /// Update server statistics by aggregating from ConnectionManager.
