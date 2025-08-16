@@ -391,7 +391,6 @@ pub const QueryEngine = struct {
     /// Find a single block by ID with direct storage access for maximum performance
     /// Returns QueryEngineBlock with ownership transfer to caller
     pub fn find_block(self: *QueryEngine, block_id: BlockId) !?QueryEngineBlock {
-        self.state.assert_can_query();
         if (!self.state.can_query()) return EngineError.NotInitialized;
 
         const start_time = std.time.nanoTimestamp();
@@ -405,7 +404,7 @@ pub const QueryEngine = struct {
 
     /// Check if a block exists without retrieving its content
     pub fn block_exists(self: *QueryEngine, block_id: BlockId) bool {
-        self.state.assert_can_query();
+        if (!self.state.can_query()) return false;
         return operations.block_exists(self.storage_engine, block_id);
     }
 
@@ -414,7 +413,6 @@ pub const QueryEngine = struct {
         const start_time = std.time.nanoTimestamp();
         defer self.record_traversal_query(start_time);
 
-        self.state.assert_can_query();
         if (!self.state.can_query()) return EngineError.NotInitialized;
 
         try query.validate();
@@ -591,7 +589,6 @@ pub const QueryEngine = struct {
         const start_time = std.time.nanoTimestamp();
         defer self.record_semantic_query(start_time);
 
-        self.state.assert_can_query();
         if (!self.state.can_query()) return EngineError.NotInitialized;
 
         const query_id = self.generate_query_id();
