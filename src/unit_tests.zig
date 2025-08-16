@@ -13,6 +13,7 @@ comptime {
     _ = @import("core/ownership.zig");
     _ = @import("core/pools.zig");
     _ = @import("core/production_vfs.zig");
+    _ = @import("core/signals.zig");
     _ = @import("core/state_machines.zig");
     _ = @import("core/types.zig");
     _ = @import("core/vfs.zig");
