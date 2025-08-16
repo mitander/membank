@@ -79,16 +79,6 @@ pub const FileState = enum {
         };
     }
 
-    /// Assert that file can be read, panic if not.
-    pub fn assert_can_read(self: FileState) void {
-        fatal_assert(self.can_read(), "Cannot read file in state: {}", .{self});
-    }
-
-    /// Assert that file can be written, panic if not.
-    pub fn assert_can_write(self: FileState) void {
-        fatal_assert(self.can_write(), "Cannot write file in state: {}", .{self});
-    }
-
     /// Check if file is open in any mode.
     pub fn is_open(self: FileState) bool {
         return switch (self) {
@@ -149,16 +139,6 @@ pub const ConnectionState = enum {
         };
     }
 
-    /// Assert that connection can receive data.
-    pub fn assert_can_receive(self: ConnectionState) void {
-        fatal_assert(self.can_receive(), "Cannot receive in state: {}", .{self});
-    }
-
-    /// Assert that connection can send data.
-    pub fn assert_can_send(self: ConnectionState) void {
-        fatal_assert(self.can_send(), "Cannot send in state: {}", .{self});
-    }
-
     /// Check if connection is active (not closed/closing).
     pub fn is_active(self: ConnectionState) bool {
         return switch (self) {
@@ -217,16 +197,6 @@ pub const StorageState = enum {
             .running, .compacting, .flushing => true,
             else => false,
         };
-    }
-
-    /// Assert that storage can accept writes.
-    pub fn assert_can_write(self: StorageState) void {
-        fatal_assert(self.can_write(), "Cannot write in storage state: {}", .{self});
-    }
-
-    /// Assert that storage can perform reads.
-    pub fn assert_can_read(self: StorageState) void {
-        fatal_assert(self.can_read(), "Cannot read in storage state: {}", .{self});
     }
 };
 

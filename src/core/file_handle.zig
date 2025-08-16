@@ -111,8 +111,8 @@ pub const TypedFileHandle = struct {
 
     /// Read data from file with state and access validation.
     pub fn read(self: *TypedFileHandle, buffer: []u8) !usize {
-        self.state.assert_can_read();
-        fatal_assert(self.access_mode.can_read(), "File opened for write-only access", .{});
+        if (!self.state.can_read()) return error.InvalidFileState;
+        if (!self.access_mode.can_read()) return error.WriteOnlyFile;
 
         if (builtin.mode == .Debug) {
             assert_fmt(self.position <= self.file_size, "File position beyond EOF: {} > {}", .{ self.position, self.file_size });
@@ -131,9 +131,9 @@ pub const TypedFileHandle = struct {
 
     /// Write data to file with state and access validation.
     pub fn write(self: *TypedFileHandle, data: []const u8) !void {
-        self.state.assert_can_write();
-        fatal_assert(self.access_mode.can_write(), "File opened for read-only access", .{});
-        fatal_assert(data.len > 0, "Cannot write empty data", .{});
+        if (!self.state.can_write()) return error.InvalidFileState;
+        if (!self.access_mode.can_write()) return error.ReadOnlyFile;
+        if (data.len == 0) return error.EmptyData;
 
         if (builtin.mode == .Debug) {
             std.log.debug("Writing {} bytes to {s} at position {}", .{ data.len, self.path, self.position });
@@ -147,7 +147,7 @@ pub const TypedFileHandle = struct {
 
     /// Seek to position in file with bounds validation.
     pub fn seek(self: *TypedFileHandle, offset: u64) !void {
-        fatal_assert(self.state.is_open(), "Cannot seek on closed file", .{});
+        if (!self.state.is_open()) return error.FileClosed;
 
         if (builtin.mode == .Debug) {
             assert_fmt(offset <= self.file_size, "Seek beyond EOF: {} > {}", .{ offset, self.file_size });
@@ -162,8 +162,8 @@ pub const TypedFileHandle = struct {
 
     /// Sync file data to storage with state validation.
     pub fn sync(self: *TypedFileHandle) !void {
-        fatal_assert(self.state.is_open(), "Cannot sync closed file", .{});
-        fatal_assert(self.access_mode.can_write(), "Cannot sync read-only file", .{});
+        if (!self.state.is_open()) return error.FileClosed;
+        if (!self.access_mode.can_write()) return error.ReadOnlyFile;
 
         if (builtin.mode == .Debug) {
             std.log.debug("Syncing file {s} (size: {})", .{ self.path, self.file_size });
@@ -410,7 +410,7 @@ pub const FileOperations = struct {
 
     /// Open file with type-safe access mode.
     pub fn open_file(self: *FileOperations, path: []const u8, access_mode: FileAccessMode) !FileHandleId {
-        fatal_assert(path.len > 0, "Cannot open file with empty path", .{});
+        if (path.len == 0) return error.InvalidPath;
 
         const handle_id = try self.registry.register_handle(path, access_mode);
 
@@ -436,8 +436,8 @@ pub const FileOperations = struct {
         }
 
         const bytes_read = handle.read(buffer) catch |err| switch (err) {
-            error.OutOfBounds => return FileOperationResult{ .error_out_of_bounds = .{ .requested = buffer.len, .available = handle.file_size - handle.position } },
-            else => return FileOperationResult{ .error_io_failure = "Read operation failed" },
+            error.InvalidFileState => return FileOperationResult{ .error_invalid_state = handle.state },
+            error.WriteOnlyFile => return FileOperationResult{ .error_access_denied = handle.access_mode },
         };
 
         return FileOperationResult{ .success = .{ .bytes_transferred = bytes_read } };
@@ -458,7 +458,9 @@ pub const FileOperations = struct {
         }
 
         handle.write(data) catch |err| switch (err) {
-            else => return FileOperationResult{ .error_io_failure = "Write operation failed" },
+            error.InvalidFileState => return FileOperationResult{ .error_invalid_state = handle.state },
+            error.ReadOnlyFile => return FileOperationResult{ .error_access_denied = handle.access_mode },
+            error.EmptyData => return FileOperationResult{ .error_io_failure = "Cannot write empty data" },
         };
 
         return FileOperationResult{ .success = .{ .bytes_transferred = data.len } };
@@ -470,9 +472,13 @@ pub const FileOperations = struct {
             return FileOperationResult{ .error_invalid_handle = {} };
         };
 
+        // Validate seek bounds at FileOperations layer
+        if (offset > handle.file_size) {
+            return FileOperationResult{ .error_out_of_bounds = .{ .requested = offset, .available = handle.file_size } };
+        }
+
         handle.seek(offset) catch |err| switch (err) {
-            error.OutOfBounds => return FileOperationResult{ .error_out_of_bounds = .{ .requested = offset, .available = handle.file_size } },
-            else => return FileOperationResult{ .error_io_failure = "Seek operation failed" },
+            error.FileClosed => return FileOperationResult{ .error_invalid_state = handle.state },
         };
 
         return FileOperationResult{ .success = .{ .bytes_transferred = 0 } };

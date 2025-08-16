@@ -77,15 +77,15 @@ const FileStorage = struct {
     }
 
     /// Validate file can perform read operation using TypedFileHandle.
-    pub fn validate_read(self: *const Self) void {
-        self.handle.state.assert_can_read();
-        fatal_assert(self.handle.access_mode.can_read(), "File not opened for reading", .{});
+    pub fn validate_read(self: *const Self) !void {
+        if (!self.handle.state.can_read()) return error.InvalidFileState;
+        if (!self.handle.access_mode.can_read()) return error.WriteOnlyFile;
     }
 
     /// Validate file can perform write operation using TypedFileHandle.
-    pub fn validate_write(self: *const Self) void {
-        self.handle.state.assert_can_write();
-        fatal_assert(self.handle.access_mode.can_write(), "File not opened for writing", .{});
+    pub fn validate_write(self: *const Self) !void {
+        if (!self.handle.state.can_write()) return error.InvalidFileState;
+        if (!self.handle.access_mode.can_write()) return error.ReadOnlyFile;
     }
 
     /// Close file and transition to closed state.
@@ -447,7 +447,7 @@ pub const SimulationVFS = struct {
 
         // State machine validation for read operations - must be active and readable
         if (!storage.is_active()) return null;
-        storage.validate_read(); // This will assert if state doesn't allow reading
+        storage.validate_read() catch return null; // Return null if state doesn't allow reading
 
         return &storage.data;
     }
@@ -464,7 +464,7 @@ pub const SimulationVFS = struct {
 
         // State machine validation for write operations - must be active and writable
         if (!storage.is_active()) return null;
-        storage.validate_write(); // This will assert if state doesn't allow writing
+        storage.validate_write() catch return null; // Return null if state doesn't allow writing
 
         return storage;
     }

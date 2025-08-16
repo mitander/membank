@@ -100,7 +100,7 @@ test "CORRUPTION PREVENTION: Invalid file state transitions blocked" {
     // Attempt invalid operation (write to read-only file)
     // In old system, this might silently corrupt data
     // In new system, this is caught by state validation
-    file_state.assert_can_read(); // Should pass
+    try testing.expect(file_state.can_read());
 
     // This would trigger fatal_assert in debug mode:
     // file_state.assert_can_write(); // Would panic

@@ -53,6 +53,10 @@ pub const VFileError = error{
     ReadError,
     WriteError,
     FileClosed,
+    ReadOnlyFile,
+    WriteOnlyFile,
+    EmptyData,
+    InvalidFileState,
     IoError,
     NoSpaceLeft,
 } || std.mem.Allocator.Error;
