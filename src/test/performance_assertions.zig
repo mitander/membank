@@ -18,9 +18,30 @@ pub const PerformanceTier = enum {
     parallel,
     /// Production benchmark: Most strict thresholds for release validation
     production,
+    /// Sanitizer builds: Extremely relaxed thresholds for sanitizer overhead (10-100x)
+    sanitizer,
 
     /// Detect performance tier from environment
     pub fn detect() PerformanceTier {
+        // Check for sanitizer builds first (highest priority due to extreme overhead)
+        if (std.process.getEnvVarOwned(std.heap.page_allocator, "KAUSALDB_SANITIZER_BUILD")) |sanitizer_value| {
+            defer std.heap.page_allocator.free(sanitizer_value);
+            if (std.mem.eql(u8, sanitizer_value, "true")) return .sanitizer;
+        } else |_| {}
+
+        // Check for common sanitizer environment indicators
+        if (std.process.getEnvVarOwned(std.heap.page_allocator, "ASAN_OPTIONS")) |_| {
+            return .sanitizer;
+        } else |_| {}
+
+        if (std.process.getEnvVarOwned(std.heap.page_allocator, "TSAN_OPTIONS")) |_| {
+            return .sanitizer;
+        } else |_| {}
+
+        if (std.process.getEnvVarOwned(std.heap.page_allocator, "UBSAN_OPTIONS")) |_| {
+            return .sanitizer;
+        } else |_| {}
+
         // Check for CI environment variables (GitHub Actions, GitLab, etc.)
         if (std.process.getEnvVarOwned(std.heap.page_allocator, "CI")) |ci_value| {
             defer std.heap.page_allocator.free(ci_value);
@@ -84,6 +105,7 @@ pub const PerformanceThresholds = struct {
             },
             .ci => .{ .latency = 20.0, .throughput = 0.2, .memory = 5.0 }, // 20x latency - GitHub runners 4x slower + test overhead (240µs * 4 = 960µs)
             .production => .{ .latency = 1.0, .throughput = 1.0, .memory = 1.0 }, // Exact requirements - isolated benchmarking
+            .sanitizer => .{ .latency = 100.0, .throughput = 0.1, .memory = 10.0 }, // 100x latency - sanitizers add 10-100x overhead
         };
 
         return PerformanceThresholds{
@@ -122,6 +144,7 @@ pub const PerformanceAssertion = struct {
                 .ci => "CI",
                 .parallel => "PARALLEL",
                 .production => "PRODUCTION",
+                .sanitizer => "SANITIZER",
             };
 
             std.debug.print("\nPerformance assertion failed in {s} mode\n" ++
@@ -148,6 +171,7 @@ pub const PerformanceAssertion = struct {
                 .local => "LOCAL",
                 .ci => "CI",
                 .parallel => "PARALLEL",
+                .sanitizer => "SANITIZER",
                 .production => "PROD",
             };
             std.debug.print("[OK] [{s}] {s}: {d}ns (limit: {d}ns, {d:.1}% of budget)\n", .{

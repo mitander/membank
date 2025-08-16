@@ -9,6 +9,7 @@ const std = @import("std");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 const fatal_assertions = kausaldb.fatal_assertions;
+const PerformanceAssertion = kausaldb.PerformanceAssertion;
 
 const FatalCategory = fatal_assertions.FatalCategory;
 const FatalContext = fatal_assertions.FatalContext;
@@ -331,19 +332,21 @@ test "fatal assertion performance impact is minimal" {
     // Measure the overhead of fatal assertions compared to regular checks
     const allocator = testing.allocator;
     const iterations = 1000;
+    const perf = PerformanceAssertion.init("fatal assertion performance impact is minimal");
 
-    // Use pseudo-random condition that's almost always true but not optimizable
+    // Use runtime values that are always true but not compile-time optimizable
     var prng = std.Random.DefaultPrng.init(@as(u64, @intCast(std.time.nanoTimestamp())));
     const random = prng.random();
 
     // Baseline: simple condition check
     const baseline_start = std.time.nanoTimestamp();
     var baseline_result: usize = 0;
-    for (0..iterations) |_| {
-        // Condition that's ~99.9% true but compiler can't prove it
-        const condition = random.int(u32) < 0xFFFFF000; // Almost always true
+    for (0..iterations) |i| {
+        // Condition that's always true but compiler can't prove it
+        const runtime_value = random.int(u32);
+        const condition = i < iterations and baseline_result <= i + runtime_value; // Always true
         if (!condition) {
-            baseline_result +%= 1; // Rare case, just continue
+            baseline_result +%= 1; // Never executed, but prevents optimization
         }
         baseline_result +%= 1; // Prevent optimization
     }
@@ -356,9 +359,10 @@ test "fatal assertion performance impact is minimal" {
     // With fatal assertion framework
     const assertion_start = std.time.nanoTimestamp();
     var assertion_result: usize = 0;
-    for (0..iterations) |_| {
-        // Same probabilistic condition for fair comparison
-        const condition = random.int(u32) < 0xFFFFF000; // Almost always true
+    for (0..iterations) |i| {
+        // Same guaranteed-true condition for fair comparison
+        const runtime_value = random.int(u32);
+        const condition = i < iterations and assertion_result <= i + runtime_value; // Always true
         fatal_assertions.fatal_assert_ctx(
             condition,
             .logic_error,
@@ -373,9 +377,16 @@ test "fatal assertion performance impact is minimal" {
     std.mem.doNotOptimizeAway(&assertion_result);
     const assertion_time = std.time.nanoTimestamp() - assertion_start;
 
-    // Basic sanity checks
-    try testing.expect(baseline_time >= 0);
-    try testing.expect(assertion_time > 0);
+    // Performance validation using tiered thresholds
+    try perf.assert_latency(@as(u64, @intCast(baseline_time)), 1_000_000, "baseline condition checks"); // 1ms base requirement
+    try perf.assert_latency(@as(u64, @intCast(assertion_time)), 5_000_000, "fatal assertion checks"); // 5ms base requirement
+
+    // Verify assertion overhead is reasonable (should be <10x baseline in most environments)
+    const overhead_multiplier = @as(f64, @floatFromInt(@as(u64, @intCast(assertion_time)))) / @as(f64, @floatFromInt(@as(u64, @intCast(baseline_time))));
+    if (overhead_multiplier > 20.0) { // Allow 20x overhead for sanitizer builds
+        std.debug.print("WARNING: Fatal assertion overhead is {d:.1}x baseline ({d}ns vs {d}ns)\n", .{ overhead_multiplier, assertion_time, baseline_time });
+    }
+
     _ = allocator;
 }
 

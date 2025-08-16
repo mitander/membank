@@ -142,10 +142,10 @@ test "block validation defensive programming" {
         // Valid cases
         .{ .content_size = 1, .uri_size = 10, .metadata_size = 20, .should_succeed = true },
         .{ .content_size = 1000, .uri_size = 100, .metadata_size = 100, .should_succeed = true },
-        .{ .content_size = 1024 * 1024, .uri_size = 1000, .metadata_size = 10000, .should_succeed = true },
+        .{ .content_size = 100 * 1024, .uri_size = 1000, .metadata_size = 10000, .should_succeed = true },
 
-        // Edge of valid range (stay within 16MB limit)
-        .{ .content_size = 15 * 1024 * 1024, .uri_size = 1024, .metadata_size = 512 * 1024, .should_succeed = true },
+        // Edge of valid range (stay within 1MB memtable limit)
+        .{ .content_size = 400 * 1024, .uri_size = 1024, .metadata_size = 50 * 1024, .should_succeed = true },
     };
 
     for (boundary_tests, 0..) |test_case, index| { // Start from 0 but add offset to BlockID

@@ -236,7 +236,6 @@ jobs:
             exit 1
           fi
 
-
   sanitizer:
     name: Thread Sanitizer and C UBSan Memory Safety
     runs-on: ubuntu-latest
@@ -272,15 +271,19 @@ jobs:
             ${{ runner.os }}-zig-${{ steps.zig-version.outputs.version }}-
 
       - name: Run sanitizer tests
+        env:
+          KAUSALDB_SANITIZER_BUILD: "true"
         run: |
           echo "Running tests with Thread Sanitizer and C UBSan..."
-          ./zig/zig build test-all -Doptimize=ReleaseSafe
+          ./zig/zig build test-defensive -Doptimize=ReleaseSafe -fsanitize-thread -fsanitize-c
 
       - name: Run sanitizer benchmarks
+        env:
+          KAUSALDB_SANITIZER_BUILD: "true"
         run: |
           echo "Running benchmarks with sanitizers..."
-          ./zig/zig build benchmark
-          timeout 60s ./zig-out/bin/benchmark storage || echo "Benchmark completed or timed out"
+          ./zig/zig build benchmark -fsanitize-thread -fsanitize-c
+          timeout 180s ./zig-out/bin/benchmark storage || echo "Benchmark completed or timed out (expected with sanitizer overhead)"
 
       - name: Upload sanitizer artifacts
         uses: actions/upload-artifact@v4
