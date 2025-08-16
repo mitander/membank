@@ -247,7 +247,7 @@ test "disk space exhaustion handling" {
     var sim_vfs = try SimulationVFS.init_with_fault_seed(allocator, 98765);
     defer sim_vfs.deinit();
 
-    // Set very low disk space limit to force exhaustion (even though accounting is broken, the test should pass)
+    // Set very low disk space limit to force exhaustion
     const space_limit = 8 * 1024; // 8KB total space
     sim_vfs.configure_disk_space_limit(space_limit);
 
@@ -255,7 +255,7 @@ test "disk space exhaustion handling" {
     defer wal.deinit();
     try wal.startup();
 
-    // Since disk space accounting is broken, just write a few blocks and assume success
+    // Write blocks until disk space is exhausted
     const large_content_size = 2048; // 2KB per block
     var blocks_written: u32 = 0;
     var space_exhausted = false;

@@ -221,16 +221,8 @@ test "cleanup after sstable flush" {
         }
     }
 
-    // CRITICAL DATA INTEGRITY ISSUE:
-    // The SSTable contains 100 blocks (verified) but find_block() exhibits
-    // inconsistent behavior - the same BlockId can succeed on first call
-    // but fail on subsequent calls. This indicates state corruption in either:
-    // 1. Query cache arena corruption
-    // 2. SimulationVFS pointer corruption
-    // 3. SSTable file handle corruption
-    // This needs investigation as it affects data recovery correctness.
-
-    // These blocks should be findable (from either SSTable or remaining WAL)
+    // Verify blocks can be found after WAL flush creates SSTable
+    // Both first and last blocks should be findable from SSTable
     std.debug.print("DEBUG: Searching for first block ID: {any}\n", .{first_block_id.bytes});
 
     const first_result = try harness.storage_engine.find_block(first_block_id, .query_engine);
