@@ -260,6 +260,85 @@ pub fn expensive_check_enabled() bool {
     return assertions_enabled();
 }
 
+/// Re-export main thread assertion from concurrency module.
+/// This provides a centralized assertion interface while keeping
+/// concurrency logic in its dedicated module.
+pub const assert_main_thread = @import("concurrency.zig").assert_main_thread;
+
+/// Safe buffer slicing with bounds checking.
+/// Prevents buffer overflows from malformed data or arithmetic errors.
+/// # Examples
+/// ```zig
+/// const data = safe_slice(buffer, offset, size, "Reading block data") catch return error.Corruption;
+/// ```
+pub fn safe_slice(buffer: []const u8, offset: usize, size: usize, comptime operation: []const u8) ![]const u8 {
+    fatal_assert(offset <= buffer.len, operation ++ ": slice offset {} beyond buffer length {}", .{ offset, buffer.len });
+
+    fatal_assert(size <= buffer.len - offset, operation ++ ": slice size {} from offset {} exceeds buffer bounds (buffer: {})", .{ size, offset, buffer.len });
+
+    // Check for arithmetic overflow in offset + size
+    const end_pos = std.math.add(usize, offset, size) catch {
+        fatal_assert(false, operation ++ ": arithmetic overflow in slice bounds {} + {}", .{ offset, size });
+        unreachable;
+    };
+
+    fatal_assert(end_pos <= buffer.len, operation ++ ": computed end position {} exceeds buffer length {}", .{ end_pos, buffer.len });
+
+    return buffer[offset .. offset + size];
+}
+
+/// Safe mutable buffer slicing with bounds checking.
+/// # Examples
+/// ```zig
+/// var target = safe_slice_mut(output_buffer, write_pos, data.len, "Writing serialized data") catch return error.BufferTooSmall;
+/// ```
+pub fn safe_slice_mut(buffer: []u8, offset: usize, size: usize, comptime operation: []const u8) ![]u8 {
+    fatal_assert(offset <= buffer.len, operation ++ ": slice offset {} beyond buffer length {}", .{ offset, buffer.len });
+
+    fatal_assert(size <= buffer.len - offset, operation ++ ": slice size {} from offset {} exceeds buffer bounds (buffer: {})", .{ size, offset, buffer.len });
+
+    // Check for arithmetic overflow in offset + size
+    const end_pos = std.math.add(usize, offset, size) catch {
+        fatal_assert(false, operation ++ ": arithmetic overflow in slice bounds {} + {}", .{ offset, size });
+        unreachable;
+    };
+
+    fatal_assert(end_pos <= buffer.len, operation ++ ": computed end position {} exceeds buffer length {}", .{ end_pos, buffer.len });
+
+    return buffer[offset .. offset + size];
+}
+
+/// Safe buffer copy with bounds validation.
+/// Prevents buffer overflows during memory operations.
+/// # Examples
+/// ```zig
+/// safe_copy(destination, src_data, "Copying block content");
+/// ```
+pub fn safe_copy(dest: []u8, src: []const u8, comptime operation: []const u8) void {
+    fatal_assert(dest.len >= src.len, operation ++ ": destination buffer too small: {} < {} bytes", .{ dest.len, src.len });
+
+    // Detect overlapping memory regions that would cause corruption
+    const dest_start = @intFromPtr(dest.ptr);
+    const dest_end = dest_start + dest.len;
+    const src_start = @intFromPtr(src.ptr);
+    const src_end = src_start + src.len;
+
+    const overlaps = (src_start < dest_end) and (dest_start < src_end);
+    fatal_assert(!overlaps, operation ++ ": overlapping memory regions detected - would cause corruption", .{});
+
+    @memcpy(dest[0..src.len], src);
+}
+
+/// Validate buffer alignment for performance-critical operations.
+/// # Examples
+/// ```zig
+/// assert_aligned(header_buffer, 64, "SSTable header must be cache-line aligned");
+/// ```
+pub fn assert_aligned(buffer: []const u8, alignment: usize, comptime operation: []const u8) void {
+    const addr = @intFromPtr(buffer.ptr);
+    fatal_assert(addr % alignment == 0, operation ++ ": buffer not aligned to {} bytes (address: 0x{x})", .{ alignment, addr });
+}
+
 test "assert basic functionality" {
     // Simple assert should not panic
     assert(true);
@@ -339,6 +418,32 @@ test "assert_state_valid functionality" {
 test "assert_stride_positive functionality" {
     assert_stride_positive(1, "Invalid stride: {} must be positive", .{1});
     assert_stride_positive(100, "Invalid stride: {} must be positive", .{100});
+}
+
+test "safe buffer operations" {
+    const test_data = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+
+    // Test safe_slice with valid bounds
+    const slice1 = try safe_slice(&test_data, 0, 4, "test slice");
+    try std.testing.expectEqualSlices(u8, &[_]u8{ 1, 2, 3, 4 }, slice1);
+
+    const slice2 = try safe_slice(&test_data, 2, 3, "test slice");
+    try std.testing.expectEqualSlices(u8, &[_]u8{ 3, 4, 5 }, slice2);
+
+    // Test safe_slice_mut
+    var mutable_data = [_]u8{ 10, 20, 30, 40, 50 };
+    const mut_slice = try safe_slice_mut(&mutable_data, 1, 3, "test mutable slice");
+    try std.testing.expectEqualSlices(u8, &[_]u8{ 20, 30, 40 }, mut_slice);
+
+    // Test safe_copy
+    var dest = [_]u8{ 0, 0, 0, 0 };
+    const src = [_]u8{ 100, 101, 102, 103 };
+    safe_copy(&dest, &src, "test copy");
+    try std.testing.expectEqualSlices(u8, &src, &dest);
+
+    // Test assert_aligned with properly aligned buffer
+    const aligned_data align(64) = [_]u8{ 1, 2, 3, 4 };
+    assert_aligned(&aligned_data, 64, "test alignment");
 }
 
 test "comptime_no_padding functionality" {

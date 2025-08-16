@@ -336,6 +336,16 @@ pub const SSTableManager = struct {
         return @intCast(self.sstable_paths.items.len);
     }
 
+    /// Get the total number of blocks across all SSTables.
+    /// Used for system-wide statistics and validation.
+    /// Returns 0 as placeholder - actual implementation would scan SSTable indexes.
+    pub fn total_block_count(self: *const SSTableManager) u64 {
+        // Placeholder implementation - real version would sum blocks across all SSTables
+        // For now, return 0 to avoid expensive SSTable scanning during validation
+        _ = self;
+        return 0;
+    }
+
     /// Discover existing SSTable files and register with compaction manager.
     /// Called during startup to restore system state after restart.
     /// Scans SSTable directory for .sst files and registers them in order.
@@ -420,7 +430,7 @@ pub const SSTableManager = struct {
 
     /// Comprehensive ArrayList corruption detection and validation.
     /// Returns error if corruption is detected, logs detailed diagnostics.
-    fn validate_sstable_paths_integrity(self: *SSTableManager, context: []const u8) !void {
+    fn validate_sstable_paths_integrity(self: *const SSTableManager, context: []const u8) !void {
         // Basic structure validation
         if (self.sstable_paths.items.len > 1000000) {
             log.err("CORRUPTION DETECTED [{s}]: ArrayList len corrupted: {}", .{ context, self.sstable_paths.items.len });
@@ -486,7 +496,11 @@ pub const SSTableManager = struct {
 
     /// Enhanced periodic validation that logs detailed memory state for corruption debugging.
     /// Call this from various points to track when corruption occurs.
-    pub fn debug_validate_with_timing(self: *SSTableManager, context: []const u8, operation_details: []const u8) void {
+    pub fn debug_validate_with_timing(
+        self: *const SSTableManager,
+        context: []const u8,
+        operation_details: []const u8,
+    ) void {
         if (builtin.mode != .Debug) return;
 
         const list_addr = @intFromPtr(&self.sstable_paths);
@@ -519,6 +533,61 @@ pub const SSTableManager = struct {
                     return;
                 }
             }
+        }
+    }
+
+    /// P0.6 & P0.7: Comprehensive invariant validation for SSTableManager.
+    /// Validates arena coordinator stability, path integrity, and compaction state.
+    pub fn validate_invariants(self: *const SSTableManager) void {
+        if (builtin.mode == .Debug) {
+            self.validate_sstable_paths_integrity("invariant_validation") catch |err| {
+                fatal_assert(false, "SSTableManager path integrity validation failed: {}", .{err});
+            };
+            self.validate_arena_coordinator_stability();
+            self.validate_compaction_manager_coherence();
+        }
+    }
+
+    /// P0.6: Validate arena coordinator stability.
+    fn validate_arena_coordinator_stability(self: *const SSTableManager) void {
+        assert_fmt(builtin.mode == .Debug, "Arena coordinator validation should only run in debug builds", .{});
+
+        // Arena coordinator corruption indicates struct copying which breaks allocation interface
+        fatal_assert(@intFromPtr(self.arena_coordinator) != 0, "Arena coordinator pointer is null - struct copying corruption", .{});
+
+        // Minimal allocation test verifies coordinator hasn't been corrupted by struct copying
+        const test_alloc = self.arena_coordinator.alloc(u8, 1) catch {
+            fatal_assert(false, "SSTableManager arena coordinator non-functional - corruption detected", .{});
+            return;
+        };
+        _ = test_alloc; // Arena will clean up during next reset
+
+        // Validate backing allocator is functional
+        const test_backing_alloc = self.backing_allocator.alloc(u8, 1) catch {
+            fatal_assert(false, "SSTableManager backing allocator non-functional", .{});
+            return;
+        };
+        defer self.backing_allocator.free(test_backing_alloc);
+    }
+
+    /// Validate compaction manager state coherence.
+    fn validate_compaction_manager_coherence(self: *const SSTableManager) void {
+        assert_fmt(builtin.mode == .Debug, "Compaction manager validation should only run in debug builds", .{});
+
+        // Compaction manager corruption would break background maintenance operations
+        fatal_assert(@intFromPtr(&self.compaction_manager) != 0, "CompactionManager pointer corruption", .{});
+
+        // Excessive SSTable count indicates counter corruption or runaway file creation
+        const current_sstable_count = self.sstable_count();
+        assert_fmt(current_sstable_count < 10000, "SSTable count {} is unreasonable - indicates corruption", .{current_sstable_count});
+
+        // ID overflow or corruption could cause file naming conflicts and data loss
+        assert_fmt(self.next_sstable_id < 1000000, "Next SSTable ID {} is unreasonable - indicates corruption", .{self.next_sstable_id});
+
+        // Validate data directory is set and reasonable
+        if (self.data_dir.len > 0) {
+            assert_fmt(self.data_dir.len < 4096, "Data directory path too long: {} bytes", .{self.data_dir.len});
+            assert_fmt(@intFromPtr(self.data_dir.ptr) != 0, "Data directory pointer is null with length {}", .{self.data_dir.len});
         }
     }
 };

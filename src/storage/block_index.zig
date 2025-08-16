@@ -92,6 +92,11 @@ pub const BlockIndex = struct {
     pub fn put_block(self: *BlockIndex, block: ContextBlock) !void {
         assert_fmt(@intFromPtr(self) != 0, "BlockIndex self pointer cannot be null", .{});
 
+        // Validate invariants before mutation in debug builds
+        if (builtin.mode == .Debug) {
+            self.validate_invariants();
+        }
+
         // Validate string lengths to prevent allocation of corrupted sizes
         assert_fmt(block.source_uri.len < 1024 * 1024, "source_uri too large: {} bytes", .{block.source_uri.len});
         assert_fmt(block.metadata_json.len < 1024 * 1024, "metadata_json too large: {} bytes", .{block.metadata_json.len});
@@ -152,6 +157,11 @@ pub const BlockIndex = struct {
 
         // Update memory accounting only after successful HashMap operation
         self.memory_used = self.memory_used - old_memory + new_memory;
+
+        // Validate invariants after mutation in debug builds
+        if (builtin.mode == .Debug) {
+            self.validate_invariants();
+        }
     }
 
     /// Find a block by ID with ownership validation.
@@ -212,9 +222,20 @@ pub const BlockIndex = struct {
     pub fn clear(self: *BlockIndex) void {
         fatal_assert(@intFromPtr(self) != 0, "BlockIndex self pointer is null - memory corruption detected", .{});
 
+        // Validate invariants before clearing in debug builds
+        if (builtin.mode == .Debug) {
+            self.validate_invariants();
+        }
+
         self.blocks.clearRetainingCapacity();
         // Arena memory reset handled by StorageEngine - enables O(1) bulk cleanup
         self.memory_used = 0;
+
+        // Validate cleared state in debug builds
+        if (builtin.mode == .Debug) {
+            fatal_assert(self.blocks.count() == 0, "Clear operation failed - blocks still present", .{});
+            fatal_assert(self.memory_used == 0, "Clear operation failed - memory not reset", .{});
+        }
     }
 
     /// Large block cloning with chunked copy to improve cache locality.
@@ -242,6 +263,87 @@ pub const BlockIndex = struct {
             .metadata_json = try self.arena_coordinator.duplicate_slice(u8, block.metadata_json),
             .content = content_buffer,
         };
+    }
+
+    /// Comprehensive invariant validation for debug builds.
+    /// Validates all critical assumptions about BlockIndex internal state
+    /// that could be violated by programming errors.
+    pub fn validate_invariants(self: *const BlockIndex) void {
+        if (builtin.mode == .Debug) {
+            self.validate_memory_accounting();
+            self.validate_coordinator_stability();
+            self.validate_hash_consistency();
+            self.validate_content_integrity();
+        }
+    }
+
+    /// Validate memory accounting consistency - tracked vs actual usage.
+    fn validate_memory_accounting(self: *const BlockIndex) void {
+        var calculated_memory: u64 = 0;
+        var iterator = self.blocks.iterator();
+        while (iterator.next()) |entry| {
+            const block = &entry.value_ptr.block;
+            calculated_memory += block.source_uri.len +
+                block.metadata_json.len +
+                block.content.len;
+        }
+        fatal_assert(self.memory_used == calculated_memory, "Memory accounting mismatch: tracked={} actual={}", .{ self.memory_used, calculated_memory });
+    }
+
+    /// Validate arena coordinator pointer stability.
+    fn validate_coordinator_stability(self: *const BlockIndex) void {
+        fatal_assert(@intFromPtr(self.arena_coordinator) != 0, "Arena coordinator pointer is null - struct copying corruption", .{});
+
+        // Verify coordinator is still functional
+        const test_alloc = self.arena_coordinator.alloc(u8, 1) catch {
+            fatal_assert(false, "Arena coordinator non-functional - corruption detected", .{});
+            return;
+        };
+
+        // Clean up test allocation immediately
+        _ = test_alloc;
+    }
+
+    /// Validate HashMap consistency and detect corruption.
+    fn validate_hash_consistency(self: *const BlockIndex) void {
+        const expected_count = self.blocks.count();
+        var actual_count: u32 = 0;
+
+        var iterator = self.blocks.iterator();
+        while (iterator.next()) |entry| {
+            actual_count += 1;
+
+            // Verify each block can be found by its ID
+            const found = self.blocks.get(entry.key_ptr.*);
+            fatal_assert(found != null, "Block ID corruption: stored block not findable by key", .{});
+            fatal_assert(found.?.block.id.eql(entry.key_ptr.*), "Block ID mismatch: key={any} stored={any}", .{ entry.key_ptr.*, found.?.block.id });
+        }
+
+        fatal_assert(actual_count == expected_count, "HashMap count corruption: expected={} actual={}", .{ expected_count, actual_count });
+    }
+
+    /// Validate content pointer integrity and detect memory corruption.
+    fn validate_content_integrity(self: *const BlockIndex) void {
+        var iterator = self.blocks.iterator();
+        while (iterator.next()) |entry| {
+            const block = &entry.value_ptr.block;
+
+            // Validate content pointers are not null for non-empty strings
+            if (block.source_uri.len > 0) {
+                fatal_assert(@intFromPtr(block.source_uri.ptr) != 0, "source_uri pointer corruption: null with length {}", .{block.source_uri.len});
+            }
+            if (block.metadata_json.len > 0) {
+                fatal_assert(@intFromPtr(block.metadata_json.ptr) != 0, "metadata_json pointer corruption: null with length {}", .{block.metadata_json.len});
+            }
+            if (block.content.len > 0) {
+                fatal_assert(@intFromPtr(block.content.ptr) != 0, "content pointer corruption: null with length {}", .{block.content.len});
+            }
+
+            // Validate string lengths are reasonable (detect corruption)
+            fatal_assert(block.source_uri.len < 10 * 1024 * 1024, "source_uri length corruption: {} bytes too large", .{block.source_uri.len});
+            fatal_assert(block.metadata_json.len < 10 * 1024 * 1024, "metadata_json length corruption: {} bytes too large", .{block.metadata_json.len});
+            fatal_assert(block.content.len < 1024 * 1024 * 1024, "content length corruption: {} bytes too large", .{block.content.len});
+        }
     }
 };
 

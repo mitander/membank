@@ -17,6 +17,7 @@
 //!     breaking the format for older clients.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = @import("../core/assert.zig");
 const comptime_assert = assert.comptime_assert;
 const log = std.log.scoped(.sstable);
@@ -490,6 +491,11 @@ pub const SSTable = struct {
         // Index entries are already sorted by block ID from write_blocks()
         // No need to re-sort as this preserves the correct offset mapping
 
+        // Validate index ordering in debug builds - critical for binary search correctness
+        if (builtin.mode == .Debug) {
+            self.validate_index_ordering();
+        }
+
         if (header.bloom_filter_size > 0) {
             _ = try file.seek(@intCast(header.bloom_filter_offset), .start);
 
@@ -507,6 +513,11 @@ pub const SSTable = struct {
     /// Uses the bloom filter for fast negative lookups, then performs binary search
     /// on the index. Returns null if the block is not found in this SSTable.
     pub fn find_block(self: *SSTable, block_id: BlockId) !?SSTableBlock {
+        // Validate index ordering before binary search in debug builds
+        if (builtin.mode == .Debug) {
+            self.validate_index_ordering();
+        }
+
         if (self.bloom_filter) |*filter| {
             if (!filter.might_contain(block_id)) {
                 return null;
@@ -554,6 +565,18 @@ pub const SSTable = struct {
     /// Get iterator for all blocks in sorted order
     pub fn iterator(self: *SSTable) SSTableIterator {
         return SSTableIterator.init(self);
+    }
+
+    /// Validate that index entries are properly sorted by BlockId.
+    /// Critical for binary search correctness in find_block().
+    /// Called in debug builds to catch ordering corruption.
+    fn validate_index_ordering(self: *const SSTable) void {
+        if (self.index.items.len <= 1) return;
+
+        for (self.index.items[0 .. self.index.items.len - 1], self.index.items[1..]) |current, next| {
+            const order = std.mem.order(u8, &current.block_id.bytes, &next.block_id.bytes);
+            assert.fatal_assert(order == .lt, "SSTable index not properly sorted: {any} >= {any} at positions", .{ current.block_id, next.block_id });
+        }
     }
 };
 
