@@ -52,6 +52,17 @@ const StorageSnapshot = struct {
         wal_flushes: u64,
         wal_recoveries: u64,
     };
+    
+    /// Free allocated memory for the snapshot
+    pub fn deinit(self: *StorageSnapshot, allocator: std.mem.Allocator) void {
+        // Free all block string data
+        for (self.blocks) |block| {
+            allocator.free(block.source_uri);
+            allocator.free(block.metadata_json);
+        }
+        allocator.free(self.blocks);
+        allocator.free(self.edges);
+    }
 };
 
 /// Golden master configuration and state
@@ -78,12 +89,29 @@ pub const GoldenMaster = struct {
     }
 
     /// Capture current storage engine state as a snapshot
-    pub fn capture_snapshot(self: Self, storage_engine: *const StorageEngine) !StorageSnapshot {
+    pub fn capture_snapshot(self: Self, storage_engine: *StorageEngine) !StorageSnapshot {
         var blocks = std.ArrayList(StorageSnapshot.BlockSnapshot).init(self.allocator);
         defer blocks.deinit();
 
-        // Block iteration requires StorageEngine API extension - deferred for v0.1.0
-        // Current implementation captures metrics only for release readiness
+        // Capture all blocks using the available iterator API
+        var block_iterator = storage_engine.iterate_all_blocks();
+        while (try block_iterator.next()) |block| {
+            const id_hex = try block.id.to_hex(self.allocator);
+            defer self.allocator.free(id_hex);
+            
+            var id_array: [32]u8 = undefined;
+            @memcpy(&id_array, id_hex[0..32]);
+            
+            const block_snapshot = StorageSnapshot.BlockSnapshot{
+                .id = id_array,
+                .version = block.version,
+                .source_uri = try self.allocator.dupe(u8, block.source_uri),
+                .metadata_json = try self.allocator.dupe(u8, block.metadata_json),
+                .content_hash = std.hash_map.hashString(block.content),
+                .content_length = block.content.len,
+            };
+            try blocks.append(block_snapshot);
+        }
 
         const metrics = storage_engine.metrics();
         const metrics_snapshot = StorageSnapshot.MetricsSnapshot{
@@ -95,12 +123,24 @@ pub const GoldenMaster = struct {
             .wal_recoveries = metrics.wal_recoveries.load(),
         };
 
-        // Edge iteration requires StorageEngine API extension - deferred for v0.1.0
+        // Sort blocks by ID for deterministic output
+        const BlockComparator = struct {
+            pub fn less_than(_: void, a: StorageSnapshot.BlockSnapshot, b: StorageSnapshot.BlockSnapshot) bool {
+                return std.mem.order(u8, &a.id, &b.id) == .lt;
+            }
+        };
+        std.mem.sort(StorageSnapshot.BlockSnapshot, blocks.items, {}, BlockComparator.less_than);
+        
+        // Edge iteration deferred - requires additional StorageEngine API
+        // Current block iteration provides sufficient deterministic validation
+        const edges_array = try self.allocator.alloc(StorageSnapshot.EdgeSnapshot, 0);
+        
+        const blocks_array = try self.allocator.dupe(StorageSnapshot.BlockSnapshot, blocks.items);
 
         return StorageSnapshot{
-            .block_count = storage_engine.block_count(),
-            .blocks = &[_]StorageSnapshot.BlockSnapshot{},
-            .edges = &[_]StorageSnapshot.EdgeSnapshot{},
+            .block_count = @intCast(blocks.items.len),
+            .blocks = blocks_array,
+            .edges = edges_array,
             .metrics = metrics_snapshot,
         };
     }
@@ -251,8 +291,39 @@ pub const GoldenMaster = struct {
             return error.GoldenMasterMismatch;
         }
 
-        // Block and edge comparison deferred for v0.1.0 - metrics validation sufficient
-        // for current recovery test requirements
+        // Block comparison - validate count and content integrity
+        if (golden.block_count != actual.block_count) {
+            std.debug.print("Block count mismatch: golden={}, actual={}\n", .{ golden.block_count, actual.block_count });
+            return error.GoldenMasterMismatch;
+        }
+        
+        if (golden.blocks.len != actual.blocks.len) {
+            std.debug.print("Block array length mismatch: golden={}, actual={}\n", .{ golden.blocks.len, actual.blocks.len });
+            return error.GoldenMasterMismatch;
+        }
+        
+        // Compare each block (both arrays are sorted by ID for deterministic comparison)
+        for (golden.blocks, actual.blocks) |golden_block, actual_block| {
+            if (!std.mem.eql(u8, &golden_block.id, &actual_block.id)) {
+                std.debug.print("Block ID mismatch at position\n", .{});
+                return error.GoldenMasterMismatch;
+            }
+            
+            if (golden_block.version != actual_block.version) {
+                std.debug.print("Block version mismatch for ID: {s}\n", .{golden_block.id});
+                return error.GoldenMasterMismatch;
+            }
+            
+            if (golden_block.content_hash != actual_block.content_hash) {
+                std.debug.print("Block content hash mismatch for ID: {s}\n", .{golden_block.id});
+                return error.GoldenMasterMismatch;
+            }
+            
+            if (golden_block.content_length != actual_block.content_length) {
+                std.debug.print("Block content length mismatch for ID: {s}\n", .{golden_block.id});
+                return error.GoldenMasterMismatch;
+            }
+        }
     }
 
     /// Extract metric value from JSON content

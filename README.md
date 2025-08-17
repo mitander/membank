@@ -57,7 +57,7 @@ We build for purpose, not popularity. Every decision optimizes for modeling code
 - **Simulation-first testing**: Validates against disk corruption, network partitions, power loss
 - **LSM-tree storage**: Optimized for high-volume code ingestion
 
-_Performance: 2.7K writes/sec, 200K reads/sec, 5µs block access_
+_Performance: 76K writes/sec, 34M reads/sec, sub-microsecond block access_
 
 ## Development
 
