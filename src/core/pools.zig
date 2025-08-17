@@ -80,8 +80,14 @@ fn DebugTrackerType(comptime T: type) type {
             }
         }
 
+        fn report_leaks_only(self: *const Self) void {
+            if (self.current_allocations.items.len > 0) {
+                std.log.warn("Pool[{s}] leak detected: {} objects still allocated", .{ @typeName(T), self.current_allocations.items.len });
+            }
+        }
+
         fn deinit(self: *Self) void {
-            self.report_statistics();
+            self.report_leaks_only();
             self.current_allocations.deinit();
         }
     };

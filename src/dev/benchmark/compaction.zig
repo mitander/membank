@@ -89,7 +89,7 @@ fn benchmark_compaction_operations(
     const memory_growth = peak_memory - initial_memory;
 
     const stats = analyze_timings(timings);
-    const throughput = @as(f64, @floatFromInt(COMPACTION_ITERATIONS)) / (@as(f64, @floatFromInt(stats.total_time_ns)) / 1_000_000_000.0);
+    const throughput = calculate_safe_throughput(COMPACTION_ITERATIONS, stats.total_time_ns);
 
     const result = BenchmarkResult{
         .operation_name = "Compaction",
@@ -160,6 +160,14 @@ fn free_compaction_test_block(allocator: std.mem.Allocator, block: ContextBlock)
     allocator.free(block.source_uri);
     allocator.free(block.metadata_json);
     allocator.free(block.content);
+}
+
+fn calculate_safe_throughput(iterations: u64, total_time_ns: u64) f64 {
+    if (total_time_ns == 0) {
+        // When timing resolution is insufficient, report based on minimum measurable time (1ns)
+        return @as(f64, @floatFromInt(iterations)) / (1.0 / 1_000_000_000.0);
+    }
+    return @as(f64, @floatFromInt(iterations)) / (@as(f64, @floatFromInt(total_time_ns)) / 1_000_000_000.0);
 }
 
 fn analyze_timings(timings: []u64) struct {

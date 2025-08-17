@@ -38,18 +38,42 @@ pub const BenchmarkResult = struct {
         std.debug.print("\n=== {s} Benchmark ===\n", .{self.operation_name});
         std.debug.print("Iterations: {}\n", .{self.iterations});
 
-        const total_time_ms = @as(f64, @floatFromInt(self.total_time_ns)) / 1_000_000.0;
-        std.debug.print("Total time: {d:.2}ms\n", .{total_time_ms});
+        // Display total time with appropriate precision
+        if (self.total_time_ns >= 1_000_000) {
+            const total_time_ms = @as(f64, @floatFromInt(self.total_time_ns)) / 1_000_000.0;
+            std.debug.print("Total time: {d:.2}ms\n", .{total_time_ms});
+        } else if (self.total_time_ns >= 1_000) {
+            const total_time_us = @as(f64, @floatFromInt(self.total_time_ns)) / 1_000.0;
+            std.debug.print("Total time: {d:.2}µs\n", .{total_time_us});
+        } else {
+            std.debug.print("Total time: {}ns\n", .{self.total_time_ns});
+        }
 
-        const mean_us = @as(f64, @floatFromInt(self.mean_ns)) / 1_000.0;
-        const threshold_us = @as(f64, @floatFromInt(self.threshold_ns)) / 1_000.0;
-        std.debug.print("Mean time: {d:.2}µs (threshold: {d:.0}µs)\n", .{ mean_us, threshold_us });
+        // Display mean time with appropriate precision
+        if (self.mean_ns >= 1_000) {
+            const mean_us = @as(f64, @floatFromInt(self.mean_ns)) / 1_000.0;
+            const threshold_us = @as(f64, @floatFromInt(self.threshold_ns)) / 1_000.0;
+            std.debug.print("Mean time: {d:.2}µs (threshold: {d:.0}µs)\n", .{ mean_us, threshold_us });
+        } else {
+            const threshold_us = @as(f64, @floatFromInt(self.threshold_ns)) / 1_000.0;
+            std.debug.print("Mean time: {}ns (threshold: {d:.0}µs)\n", .{ self.mean_ns, threshold_us });
+        }
 
-        const min_us = @as(f64, @floatFromInt(self.min_ns)) / 1_000.0;
-        const max_us = @as(f64, @floatFromInt(self.max_ns)) / 1_000.0;
-        std.debug.print("Range: {d:.2}µs - {d:.2}µs\n", .{ min_us, max_us });
+        // Display range with appropriate precision
+        if (self.min_ns >= 1_000 and self.max_ns >= 1_000) {
+            const min_us = @as(f64, @floatFromInt(self.min_ns)) / 1_000.0;
+            const max_us = @as(f64, @floatFromInt(self.max_ns)) / 1_000.0;
+            std.debug.print("Range: {d:.2}µs - {d:.2}µs\n", .{ min_us, max_us });
+        } else {
+            std.debug.print("Range: {}ns - {}ns\n", .{ self.min_ns, self.max_ns });
+        }
 
-        std.debug.print("Throughput: {d:.0} ops/sec\n", .{self.throughput_ops_per_sec});
+        // Handle infinite throughput display gracefully
+        if (std.math.isInf(self.throughput_ops_per_sec)) {
+            std.debug.print("Throughput: >1B ops/sec (sub-nanosecond)\n", .{});
+        } else {
+            std.debug.print("Throughput: {d:.0} ops/sec\n", .{self.throughput_ops_per_sec});
+        }
         std.debug.print("Performance: {s}{s}\x1b[0m\n", .{ status_color, status });
 
         const peak_mb = @as(f64, @floatFromInt(self.peak_memory_bytes)) / (1024.0 * 1024.0);
