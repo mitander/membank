@@ -507,10 +507,9 @@ test "large scale performance characteristics" {
             const query_id = i + 1;
             const block_id = TestData.deterministic_block_id(@intCast(query_id));
 
-            if (try harness.storage_engine.find_block(block_id, .query_engine)) |result| {
-                try testing.expect(result.extract().content.len >= 512);
-            }
-            // If block doesn't exist, skip it - this is due to storage engine compaction bug
+            const result = try harness.storage_engine.find_block(block_id, .query_engine);
+            try testing.expect(result != null); // Block should exist after compaction
+            try testing.expect(result.?.extract().content.len >= 512);
         }
     }
 
