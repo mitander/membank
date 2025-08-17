@@ -271,6 +271,7 @@ pub const ProductionStorageHarness = struct {
     prod_vfs: *ProductionVFS,
     vfs_instance: VFS,
     storage_engine: *StorageEngine,
+    db_path: []const u8, // Store database path for cleanup
 
     const Self = @This();
 
@@ -287,11 +288,15 @@ pub const ProductionStorageHarness = struct {
         const storage_engine = try allocator.create(StorageEngine);
         storage_engine.* = try StorageEngine.init_default(allocator, vfs_instance, db_name);
 
+        // Store database path for cleanup
+        const db_path = try allocator.dupe(u8, db_name);
+
         return Self{
             .allocator = allocator,
             .prod_vfs = prod_vfs,
             .vfs_instance = vfs_instance,
             .storage_engine = storage_engine,
+            .db_path = db_path,
         };
     }
 
@@ -308,10 +313,23 @@ pub const ProductionStorageHarness = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        // Shutdown storage engine first
         self.storage_engine.deinit();
         self.allocator.destroy(self.storage_engine);
+        
+        // Clean up VFS
         self.prod_vfs.deinit();
         self.allocator.destroy(self.prod_vfs);
+        
+        // Clean up database directory to prevent filesystem pollution
+        const cwd = std.fs.cwd();
+        cwd.deleteTree(self.db_path) catch |err| {
+            // Don't fail the test if directory cleanup fails, just log warning
+            std.log.warn("Failed to clean up test database directory '{s}': {}", .{ self.db_path, err });
+        };
+        
+        // Free the database path string
+        self.allocator.free(self.db_path);
     }
 };
 

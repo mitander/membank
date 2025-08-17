@@ -15,8 +15,9 @@ const PerformanceThresholds = kausaldb.PerformanceThresholds;
 const ContextBlock = types.ContextBlock;
 
 // Base performance targets (local development, optimal conditions)
-const BASE_SERIALIZATION_LATENCY_NS = 110_000; // 110µs base for 1MB serialization (measured ~100µs)
-const BASE_STORAGE_WRITE_LATENCY_NS = 400_000; // 400µs base for 1MB storage write (measured ~350µs)
+// Calibrated for ProductionVFS with awareness of test-all environment overhead  
+const BASE_SERIALIZATION_LATENCY_NS = 110_000; // 110µs base for 1MB serialization (benchmark ~100µs)
+const BASE_STORAGE_WRITE_LATENCY_NS = 400_000; // 400µs base for 1MB storage write (benchmark ~350µs)
 const BASE_STORAGE_READ_LATENCY_NS = 1_000; // 1µs base for storage read (benchmark shows 23ns)
 
 /// Create a test block with specified size
@@ -105,8 +106,9 @@ test "large block storage engine performance" {
         var total_read_ns: u64 = 0;
 
         for (0..iterations) |i| {
-            // Create unique DB name for each iteration
-            const db_name = try std.fmt.allocPrint(allocator, "large_perf_{}", .{i});
+            // Create unique DB name with timestamp for each iteration to ensure isolation
+            const timestamp = std.time.nanoTimestamp();
+            const db_name = try std.fmt.allocPrint(allocator, "large_perf_{}_{}", .{ i, timestamp });
             defer allocator.free(db_name);
 
             var harness = try ProductionHarness.init_and_startup(allocator, db_name);

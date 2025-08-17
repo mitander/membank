@@ -62,6 +62,8 @@ fn component_needs_libc(name: []const u8) bool {
         "server_lifecycle",
         "integration_lifecycle",
         "integration_server_coordinator",
+        "performance",
+        "benchmark",
     };
 
     for (libc_components) |component| {
@@ -375,6 +377,7 @@ fn create_development_tools(
             .optimize = .ReleaseFast,
         }),
     });
+    benchmark_exe.linkLibC();
     benchmark_exe.root_module.addImport("kausaldb", modules.kausaldb_test);
     const install_benchmark = b.addInstallArtifact(benchmark_exe, .{});
     const benchmark_step = b.step("benchmark", "Build and install benchmark");

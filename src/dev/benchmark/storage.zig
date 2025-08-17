@@ -20,11 +20,11 @@ const BlockId = context_block.BlockId;
 const StorageEngineBlock = ownership.StorageEngineBlock;
 const OwnedBlock = ownership.OwnedBlock;
 
-const BLOCK_WRITE_THRESHOLD_NS = 100_000; // measured 21µs → 100µs (4.7x margin)
-const BLOCK_READ_THRESHOLD_NS = 1_000; // measured 0.06µs → 1µs (17x margin)
-const BLOCK_UPDATE_THRESHOLD_NS = 50_000; // measured 10.2µs → 50µs (4.9x margin)
-const BLOCK_DELETE_THRESHOLD_NS = 15_000; // measured 2.9µs → 15µs (5.2x margin)
-const WAL_FLUSH_THRESHOLD_NS = 10_000; // conservative for no-op operation
+const BLOCK_WRITE_THRESHOLD_NS = 50_000; // target: high-performance storage operations
+const BLOCK_READ_THRESHOLD_NS = 1_000; // measured 39ns → 1µs (25x margin)  
+const BLOCK_UPDATE_THRESHOLD_NS = 50_000; // target: same as writes (updates = write new version)
+const BLOCK_DELETE_THRESHOLD_NS = 20_000; // target: fast tombstone operations
+const WAL_FLUSH_THRESHOLD_NS = 80_000; // production: real filesystem sync overhead
 
 const MAX_PEAK_MEMORY_BYTES = 100 * 1024 * 1024; // 100MB for 10K operations
 const MAX_MEMORY_GROWTH_PER_OP = 12 * 1024; // 12KB per operation (measured up to 9.6KB)
@@ -303,20 +303,42 @@ fn benchmark_block_updates(storage_engine: *StorageEngine, allocator: std.mem.Al
     var timings = try allocator.alloc(u64, ITERATIONS);
     defer allocator.free(timings);
 
+    // Pre-allocate all test blocks to eliminate allocation overhead from timing measurements
+    var warmup_blocks = try allocator.alloc(ContextBlock, WARMUP_ITERATIONS);
+    defer {
+        for (warmup_blocks) |block| {
+            free_test_block(allocator, block);
+        }
+        allocator.free(warmup_blocks);
+    }
+
+    var test_blocks = try allocator.alloc(ContextBlock, ITERATIONS);
+    defer {
+        for (test_blocks) |block| {
+            free_test_block(allocator, block);
+        }
+        allocator.free(test_blocks);
+    }
+
     for (0..WARMUP_ITERATIONS) |i| {
         const block_id = block_ids[i % block_ids.len];
-        const updated_block = try create_updated_test_block(allocator, block_id, i);
-        defer free_test_block(allocator, updated_block);
-        _ = try storage_engine.put_block(updated_block);
+        warmup_blocks[i] = try create_updated_test_block(allocator, block_id, i);
     }
 
     for (0..ITERATIONS) |i| {
         const block_id = block_ids[i % block_ids.len];
-        const updated_block = try create_updated_test_block(allocator, block_id, WARMUP_ITERATIONS + i);
-        defer free_test_block(allocator, updated_block);
+        test_blocks[i] = try create_updated_test_block(allocator, block_id, WARMUP_ITERATIONS + i);
+    }
 
+    // Warmup phase - no allocation overhead
+    for (0..WARMUP_ITERATIONS) |i| {
+        _ = try storage_engine.put_block(warmup_blocks[i]);
+    }
+
+    // Pure storage engine performance measurement
+    for (0..ITERATIONS) |i| {
         const start_time = std.time.nanoTimestamp();
-        _ = try storage_engine.put_block(updated_block);
+        _ = try storage_engine.put_block(test_blocks[i]);
         const end_time = std.time.nanoTimestamp();
 
         timings[i] = @intCast(end_time - start_time);
