@@ -79,8 +79,8 @@ const FailingAllocator = struct {
 };
 
 test "allocation failure during memtable operations" {
-    // Auto-configure log level for memory tests
-    test_config.auto_configure(@src());
+    // Enable debug logging for memory tests
+    test_config.debug_print("Starting allocation failure test\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
@@ -148,7 +148,8 @@ test "allocation failure during memtable operations" {
 }
 
 test "I/O errors during memory operations" {
-    test_config.enable_memory_test_mode();
+    // Memory test mode enabled via build-level configuration
+    test_config.debug_print("I/O error testing enabled\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {

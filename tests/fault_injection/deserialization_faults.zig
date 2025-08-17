@@ -62,7 +62,7 @@ test "contextblock header magic corruption" {
     std.mem.writeInt(u32, corrupted_buffer[0..4], 0xDEADBEEF, .little);
 
     // Deserialization should fail gracefully with InvalidMagic
-    const result = ContextBlock.deserialize(corrupted_buffer, allocator);
+    const result = ContextBlock.deserialize(allocator, corrupted_buffer);
     try testing.expectError(error.InvalidMagic, result);
 }
 
@@ -78,7 +78,7 @@ test "contextblock version corruption" {
     // Corrupt version field to unsupported value
     std.mem.writeInt(u16, corrupted_buffer[4..6], 9999, .little);
 
-    const result = ContextBlock.deserialize(corrupted_buffer, allocator);
+    const result = ContextBlock.deserialize(allocator, corrupted_buffer);
     try testing.expectError(error.UnsupportedVersion, result);
 }
 
@@ -95,7 +95,7 @@ test "contextblock length field overflow" {
     const source_uri_len_offset = 24; // After magic, version, flags, id, block_version
     std.mem.writeInt(u32, corrupted_buffer[source_uri_len_offset .. source_uri_len_offset + 4], 2 * 1024 * 1024, .little);
 
-    const result = ContextBlock.deserialize(corrupted_buffer, allocator);
+    const result = ContextBlock.deserialize(allocator, corrupted_buffer);
     // Test passes if either validation fails or succeeds gracefully (no crash)
     if (result) |block| {
         block.deinit(allocator);
@@ -118,7 +118,7 @@ test "contextblock checksum validation" {
     const metadata_len_offset = 28; // After magic, version, flags, id, block_version, source_uri_len
     std.mem.writeInt(u32, corrupted_buffer[metadata_len_offset .. metadata_len_offset + 4], 20 * 1024 * 1024, .little);
 
-    const result = ContextBlock.deserialize(corrupted_buffer, allocator);
+    const result = ContextBlock.deserialize(allocator, corrupted_buffer);
     // Test passes if either validation fails or succeeds gracefully (no crash)
     if (result) |block| {
         block.deinit(allocator);
@@ -141,7 +141,7 @@ test "contextblock truncated buffer" {
         if (truncate_at >= buffer.len) continue;
 
         const truncated = buffer[0..truncate_at];
-        const result = ContextBlock.deserialize(truncated, allocator);
+        const result = ContextBlock.deserialize(allocator, truncated);
 
         // Should fail with either BufferTooSmall or IncompleteData
         const is_expected_error = if (result) |_| false else |err| switch (err) {
@@ -204,7 +204,7 @@ test "random bit flips in contextblock" {
         sim_vfs.fault_injection.apply_read_corruption(corrupted_buffer);
 
         // Attempt deserialization - should either succeed or fail gracefully
-        if (ContextBlock.deserialize(corrupted_buffer, allocator)) |deserialized| {
+        if (ContextBlock.deserialize(allocator, corrupted_buffer)) |deserialized| {
             deserialized.deinit(allocator);
             // Successful parse despite corruption is OK (corruption might not affect critical fields)
         } else |err| {
@@ -267,7 +267,7 @@ test "extreme length values" {
         const content_len_offset = 32;
         std.mem.writeInt(u64, test_buffer[content_len_offset .. content_len_offset + 8], extreme_len, .little);
 
-        const result = ContextBlock.deserialize(&test_buffer, allocator);
+        const result = ContextBlock.deserialize(allocator, &test_buffer);
         // Should return a validation error for extreme length values
         // (could be InvalidContentLength or InvalidSourceUriLength depending on validation order)
         if (result) |_| {
@@ -342,7 +342,7 @@ test "concurrent corruption scenarios" {
         }
 
         // Deserialization must not crash or corrupt memory
-        if (ContextBlock.deserialize(corrupted_buffer, allocator)) |deserialized| {
+        if (ContextBlock.deserialize(allocator, corrupted_buffer)) |deserialized| {
             deserialized.deinit(allocator);
         } else |_| {
             graceful_failures += 1;

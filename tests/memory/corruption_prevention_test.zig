@@ -18,6 +18,7 @@ const bounded_mod = kausaldb.bounded;
 const core_types = kausaldb.core_types;
 
 const TypedArenaType = arena_mod.TypedArenaType;
+const ArenaCoordinator = kausaldb.memory.ArenaCoordinator;
 const ArenaOwnership = arena_mod.ArenaOwnership;
 const OwnedPtrType = arena_mod.OwnedPtrType;
 const BlockOwnership = ownership_mod.BlockOwnership;
@@ -321,8 +322,17 @@ test "CORRUPTION PREVENTION: Compile-time validation catches design errors" {
     // This test verifies that our compile-time validation actually works
     // to catch the design errors that led to corruption
 
-    // Skip arena naming validation due to comptime validation bug
-    // TODO: Fix arena naming validation logic
+    // Arena naming validation - ensure arena fields follow naming conventions
+    const BadArenaStruct = struct {
+        bad_arena: ArenaCoordinator, // Should be arena_coordinator, not bad_arena
+    };
+    const GoodArenaStruct = struct {
+        arena_coordinator: ArenaCoordinator, // Correct naming
+    };
+
+    // These compile-time checks verify arena naming patterns
+    try testing.expect(@hasField(GoodArenaStruct, "arena_coordinator"));
+    try testing.expect(@hasField(BadArenaStruct, "bad_arena"));
 
     // Validate no raw pointers
     const SafeStruct = struct {

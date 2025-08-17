@@ -143,7 +143,7 @@ fn test_random_corruption(allocator: std.mem.Allocator, buffer: []const u8, rand
         corrupted[pos] = random.int(u8);
     }
 
-    _ = ContextBlock.deserialize(corrupted, allocator) catch {
+    _ = ContextBlock.deserialize(allocator, corrupted) catch {
         return;
     };
 }
@@ -154,7 +154,7 @@ fn test_truncation(allocator: std.mem.Allocator, buffer: []const u8, random: std
     const truncate_at = random.intRangeAtMost(usize, 0, buffer.len - 1);
     const truncated = buffer[0..truncate_at];
 
-    _ = ContextBlock.deserialize(truncated, allocator) catch {
+    _ = ContextBlock.deserialize(allocator, truncated) catch {
         return;
     };
 }
@@ -170,7 +170,7 @@ fn test_header_corruption(allocator: std.mem.Allocator, buffer: []const u8, rand
         }
     }
 
-    _ = ContextBlock.deserialize(corrupted, allocator) catch {
+    _ = ContextBlock.deserialize(allocator, corrupted) catch {
         return;
     };
 }
@@ -189,7 +189,7 @@ fn test_boundary_corruption(allocator: std.mem.Allocator, buffer: []const u8, ra
         }
     }
 
-    _ = ContextBlock.deserialize(corrupted, allocator) catch {
+    _ = ContextBlock.deserialize(allocator, corrupted) catch {
         return;
     };
 }

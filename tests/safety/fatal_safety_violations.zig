@@ -83,7 +83,7 @@ test "VFS handle corruption fatal assertion" {
 }
 
 // Test storage engine pointer corruption detection
-// TODO: Re-enable when expectPanic or equivalent is available in this Zig version
+// Test disabled for 0.1.0 release - requires expectPanic API not available in current Zig version
 // test "storage engine pointer corruption fatal assertion" {
 //     const allocator = testing.allocator;
 

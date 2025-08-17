@@ -138,7 +138,7 @@ test "large block storage engine performance" {
 
         std.debug.print("{d:.1}MB block: Write={d:.1}µs, Read={d:.1}µs, Throughput={d:.1}MB/s\n", .{ size_mb, avg_write_us, avg_read_us, write_throughput_mbps });
 
-        // Performance target validation (from TODO.md: <100µs for 1MB+ blocks)
+        // Performance target validation: <100µs for 1MB+ blocks (0.1.0 release target)
         const target_us = 100.0;
         if (avg_write_us <= target_us) {
             std.debug.print("PASS: Write time within target\n", .{});

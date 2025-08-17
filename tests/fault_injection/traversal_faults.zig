@@ -400,7 +400,7 @@ test "astar search basic functionality validation" {
     // HashMap alignment corruption affects both Debug and Release modes under extreme fault injection
     return error.SkipZigTest; // HashMap alignment panics can't be caught in current test framework
 
-    // TODO: Re-enable when HashMap alignment panic issue is resolved
+    // Test disabled for 0.1.0 release due to HashMap alignment panic in fault injection scenarios
     // const allocator = testing.allocator;
     //
     // var sim_vfs = try SimulationVFS.init(allocator);
@@ -451,7 +451,7 @@ test "astar search with binary tree structure" {
     // HashMap alignment corruption affects both Debug and Release modes under extreme fault injection
     return error.SkipZigTest; // HashMap alignment panics can't be caught in current test framework
 
-    // TODO: Re-enable when HashMap alignment panic issue is resolved
+    // Test disabled for 0.1.0 release due to HashMap alignment panic in fault injection scenarios
     // const allocator = testing.allocator;
     //
     // var sim_vfs = try SimulationVFS.init(allocator);
@@ -502,7 +502,7 @@ test "astar search path reconstruction correctness" {
     // HashMap alignment corruption affects both Debug and Release modes under extreme fault injection
     return error.SkipZigTest; // HashMap alignment panics can't be caught in current test framework
 
-    // TODO: Re-enable when HashMap alignment panic issue is resolved
+    // Test disabled for 0.1.0 release due to HashMap alignment panic in fault injection scenarios
     // const allocator = testing.allocator;
     //
     // var sim_vfs = try SimulationVFS.init(allocator);
