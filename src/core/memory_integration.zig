@@ -18,7 +18,7 @@ const fatal_assert = @import("assert.zig").fatal_assert;
 const memory = @import("memory.zig");
 const pools = @import("pools.zig");
 const ownership = @import("ownership.zig");
-const PerformanceAssertion = @import("../test/performance_assertions.zig");
+const PerformanceAssertion = @import("../testing/performance_assertions.zig");
 const context_block = @import("types.zig");
 
 const ArenaCoordinator = memory.ArenaCoordinator;

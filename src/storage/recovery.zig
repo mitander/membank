@@ -14,7 +14,7 @@ const context_block = @import("../core/types.zig");
 const concurrency = @import("../core/concurrency.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const testing = std.testing;
-const harness = @import("../test/harness.zig");
+const harness = @import("../testing/harness.zig");
 const TestData = harness.TestData;
 
 // Import storage submodules

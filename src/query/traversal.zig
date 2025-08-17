@@ -10,7 +10,7 @@ const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
 const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
-const kausaldb_test = @import("../kausaldb_test.zig");
+const testing_api = @import("../testing_api.zig");
 const testing = std.testing;
 
 const StorageEngine = storage.StorageEngine;
@@ -1353,7 +1353,7 @@ pub fn traverse_astar(
     return execute_traversal(allocator, storage_engine, query);
 }
 
-const StorageHarness = kausaldb_test.StorageHarness;
+const StorageHarness = testing_api.StorageHarness;
 
 fn create_test_block(id: BlockId, content: []const u8) ContextBlock {
     return ContextBlock{

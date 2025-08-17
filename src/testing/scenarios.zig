@@ -7,7 +7,7 @@ const std = @import("std");
 const testing = std.testing;
 
 // Import from kausaldb_test for consistency
-const kausaldb = @import("../kausaldb_test.zig");
+const kausaldb = @import("../testing_api.zig");
 
 const storage = kausaldb.storage;
 const simulation_vfs = kausaldb.simulation_vfs;

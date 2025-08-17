@@ -76,6 +76,7 @@ const BuildModules = struct {
     build_options: *std.Build.Module,
     enable_thread_sanitizer: bool,
     enable_ubsan: bool,
+    debug_tests: bool,
 };
 
 fn create_build_modules(
@@ -119,7 +120,7 @@ fn create_build_modules(
     kausaldb_module.addImport("build_options", build_options.createModule());
 
     const kausaldb_test_module = b.createModule(.{
-        .root_source_file = b.path("src/kausaldb_test.zig"),
+        .root_source_file = b.path("src/testing_api.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -140,6 +141,7 @@ fn create_build_modules(
         .build_options = build_options.createModule(),
         .enable_thread_sanitizer = enable_thread_sanitizer,
         .enable_ubsan = enable_ubsan,
+        .debug_tests = debug_tests,
     };
 }
 
@@ -234,7 +236,7 @@ fn create_test_executable(
     // For performance tests, create release-mode kausaldb module
     const kausaldb_module = if (test_file.category == .performance) blk: {
         const perf_kausaldb_module = b.createModule(.{
-            .root_source_file = b.path("src/kausaldb_test.zig"),
+            .root_source_file = b.path("src/testing_api.zig"),
             .target = target,
             .optimize = .ReleaseFast,
         });
@@ -254,6 +256,20 @@ fn create_test_executable(
 
     test_exe.root_module.addImport("kausaldb", kausaldb_module);
     test_exe.root_module.addImport("build_options", modules.build_options);
+
+    // Create test-specific build options with log level
+    const test_options = b.addOptions();
+    test_options.addOption(bool, "debug_tests", modules.debug_tests);
+
+    // Set appropriate log level for test category unless --debug flag is used
+    const log_level: std.log.Level = if (modules.debug_tests) .debug else switch (test_file.category) {
+        .performance, .stress => .err, // Performance tests: errors only
+        .fault_injection, .defensive => .err, // Fault injection: expected failures are noise
+        .integration, .simulation => .warn, // Integration: warnings and errors
+        .unit, .ingestion, .recovery, .safety => .warn, // Standard: warnings and errors
+    };
+    test_options.addOption(std.log.Level, "test_log_level", log_level);
+    test_exe.root_module.addImport("test_build_options", test_options.createModule());
 
     return test_exe;
 }

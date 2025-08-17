@@ -98,19 +98,19 @@ pub const bounded = @import("core/bounded.zig");
 pub const core_types = @import("core/types.zig");
 
 // Test utilities and frameworks
-pub const golden_master = @import("test/golden_master.zig");
-pub const performance_assertions = @import("test/performance_assertions.zig");
+pub const golden_master = @import("testing/golden_master.zig");
+pub const performance_assertions = @import("testing/performance_assertions.zig");
 pub const PerformanceAssertion = performance_assertions.PerformanceAssertion;
-pub const test_config = @import("test_config.zig");
+// Simple test configuration - use build_options.debug_tests for conditional output
 pub const PerformanceTier = performance_assertions.PerformanceTier;
 pub const BatchPerformanceMeasurement = performance_assertions.BatchPerformanceMeasurement;
 
-pub const fatal_assertions = @import("test/fatal_assertions.zig");
+pub const fatal_assertions = @import("testing/fatal_assertions.zig");
 pub const FatalCategory = fatal_assertions.FatalCategory;
 pub const FatalContext = fatal_assertions.FatalContext;
 
 // Test harnesses for standardized setup patterns
-pub const test_harness = @import("test/harness.zig");
+pub const test_harness = @import("testing/harness.zig");
 pub const TestData = test_harness.TestData;
 pub const StorageHarness = test_harness.StorageHarness;
 pub const QueryHarness = test_harness.QueryHarness;
@@ -119,7 +119,7 @@ pub const FaultInjectionHarness = test_harness.FaultInjectionHarness;
 pub const FaultInjectionConfig = test_harness.FaultInjectionConfig;
 
 // Scenario-driven fault injection testing framework
-pub const scenarios = @import("test/scenarios.zig");
+pub const scenarios = @import("testing/scenarios.zig");
 pub const FaultScenario = scenarios.FaultScenario;
 pub const ScenarioExecutor = scenarios.ScenarioExecutor;
 pub const WalDurabilityScenario = scenarios.WalDurabilityScenario;
