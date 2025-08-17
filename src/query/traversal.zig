@@ -33,13 +33,50 @@ const BlockIdHashContext = struct {
     }
 };
 
-/// HashMap type for BlockId visited tracking during traversal
-const BlockIdHashMap = std.HashMap(
-    BlockId,
-    void,
-    BlockIdHashContext,
-    std.hash_map.default_max_load_percentage,
-);
+/// Corruption-resistant visited tracker for fault injection scenarios
+const VisitedTracker = struct {
+    visited_ids: std.ArrayList(BlockId),
+    allocator: std.mem.Allocator,
+
+    fn init(allocator: std.mem.Allocator) VisitedTracker {
+        return VisitedTracker{
+            .visited_ids = std.ArrayList(BlockId).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    fn deinit(self: *VisitedTracker) void {
+        self.visited_ids.deinit();
+    }
+
+    fn put(self: *VisitedTracker, id: BlockId) !void {
+        // Check if already exists to avoid duplicates
+        for (self.visited_ids.items) |existing_id| {
+            if (existing_id.eql(id)) return;
+        }
+        try self.visited_ids.append(id);
+    }
+
+    fn contains(self: *const VisitedTracker, id: BlockId) bool {
+        for (self.visited_ids.items) |existing_id| {
+            if (existing_id.eql(id)) return true;
+        }
+        return false;
+    }
+
+    fn validate(self: *const VisitedTracker) !void {
+        if (self.visited_ids.items.len > 100000) {
+            return error.CorruptedTracker;
+        }
+        if (@intFromPtr(self.visited_ids.items.ptr) == 0 and self.visited_ids.items.len > 0) {
+            return error.CorruptedTracker;
+        }
+    }
+
+    fn count(self: *const VisitedTracker) usize {
+        return self.visited_ids.items.len;
+    }
+};
 
 /// Check if an edge passes the specified filter criteria
 fn edge_passes_filter(edge: GraphEdge, filter: EdgeTypeFilter) bool {
@@ -322,12 +359,9 @@ fn traverse_breadth_first(
     storage_engine: *StorageEngine,
     query: TraversalQuery,
 ) !TraversalResult {
-    var visited = BlockIdHashMap.init(allocator);
+    var visited = VisitedTracker.init(allocator);
     defer visited.deinit();
-    // Ensure minimum capacity to prevent integer overflow in hash map operations
-    try visited.ensureTotalCapacity(1);
-    // Ensure minimum capacity to prevent integer overflow in hash map operations
-    try visited.ensureTotalCapacity(1);
+    try visited.visited_ids.ensureTotalCapacity(@min(query.max_results, 1000));
 
     var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
@@ -370,7 +404,7 @@ fn traverse_breadth_first(
         .path = start_path,
     });
 
-    try visited.put(query.start_block_id, {});
+    try visited.put(query.start_block_id);
 
     var blocks_traversed: u32 = 0;
     var max_depth_reached: u32 = 0;
@@ -430,10 +464,9 @@ fn traverse_depth_first(
     storage_engine: *StorageEngine,
     query: TraversalQuery,
 ) !TraversalResult {
-    var visited = BlockIdHashMap.init(allocator);
+    var visited = VisitedTracker.init(allocator);
     defer visited.deinit();
-    // Ensure minimum capacity to prevent integer overflow in hash map operations
-    try visited.ensureTotalCapacity(1);
+    try visited.visited_ids.ensureTotalCapacity(@min(query.max_results, 1000));
 
     var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator); // tidy:ignore-memory ensureCapacity called with query.max_results
     try result_blocks.ensureTotalCapacity(query.max_results);
@@ -485,10 +518,11 @@ fn traverse_depth_first(
         defer allocator.free(current.path);
 
         if (visited.contains(current.block_id)) {
-            continue;
+            continue; // Already processed this block
         }
 
-        try visited.put(current.block_id, {});
+        try visited.validate();
+        try visited.put(current.block_id);
         blocks_traversed += 1;
         max_depth_reached = @max(max_depth_reached, current.depth);
 
@@ -540,7 +574,7 @@ fn add_neighbors_to_queue(
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
     queue: anytype,
-    visited: *BlockIdHashMap,
+    visited: *VisitedTracker,
     current_id: BlockId,
     next_depth: u32,
     current_path: []const BlockId,
@@ -598,7 +632,7 @@ fn add_neighbors_to_stack(
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
     stack: anytype,
-    visited: *BlockIdHashMap,
+    visited: *VisitedTracker,
     current_id: BlockId,
     next_depth: u32,
     current_path: []const BlockId,
@@ -658,10 +692,9 @@ fn traverse_astar_search(
     storage_engine: *StorageEngine,
     query: TraversalQuery,
 ) !TraversalResult {
-    var visited = BlockIdHashMap.init(allocator);
+    var visited = VisitedTracker.init(allocator);
     defer visited.deinit();
-    // Ensure minimum capacity to prevent integer overflow in hash map operations
-    try visited.ensureTotalCapacity(1);
+    try visited.visited_ids.ensureTotalCapacity(@min(query.max_results, 1000));
 
     var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator); // tidy:ignore-memory ensureCapacity called with query.max_results
     try result_blocks.ensureTotalCapacity(query.max_results);
@@ -714,7 +747,7 @@ fn traverse_astar_search(
         .f_cost = 0.0,
     });
 
-    try visited.put(query.start_block_id, {});
+    try visited.put(query.start_block_id);
 
     var blocks_traversed: u32 = 0;
     var max_depth_reached: u32 = 0;
@@ -776,15 +809,13 @@ fn traverse_bidirectional_search(
     storage_engine: *StorageEngine,
     query: TraversalQuery,
 ) !TraversalResult {
-    var visited_forward = BlockIdHashMap.init(allocator);
+    var visited_forward = VisitedTracker.init(allocator);
     defer visited_forward.deinit();
-    // Ensure minimum capacity to prevent integer overflow in hash map operations
-    try visited_forward.ensureTotalCapacity(1);
+    try visited_forward.visited_ids.ensureTotalCapacity(@min(query.max_results / 2, 500));
 
-    var visited_backward = BlockIdHashMap.init(allocator);
+    var visited_backward = VisitedTracker.init(allocator);
     defer visited_backward.deinit();
-    // Ensure minimum capacity to prevent integer overflow in hash map operations
-    try visited_backward.ensureTotalCapacity(1);
+    try visited_backward.visited_ids.ensureTotalCapacity(@min(query.max_results / 2, 500));
 
     var result_blocks = std.ArrayList(QueryEngineBlock).init(allocator); // tidy:ignore-memory ensureCapacity called with query.max_results
     try result_blocks.ensureTotalCapacity(query.max_results);
@@ -838,7 +869,7 @@ fn traverse_bidirectional_search(
         .is_forward = true,
     });
 
-    try visited_forward.put(query.start_block_id, {});
+    try visited_forward.put(query.start_block_id);
 
     // we'll search outward in both directions from the start node
     if (query.direction == .bidirectional) {
@@ -852,7 +883,7 @@ fn traverse_bidirectional_search(
             .is_forward = false,
         });
 
-        try visited_backward.put(query.start_block_id, {});
+        try visited_backward.put(query.start_block_id);
     }
 
     var blocks_traversed: u32 = 0;
@@ -983,10 +1014,9 @@ fn traverse_topological_sort(
     defer result_depths.deinit();
 
     // Use Kahn's algorithm with cycle detection
-    var visited = BlockIdHashMap.init(allocator);
+    var visited = VisitedTracker.init(allocator);
     defer visited.deinit();
-    // Ensure minimum capacity to prevent integer overflow in hash map operations
-    try visited.ensureTotalCapacity(1);
+    try visited.visited_ids.ensureTotalCapacity(@min(query.max_results, 1000));
 
     var in_degree = std.HashMap(BlockId, u32, BlockIdHashContext, std.hash_map.default_max_load_percentage).init(allocator);
     defer in_degree.deinit();
@@ -1011,7 +1041,7 @@ fn traverse_topological_sort(
 
         for (current_nodes.items) |block_id| {
             if (visited.contains(block_id)) continue;
-            try visited.put(block_id, {});
+            try visited.put(block_id);
 
             // Initialize in-degree for this node
             if (!in_degree.contains(block_id)) {
@@ -1129,7 +1159,7 @@ fn add_neighbors_to_astar_queue(
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
     queue: anytype,
-    visited: *BlockIdHashMap,
+    visited: *VisitedTracker,
     current_id: BlockId,
     next_depth: u32,
     current_path: []const BlockId,
@@ -1162,7 +1192,7 @@ fn add_neighbors_to_astar_queue(
                         .f_cost = f_cost,
                     });
 
-                    try visited.put(edge.target_id, {});
+                    try visited.put(edge.target_id);
                 }
             }
         }
@@ -1193,7 +1223,7 @@ fn add_neighbors_to_astar_queue(
                         .f_cost = f_cost,
                     });
 
-                    try visited.put(edge.source_id, {});
+                    try visited.put(edge.source_id);
                 }
             }
         }
@@ -1205,7 +1235,7 @@ fn add_neighbors_to_bidirectional_queue(
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
     queue: anytype,
-    visited: *BlockIdHashMap,
+    visited: *VisitedTracker,
     current_id: BlockId,
     next_depth: u32,
     current_path: []const BlockId,
@@ -1238,7 +1268,7 @@ fn add_neighbors_to_bidirectional_queue(
                         .is_forward = is_forward,
                     });
 
-                    try visited.put(edge.target_id, {});
+                    try visited.put(edge.target_id);
                 }
             }
         }
@@ -1263,7 +1293,7 @@ fn add_neighbors_to_bidirectional_queue(
                         .is_forward = is_forward,
                     });
 
-                    try visited.put(edge.source_id, {});
+                    try visited.put(edge.source_id);
                 }
             }
         }

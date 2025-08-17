@@ -610,7 +610,8 @@ fn analyze_timings(timings: []u64) struct {
     const lower_bound = if (q1 > outlier_threshold) q1 - outlier_threshold else 0;
     const upper_bound = q3 + outlier_threshold;
 
-    // Count filtered values
+    // Aggregate statistics from outlier-filtered data to ensure
+    // benchmark results reflect typical performance, not anomalies
     var filtered_count: usize = 0;
     var filtered_total: u64 = 0;
     var filtered_min: u64 = std.math.maxInt(u64);
