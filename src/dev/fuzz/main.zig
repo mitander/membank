@@ -13,6 +13,8 @@ const storage_fuzz = @import("storage.zig");
 const query_fuzz = @import("query.zig");
 const parser_fuzz = @import("parser.zig");
 const serialization_fuzz = @import("serialization.zig");
+const network_fuzz = @import("network.zig");
+const compaction_fuzz = @import("compaction.zig");
 const common = @import("common.zig");
 
 const FUZZ_ITERATIONS_DEFAULT = 100_000;
@@ -87,6 +89,10 @@ pub fn main() !void {
         try parser_fuzz.run(allocator, iterations, seed, &global_verbose_mode);
     } else if (std.mem.eql(u8, target, "serialization")) {
         try serialization_fuzz.run(allocator, iterations, seed, &global_verbose_mode);
+    } else if (std.mem.eql(u8, target, "network")) {
+        try network_fuzz.run(allocator, iterations, seed, &global_verbose_mode, &global_validation_errors);
+    } else if (std.mem.eql(u8, target, "compaction")) {
+        try compaction_fuzz.run(allocator, iterations, seed, &global_verbose_mode, &global_validation_errors);
     } else if (std.mem.eql(u8, target, "all")) {
         try run_all_targets(allocator, iterations, seed);
     } else {
@@ -112,6 +118,8 @@ fn print_usage() !void {
         \\  query           Fuzz query engine processing
         \\  parser          Fuzz Zig source code parser
         \\  serialization   Fuzz block serialization/deserialization
+        \\  network         Fuzz network protocol and connection handling
+        \\  compaction      Fuzz SSTable compaction under stress conditions
         \\  all             Fuzz all targets
         \\
         \\Iterations:
@@ -145,17 +153,21 @@ fn run_all_targets(allocator: std.mem.Allocator, iterations: u64, seed: u64) !vo
             try query_fuzz.run(allocator, batch_size, current_seed + 1, &global_verbose_mode, &global_validation_errors);
             try parser_fuzz.run(allocator, batch_size, current_seed + 2, &global_verbose_mode);
             try serialization_fuzz.run(allocator, batch_size, current_seed + 3, &global_verbose_mode);
-            current_seed += 4;
+            try network_fuzz.run(allocator, batch_size, current_seed + 4, &global_verbose_mode, &global_validation_errors);
+            try compaction_fuzz.run(allocator, batch_size, current_seed + 5, &global_verbose_mode, &global_validation_errors);
+            current_seed += 6;
 
             std.Thread.sleep(100_000_000); // 100ms // tidy:ignore-arch - controlled coordination for system stability
         }
     } else {
         std.debug.print("Fuzzing all targets with {} iterations, seed {}\n", .{ iterations, seed });
-        const per_target = iterations / 4;
+        const per_target = iterations / 6;
         try storage_fuzz.run(allocator, per_target, seed, &global_verbose_mode, &global_validation_errors);
         try query_fuzz.run(allocator, per_target, seed + 1, &global_verbose_mode, &global_validation_errors);
         try parser_fuzz.run(allocator, per_target, seed + 2, &global_verbose_mode);
         try serialization_fuzz.run(allocator, per_target, seed + 3, &global_verbose_mode);
+        try network_fuzz.run(allocator, per_target, seed + 4, &global_verbose_mode, &global_validation_errors);
+        try compaction_fuzz.run(allocator, per_target, seed + 5, &global_verbose_mode, &global_validation_errors);
     }
 }
 
