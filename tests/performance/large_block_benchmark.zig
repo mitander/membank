@@ -9,8 +9,15 @@ const kausaldb = @import("kausaldb");
 
 const types = kausaldb.types;
 const TestData = kausaldb.test_harness.TestData;
-const SimulationHarness = kausaldb.test_harness.SimulationHarness;
+const ProductionHarness = kausaldb.test_harness.ProductionHarness;
+const PerformanceAssertion = kausaldb.PerformanceAssertion;
+const PerformanceThresholds = kausaldb.PerformanceThresholds;
 const ContextBlock = types.ContextBlock;
+
+// Base performance targets (local development, optimal conditions)
+const BASE_SERIALIZATION_LATENCY_NS = 110_000; // 110µs base for 1MB serialization (measured ~100µs)
+const BASE_STORAGE_WRITE_LATENCY_NS = 400_000; // 400µs base for 1MB storage write (measured ~350µs)
+const BASE_STORAGE_READ_LATENCY_NS = 1_000; // 1µs base for storage read (benchmark shows 23ns)
 
 /// Create a test block with specified size
 fn create_test_block(allocator: std.mem.Allocator, size: usize) !ContextBlock {
@@ -32,6 +39,8 @@ fn create_test_block(allocator: std.mem.Allocator, size: usize) !ContextBlock {
 
 test "large block serialization performance baseline" {
     const allocator = testing.allocator;
+
+    var perf_assertion = PerformanceAssertion.init("serialization_baseline");
 
     std.debug.print("\n=== Large Block Serialization Performance Baseline ===\n", .{});
 
@@ -66,11 +75,18 @@ test "large block serialization performance baseline" {
         const throughput_mbps = size_mb / (avg_us / 1_000_000.0);
 
         std.debug.print("{d:.1}MB block: {d:.1}µs serialization, {d:.1} MB/s throughput\n", .{ size_mb, avg_us, throughput_mbps });
+
+        // Tier-based performance assertion with size scaling
+        const size_multiplier = size_mb;
+        const expected_latency_ns = @as(u64, @intFromFloat(@as(f64, BASE_SERIALIZATION_LATENCY_NS) * size_multiplier));
+        try perf_assertion.assert_latency(@as(u64, @intFromFloat(avg_us * 1000.0)), expected_latency_ns, "serialization latency");
     }
 }
 
 test "large block storage engine performance" {
     const allocator = testing.allocator;
+
+    var perf_assertion = PerformanceAssertion.init("storage_performance");
 
     std.debug.print("\n=== Large Block Storage Engine Performance ===\n", .{});
 
@@ -93,22 +109,22 @@ test "large block storage engine performance" {
             const db_name = try std.fmt.allocPrint(allocator, "large_perf_{}", .{i});
             defer allocator.free(db_name);
 
-            var harness = try SimulationHarness.init_and_startup(allocator, 0xBEEF1234 + @as(u64, i), db_name);
+            var harness = try ProductionHarness.init_and_startup(allocator, db_name);
             defer harness.deinit();
 
             // Disable immediate sync for performance testing
             // WARNING: This reduces durability guarantees but allows measuring optimal performance
-            harness.storage_engine.configure_wal_immediate_sync(false);
+            harness.storage_engine().configure_wal_immediate_sync(false);
 
             // Profile WAL entry creation separately
             const wal_start = std.time.nanoTimestamp();
-            const wal_entry = try kausaldb.storage.WALEntry.create_put_block(allocator, test_block);
+            const wal_entry = try kausaldb.wal.WALEntry.create_put_block(allocator, test_block);
             const wal_end = std.time.nanoTimestamp();
             defer wal_entry.deinit(allocator);
 
             // Measure full write time
             const write_start = std.time.nanoTimestamp();
-            try harness.storage_engine.put_block(test_block);
+            try harness.storage_engine().put_block(test_block);
             const write_end = std.time.nanoTimestamp();
 
             // Calculate breakdown
@@ -125,7 +141,7 @@ test "large block storage engine performance" {
             const read_timing_start = std.time.nanoTimestamp();
 
             for (0..read_iterations) |_| {
-                const retrieved = try harness.storage_engine.find_block(test_block.id, .query_engine);
+                const retrieved = try harness.storage_engine().find_block(test_block.id, .query_engine);
                 try testing.expect(retrieved != null);
                 // Prevent optimization from eliminating the read
                 std.mem.doNotOptimizeAway(retrieved);
@@ -144,13 +160,12 @@ test "large block storage engine performance" {
 
         std.debug.print("{d:.1}MB block: Write={d:.1}µs, Read={d:.1}µs, Throughput={d:.1}MB/s\n", .{ size_mb, avg_write_us, avg_read_us, write_throughput_mbps });
 
-        // Performance target validation: size-appropriate thresholds based on measured performance
-        // Base overhead (100µs) + linear scaling (400µs per MB) for realistic expectations
-        const target_us = 100.0 + (size_mb * 400.0);
-        if (avg_write_us <= target_us) {
-            std.debug.print("PASS: Write time within target\n", .{});
-        } else {
-            std.debug.print("NOTICE: Write time {d:.1}µs exceeds target {d:.1}µs\n", .{ avg_write_us, target_us });
-        }
+        // Tier-based performance assertions with size scaling
+        const size_multiplier = size_mb;
+        const expected_write_latency_ns = @as(u64, @intFromFloat(@as(f64, BASE_STORAGE_WRITE_LATENCY_NS) * size_multiplier));
+        const expected_read_latency_ns = @as(u64, @intFromFloat(@as(f64, BASE_STORAGE_READ_LATENCY_NS) * size_multiplier));
+
+        try perf_assertion.assert_latency(@as(u64, @intFromFloat(avg_write_us * 1000.0)), expected_write_latency_ns, "storage write latency");
+        try perf_assertion.assert_latency(@as(u64, @intFromFloat(avg_read_us * 1000.0)), expected_read_latency_ns, "storage read latency");
     }
 }

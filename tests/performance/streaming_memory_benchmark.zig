@@ -14,6 +14,7 @@ const log = std.log.scoped(.streaming_memory_benchmark);
 
 // Import tiered performance assertions
 const PerformanceAssertion = kausaldb.PerformanceAssertion;
+const PerformanceThresholds = kausaldb.PerformanceThresholds;
 const BatchPerformanceMeasurement = kausaldb.BatchPerformanceMeasurement;
 
 const types = kausaldb.types;
@@ -30,10 +31,11 @@ const operations = kausaldb.query_operations;
 const FindBlocksQuery = kausaldb.FindBlocksQuery;
 
 // Performance targets from PERFORMANCE.md
-const TARGET_BLOCK_WRITE_LATENCY_NS = 500_000; // 500µs - CI-friendly threshold
-const TARGET_BLOCK_READ_LATENCY_NS = 10_000; // 10µs
-const TARGET_QUERY_LATENCY_NS = 10_000; // 10µs
-const TARGET_BATCH_QUERY_LATENCY_NS = 100_000; // 100µs
+// Base performance targets (local development, optimal conditions)
+const BASE_BLOCK_WRITE_LATENCY_NS = 15_000; // 15µs base target (benchmark shows 12.7µs)
+const BASE_BLOCK_READ_LATENCY_NS = 100; // 100ns base target (benchmark shows 23ns)
+const BASE_QUERY_LATENCY_NS = 200; // 200ns base target (benchmark shows 54ns)
+const BASE_BATCH_QUERY_LATENCY_NS = 1_000; // 1µs base target (benchmark shows 608ns)
 
 // Test limits for performance validation
 const MAX_BENCHMARK_DURATION_MS = 30_000;
@@ -43,8 +45,13 @@ const MAX_STREAMING_OVERHEAD_PERCENT = 20.0;
 test "memory efficiency during large dataset operations" {
     const allocator = testing.allocator;
 
-    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "memory_efficiency_test");
+    var perf_assertion = PerformanceAssertion.init("memory_efficiency");
+
+    var harness = try kausaldb.ProductionHarness.init_and_startup(allocator, "memory_efficiency_test");
     defer harness.deinit();
+
+    // Disable immediate sync for performance testing
+    harness.storage_engine().configure_wal_immediate_sync(false);
 
     // Phase 1: Memory baseline establishment - add a small block to establish non-zero baseline
     const baseline_block = ContextBlock{
@@ -58,7 +65,7 @@ test "memory efficiency during large dataset operations" {
 
     // Phase 2: Streaming query formation with varying result sizes
     const result_sizes = [_]usize{ 10, 50, 100, 500, 1000 };
-    const baseline_memory = harness.storage_engine().memtable_manager.memory_usage();
+    const baseline_memory = harness.storage_engine().memory_usage().total_bytes;
     var peak_memory: u64 = baseline_memory;
     var total_streaming_time: i64 = 0;
     var total_streamed_count: usize = 0;
@@ -97,7 +104,7 @@ test "memory efficiency during large dataset operations" {
             streamed_count += 1;
 
             // Track peak memory during streaming
-            const current_memory = harness.storage_engine().memtable_manager.memory_usage();
+            const current_memory = harness.storage_engine().memory_usage().total_bytes;
             peak_memory = @max(peak_memory, current_memory);
 
             // Verify block integrity
@@ -147,16 +154,23 @@ test "memory efficiency during large dataset operations" {
 
     // Phase 4: Streaming performance validation
     const avg_streaming_time_per_result = @divTrunc(total_streaming_time, @as(i64, @intCast(result_sizes.len)));
-    try testing.expect(avg_streaming_time_per_result < 10_000_000); // 10ms per result set
+
+    // Use tier-based performance assertion for streaming latency
+    try perf_assertion.assert_latency(@intCast(avg_streaming_time_per_result), BASE_QUERY_LATENCY_NS * 5000, "streaming query result formatting");
 }
 
 test "query engine performance benchmark" {
     const allocator = testing.allocator;
 
+    const perf_assertion = PerformanceAssertion.init("query_performance");
+
     test_config.debug_print("DEBUG: Starting query engine performance benchmark\n", .{});
 
-    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "query_perf_test");
+    var harness = try kausaldb.ProductionHarness.init_and_startup(allocator, "query_perf_test");
     defer harness.deinit();
+
+    // Disable immediate sync for performance testing
+    harness.storage_engine().configure_wal_immediate_sync(false);
 
     test_config.debug_print("DEBUG: Harness initialized successfully\n", .{});
 
@@ -222,7 +236,8 @@ test "query engine performance benchmark" {
         try single_measurement.add_measurement(@intCast(end_time - start_time));
     }
 
-    try single_measurement.assert_statistics("query_engine_single", TARGET_QUERY_LATENCY_NS, "single block query");
+    const single_thresholds = PerformanceThresholds.for_tier(BASE_QUERY_LATENCY_NS, 1000, perf_assertion.tier);
+    try single_measurement.assert_statistics("query_engine_single", single_thresholds.max_latency_ns, "single block query");
 
     // Phase 3: Batch query performance
     var batch_measurement = BatchPerformanceMeasurement.init(allocator);
@@ -263,9 +278,10 @@ test "query engine performance benchmark" {
         try batch_measurement.add_measurement(@intCast(duration_ns));
     }
 
-    test_config.debug_print("DEBUG: About to call assert_statistics with target={}ns\n", .{TARGET_BATCH_QUERY_LATENCY_NS});
+    const thresholds = PerformanceThresholds.for_tier(BASE_BATCH_QUERY_LATENCY_NS, 1000, perf_assertion.tier);
+    test_config.debug_print("DEBUG: About to call assert_statistics with target={}ns\n", .{thresholds.max_latency_ns});
 
-    try batch_measurement.assert_statistics("query_engine_batch", TARGET_BATCH_QUERY_LATENCY_NS, "batch block query");
+    try batch_measurement.assert_statistics("query_engine_batch", thresholds.max_latency_ns, "batch block query");
 
     test_config.debug_print("DEBUG: Successfully completed batch query assertions\n", .{});
 
@@ -275,11 +291,16 @@ test "query engine performance benchmark" {
 test "storage engine write throughput measurement" {
     const allocator = testing.allocator;
 
-    var harness = try kausaldb.StorageHarness.init_and_startup(allocator, "write_throughput_test");
+    var perf_assertion = PerformanceAssertion.init("write_throughput");
+
+    var harness = try kausaldb.ProductionHarness.init_and_startup(allocator, "write_throughput_test");
     defer harness.deinit();
 
+    // Disable immediate sync for performance testing
+    // WARNING: This reduces durability guarantees but allows measuring optimal performance
+    harness.storage_engine().configure_wal_immediate_sync(false);
+
     // Initialize performance assertion framework
-    const perf = PerformanceAssertion.init("storage_write_throughput");
 
     // Phase 1: Single block write performance
     var write_measurement = BatchPerformanceMeasurement.init(allocator);
@@ -291,24 +312,27 @@ test "storage engine write throughput measurement" {
         defer TestData.cleanup_test_block(allocator, block);
 
         const start_time = std.time.nanoTimestamp();
-        try harness.storage_engine.put_block(block);
+        try harness.storage_engine().put_block(block);
         const end_time = std.time.nanoTimestamp();
 
         try write_measurement.add_measurement(@intCast(end_time - start_time));
     }
 
-    try write_measurement.assert_statistics("storage_write_throughput", TARGET_BLOCK_WRITE_LATENCY_NS, "block write operation");
+    const write_thresholds = PerformanceThresholds.for_tier(BASE_BLOCK_WRITE_LATENCY_NS, 1000, perf_assertion.tier);
+    try write_measurement.assert_statistics("storage_write_throughput", write_thresholds.max_latency_ns, "block write operation");
 
     // Apply tiered performance assertions for write latency
     const write_stats = write_measurement.calculate_statistics();
-    try perf.assert_mean_latency_within_target(
+    try perf_assertion.assert_latency(
         write_stats.mean_latency_ns,
-        TARGET_BLOCK_WRITE_LATENCY_NS,
+        BASE_BLOCK_WRITE_LATENCY_NS,
+        "mean block write latency",
     );
 
-    try perf.assert_p99_latency_acceptable(
+    try perf_assertion.assert_latency(
         write_stats.p99_latency_ns,
-        TARGET_BLOCK_WRITE_LATENCY_NS * 5, // 5x allowance for P99
+        BASE_BLOCK_WRITE_LATENCY_NS * 5, // 5x allowance for P99
+        "P99 block write latency",
     );
 
     // Phase 2: Read performance validation
@@ -318,21 +342,22 @@ test "storage engine write throughput measurement" {
     for (0..100) |i| {
         const target_block = try TestData.create_test_block(allocator, @intCast(i + 2000));
         defer TestData.cleanup_test_block(allocator, target_block);
-        try harness.storage_engine.put_block(target_block);
+        try harness.storage_engine().put_block(target_block);
 
         const start_time = std.time.nanoTimestamp();
-        const found_block = try harness.storage_engine.find_block(target_block.id, .query_engine);
+        const found_block = try harness.storage_engine().find_block(target_block.id, .query_engine);
         const end_time = std.time.nanoTimestamp();
 
         try testing.expect(found_block != null);
-        try read_measurement.record_latency_ns(@intCast(end_time - start_time));
+        try read_measurement.add_measurement(@intCast(end_time - start_time));
     }
 
     const read_stats = read_measurement.calculate_statistics();
 
-    try perf.assert_mean_latency_within_target(
+    try perf_assertion.assert_latency(
         read_stats.mean_latency_ns,
-        TARGET_BLOCK_READ_LATENCY_NS,
+        BASE_BLOCK_READ_LATENCY_NS,
+        "mean block read latency",
     );
 
     log.info("Storage performance: write_avg={d}µs, read_avg={d}µs", .{
@@ -344,8 +369,13 @@ test "storage engine write throughput measurement" {
 test "streaming query result formatting performance" {
     const allocator = testing.allocator;
 
-    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "streaming_benchmark_test");
+    var perf_assertion = PerformanceAssertion.init("streaming_format");
+
+    var harness = try kausaldb.ProductionHarness.init_and_startup(allocator, "streaming_format_test");
     defer harness.deinit();
+
+    // Disable immediate sync for performance testing
+    harness.storage_engine().configure_wal_immediate_sync(false);
 
     // Phase 1: Setup diverse dataset
     const dataset_size = 200;
@@ -398,10 +428,17 @@ test "streaming query result formatting performance" {
         const end_time = std.time.nanoTimestamp();
 
         try testing.expectEqual(chunk_end, formatted_count);
-        try streaming_measurement.record_latency_ns(@intCast(end_time - start_time));
+        try streaming_measurement.add_measurement(@intCast(end_time - start_time));
     }
 
     const streaming_stats = streaming_measurement.calculate_statistics();
+
+    // Use tier-based performance assertion for streaming latency
+    try perf_assertion.assert_latency(
+        streaming_stats.mean_latency_ns,
+        BASE_QUERY_LATENCY_NS * 300, // 300x base for streaming formatting overhead
+        "streaming query result formatting",
+    );
 
     // Streaming should not have excessive overhead
     const per_block_latency = streaming_stats.mean_latency_ns / (dataset_size / chunk_sizes.len);
@@ -413,10 +450,18 @@ test "streaming query result formatting performance" {
 test "memory usage growth patterns under load" {
     const allocator = testing.allocator;
 
-    var harness = try kausaldb.QueryHarness.init_and_startup(allocator, "memory_growth_test");
+    const perf_assertion = PerformanceAssertion.init("memory_growth");
+
+    var harness = try kausaldb.ProductionHarness.init_and_startup(allocator, "memory_growth_test");
     defer harness.deinit();
 
-    const baseline_memory = harness.storage_engine().memtable_manager.memory_usage();
+    // Disable immediate sync for performance testing
+    harness.storage_engine().configure_wal_immediate_sync(false);
+
+    // Prevent unused variable warning until memory assertions are implemented
+    _ = perf_assertion;
+
+    const baseline_memory = harness.storage_engine().memory_usage().total_bytes;
     var memory_samples = std.ArrayList(u64).init(allocator);
     defer memory_samples.deinit();
     try memory_samples.ensureTotalCapacity(5);
@@ -435,7 +480,7 @@ test "memory usage growth patterns under load" {
             try harness.storage_engine().put_block(block);
         }
 
-        const current_memory = harness.storage_engine().memtable_manager.memory_usage();
+        const current_memory = harness.storage_engine().memory_usage().total_bytes;
         try memory_samples.append(current_memory);
 
         // Flush memtable after each phase to isolate memory growth patterns

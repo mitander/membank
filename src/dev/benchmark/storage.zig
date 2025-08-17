@@ -11,7 +11,7 @@ const coordinator = @import("../benchmark.zig");
 
 const storage = kausaldb.storage;
 const context_block = kausaldb.types;
-const simulation_vfs = kausaldb.simulation_vfs;
+const production_vfs = kausaldb.production_vfs;
 const ownership = kausaldb.ownership;
 
 const StorageEngine = storage.StorageEngine;
@@ -58,15 +58,18 @@ pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
 /// Creates test blocks and measures time to write them to storage engine.
 /// Used for understanding ingestion pipeline performance.
 pub fn run_block_writes(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
-    defer {
-        sim_vfs.deinit();
-        allocator.destroy(sim_vfs);
-    }
+    var prod_vfs = try allocator.create(production_vfs.ProductionVFS);
+    defer allocator.destroy(prod_vfs);
+    prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_writes");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_writes");
     defer storage_engine.deinit();
     try storage_engine.startup();
+
+    // Disable immediate sync for performance testing
+    // WARNING: This reduces durability guarantees but allows measuring optimal performance
+    storage_engine.configure_wal_immediate_sync(false);
 
     return benchmark_block_writes(&storage_engine, allocator);
 }
@@ -76,15 +79,18 @@ pub fn run_block_writes(allocator: std.mem.Allocator) !BenchmarkResult {
 /// Pre-populates storage with test blocks then measures retrieval time.
 /// Used for understanding query response characteristics.
 pub fn run_block_reads(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
-    defer {
-        sim_vfs.deinit();
-        allocator.destroy(sim_vfs);
-    }
+    var prod_vfs = try allocator.create(production_vfs.ProductionVFS);
+    defer allocator.destroy(prod_vfs);
+    prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_reads");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_reads");
     defer storage_engine.deinit();
     try storage_engine.startup();
+
+    // Disable immediate sync for performance testing
+    // WARNING: This reduces durability guarantees but allows measuring optimal performance
+    storage_engine.configure_wal_immediate_sync(false);
 
     return benchmark_block_reads(&storage_engine, allocator);
 }
@@ -94,15 +100,18 @@ pub fn run_block_reads(allocator: std.mem.Allocator) !BenchmarkResult {
 /// Updates existing blocks with new versions and measures performance.
 /// Used for understanding version management overhead.
 pub fn run_block_updates(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
-    defer {
-        sim_vfs.deinit();
-        allocator.destroy(sim_vfs);
-    }
+    var prod_vfs = try allocator.create(production_vfs.ProductionVFS);
+    defer allocator.destroy(prod_vfs);
+    prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_updates");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_updates");
     defer storage_engine.deinit();
     try storage_engine.startup();
+
+    // Disable immediate sync for performance testing
+    // WARNING: This reduces durability guarantees but allows measuring optimal performance
+    storage_engine.configure_wal_immediate_sync(false);
 
     return benchmark_block_updates(&storage_engine, allocator);
 }
@@ -112,15 +121,18 @@ pub fn run_block_updates(allocator: std.mem.Allocator) !BenchmarkResult {
 /// Creates blocks to delete and measures time to remove them from storage.
 /// Includes tombstone handling and compaction effects.
 pub fn run_block_deletes(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
-    defer {
-        sim_vfs.deinit();
-        allocator.destroy(sim_vfs);
-    }
+    var prod_vfs = try allocator.create(production_vfs.ProductionVFS);
+    defer allocator.destroy(prod_vfs);
+    prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_deletes");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_deletes");
     defer storage_engine.deinit();
     try storage_engine.startup();
+
+    // Disable immediate sync for performance testing
+    // WARNING: This reduces durability guarantees but allows measuring optimal performance
+    storage_engine.configure_wal_immediate_sync(false);
 
     return benchmark_block_deletes(&storage_engine, allocator);
 }
@@ -130,30 +142,36 @@ pub fn run_block_deletes(allocator: std.mem.Allocator) !BenchmarkResult {
 /// Measures time to flush Write-Ahead Log to persistent storage.
 /// Used for understanding commit latency characteristics.
 pub fn run_wal_flush(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
-    defer {
-        sim_vfs.deinit();
-        allocator.destroy(sim_vfs);
-    }
+    var prod_vfs = try allocator.create(production_vfs.ProductionVFS);
+    defer allocator.destroy(prod_vfs);
+    prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_wal");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_wal");
     defer storage_engine.deinit();
     try storage_engine.startup();
+
+    // Disable immediate sync for performance testing
+    // WARNING: This reduces durability guarantees but allows measuring optimal performance
+    storage_engine.configure_wal_immediate_sync(false);
 
     return benchmark_wal_flush(&storage_engine, allocator);
 }
 
 /// Run zero-cost ownership benchmark comparing compile-time vs runtime validation
 pub fn run_zero_cost_ownership(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
-    defer {
-        sim_vfs.deinit();
-        allocator.destroy(sim_vfs);
-    }
+    var prod_vfs = try allocator.create(production_vfs.ProductionVFS);
+    defer allocator.destroy(prod_vfs);
+    prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_ownership");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_ownership");
     defer storage_engine.deinit();
     try storage_engine.startup();
+
+    // Disable immediate sync for performance testing
+    // WARNING: This reduces durability guarantees but allows measuring optimal performance
+    storage_engine.configure_wal_immediate_sync(false);
 
     return benchmark_zero_cost_ownership(&storage_engine, allocator);
 }

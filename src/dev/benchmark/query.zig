@@ -11,7 +11,7 @@ const coordinator = @import("../benchmark.zig");
 const storage = kausaldb.storage;
 const query_engine = kausaldb.query_engine;
 const context_block = kausaldb.types;
-const simulation_vfs = kausaldb.simulation_vfs;
+const production_vfs = kausaldb.production_vfs;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
@@ -45,15 +45,18 @@ pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
 /// Used for understanding single query response characteristics.
 /// Benchmark single-block query operations for fast lookups
 pub fn run_single_queries(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
-    defer {
-        sim_vfs.deinit();
-        allocator.destroy(sim_vfs);
-    }
+    var prod_vfs = try allocator.create(production_vfs.ProductionVFS);
+    defer allocator.destroy(prod_vfs);
+    prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_single_queries");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_single_queries");
     defer storage_engine.deinit();
     try storage_engine.startup();
+
+    // Disable immediate sync for performance testing
+    // WARNING: This reduces durability guarantees but allows measuring optimal performance
+    storage_engine.configure_wal_immediate_sync(false);
 
     var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();
@@ -68,15 +71,18 @@ pub fn run_single_queries(allocator: std.mem.Allocator) !BenchmarkResult {
 /// Used for understanding batch processing optimization benefits.
 /// Benchmark batch query operations for efficient bulk access
 pub fn run_batch_queries(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
-    defer {
-        sim_vfs.deinit();
-        allocator.destroy(sim_vfs);
-    }
+    var prod_vfs = try allocator.create(production_vfs.ProductionVFS);
+    defer allocator.destroy(prod_vfs);
+    prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_batch_queries");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_batch_queries");
     defer storage_engine.deinit();
     try storage_engine.startup();
+
+    // Disable immediate sync for performance testing
+    // WARNING: This reduces durability guarantees but allows measuring optimal performance
+    storage_engine.configure_wal_immediate_sync(false);
 
     var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();

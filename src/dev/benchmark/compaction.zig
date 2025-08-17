@@ -11,7 +11,7 @@ const assert = kausaldb.assert;
 
 const storage = kausaldb.storage;
 const context_block = kausaldb.types;
-const simulation_vfs = kausaldb.simulation_vfs;
+const production_vfs = kausaldb.production_vfs;
 
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
@@ -39,16 +39,19 @@ pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
 /// Tests how long it takes to merge and clean up SSTables.
 /// Helps understand how compaction affects overall performance.
 pub fn run_compaction_benchmark(allocator: std.mem.Allocator) !BenchmarkResult {
-    var sim_vfs = try simulation_vfs.SimulationVFS.heap_init(allocator);
-    defer {
-        sim_vfs.deinit();
-        allocator.destroy(sim_vfs);
-    }
+    var prod_vfs = try allocator.create(production_vfs.ProductionVFS);
+    defer allocator.destroy(prod_vfs);
+    prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
+    defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "benchmark_compaction");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_compaction");
     defer storage_engine.deinit();
 
     try storage_engine.startup();
+
+    // Disable immediate sync for performance testing
+    // WARNING: This reduces durability guarantees but allows measuring optimal performance
+    storage_engine.configure_wal_immediate_sync(false);
 
     return benchmark_compaction_operations(&storage_engine, allocator);
 }

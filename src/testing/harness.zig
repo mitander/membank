@@ -23,6 +23,7 @@ const Node = simulation.Node;
 const QueryEngine = query_engine.QueryEngine;
 const Simulation = simulation.Simulation;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const ProductionVFS = @import("../core/production_vfs.zig").ProductionVFS;
 const VFS = kausaldb.VFS;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
@@ -213,6 +214,104 @@ pub const QueryHarness = struct {
     /// Access simulation VFS for fault injection testing
     pub fn sim_vfs(self: *Self) *SimulationVFS {
         return self.storage_harness.sim_vfs;
+    }
+};
+
+/// Production harness for performance testing with real filesystem
+/// Uses ProductionVFS for minimal overhead and realistic I/O performance
+pub const ProductionHarness = struct {
+    storage_harness: ProductionStorageHarness,
+    query_engine: *QueryEngine,
+
+    const Self = @This();
+
+    /// Phase 1 initialization: memory allocation only, no I/O operations
+    pub fn init(allocator: std.mem.Allocator, db_name: []const u8) !Self {
+        var storage_harness = try ProductionStorageHarness.init(allocator, db_name);
+
+        // Query engine uses backing allocator for consistency
+        const query_engine_ptr = try storage_harness.allocator.create(QueryEngine);
+        query_engine_ptr.* = QueryEngine.init(storage_harness.allocator, storage_harness.storage_engine);
+
+        // Disable caching in tests to prevent memory leaks from arena allocator
+        query_engine_ptr.enable_caching(false);
+
+        return Self{
+            .storage_harness = storage_harness,
+            .query_engine = query_engine_ptr,
+        };
+    }
+
+    /// Phase 2 startup: hot path initialization with I/O operations
+    pub fn startup(self: *Self) !void {
+        try self.storage_harness.startup();
+    }
+
+    /// Convenience method combining init and startup phases
+    pub fn init_and_startup(allocator: std.mem.Allocator, db_name: []const u8) !Self {
+        var harness = try Self.init(allocator, db_name);
+        try harness.startup();
+        return harness;
+    }
+
+    /// Access storage engine through harness coordinator
+    pub fn storage_engine(self: *Self) *StorageEngine {
+        return self.storage_harness.storage_engine;
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.storage_harness.allocator.destroy(self.query_engine);
+        self.storage_harness.deinit();
+    }
+};
+
+/// Production storage harness for performance testing with real filesystem
+pub const ProductionStorageHarness = struct {
+    allocator: std.mem.Allocator,
+    prod_vfs: *ProductionVFS,
+    vfs_instance: VFS,
+    storage_engine: *StorageEngine,
+
+    const Self = @This();
+
+    /// Phase 1 initialization: memory allocation only, no I/O operations
+    pub fn init(allocator: std.mem.Allocator, db_name: []const u8) !Self {
+        // Use backing allocator consistently - components manage their own arenas
+
+        // ProductionVFS manages its own internal arena
+        var prod_vfs = try allocator.create(ProductionVFS);
+        prod_vfs.* = ProductionVFS.init(allocator);
+
+        // Storage engine uses heap allocation to prevent struct copying corruption
+        const vfs_instance = prod_vfs.vfs();
+        const storage_engine = try allocator.create(StorageEngine);
+        storage_engine.* = try StorageEngine.init_default(allocator, vfs_instance, db_name);
+
+        return Self{
+            .allocator = allocator,
+            .prod_vfs = prod_vfs,
+            .vfs_instance = vfs_instance,
+            .storage_engine = storage_engine,
+        };
+    }
+
+    /// Phase 2 startup: hot path initialization with I/O operations
+    pub fn startup(self: *Self) !void {
+        try self.storage_engine.startup();
+    }
+
+    /// Convenience method combining init and startup phases
+    pub fn init_and_startup(allocator: std.mem.Allocator, db_name: []const u8) !Self {
+        var harness = try Self.init(allocator, db_name);
+        try harness.startup();
+        return harness;
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.storage_engine.deinit();
+        self.allocator.destroy(self.storage_engine);
+        self.prod_vfs.deinit();
+        self.allocator.destroy(self.prod_vfs);
     }
 };
 

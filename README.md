@@ -3,7 +3,7 @@
 [![CI](https://github.com/kausaldb/kausaldb/actions/workflows/ci.yml/badge.svg)](https://github.com/kausaldb/kausaldb/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> *Code is a graph. Query it.*
+> _Code is a graph. Query it._
 
 A database built for the way code actually works—not as flat text, but as a living graph of dependencies, calls, and causal relationships. KausalDB lets Large Language Models reason about software with the ground truth of its architecture.
 
@@ -57,7 +57,7 @@ We build for purpose, not popularity. Every decision optimizes for modeling code
 - **Simulation-first testing**: Validates against disk corruption, network partitions, power loss
 - **LSM-tree storage**: Optimized for high-volume code ingestion
 
-*Performance: 47K writes/sec, 16.7M reads/sec, 0.06µs block access*
+_Performance: 2.7K writes/sec, 200K reads/sec, 5µs block access_
 
 ## Development
 
@@ -84,12 +84,14 @@ Performance analysis:
 ## Architecture
 
 **Core Documents:**
+
 - [**Design Philosophy**](docs/DESIGN.md) - The why and how of KausalDB
 - [**Memory Architecture**](docs/architecture/memory-model.md) - Five-level memory hierarchy
 - [**Query Engine**](docs/architecture/query-engine.md) - Graph traversal algorithms
 - [**Development Guide**](docs/DEVELOPMENT.md) - Build system, workflows, debugging
 
 **Implementation Guides:**
+
 - [**Coding Style**](docs/STYLE.md) - Naming, patterns, memory management
 - [**Testing Philosophy**](docs/TESTING_GUIDELINES.md) - Simulation-first approach
 - [**Performance Analysis**](docs/PERFORMANCE.md) - Benchmarking and regression detection

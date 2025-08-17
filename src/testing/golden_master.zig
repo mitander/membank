@@ -82,8 +82,8 @@ pub const GoldenMaster = struct {
         var blocks = std.ArrayList(StorageSnapshot.BlockSnapshot).init(self.allocator);
         defer blocks.deinit();
 
-        // Block iteration deferred to future version - requires StorageEngine API extension
-        // Current implementation captures metrics only for 0.1.0 release
+        // Block iteration requires StorageEngine API extension - deferred for v0.1.0
+        // Current implementation captures metrics only for release readiness
 
         const metrics = storage_engine.metrics();
         const metrics_snapshot = StorageSnapshot.MetricsSnapshot{
@@ -95,10 +95,12 @@ pub const GoldenMaster = struct {
             .wal_recoveries = metrics.wal_recoveries.load(),
         };
 
+        // Edge iteration requires StorageEngine API extension - deferred for v0.1.0
+
         return StorageSnapshot{
             .block_count = storage_engine.block_count(),
-            .blocks = try blocks.toOwnedSlice(),
-            .edges = &[_]StorageSnapshot.EdgeSnapshot{}, // Edge iteration deferred for performance
+            .blocks = &[_]StorageSnapshot.BlockSnapshot{},
+            .edges = &[_]StorageSnapshot.EdgeSnapshot{},
             .metrics = metrics_snapshot,
         };
     }
@@ -191,10 +193,8 @@ pub const GoldenMaster = struct {
 
     /// Parse snapshot from JSON content
     fn parse_snapshot(self: Self, json_content: []const u8) !StorageSnapshot {
-        _ = self;
-
         // Simple JSON parsing - extract values using string search
-        // For production, would use proper JSON parser
+        // For production use, would implement proper JSON parser
 
         const block_count = blk: {
             if (std.mem.indexOf(u8, json_content, "\"block_count\": ")) |start| {
@@ -207,29 +207,23 @@ pub const GoldenMaster = struct {
             break :blk 0;
         };
 
-        const blocks_read = blk: {
-            if (std.mem.indexOf(u8, json_content, "\"blocks_read\": ")) |start| {
-                const value_start = start + "\"blocks_read\": ".len;
-                if (std.mem.indexOfScalar(u8, json_content[value_start..], ',')) |comma_offset| {
-                    const value_str = json_content[value_start .. value_start + comma_offset];
-                    break :blk std.fmt.parseInt(u64, value_str, 10) catch 0;
-                }
-            }
-            break :blk 0;
+        // Parse metrics
+        const metrics = StorageSnapshot.MetricsSnapshot{
+            .blocks_written = self.extract_metric_value(json_content, "blocks_written") catch 0,
+            .blocks_read = self.extract_metric_value(json_content, "blocks_read") catch 0,
+            .blocks_deleted = self.extract_metric_value(json_content, "blocks_deleted") catch 0,
+            .wal_writes = self.extract_metric_value(json_content, "wal_writes") catch 0,
+            .wal_flushes = self.extract_metric_value(json_content, "wal_flushes") catch 0,
+            .wal_recoveries = self.extract_metric_value(json_content, "wal_recoveries") catch 0,
         };
+
+        // Block and edge parsing deferred - metrics-only validation for v0.1.0
 
         return StorageSnapshot{
             .block_count = block_count,
             .blocks = &[_]StorageSnapshot.BlockSnapshot{},
             .edges = &[_]StorageSnapshot.EdgeSnapshot{},
-            .metrics = .{
-                .blocks_written = 0,
-                .blocks_read = blocks_read,
-                .blocks_deleted = 0,
-                .wal_writes = 0,
-                .wal_flushes = 0,
-                .wal_recoveries = 0,
-            },
+            .metrics = metrics,
         };
     }
 
@@ -243,13 +237,37 @@ pub const GoldenMaster = struct {
             return error.GoldenMasterMismatch;
         }
 
-        if (golden.metrics.wal_recoveries != actual.metrics.wal_recoveries) {
-            std.debug.print("WAL recoveries mismatch: golden={}, actual={}\n", .{ golden.metrics.wal_recoveries, actual.metrics.wal_recoveries });
+        // Compare metrics
+        const golden_metrics = golden.metrics;
+        const actual_metrics = actual.metrics;
+
+        if (golden_metrics.blocks_written != actual_metrics.blocks_written) {
+            std.debug.print("Blocks written mismatch: golden={}, actual={}\n", .{ golden_metrics.blocks_written, actual_metrics.blocks_written });
             return error.GoldenMasterMismatch;
         }
 
-        // Block and edge comparison deferred for 0.1.0 release - metrics comparison
-        // provides sufficient validation for current test requirements
+        if (golden_metrics.wal_recoveries != actual_metrics.wal_recoveries) {
+            std.debug.print("WAL recoveries mismatch: golden={}, actual={}\n", .{ golden_metrics.wal_recoveries, actual_metrics.wal_recoveries });
+            return error.GoldenMasterMismatch;
+        }
+
+        // Block and edge comparison deferred for v0.1.0 - metrics validation sufficient
+        // for current recovery test requirements
+    }
+
+    /// Extract metric value from JSON content
+    fn extract_metric_value(self: Self, json_content: []const u8, metric_name: []const u8) !u64 {
+        const search_str = try std.fmt.allocPrint(self.allocator, "\"{s}\": ", .{metric_name});
+        defer self.allocator.free(search_str);
+
+        if (std.mem.indexOf(u8, json_content, search_str)) |start| {
+            const value_start = start + search_str.len;
+            if (std.mem.indexOfAny(u8, json_content[value_start..], ",}")) |end_offset| {
+                const value_str = json_content[value_start .. value_start + end_offset];
+                return std.fmt.parseInt(u64, value_str, 10);
+            }
+        }
+        return error.MetricNotFound;
     }
 };
 
@@ -263,7 +281,9 @@ pub fn verify_recovery_golden_master(
     defer golden_master.deinit();
 
     const snapshot = try golden_master.capture_snapshot(storage_engine);
-    defer allocator.free(snapshot.blocks);
+    defer {
+        // No dynamic allocation cleanup needed in metrics-only version
+    }
 
     try golden_master.verify_snapshot(snapshot);
 }

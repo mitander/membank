@@ -15,6 +15,9 @@ fuzz_reports/
 kausaldb_data/
 demo_data/
 test_data/
+benchmark_*/
+*_perf_*/
+*_test/
 
 # Where does this damn file come from?
 .DS_Store

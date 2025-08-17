@@ -100,18 +100,18 @@ pub const PerformanceThresholds = struct {
 
         const multipliers: Multipliers = switch (tier) {
             .local => .{
-                .latency = if (builtin.os.tag == .linux) 60.0 else 5.0, // Linux simulation VFS shows 53x degradation vs 5x on macOS
+                .latency = 2.0, // ProductionVFS with real filesystem - modest overhead for local development
                 .throughput = 0.8,
                 .memory = 2.0,
             },
             .parallel => .{
-                .latency = if (builtin.os.tag == .linux) 4.0 else 8.0, // Linux 4x vs Mac 8x - parallel execution overhead varies by platform
+                .latency = 3.0, // Parallel execution overhead with ProductionVFS
                 .throughput = 0.5,
                 .memory = 3.0,
             },
-            .ci => .{ .latency = 20.0, .throughput = 0.2, .memory = 5.0 }, // 20x latency - GitHub runners 4x slower + test overhead (240µs * 4 = 960µs)
+            .ci => .{ .latency = 5.0, .throughput = 0.4, .memory = 4.0 }, // CI runners with ProductionVFS - much better than simulation
             .production => .{ .latency = 1.0, .throughput = 1.0, .memory = 1.0 }, // Exact requirements - isolated benchmarking
-            .sanitizer => .{ .latency = 100.0, .throughput = 0.1, .memory = 10.0 }, // 100x latency - sanitizers add 10-100x overhead
+            .sanitizer => .{ .latency = 50.0, .throughput = 0.2, .memory = 8.0 }, // Sanitizer overhead with ProductionVFS
         };
 
         return PerformanceThresholds{

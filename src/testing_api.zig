@@ -101,6 +101,7 @@ pub const core_types = @import("core/types.zig");
 pub const golden_master = @import("testing/golden_master.zig");
 pub const performance_assertions = @import("testing/performance_assertions.zig");
 pub const PerformanceAssertion = performance_assertions.PerformanceAssertion;
+pub const PerformanceThresholds = performance_assertions.PerformanceThresholds;
 // Simple test configuration - use build_options.debug_tests for conditional output
 pub const test_config = struct {
     /// Simple test configuration using build-level control
@@ -155,6 +156,7 @@ pub const test_harness = @import("testing/harness.zig");
 pub const TestData = test_harness.TestData;
 pub const StorageHarness = test_harness.StorageHarness;
 pub const QueryHarness = test_harness.QueryHarness;
+pub const ProductionHarness = test_harness.ProductionHarness;
 pub const SimulationHarness = test_harness.SimulationHarness;
 pub const FaultInjectionHarness = test_harness.FaultInjectionHarness;
 pub const FaultInjectionConfig = test_harness.FaultInjectionConfig;
