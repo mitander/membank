@@ -70,13 +70,8 @@ pub const CorruptionTracker = struct {
 
         // Log pattern before fatal assertion for debugging
         if (self.consecutive_failures > threshold / 2) {
-            if (self.testing_mode) {
-                log.debug("Corruption pattern detected in {s}: {} consecutive failures (threshold: {})", .{ context, self.consecutive_failures, threshold });
-                log.debug("Total corruption stats: {}/{} failures/operations = {d:.2}% failure rate", .{ self.total_failures, self.total_operations, self.failure_rate() * 100 });
-            } else {
-                log.warn("Corruption pattern detected in {s}: {} consecutive failures (threshold: {})", .{ context, self.consecutive_failures, threshold });
-                log.warn("Total corruption stats: {}/{} failures/operations = {d:.2}% failure rate", .{ self.total_failures, self.total_operations, self.failure_rate() * 100 });
-            }
+            log.warn("Corruption pattern detected in {s}: {} consecutive failures (threshold: {})", .{ context, self.consecutive_failures, threshold });
+            log.warn("Total corruption stats: {}/{} failures/operations = {d:.2}% failure rate", .{ self.total_failures, self.total_operations, self.failure_rate() * 100 });
         }
 
         if (self.consecutive_failures > threshold) {

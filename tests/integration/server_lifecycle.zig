@@ -11,6 +11,9 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
+// Configure test output - use debug_print for server lifecycle logging
+const test_config = kausaldb.test_config;
+
 const vfs = kausaldb.vfs;
 const production_vfs = kausaldb.production_vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
@@ -128,7 +131,7 @@ test "server startup and shutdown with ProductionVFS" {
     try testing.expect(bound_port > 0);
     try testing.expect(bound_port != server_config.port); // Should be different from 0
 
-    std.debug.print("Server bound to port: {d}\n", .{bound_port});
+    test_config.debug_print("Server bound to port: {d}\n", .{bound_port});
 
     // Test graceful shutdown
     test_server.shutdown();

@@ -92,22 +92,10 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     var port: u16 = 8080;
     var host: []const u8 = "127.0.0.1";
 
-    // Parse command line arguments
+    // Parse command line arguments FIRST - before any initialization
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--data-dir") and i + 1 < args.len) {
-            data_dir = args[i + 1];
-            i += 1;
-        } else if (std.mem.eql(u8, args[i], "--port") and i + 1 < args.len) {
-            port = std.fmt.parseInt(u16, args[i + 1], 10) catch {
-                std.debug.print("Error: Invalid port value\n", .{});
-                std.process.exit(1);
-            };
-            i += 1;
-        } else if (std.mem.eql(u8, args[i], "--host") and i + 1 < args.len) {
-            host = args[i + 1];
-            i += 1;
-        } else if (std.mem.eql(u8, args[i], "--help")) {
+        if (std.mem.eql(u8, args[i], "--help")) {
             std.debug.print(
                 \\Usage: kausaldb server [options]
                 \\
@@ -127,6 +115,18 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
                 \\
             , .{});
             return;
+        } else if (std.mem.eql(u8, args[i], "--data-dir") and i + 1 < args.len) {
+            data_dir = args[i + 1];
+            i += 1;
+        } else if (std.mem.eql(u8, args[i], "--port") and i + 1 < args.len) {
+            port = std.fmt.parseInt(u16, args[i + 1], 10) catch {
+                std.debug.print("Error: Invalid port value\n", .{});
+                std.process.exit(1);
+            };
+            i += 1;
+        } else if (std.mem.eql(u8, args[i], "--host") and i + 1 < args.len) {
+            host = args[i + 1];
+            i += 1;
         } else {
             std.debug.print("Unknown server option: {s}\n", .{args[i]});
             std.debug.print("Use 'kausaldb server --help' for usage information\n", .{});

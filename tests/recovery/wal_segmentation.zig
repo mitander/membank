@@ -7,6 +7,9 @@
 const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
+
+// Configure test output - use debug_print for recovery debugging
+const test_config = kausaldb.test_config;
 const assert = kausaldb.assert.assert;
 
 const types = kausaldb.types;
@@ -113,7 +116,7 @@ test "cleanup after sstable flush" {
 
     // Debug: Check how many blocks are in memtable before flush
     const blocks_before_flush = harness.storage_engine.block_count();
-    std.debug.print("DEBUG: Blocks in memtable before flush: {}\n", .{blocks_before_flush});
+    test_config.debug_print("DEBUG: Blocks in memtable before flush: {}\n", .{blocks_before_flush});
 
     // Check WAL segments before flush
     const wal_dir = try std.fmt.allocPrint(allocator, "{s}/wal", .{"wal_cleanup_test"});
@@ -180,7 +183,7 @@ test "cleanup after sstable flush" {
 
     // Debug: Check final metrics before search
     const final_metrics = harness.storage_engine.metrics();
-    std.debug.print("DEBUG: SSTables written: {}, Blocks in memtable: {}\n", .{ final_metrics.sstable_writes.load(), harness.storage_engine.block_count() });
+    test_config.debug_print("DEBUG: SSTables written: {}, Blocks in memtable: {}\n", .{ final_metrics.sstable_writes.load(), harness.storage_engine.block_count() });
 
     // Debug: Check if SSTables exist on filesystem
     const sstable_dir = try std.fmt.allocPrint(allocator, "{s}/sst", .{"wal_cleanup_test"});
@@ -192,42 +195,42 @@ test "cleanup after sstable flush" {
     while (sstable_iterator.next()) |entry| {
         if (std.mem.endsWith(u8, entry.name, ".sst")) {
             sstable_count += 1;
-            std.debug.print("DEBUG: Found SSTable: {s}\n", .{entry.name});
+            test_config.debug_print("DEBUG: Found SSTable: {s}\n", .{entry.name});
         }
     }
-    std.debug.print("DEBUG: Total SSTables found: {}\n", .{sstable_count});
+    test_config.debug_print("DEBUG: Total SSTables found: {}\n", .{sstable_count});
 
     // Debug: Check internal SSTableManager state
     const sstable_paths_count = harness.storage_engine.sstable_manager.sstable_paths.items.len;
-    std.debug.print("DEBUG: SSTableManager has {} paths registered\n", .{sstable_paths_count});
+    test_config.debug_print("DEBUG: SSTableManager has {} paths registered\n", .{sstable_paths_count});
     for (harness.storage_engine.sstable_manager.sstable_paths.items, 0..) |path, idx| {
-        std.debug.print("DEBUG: SSTable path {}: {s}\n", .{ idx, path });
+        test_config.debug_print("DEBUG: SSTable path {}: {s}\n", .{ idx, path });
 
         // Check if the SSTable file exists and get its size
         if (node_vfs.exists(path)) {
             var file = node_vfs.open(path, .read) catch |err| {
-                std.debug.print("DEBUG: Could not open SSTable {s}: {}\n", .{ path, err });
+                test_config.debug_print("DEBUG: Could not open SSTable {s}: {}\n", .{ path, err });
                 continue;
             };
             defer file.close();
 
             const file_size = file.file_size() catch |err| {
-                std.debug.print("DEBUG: Could not get size of SSTable {s}: {}\n", .{ path, err });
+                test_config.debug_print("DEBUG: Could not get size of SSTable {s}: {}\n", .{ path, err });
                 continue;
             };
-            std.debug.print("DEBUG: SSTable {s} size: {} bytes\n", .{ path, file_size });
+            test_config.debug_print("DEBUG: SSTable {s} size: {} bytes\n", .{ path, file_size });
         } else {
-            std.debug.print("DEBUG: SSTable file {s} does not exist!\n", .{path});
+            test_config.debug_print("DEBUG: SSTable file {s} does not exist!\n", .{path});
         }
     }
 
     // Verify blocks can be found after WAL flush creates SSTable
     // Both first and last blocks should be findable from SSTable
-    std.debug.print("DEBUG: Searching for first block ID: {any}\n", .{first_block_id.bytes});
+    test_config.debug_print("DEBUG: Searching for first block ID: {any}\n", .{first_block_id.bytes});
 
     const first_result = try harness.storage_engine.find_block(first_block_id, .query_engine);
     if (first_result == null) {
-        std.debug.print("DEBUG: Could not find first block (ID=1)\n", .{});
+        test_config.debug_print("DEBUG: Could not find first block (ID=1)\n", .{});
 
         // SSTable shows 100 blocks but lookup fails - indicates SSTable find_block bug
 
@@ -237,7 +240,7 @@ test "cleanup after sstable flush" {
         // First block found - SSTable lookup partially working
     }
 
-    std.debug.print("DEBUG: Searching for last block ID: {any}\n", .{last_block_id.bytes});
+    test_config.debug_print("DEBUG: Searching for last block ID: {any}\n", .{last_block_id.bytes});
     const last_result = try harness.storage_engine.find_block(last_block_id, .query_engine);
     if (last_result == null) {
         try testing.expect(false); // STRICT: Block must be found - no corruption tolerance
@@ -289,7 +292,7 @@ test "recovery from mixed segments and sstables" {
     // Debug: Check post-flush state
     const memtable_blocks = harness.storage_engine.block_count();
     const sstable_metrics = harness.storage_engine.metrics();
-    std.debug.print("DEBUG: After phase 2 - Memtable blocks: {}, SSTable writes: {}\n", .{ memtable_blocks, sstable_metrics.sstable_writes.load() });
+    test_config.debug_print("DEBUG: After phase 2 - Memtable blocks: {}, SSTable writes: {}\n", .{ memtable_blocks, sstable_metrics.sstable_writes.load() });
 
     // Verify all blocks are recoverable (blocks in SSTable + WAL)
     // Note: block_count() only shows memtable blocks, not SSTable blocks
@@ -311,9 +314,9 @@ test "recovery from mixed segments and sstables" {
         }
     }
 
-    std.debug.print("DEBUG: Found {}/75 blocks\n", .{found_blocks});
+    test_config.debug_print("DEBUG: Found {}/75 blocks\n", .{found_blocks});
     if (not_found_list.items.len > 0) {
-        std.debug.print("DEBUG: Missing blocks: ", .{});
+        test_config.debug_print("DEBUG: Missing blocks: ", .{});
         for (not_found_list.items, 0..) |block_id, idx| {
             if (idx > 0) std.debug.print(", ", .{});
             std.debug.print("{}", .{block_id});

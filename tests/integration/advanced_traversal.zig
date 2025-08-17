@@ -12,6 +12,9 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
+// Configure test output - use debug_print for algorithm statistics
+const test_config = kausaldb.test_config;
+
 // Import types through kausaldb test API
 const ContextBlock = kausaldb.ContextBlock;
 const BlockId = kausaldb.BlockId;
@@ -108,7 +111,7 @@ test "A* search integration with storage engine" {
     }
     try testing.expect(found_main);
 
-    std.debug.print("A* search found {} blocks, traversed {} nodes\n", .{ result.count(), result.blocks_traversed });
+    test_config.debug_print("A* search found {} blocks, traversed {} nodes\n", .{ result.count(), result.blocks_traversed });
 }
 
 test "bidirectional search integration and performance" {
@@ -175,7 +178,7 @@ test "bidirectional search integration and performance" {
     const max_time_us = 5000; // 5ms for 20 nodes should be plenty
     try testing.expect(execution_time_us < max_time_us);
 
-    std.debug.print("Bidirectional search: {} blocks found, {} traversed, {}μs execution time\n", .{ result.count(), result.blocks_traversed, execution_time_us });
+    test_config.debug_print("Bidirectional search: {} blocks found, {} traversed, {}μs execution time\n", .{ result.count(), result.blocks_traversed, execution_time_us });
 }
 
 test "algorithm comparison BFS vs DFS vs A* vs Bidirectional" {
@@ -248,7 +251,7 @@ test "algorithm comparison BFS vs DFS vs A* vs Bidirectional" {
             try testing.expect(execution_time_us < 10000); // All should be under 10ms
         }
 
-        std.debug.print("{s}: {} blocks, {} traversed, {}μs\n", .{ name, result.count(), result.blocks_traversed, execution_time_us });
+        test_config.debug_print("{s}: {} blocks, {} traversed, {}μs\n", .{ name, result.count(), result.blocks_traversed, execution_time_us });
     }
 }
 
@@ -321,7 +324,7 @@ test "large graph traversal with new algorithms" {
     try testing.expect(result.count() <= 100); // Respects max_results
     try testing.expect(result.max_depth_reached <= 6); // Respects max_depth
 
-    std.debug.print("Large graph A* search: {} blocks found in {}ms\n", .{ result.count(), execution_time_ms });
+    test_config.debug_print("Large graph A* search: {} blocks found in {}ms\n", .{ result.count(), execution_time_ms });
 }
 
 test "edge type filtering integration" {
@@ -392,7 +395,7 @@ test "edge type filtering integration" {
     // Should find blocks 1, 3, 6 (connected by imports edges)
     try testing.expect(imports_result.count() >= 3);
 
-    std.debug.print("Edge filtering: {} calls-filtered, {} imports-filtered\n", .{ calls_result.count(), imports_result.count() });
+    test_config.debug_print("Edge filtering: {} calls-filtered, {} imports-filtered\n", .{ calls_result.count(), imports_result.count() });
 }
 
 test "memory safety under stress with new algorithms" {
@@ -468,5 +471,5 @@ test "memory safety under stress with new algorithms" {
 
     // If we reach here, memory management is working correctly
     try testing.expect(true);
-    std.debug.print("Memory safety stress test: 40 traversals completed successfully\n", .{});
+    test_config.debug_print("Memory safety stress test: 40 traversals completed successfully\n", .{});
 }

@@ -7,6 +7,9 @@
 
 const std = @import("std");
 
+// Configure quieter logging for tests by default
+// Note: Test configuration needs to be called at runtime, not comptime
+
 const kausaldb_public = @import("kausaldb.zig");
 
 pub const types = kausaldb_public.types;
@@ -98,6 +101,7 @@ pub const core_types = @import("core/types.zig");
 pub const golden_master = @import("test/golden_master.zig");
 pub const performance_assertions = @import("test/performance_assertions.zig");
 pub const PerformanceAssertion = performance_assertions.PerformanceAssertion;
+pub const test_config = @import("test_config.zig");
 pub const PerformanceTier = performance_assertions.PerformanceTier;
 pub const BatchPerformanceMeasurement = performance_assertions.BatchPerformanceMeasurement;
 

@@ -55,6 +55,7 @@ comptime {
     _ = @import("storage/wal/recovery.zig");
     _ = @import("storage/wal/stream.zig");
     _ = @import("storage/wal/types.zig");
+    _ = @import("test_config.zig");
 }
 
 const std = @import("std");

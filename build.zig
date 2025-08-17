@@ -88,6 +88,7 @@ fn create_build_modules(
     const enable_fault_injection = b.option(bool, "enable-fault-injection", "Enable fault injection testing") orelse false;
     const enable_thread_sanitizer = b.option(bool, "enable-thread-sanitizer", "Enable Thread Sanitizer") orelse false;
     const enable_ubsan = b.option(bool, "enable-ubsan", "Enable Undefined Behavior Sanitizer") orelse false;
+    const debug_tests = b.option(bool, "debug", "Enable debug test output (verbose logging and demo content)") orelse false;
 
     const sanitizers_active = enable_thread_sanitizer or enable_ubsan;
 
@@ -99,6 +100,7 @@ fn create_build_modules(
     build_options.addOption(bool, "enable_ubsan", enable_ubsan);
     build_options.addOption(bool, "sanitizers_active", sanitizers_active);
     build_options.addOption(bool, "is_debug_build", optimize == .Debug);
+    build_options.addOption(bool, "debug_tests", debug_tests);
 
     const kausaldb_module = b.createModule(.{
         .root_source_file = b.path("src/kausaldb.zig"),

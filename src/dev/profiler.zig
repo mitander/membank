@@ -63,8 +63,10 @@ pub const MemoryProfiler = struct {
         const growth_per_op = if (operations > 0) growth_bytes / operations else 0;
         const growth_efficient = growth_per_op <= max_growth_per_op;
 
-        // Debug output for sanitizer threshold debugging
-        if (builtin.mode == .Debug or !peak_efficient or !growth_efficient) {
+        // Debug output for sanitizer threshold debugging - only in debug mode or when explicitly requested
+        if ((builtin.mode == .Debug and build_options.debug_tests) or
+            (build_options.debug_tests and (!peak_efficient or !growth_efficient)))
+        {
             std.debug.print("\n[MEMORY_EFFICIENCY] sanitizers_active={any}, multiplier={d:.1}\n", .{ build_options.sanitizers_active, memory_multiplier });
             std.debug.print("[MEMORY_EFFICIENCY] peak_rss={d}MB, max_allowed={d}MB, peak_ok={any}\n", .{ self.peak_rss_bytes / (1024 * 1024), max_peak_memory / (1024 * 1024), peak_efficient });
             std.debug.print("[MEMORY_EFFICIENCY] growth_per_op={d}bytes, max_allowed={d}bytes, growth_ok={any}\n", .{ growth_per_op, max_growth_per_op, growth_efficient });

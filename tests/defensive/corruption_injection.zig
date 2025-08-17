@@ -17,6 +17,7 @@ const builtin = @import("builtin");
 const log = std.log.scoped(.corruption_injection);
 const kausaldb = @import("kausaldb");
 const TestData = kausaldb.TestData;
+const test_config = kausaldb.test_config;
 const StorageHarness = kausaldb.StorageHarness;
 
 const assert = kausaldb.assert;
@@ -134,6 +135,8 @@ test "VFS handle integrity validation" {
 // ============================================================================
 
 test "systematic corruption detection thresholds" {
+    // Use corruption test mode to suppress expected warning noise
+    test_config.enable_corruption_test_mode();
 
     // Test the corruption tracker behavior without triggering fatal assertions
     var tracker = CorruptionTracker.init_testing();
@@ -167,6 +170,7 @@ test "systematic corruption detection thresholds" {
 }
 
 test "WAL magic number validation" {
+    test_config.enable_corruption_test_mode();
     var tracker = CorruptionTracker.init_testing();
 
     // Valid magic numbers should work
@@ -287,6 +291,7 @@ test "empty WAL file recovery" {
 }
 
 test "mixed corruption and valid data" {
+    test_config.enable_corruption_test_mode();
     var tracker = CorruptionTracker.init_testing();
 
     // Simulate a pattern of mixed corruption and valid data
@@ -358,6 +363,7 @@ test "assertion overhead measurement" {
 }
 
 test "corruption detection overhead" {
+    test_config.enable_performance_test_mode();
     var tracker = CorruptionTracker.init_testing();
 
     const iterations = 10000;
@@ -435,6 +441,7 @@ test "graceful vs fail fast classification" {
 }
 
 test "diagnostic information quality" {
+    test_config.enable_corruption_test_mode();
     var tracker = CorruptionTracker.init_testing();
 
     // Build up failure history
@@ -471,6 +478,7 @@ test "compatibility with existing assertion framework" {
     }
 
     // Fatal assertions should always be active (but we don't trigger them)
+    test_config.enable_standard_mode();
     var tracker = CorruptionTracker.init_testing();
     tracker.record_success();
 

@@ -16,6 +16,9 @@ const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
 
+// Configure test output - suppress expected fault injection warnings
+const test_config = kausaldb.test_config;
+
 const vfs = kausaldb.vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;

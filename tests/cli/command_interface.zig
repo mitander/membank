@@ -7,6 +7,9 @@ const std = @import("std");
 const testing = std.testing;
 const kausaldb = @import("kausaldb");
 
+// Configure test output - use debug_print for CLI performance stats
+const test_config = kausaldb.test_config;
+
 // Test result structure for CLI command testing
 const CLITestResult = struct {
     exit_code: u8,
@@ -315,5 +318,5 @@ test "argument parsing overhead performance" {
     const max_time_per_parse_ns = 100_000; // 100µs
     try testing.expect(avg_time_per_parse < max_time_per_parse_ns);
 
-    std.debug.print("CLI parsing performance: {} ns average per parse\n", .{avg_time_per_parse});
+    test_config.debug_print("CLI parsing performance: {} ns average per parse\n", .{avg_time_per_parse});
 }

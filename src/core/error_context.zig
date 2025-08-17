@@ -264,7 +264,7 @@ pub const ServerContext = struct {
 
 /// Log a buffer error with context in debug builds only.
 pub fn log_buffer_error(err: anyerror, context: BufferContext) void {
-    if (builtin.mode == .Debug and err != error.TestError) {
+    if (builtin.mode == .Debug) {
         log.warn("Buffer operation failed: {} - operation: {s}", .{ err, context.operation });
     }
 }
@@ -291,7 +291,7 @@ fn increment_validation_errors() void {
 pub fn log_storage_error(err: anyerror, context: StorageContext) void {
     increment_validation_errors();
 
-    if (is_verbose_mode() and err != error.TestError) {
+    if (is_verbose_mode()) {
         log.warn("Storage operation failed: {} - operation: {s}", .{ err, context.operation });
         if (context.file_path) |path| {
             log.warn("  file: {s}", .{path});
@@ -304,7 +304,7 @@ pub fn log_storage_error(err: anyerror, context: StorageContext) void {
 
 /// Log a WAL error with context in debug builds only.
 pub fn log_wal_error(err: anyerror, context: WALContext) void {
-    if (builtin.mode == .Debug and err != error.TestError) {
+    if (builtin.mode == .Debug) {
         log.warn("WAL operation failed: {} - operation: {s}", .{ err, context.operation });
         if (context.file_path) |path| {
             log.warn("  file: {s}", .{path});
@@ -317,7 +317,7 @@ pub fn log_wal_error(err: anyerror, context: WALContext) void {
 
 /// Log an ingestion error with context in debug builds only.
 pub fn log_ingestion_error(err: anyerror, context: IngestionContext) void {
-    if (builtin.mode == .Debug and err != error.TestError) {
+    if (builtin.mode == .Debug) {
         log.warn("Ingestion operation failed: {} - operation: {s}", .{ err, context.operation });
         if (context.repository_path) |path| {
             log.warn("  repository: {s}", .{path});
@@ -330,7 +330,7 @@ pub fn log_ingestion_error(err: anyerror, context: IngestionContext) void {
 
 /// Log a server error with context in debug builds only.
 pub fn log_server_error(err: anyerror, context: ServerContext) void {
-    if (builtin.mode == .Debug and err != error.TestError) {
+    if (builtin.mode == .Debug) {
         log.warn("Server operation failed: {} - operation: {s}", .{ err, context.operation });
         if (context.connection_id) |id| {
             log.warn("  connection_id: {}", .{id});

@@ -23,6 +23,7 @@ const EdgeType = kausaldb.types.EdgeType;
 const TestData = kausaldb.TestData;
 
 const log = std.log.scoped(.memory_fault_injection);
+const test_config = kausaldb.test_config;
 
 /// Failing allocator that simulates memory pressure conditions
 const FailingAllocator = struct {
@@ -78,7 +79,10 @@ const FailingAllocator = struct {
 };
 
 test "allocation failure during memtable operations" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    // Auto-configure log level for memory tests
+    test_config.auto_configure(@src());
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
         const deinit_status = gpa.deinit();
         // No memory leaks should occur - we use backing allocator for infrastructure
@@ -144,7 +148,9 @@ test "allocation failure during memtable operations" {
 }
 
 test "I/O errors during memory operations" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    test_config.enable_memory_test_mode();
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) @panic("Memory leak detected in I/O error test");
@@ -196,6 +202,8 @@ test "I/O errors during memory operations" {
 }
 
 test "arena corruption detection" {
+    test_config.enable_corruption_test_mode();
+
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     defer {
         const deinit_status = gpa.deinit();
