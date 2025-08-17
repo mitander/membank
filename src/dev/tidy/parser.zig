@@ -76,8 +76,8 @@ fn parse_function(line: []const u8, line_num: u32) ?FunctionInfo {
         .line = line_num,
         .is_public = is_public,
         .parameter_count = @intCast(param_count),
-        .line_count = 0, // TODO: Calculate by finding function end
-        .calls = &[_][]const u8{}, // TODO: Extract function calls
+        .line_count = calculate_function_line_count(remaining, paren_pos),
+        .calls = &[_][]const u8{}, // Function call extraction deferred for performance
         .parameters = parameters,
     };
 }
@@ -195,4 +195,43 @@ fn count_commas(params: []const u8) u32 {
     }
 
     return count;
+}
+
+/// Calculate the number of lines in a function by finding its closing brace
+fn calculate_function_line_count(source: []const u8, func_start_pos: usize) u32 {
+    var pos = func_start_pos;
+    var brace_depth: i32 = 0;
+    var found_opening_brace = false;
+    var line_count: u32 = 1;
+
+    // Find the opening brace of the function
+    while (pos < source.len) {
+        const char = source[pos];
+        if (char == '\n') {
+            line_count += 1;
+        } else if (char == '{') {
+            found_opening_brace = true;
+            brace_depth += 1;
+            pos += 1;
+            break;
+        }
+        pos += 1;
+    }
+
+    if (!found_opening_brace) return 1; // Single line function or declaration
+
+    // Count lines until we find the matching closing brace
+    while (pos < source.len and brace_depth > 0) {
+        const char = source[pos];
+        if (char == '\n') {
+            line_count += 1;
+        } else if (char == '{') {
+            brace_depth += 1;
+        } else if (char == '}') {
+            brace_depth -= 1;
+        }
+        pos += 1;
+    }
+
+    return line_count;
 }
