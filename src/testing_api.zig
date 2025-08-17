@@ -102,6 +102,47 @@ pub const golden_master = @import("testing/golden_master.zig");
 pub const performance_assertions = @import("testing/performance_assertions.zig");
 pub const PerformanceAssertion = performance_assertions.PerformanceAssertion;
 // Simple test configuration - use build_options.debug_tests for conditional output
+pub const test_config = struct {
+    /// Simple test configuration using build-level control
+    pub const TestCategory = enum {
+        unit,
+        integration,
+        simulation,
+        stress,
+        performance,
+        fault_injection,
+        recovery,
+        safety,
+        defensive,
+    };
+
+    /// Query current test log level from build options
+    pub fn query_log_level() std.log.Level {
+        return if (@import("build_options").debug_tests) .debug else .warn;
+    }
+
+    /// Check if debug mode is enabled
+    pub fn is_debug_enabled() bool {
+        return @import("build_options").debug_tests;
+    }
+
+    /// Debug print function that respects build-level configuration
+    pub fn debug_print(comptime fmt: []const u8, args: anytype) void {
+        if (is_debug_enabled()) {
+            std.debug.print(fmt, args);
+        }
+    }
+
+    /// Enable corruption test mode (no-op - controlled by build system)
+    pub fn enable_corruption_test_mode() void {}
+
+    /// Enable performance test mode (no-op - controlled by build system)
+    pub fn enable_performance_test_mode() void {}
+
+    /// Enable standard mode (no-op - controlled by build system)
+    pub fn enable_standard_mode() void {}
+};
+
 pub const PerformanceTier = performance_assertions.PerformanceTier;
 pub const BatchPerformanceMeasurement = performance_assertions.BatchPerformanceMeasurement;
 
