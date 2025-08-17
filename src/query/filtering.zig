@@ -130,7 +130,7 @@ pub const FilterCondition = struct {
             },
             .metadata_field => blk: {
                 if (self.metadata_field) |field_name| {
-                    break :blk try extract_metadata_field(block.metadata_json, field_name, allocator);
+                    break :blk try extract_metadata_field(allocator, block.metadata_json, field_name);
                 }
                 return FilterError.InvalidFilter;
             },
@@ -322,7 +322,7 @@ pub fn filter_by_metadata_field(field_name: []const u8, value: []const u8) Filte
 }
 
 /// Helper function to extract a field from JSON metadata
-fn extract_metadata_field(metadata_json: []const u8, field_name: []const u8, allocator: std.mem.Allocator) ![]const u8 {
+fn extract_metadata_field(allocator: std.mem.Allocator, metadata_json: []const u8, field_name: []const u8) ![]const u8 {
     const field_pattern = try std.fmt.allocPrint(allocator, "\"{s}\":", .{field_name});
     defer allocator.free(field_pattern);
 

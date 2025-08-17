@@ -83,7 +83,7 @@ pub const WALEntry = struct {
     /// Deserialize WAL entry from buffer, allocating payload memory.
     /// Caller must call deinit() to free allocated payload memory.
     /// Returns WALError.InvalidChecksum or WALError.InvalidEntryType for corruption.
-    pub fn deserialize(buffer: []const u8, allocator: std.mem.Allocator) WALError!WALEntry {
+    pub fn deserialize(allocator: std.mem.Allocator, buffer: []const u8) WALError!WALEntry {
         if (buffer.len < HEADER_SIZE) return WALError.BufferTooSmall;
 
         var offset: usize = 0;
@@ -127,7 +127,7 @@ pub const WALEntry = struct {
     /// Create WAL entry for storing a Context Block.
     /// Serializes block data into WAL payload with integrity checksum.
     /// Returns WALError.CorruptedEntry if block serialization fails.
-    pub fn create_put_block(block: anytype, allocator: std.mem.Allocator) WALError!WALEntry {
+    pub fn create_put_block(allocator: std.mem.Allocator, block: anytype) WALError!WALEntry {
         const BlockType = @TypeOf(block);
         const supported_block_create = switch (BlockType) {
             ContextBlock => true,
@@ -193,7 +193,7 @@ pub const WALEntry = struct {
 
     /// Create WAL entry for deleting a Context Block.
     /// Payload contains only the 16-byte BlockId for efficient deletion replay.
-    pub fn create_delete_block(block_id: BlockId, allocator: std.mem.Allocator) WALError!WALEntry {
+    pub fn create_delete_block(allocator: std.mem.Allocator, block_id: BlockId) WALError!WALEntry {
         comptime assert(@sizeOf(BlockId) == 16);
 
         const payload = try allocator.dupe(u8, &block_id.bytes);
@@ -217,7 +217,7 @@ pub const WALEntry = struct {
 
     /// Create WAL entry for storing a Graph Edge.
     /// Serializes edge relationship data for graph index replay.
-    pub fn create_put_edge(edge: GraphEdge, allocator: std.mem.Allocator) WALError!WALEntry {
+    pub fn create_put_edge(allocator: std.mem.Allocator, edge: GraphEdge) WALError!WALEntry {
         const payload = try allocator.alloc(u8, 40); // GraphEdge.SERIALIZED_SIZE
         errdefer allocator.free(payload);
         @memset(payload, 0);
@@ -265,7 +265,7 @@ pub const WALEntry = struct {
 
     /// Convert WALEntryStream.StreamEntry to WALEntry
     /// Transfers ownership of payload from StreamEntry to WALEntry
-    pub fn from_stream_entry(stream_entry: stream.StreamEntry, allocator: std.mem.Allocator) WALError!WALEntry {
+    pub fn from_stream_entry(allocator: std.mem.Allocator, stream_entry: stream.StreamEntry) WALError!WALEntry {
         return deserialize_from_stream(
             stream_entry.checksum,
             stream_entry.entry_type,
@@ -277,7 +277,7 @@ pub const WALEntry = struct {
     /// Extract ContextBlock from put_block entry payload
     pub fn extract_block(self: WALEntry, allocator: std.mem.Allocator) WALError!OwnedBlock {
         if (self.entry_type != .put_block) return WALError.InvalidEntryType;
-        const block_data = ContextBlock.deserialize(self.payload, allocator) catch {
+        const block_data = ContextBlock.deserialize(allocator, self.payload) catch {
             return WALError.CorruptedEntry;
         };
         return OwnedBlock.take_ownership(block_data, .storage_engine);
@@ -364,7 +364,7 @@ test "WALEntry serialization roundtrip" {
     var buffer: [1024]u8 = undefined;
     const serialized_size = try original_entry.serialize(&buffer);
 
-    const deserialized_entry = try WALEntry.deserialize(buffer[0..serialized_size], allocator);
+    const deserialized_entry = try WALEntry.deserialize(allocator, buffer[0..serialized_size]);
     defer deserialized_entry.deinit(allocator);
 
     try testing.expectEqual(original_entry.checksum, deserialized_entry.checksum);
@@ -392,13 +392,13 @@ test "WALEntry deserialization buffer too small" {
     const allocator = testing.allocator;
 
     var small_buffer: [5]u8 = undefined;
-    try testing.expectError(WALError.BufferTooSmall, WALEntry.deserialize(&small_buffer, allocator));
+    try testing.expectError(WALError.BufferTooSmall, WALEntry.deserialize(allocator, &small_buffer));
     var partial_buffer: [WALEntry.HEADER_SIZE + 5]u8 = undefined;
     std.mem.writeInt(u64, partial_buffer[0..8], 0x1234567890abcdef, .little);
     partial_buffer[8] = 0x01;
     std.mem.writeInt(u32, partial_buffer[9..13], 100, .little);
 
-    try testing.expectError(WALError.BufferTooSmall, WALEntry.deserialize(&partial_buffer, allocator));
+    try testing.expectError(WALError.BufferTooSmall, WALEntry.deserialize(allocator, &partial_buffer));
 }
 
 test "WALEntry deserialization invalid checksum" {
@@ -413,7 +413,7 @@ test "WALEntry deserialization invalid checksum" {
     @memcpy(buffer[13 .. 13 + test_payload.len], test_payload);
 
     const buffer_size = WALEntry.HEADER_SIZE + test_payload.len;
-    try testing.expectError(WALError.InvalidChecksum, WALEntry.deserialize(buffer[0..buffer_size], allocator));
+    try testing.expectError(WALError.InvalidChecksum, WALEntry.deserialize(allocator, buffer[0..buffer_size]));
 }
 
 test "WALEntry deserialization invalid entry type" {
@@ -424,7 +424,7 @@ test "WALEntry deserialization invalid entry type" {
     buffer[8] = 0xFF;
     std.mem.writeInt(u32, buffer[9..13], 0, .little);
 
-    try testing.expectError(WALError.InvalidEntryType, WALEntry.deserialize(&buffer, allocator));
+    try testing.expectError(WALError.InvalidEntryType, WALEntry.deserialize(allocator, &buffer));
 }
 
 test "WALEntry deserialization oversized payload" {
@@ -435,14 +435,14 @@ test "WALEntry deserialization oversized payload" {
     buffer[8] = 0x01;
     std.mem.writeInt(u32, buffer[9..13], MAX_PAYLOAD_SIZE + 1, .little);
 
-    try testing.expectError(WALError.CorruptedEntry, WALEntry.deserialize(&buffer, allocator));
+    try testing.expectError(WALError.CorruptedEntry, WALEntry.deserialize(allocator, &buffer));
 }
 
 test "WALEntry create_put_block" {
     const allocator = testing.allocator;
 
     const test_block = create_test_block();
-    const entry = try WALEntry.create_put_block(test_block, allocator);
+    const entry = try WALEntry.create_put_block(allocator, test_block);
     defer entry.deinit(allocator);
 
     try testing.expectEqual(WALEntryType.put_block, entry.entry_type);
@@ -457,7 +457,7 @@ test "WALEntry create_delete_block" {
     const allocator = testing.allocator;
 
     const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
-    const entry = try WALEntry.create_delete_block(test_id, allocator);
+    const entry = try WALEntry.create_delete_block(allocator, test_id);
     defer entry.deinit(allocator);
 
     try testing.expectEqual(WALEntryType.delete_block, entry.entry_type);
@@ -472,7 +472,7 @@ test "WALEntry create_put_edge" {
     const allocator = testing.allocator;
 
     const test_edge = create_test_edge();
-    const entry = try WALEntry.create_put_edge(test_edge, allocator);
+    const entry = try WALEntry.create_put_edge(allocator, test_edge);
     defer entry.deinit(allocator);
 
     try testing.expectEqual(WALEntryType.put_edge, entry.entry_type);
@@ -525,7 +525,7 @@ test "WALEntry memory management" {
     const allocator = testing.allocator;
 
     const test_block = create_test_block();
-    const entry = try WALEntry.create_put_block(test_block, allocator);
+    const entry = try WALEntry.create_put_block(allocator, test_block);
 
     try testing.expect(entry.payload.len > 0);
     try testing.expectEqual(entry.payload.len, entry.payload_size);
@@ -548,7 +548,7 @@ test "WALEntry edge cases" {
     const serialized_size = try empty_entry.serialize(&buffer);
     try testing.expectEqual(@as(usize, WALEntry.HEADER_SIZE), serialized_size);
 
-    const deserialized = try WALEntry.deserialize(&buffer, allocator);
+    const deserialized = try WALEntry.deserialize(allocator, &buffer);
     defer deserialized.deinit(allocator);
 
     try testing.expectEqual(empty_entry.checksum, deserialized.checksum);
@@ -579,7 +579,7 @@ test "WALEntry large payload handling" {
     const serialized_size = try entry.serialize(buffer);
     try testing.expectEqual(@as(usize, WALEntry.HEADER_SIZE + large_payload_size), serialized_size);
 
-    const deserialized = try WALEntry.deserialize(buffer, allocator);
+    const deserialized = try WALEntry.deserialize(allocator, buffer);
     defer deserialized.deinit(allocator);
 
     try testing.expectEqual(entry.checksum, deserialized.checksum);
@@ -592,7 +592,7 @@ test "WALEntry extract_block success" {
     const allocator = testing.allocator;
 
     const test_block = create_test_block();
-    const entry = try WALEntry.create_put_block(test_block, allocator);
+    const entry = try WALEntry.create_put_block(allocator, test_block);
     defer entry.deinit(allocator);
 
     const owned_block = try entry.extract_block(allocator);
@@ -612,7 +612,7 @@ test "WALEntry extract_block invalid entry type" {
     const allocator = testing.allocator;
 
     const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
-    const entry = try WALEntry.create_delete_block(test_id, allocator);
+    const entry = try WALEntry.create_delete_block(allocator, test_id);
     defer entry.deinit(allocator);
 
     try testing.expectError(WALError.InvalidEntryType, entry.extract_block(allocator));
@@ -622,7 +622,7 @@ test "WALEntry extract_block_id success" {
     const allocator = testing.allocator;
 
     const test_id = BlockId.from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") catch unreachable; // Safety: hardcoded valid hex
-    const entry = try WALEntry.create_delete_block(test_id, allocator);
+    const entry = try WALEntry.create_delete_block(allocator, test_id);
     defer entry.deinit(allocator);
 
     const extracted_id = try entry.extract_block_id();
@@ -633,7 +633,7 @@ test "WALEntry extract_block_id invalid entry type" {
     const allocator = testing.allocator;
 
     const test_block = create_test_block();
-    const entry = try WALEntry.create_put_block(test_block, allocator);
+    const entry = try WALEntry.create_put_block(allocator, test_block);
     defer entry.deinit(allocator);
 
     try testing.expectError(WALError.InvalidEntryType, entry.extract_block_id());
@@ -657,7 +657,7 @@ test "WALEntry extract_edge success" {
     const allocator = testing.allocator;
 
     const test_edge = create_test_edge();
-    const entry = try WALEntry.create_put_edge(test_edge, allocator);
+    const entry = try WALEntry.create_put_edge(allocator, test_edge);
     defer entry.deinit(allocator);
 
     const extracted_edge = try entry.extract_edge();
@@ -670,7 +670,7 @@ test "WALEntry extract_edge invalid entry type" {
     const allocator = testing.allocator;
 
     const test_block = create_test_block();
-    const entry = try WALEntry.create_put_block(test_block, allocator);
+    const entry = try WALEntry.create_put_block(allocator, test_block);
     defer entry.deinit(allocator);
 
     try testing.expectError(WALError.InvalidEntryType, entry.extract_edge());

@@ -614,7 +614,7 @@ test "WAL write single entry" {
     try wal.startup();
 
     const test_block = create_test_block();
-    const entry = try WALEntry.create_put_block(test_block, allocator);
+    const entry = try WALEntry.create_put_block(allocator, test_block);
     defer entry.deinit(allocator);
 
     try wal.write_entry(entry);
@@ -639,7 +639,7 @@ test "WAL write multiple entries" {
     for (0..num_entries) |i| {
         var mutable_test_block = create_test_block();
         mutable_test_block.version = @intCast(i + 1);
-        const entry = try WALEntry.create_put_block(mutable_test_block, allocator);
+        const entry = try WALEntry.create_put_block(allocator, mutable_test_block);
         defer entry.deinit(allocator);
 
         try wal.write_entry(entry);
@@ -661,17 +661,17 @@ test "WAL write different entry types" {
     try wal.startup();
 
     const test_block = create_test_block();
-    const put_entry = try WALEntry.create_put_block(test_block, allocator);
+    const put_entry = try WALEntry.create_put_block(allocator, test_block);
     defer put_entry.deinit(allocator);
     try wal.write_entry(put_entry);
 
     const test_id = BlockId.from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") catch unreachable; // Safety: hardcoded valid hex
-    const delete_entry = try WALEntry.create_delete_block(test_id, allocator);
+    const delete_entry = try WALEntry.create_delete_block(allocator, test_id);
     defer delete_entry.deinit(allocator);
     try wal.write_entry(delete_entry);
 
     const test_edge = create_test_edge();
-    const edge_entry = try WALEntry.create_put_edge(test_edge, allocator);
+    const edge_entry = try WALEntry.create_put_edge(allocator, test_edge);
     defer edge_entry.deinit(allocator);
     try wal.write_entry(edge_entry);
 
@@ -737,7 +737,7 @@ test "WAL recovery functionality" {
         try wal.startup();
 
         const test_block = create_test_block();
-        const entry = try WALEntry.create_put_block(test_block, allocator);
+        const entry = try WALEntry.create_put_block(allocator, test_block);
         defer entry.deinit(allocator);
 
         try wal.write_entry(entry);
@@ -818,7 +818,7 @@ test "WAL statistics accuracy" {
     try testing.expectEqual(@as(u64, 0), initial_stats.bytes_written);
 
     const test_block = create_test_block();
-    const entry = try WALEntry.create_put_block(test_block, allocator);
+    const entry = try WALEntry.create_put_block(allocator, test_block);
     defer entry.deinit(allocator);
 
     const entry_size = WALEntry.HEADER_SIZE + entry.payload.len;
@@ -860,7 +860,7 @@ test "WAL concurrent safety assertions" {
     try wal.startup();
 
     const test_block = create_test_block();
-    const entry = try WALEntry.create_put_block(test_block, allocator);
+    const entry = try WALEntry.create_put_block(allocator, test_block);
     defer entry.deinit(allocator);
 
     try wal.write_entry(entry);

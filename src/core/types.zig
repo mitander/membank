@@ -297,7 +297,7 @@ pub const ContextBlock = struct {
     }
 
     /// Deserialize a ContextBlock from a buffer.
-    pub fn deserialize(buffer: []const u8, allocator: std.mem.Allocator) !ContextBlock {
+    pub fn deserialize(allocator: std.mem.Allocator, buffer: []const u8) !ContextBlock {
         if (buffer.len < BlockHeader.SIZE) return error.BufferTooSmall;
         var offset = BlockHeader.SIZE;
 
@@ -528,7 +528,7 @@ test "ContextBlock serialization roundtrip" {
     const written = try original.serialize(buffer);
     try std.testing.expectEqual(buffer_size, written);
 
-    const deserialized = try ContextBlock.deserialize(buffer, allocator);
+    const deserialized = try ContextBlock.deserialize(allocator, buffer);
     defer deserialized.deinit(allocator);
 
     try std.testing.expect(original.id.eql(deserialized.id));
@@ -668,7 +668,7 @@ test "ContextBlock versioned serialization" {
     defer allocator.free(buffer);
 
     _ = try block_v1.serialize(buffer);
-    const deserialized = try ContextBlock.deserialize(buffer, allocator);
+    const deserialized = try ContextBlock.deserialize(allocator, buffer);
     defer deserialized.deinit(allocator);
 
     try std.testing.expectEqual(@as(u64, 1), deserialized.version);
@@ -696,7 +696,7 @@ test "ContextBlock checksum validation" {
 
     // Should still deserialize but checksum would be wrong
     // (checksum validation would be implemented in higher-level code)
-    const deserialized = try ContextBlock.deserialize(buffer, allocator);
+    const deserialized = try ContextBlock.deserialize(allocator, buffer);
     defer deserialized.deinit(allocator);
 
     try std.testing.expect(block.id.eql(deserialized.id));

@@ -104,19 +104,19 @@ test "streaming recovery basic functionality" {
         .edge_type = EdgeType.references,
     };
 
-    const entry1 = try WALEntry.create_put_block(test_block1, allocator);
+    const entry1 = try WALEntry.create_put_block(allocator, test_block1);
     defer entry1.deinit(allocator);
     try test_wal.write_entry(entry1);
 
-    const entry2 = try WALEntry.create_put_block(test_block2, allocator);
+    const entry2 = try WALEntry.create_put_block(allocator, test_block2);
     defer entry2.deinit(allocator);
     try test_wal.write_entry(entry2);
 
-    const edge_entry = try WALEntry.create_put_edge(test_edge, allocator);
+    const edge_entry = try WALEntry.create_put_edge(allocator, test_edge);
     defer edge_entry.deinit(allocator);
     try test_wal.write_entry(edge_entry);
 
-    const delete_entry = try WALEntry.create_delete_block(test_block1.id, allocator);
+    const delete_entry = try WALEntry.create_delete_block(allocator, test_block1.id);
     defer delete_entry.deinit(allocator);
     try test_wal.write_entry(delete_entry);
 
@@ -156,15 +156,15 @@ test "streaming recovery large entries" {
     const normal_block = try create_test_block(allocator, 2);
     defer normal_block.deinit(allocator);
 
-    const normal_entry1 = try WALEntry.create_put_block(normal_block, allocator);
+    const normal_entry1 = try WALEntry.create_put_block(allocator, normal_block);
     defer normal_entry1.deinit(allocator);
     try test_wal.write_entry(normal_entry1);
 
-    const large_entry = try WALEntry.create_put_block(large_block, allocator);
+    const large_entry = try WALEntry.create_put_block(allocator, large_block);
     defer large_entry.deinit(allocator);
     try test_wal.write_entry(large_entry);
 
-    const normal_entry2 = try WALEntry.create_put_block(normal_block, allocator);
+    const normal_entry2 = try WALEntry.create_put_block(allocator, normal_block);
     defer normal_entry2.deinit(allocator);
     try test_wal.write_entry(normal_entry2);
 
@@ -196,7 +196,7 @@ test "streaming recovery corruption resilience" {
         const valid_block = try create_test_block(allocator, 1);
         defer valid_block.deinit(allocator);
 
-        const valid_entry = try WALEntry.create_put_block(valid_block, allocator);
+        const valid_entry = try WALEntry.create_put_block(allocator, valid_block);
         defer valid_entry.deinit(allocator);
 
         var buffer = try allocator.alloc(u8, 1024);
@@ -218,7 +218,7 @@ test "streaming recovery corruption resilience" {
         const valid_block2 = try create_test_block(allocator, 2);
         defer valid_block2.deinit(allocator);
 
-        const valid_entry2 = try WALEntry.create_put_block(valid_block2, allocator);
+        const valid_entry2 = try WALEntry.create_put_block(allocator, valid_block2);
         defer valid_entry2.deinit(allocator);
 
         var buffer2 = try allocator.alloc(u8, 1024);
@@ -260,7 +260,7 @@ test "streaming recovery memory efficiency" {
         const test_block = try create_test_block(allocator, @as(u32, @intCast(i)) + 1);
         defer test_block.deinit(allocator);
 
-        const entry = try WALEntry.create_put_block(test_block, allocator);
+        const entry = try WALEntry.create_put_block(allocator, test_block);
         defer entry.deinit(allocator);
         try test_wal.write_entry(entry);
     }
@@ -312,7 +312,7 @@ test "streaming recovery callback error propagation" {
     const test_block = try create_test_block(allocator, 1);
     defer test_block.deinit(allocator);
 
-    const entry = try WALEntry.create_put_block(test_block, allocator);
+    const entry = try WALEntry.create_put_block(allocator, test_block);
     defer entry.deinit(allocator);
     try test_wal.write_entry(entry);
 
@@ -362,7 +362,7 @@ test "streaming vs buffered recovery equivalence" {
         allocator.free(test_block.content);
         test_block.content = new_content;
 
-        const entry = try WALEntry.create_put_block(test_block, allocator);
+        const entry = try WALEntry.create_put_block(allocator, test_block);
         defer entry.deinit(allocator);
         try test_wal.write_entry(entry);
     }

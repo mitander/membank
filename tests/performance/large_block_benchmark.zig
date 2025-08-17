@@ -102,7 +102,7 @@ test "large block storage engine performance" {
 
             // Profile WAL entry creation separately
             const wal_start = std.time.nanoTimestamp();
-            const wal_entry = try kausaldb.storage.WALEntry.create_put_block(test_block, allocator);
+            const wal_entry = try kausaldb.storage.WALEntry.create_put_block(allocator, test_block);
             const wal_end = std.time.nanoTimestamp();
             defer wal_entry.deinit(allocator);
 

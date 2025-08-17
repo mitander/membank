@@ -65,7 +65,7 @@ test "magic number detection" {
             .metadata_json = "{\"test\":\"magic_corruption\"}",
             .content = "Valid block before magic corruption",
         };
-        const entry = try WALEntry.create_put_block(test_block, allocator);
+        const entry = try WALEntry.create_put_block(allocator, test_block);
         defer entry.deinit(allocator);
         try wal.write_entry(entry);
     }
@@ -214,7 +214,7 @@ test "boundary conditions" {
             .metadata_json = metadata_json,
             .content = owned_content,
         };
-        const entry = try WALEntry.create_put_block(block, allocator);
+        const entry = try WALEntry.create_put_block(allocator, block);
         defer entry.deinit(allocator);
         try wal.write_entry(entry);
 
@@ -251,7 +251,7 @@ test "recovery partial success" {
                 .metadata_json = "{\"test\":\"wal_corruption_recovery\"}",
                 .content = "Partial recovery test block content",
             };
-            const entry = try WALEntry.create_put_block(block, allocator);
+            const entry = try WALEntry.create_put_block(allocator, block);
             defer entry.deinit(allocator);
             try wal.write_entry(entry);
         }
@@ -267,7 +267,7 @@ test "recovery partial success" {
                 .metadata_json = "{\"test\":\"wal_corruption_recovery\"}",
                 .content = "Corruptible entry test block content",
             };
-            const entry = try WALEntry.create_put_block(block, allocator);
+            const entry = try WALEntry.create_put_block(allocator, block);
             defer entry.deinit(allocator);
             try wal.write_entry(entry);
         }
@@ -366,7 +366,7 @@ test "large entry handling" {
         .metadata_json = "{\"test\":\"systematic_recovery\"}",
         .content = owned_content,
     };
-    const large_entry = try WALEntry.create_put_block(large_block, allocator);
+    const large_entry = try WALEntry.create_put_block(allocator, large_block);
     defer large_entry.deinit(allocator);
     try wal.write_entry(large_entry);
 
@@ -383,7 +383,7 @@ test "large entry handling" {
             .metadata_json = "{\"test\":\"checksum_corruption\"}",
             .content = owned_small_content,
         };
-        const entry = try WALEntry.create_put_block(block, allocator);
+        const entry = try WALEntry.create_put_block(allocator, block);
         defer entry.deinit(allocator);
         try wal.write_entry(entry);
     }
@@ -403,7 +403,7 @@ test "large entry handling" {
 
     // Verify recovery succeeded by writing a test entry
     const test_block = create_test_block_from_int(999, "recovery_verification");
-    const recovery_test_entry = try WALEntry.create_put_block(test_block, allocator);
+    const recovery_test_entry = try WALEntry.create_put_block(allocator, test_block);
     defer recovery_test_entry.deinit(allocator);
     try recovery_wal.write_entry(recovery_test_entry);
 }
@@ -444,7 +444,7 @@ test "defensive timeout recovery" {
                 .metadata_json = "{\"test\":\"mixed_corruption\"}",
                 .content = owned_content,
             };
-            const entry = try WALEntry.create_put_block(block, allocator);
+            const entry = try WALEntry.create_put_block(allocator, block);
             defer entry.deinit(allocator);
             try wal.write_entry(entry);
 
@@ -474,7 +474,7 @@ test "defensive timeout recovery" {
 
     // Verify recovery succeeded by writing a test entry
     const test_block = create_test_block_from_int(998, "timeout_recovery_verification");
-    const recovery_test_entry = try WALEntry.create_put_block(test_block, allocator);
+    const recovery_test_entry = try WALEntry.create_put_block(allocator, test_block);
     defer recovery_test_entry.deinit(allocator);
     try recovery_wal.write_entry(recovery_test_entry);
 
@@ -507,7 +507,7 @@ test "edge case patterns" {
         .metadata_json = "{\"test\":\"empty_content\"}",
         .content = "",
     };
-    const empty_entry = try WALEntry.create_put_block(empty_block, allocator);
+    const empty_entry = try WALEntry.create_put_block(allocator, empty_block);
     defer empty_entry.deinit(allocator);
     try wal.write_entry(empty_entry);
 
@@ -522,7 +522,7 @@ test "edge case patterns" {
         .metadata_json = "{\"type\":\"tiny\"}",
         .content = "pub fn tiny() void {}",
     };
-    const tiny_entry = try WALEntry.create_put_block(tiny_block, allocator);
+    const tiny_entry = try WALEntry.create_put_block(allocator, tiny_block);
     defer tiny_entry.deinit(allocator);
     try wal.write_entry(tiny_entry);
 
@@ -535,14 +535,14 @@ test "edge case patterns" {
         .metadata_json = "{\"test\":\"wal_corruption_special\"}",
         .content = &special_bytes,
     };
-    const special_entry = try WALEntry.create_put_block(special_block, allocator);
+    const special_entry = try WALEntry.create_put_block(allocator, special_block);
     defer special_entry.deinit(allocator);
     try wal.write_entry(special_entry);
 
     // Block with null bytes embedded
     const null_embedded = "Start\x00Middle\x00End";
     const null_block = create_test_block_from_int(4, null_embedded);
-    const null_entry = try WALEntry.create_put_block(null_block, allocator);
+    const null_entry = try WALEntry.create_put_block(allocator, null_block);
     defer null_entry.deinit(allocator);
     try wal.write_entry(null_entry);
 
@@ -562,7 +562,7 @@ test "edge case patterns" {
         };
     }
     const pattern_block = create_test_block_from_int(5, large_content);
-    const pattern_entry = try WALEntry.create_put_block(pattern_block, allocator);
+    const pattern_entry = try WALEntry.create_put_block(allocator, pattern_block);
     defer pattern_entry.deinit(allocator);
     try wal.write_entry(pattern_entry);
 
@@ -577,7 +577,7 @@ test "edge case patterns" {
     try recovery_wal.startup();
     // Verify recovery by attempting to write a test entry
     const test_block = create_test_block_from_int(997, "pattern_recovery_verification");
-    const verify_entry = try WALEntry.create_put_block(test_block, allocator);
+    const verify_entry = try WALEntry.create_put_block(allocator, test_block);
     defer verify_entry.deinit(allocator);
     try recovery_wal.write_entry(verify_entry);
 }
@@ -619,7 +619,7 @@ test "memory safety during recovery" {
                 .metadata_json = "{\"test\":\"truncated_entry_recovery\"}",
                 .content = owned_content,
             };
-            const entry = try WALEntry.create_put_block(block, allocator);
+            const entry = try WALEntry.create_put_block(allocator, block);
             defer entry.deinit(allocator);
             try wal.write_entry(entry);
 

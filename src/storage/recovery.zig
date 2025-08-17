@@ -296,7 +296,7 @@ test "apply wal entry to storage with block operations" {
         .content = "test content",
     };
 
-    const put_entry = try WALEntry.create_put_block(block, testing.allocator);
+    const put_entry = try WALEntry.create_put_block(testing.allocator, block);
     defer put_entry.deinit(testing.allocator);
 
     try apply_wal_entry_to_storage(put_entry, &context);
@@ -305,7 +305,7 @@ test "apply wal entry to storage with block operations" {
     try testing.expectEqual(@as(u32, 1), context.stats.total_entries_processed);
     try testing.expectEqual(@as(u32, 1), setup.block_index.block_count());
 
-    const delete_entry = try WALEntry.create_delete_block(block_id, testing.allocator);
+    const delete_entry = try WALEntry.create_delete_block(testing.allocator, block_id);
     defer delete_entry.deinit(testing.allocator);
 
     try apply_wal_entry_to_storage(delete_entry, &context);
@@ -329,7 +329,7 @@ test "apply wal entry to storage with edge operations" {
         .edge_type = .calls,
     };
 
-    const edge_entry = try WALEntry.create_put_edge(edge, testing.allocator);
+    const edge_entry = try WALEntry.create_put_edge(testing.allocator, edge);
     defer edge_entry.deinit(testing.allocator);
 
     try apply_wal_entry_to_storage(edge_entry, &context);
@@ -380,7 +380,7 @@ test "recovery callback handles corrupted blocks gracefully" {
         .content = "test content",
     };
 
-    const entry = try WALEntry.create_put_block(test_block, testing.allocator);
+    const entry = try WALEntry.create_put_block(testing.allocator, test_block);
     defer entry.deinit(testing.allocator);
 
     // Should process successfully
@@ -428,18 +428,18 @@ test "complete recovery workflow with mixed operations" {
         .edge_type = .calls,
     };
 
-    const put_entry = try WALEntry.create_put_block(block1, allocator);
+    const put_entry = try WALEntry.create_put_block(allocator, block1);
     defer put_entry.deinit(allocator);
     try wal_instance.write_entry(put_entry);
-    const put_entry2 = try WALEntry.create_put_block(block2, allocator);
+    const put_entry2 = try WALEntry.create_put_block(allocator, block2);
     defer put_entry2.deinit(allocator);
     try wal_instance.write_entry(put_entry2);
 
-    const edge_entry = try WALEntry.create_put_edge(edge, allocator);
+    const edge_entry = try WALEntry.create_put_edge(allocator, edge);
     defer edge_entry.deinit(allocator);
     try wal_instance.write_entry(edge_entry);
 
-    const delete_entry = try WALEntry.create_delete_block(block2.id, allocator);
+    const delete_entry = try WALEntry.create_delete_block(allocator, block2.id);
     defer delete_entry.deinit(allocator);
     try wal_instance.write_entry(delete_entry);
 

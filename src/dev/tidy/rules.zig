@@ -42,6 +42,13 @@ pub const RuleContext = struct {
         parameter_count: u32,
         line_count: u32,
         calls: []const []const u8, // Functions this function calls
+        parameters: []const ParameterInfo, // Function parameters for detailed analysis
+    };
+
+    pub const ParameterInfo = struct {
+        name: []const u8,
+        type_name: ?[]const u8,
+        position: u32, // 0-indexed parameter position
     };
 
     pub const VariableInfo = struct {
@@ -213,6 +220,12 @@ pub const KAUSALDB_RULES = [_]Rule{
         .description = "Encourage standardized test harness usage over manual VFS/StorageEngine setup",
         .violation_type = .architecture,
         .check_fn = check_test_harness_usage,
+    },
+    .{
+        .name = "allocator_first_parameter",
+        .description = "Enforce that std.mem.Allocator should always be the first parameter in functions",
+        .violation_type = .naming_convention,
+        .check_fn = check_allocator_first_parameter,
     },
 };
 
@@ -446,11 +459,19 @@ fn check_arena_usage(context: *RuleContext) []const Rule.RuleViolation {
                 std.mem.indexOf(u8, local_context, "while (") == null;
 
             if (is_large_bulk_operation and !uses_arena and !is_small_collection) {
-                violations.append(.{
-                    .line = line_num,
-                    .message = "Large-scale bulk operations benefit from arena allocation",
-                    .suggested_fix = "Consider ArenaAllocator for bulk data with clear lifecycle (init->process->deinit)",
-                }) catch continue;
+                // Check for tidy ignore comment
+                const line_start = find_line_start(context.source, pos);
+                const line_end = std.mem.indexOfScalarPos(u8, context.source, pos, '\n') orelse context.source.len;
+                const line_content = context.source[line_start..line_end];
+                const has_suppression = std.mem.indexOf(u8, line_content, "// tidy:ignore-memory") != null;
+
+                if (!has_suppression) {
+                    violations.append(.{ // tidy:ignore-perf capacity pre-allocated in function init
+                        .line = line_num,
+                        .message = "Large-scale bulk operations benefit from arena allocation",
+                        .suggested_fix = "Consider ArenaAllocator for bulk data with clear lifecycle (init->process->deinit)",
+                    }) catch continue;
+                }
             }
 
             search_pos = pos + 1;
@@ -1672,4 +1693,79 @@ fn check_test_harness_usage(context: *RuleContext) []const Rule.RuleViolation {
     }
 
     return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+}
+
+/// Rule: Enforce that std.mem.Allocator should always be the first parameter
+/// Following Zig standard library conventions for consistent API design
+fn check_allocator_first_parameter(context: *RuleContext) []const Rule.RuleViolation {
+    var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+    // Pre-allocate based on function count - typically much fewer violations than functions
+    violations.ensureTotalCapacity(@min(context.functions.len, 50)) catch {};
+
+    // Skip test files - they often use testing.allocator and have different patterns
+    if (std.mem.indexOf(u8, context.file_path, "test") != null or
+        std.mem.endsWith(u8, context.file_path, "_test.zig") or
+        std.mem.indexOf(u8, context.file_path, "tidy/rules.zig") != null)
+    {
+        return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+    }
+
+    for (context.functions) |func| {
+        // Skip functions with less than 2 parameters (allocator + at least one other)
+        if (func.parameters.len < 2) continue;
+
+        // Skip special lifecycle functions that don't typically take allocators first
+        if (std.mem.eql(u8, func.name, "main") or
+            std.mem.eql(u8, func.name, "init") or
+            std.mem.eql(u8, func.name, "deinit") or
+            std.mem.eql(u8, func.name, "startup") or
+            std.mem.eql(u8, func.name, "shutdown") or
+            std.mem.startsWith(u8, func.name, "test") or
+            // Skip interface implementation functions (ptr comes first by convention)
+            std.mem.endsWith(u8, func.name, "_impl") or
+            // Skip methods (first param is usually self or pointer types)
+            (func.parameters.len > 0 and (std.mem.eql(u8, func.parameters[0].name, "self") or
+                (func.parameters[0].type_name != null and
+                    (std.mem.startsWith(u8, func.parameters[0].type_name.?, "*") or
+                        std.mem.startsWith(u8, func.parameters[0].type_name.?, "?*"))))))
+        {
+            continue;
+        }
+
+        // Look for allocator parameters
+        var allocator_param_pos: ?u32 = null;
+        for (func.parameters, 0..) |param, i| {
+            if (param.type_name) |type_name| {
+                if (is_allocator_type(type_name)) {
+                    allocator_param_pos = @intCast(i);
+                    break;
+                }
+            }
+        }
+
+        // If function has an allocator parameter and it's not first, flag it
+        if (allocator_param_pos) |pos| {
+            if (pos != 0) {
+                violations.append(.{ // tidy:ignore-perf capacity pre-allocated based on function count
+                    .line = func.line,
+                    .message = "Allocator parameter should be first, following Zig standard library conventions",
+                    .context = "Found allocator not in first position",
+                    .suggested_fix = "Move allocator parameter to first position for consistent API design",
+                }) catch continue;
+            }
+        }
+    }
+
+    return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+}
+
+/// Check if a type string represents an allocator type
+fn is_allocator_type(type_name: []const u8) bool {
+    return std.mem.eql(u8, type_name, "std.mem.Allocator") or
+        std.mem.eql(u8, type_name, "Allocator") or
+        std.mem.eql(u8, type_name, "std.mem.ArenaAllocator") or
+        std.mem.eql(u8, type_name, "ArenaAllocator") or
+        std.mem.endsWith(u8, type_name, "Allocator") or
+        std.mem.indexOf(u8, type_name, "arena") != null or
+        std.mem.indexOf(u8, type_name, "Arena") != null;
 }

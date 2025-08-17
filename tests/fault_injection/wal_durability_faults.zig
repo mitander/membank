@@ -89,7 +89,7 @@ test "recovery after system restart with partial data" {
                 .content = "test content for WAL durability",
             };
 
-            var entry = try WALEntry.create_put_block(block, allocator);
+            var entry = try WALEntry.create_put_block(allocator, block);
             defer entry.deinit(allocator);
 
             try wal.write_entry(entry);
@@ -121,7 +121,7 @@ test "recovery after system restart with partial data" {
             .content = "Post-recovery verification block",
         };
 
-        var new_entry = try WALEntry.create_put_block(new_block, allocator);
+        var new_entry = try WALEntry.create_put_block(allocator, new_block);
         defer new_entry.deinit(allocator);
 
         try wal.write_entry(new_entry);
@@ -165,7 +165,7 @@ test "I/O failure during flush operations" {
             .content = content,
         };
 
-        var entry = try WALEntry.create_put_block(block, allocator);
+        var entry = try WALEntry.create_put_block(allocator, block);
         defer entry.deinit(allocator);
 
         try wal.write_entry(entry);
@@ -196,7 +196,7 @@ test "I/O failure during flush operations" {
             .content = content,
         };
 
-        var entry = try WALEntry.create_put_block(block, allocator);
+        var entry = try WALEntry.create_put_block(allocator, block);
         defer entry.deinit(allocator);
 
         const write_result = wal.write_entry(entry);
@@ -227,7 +227,7 @@ test "I/O failure during flush operations" {
         .content = "IO failure recovery test block content",
     };
 
-    var recovery_entry = try WALEntry.create_put_block(recovery_block, allocator);
+    var recovery_entry = try WALEntry.create_put_block(allocator, recovery_block);
     defer recovery_entry.deinit(allocator);
 
     try wal.write_entry(recovery_entry);
@@ -283,7 +283,7 @@ test "disk space exhaustion handling" {
             .content = content,
         };
 
-        var entry = try WALEntry.create_put_block(block, allocator);
+        var entry = try WALEntry.create_put_block(allocator, block);
         defer entry.deinit(allocator);
 
         const write_result = wal.write_entry(entry);
@@ -317,7 +317,7 @@ test "disk space exhaustion handling" {
         .content = "I/O failure recovery test block",
     };
 
-    var recovery_entry = try WALEntry.create_put_block(recovery_block, allocator);
+    var recovery_entry = try WALEntry.create_put_block(allocator, recovery_block);
     defer recovery_entry.deinit(allocator);
 
     try wal.write_entry(recovery_entry); // Should succeed with I/O failures disabled
@@ -359,7 +359,7 @@ test "power loss simulation during segment rotation" {
             .content = large_content,
         };
 
-        var entry = try WALEntry.create_put_block(block, allocator);
+        var entry = try WALEntry.create_put_block(allocator, block);
         defer entry.deinit(allocator);
 
         const stats_before = wal.statistics();
@@ -387,7 +387,7 @@ test "power loss simulation during segment rotation" {
         .content = "Power loss simulation test block",
     };
 
-    var power_loss_entry = try WALEntry.create_put_block(power_loss_block, allocator);
+    var power_loss_entry = try WALEntry.create_put_block(allocator, power_loss_block);
     defer power_loss_entry.deinit(allocator);
 
     const power_loss_result = wal.write_entry(power_loss_entry);
@@ -413,7 +413,7 @@ test "power loss simulation during segment rotation" {
         .content = "Power loss recovery test block content",
     };
 
-    var post_recovery_entry = try WALEntry.create_put_block(post_recovery_block, allocator);
+    var post_recovery_entry = try WALEntry.create_put_block(allocator, post_recovery_block);
     defer post_recovery_entry.deinit(allocator);
 
     try wal.write_entry(post_recovery_entry);
@@ -462,7 +462,7 @@ test "recovery robustness with simulated disk errors" {
             .content = content,
         };
 
-        var entry = try WALEntry.create_put_block(block, allocator);
+        var entry = try WALEntry.create_put_block(allocator, block);
         defer entry.deinit(allocator);
 
         try wal.write_entry(entry);
@@ -485,7 +485,7 @@ test "recovery robustness with simulated disk errors" {
             .content = "Concurrent access single test block content",
         };
 
-        var entry = try WALEntry.create_put_block(single_block, allocator);
+        var entry = try WALEntry.create_put_block(allocator, single_block);
         defer entry.deinit(allocator);
 
         writes_attempted += 1;
@@ -519,7 +519,7 @@ test "recovery robustness with simulated disk errors" {
         .content = "WAL durability recovery test block content",
     };
 
-    var recovery_entry = try WALEntry.create_put_block(recovery_block, allocator);
+    var recovery_entry = try WALEntry.create_put_block(allocator, recovery_block);
     defer recovery_entry.deinit(allocator);
 
     try wal.write_entry(recovery_entry); // Should succeed
@@ -556,7 +556,7 @@ test "concurrent failure modes stress test" {
             .content = "WAL validation stress test block content",
         };
 
-        var entry = try WALEntry.create_put_block(block, allocator);
+        var entry = try WALEntry.create_put_block(allocator, block);
         defer entry.deinit(allocator);
 
         try wal.write_entry(entry);
@@ -587,7 +587,7 @@ test "concurrent failure modes stress test" {
             .content = content,
         };
 
-        var entry = try WALEntry.create_put_block(block, allocator);
+        var entry = try WALEntry.create_put_block(allocator, block);
         defer entry.deinit(allocator);
 
         total_attempts += 1;
@@ -617,7 +617,7 @@ test "concurrent failure modes stress test" {
     const recovery_block = try TestData.create_test_block(allocator, 999);
     defer TestData.cleanup_test_block(allocator, recovery_block);
 
-    var recovery_entry = try WALEntry.create_put_block(recovery_block, allocator);
+    var recovery_entry = try WALEntry.create_put_block(allocator, recovery_block);
     defer recovery_entry.deinit(allocator);
 
     try wal.write_entry(recovery_entry);

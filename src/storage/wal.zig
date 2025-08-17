@@ -57,7 +57,7 @@ test "WAL entry serialization roundtrip" {
         .content = "Hello, WAL!",
     };
 
-    var wal_entry = try WALEntry.create_put_block(test_block, allocator);
+    var wal_entry = try WALEntry.create_put_block(allocator, test_block);
     defer wal_entry.deinit(allocator);
 
     const serialized_size = WALEntry.HEADER_SIZE + wal_entry.payload.len;
@@ -67,7 +67,7 @@ test "WAL entry serialization roundtrip" {
     const bytes_written = try wal_entry.serialize(buffer);
     try testing.expect(bytes_written == serialized_size);
 
-    var deserialized_entry = try WALEntry.deserialize(buffer, allocator);
+    var deserialized_entry = try WALEntry.deserialize(allocator, buffer);
     defer deserialized_entry.deinit(allocator);
 
     try testing.expect(deserialized_entry.checksum == wal_entry.checksum);
@@ -97,7 +97,7 @@ test "WAL basic write and recovery" {
         .content = "Test content",
     };
 
-    var entry = try WALEntry.create_put_block(test_block, allocator);
+    var entry = try WALEntry.create_put_block(allocator, test_block);
     defer entry.deinit(allocator);
 
     try wal.write_entry(entry);
@@ -154,7 +154,7 @@ test "WAL segment rotation" {
             .content = large_content,
         };
 
-        var entry = try WALEntry.create_put_block(test_block, allocator);
+        var entry = try WALEntry.create_put_block(allocator, test_block);
         defer entry.deinit(allocator);
 
         try wal.write_entry(entry);

@@ -147,7 +147,7 @@ pub const MemtableManager = struct {
                     return err;
                 };
             } else {
-                const wal_entry = try WALEntry.create_put_block(block, self.backing_allocator);
+                const wal_entry = try WALEntry.create_put_block(self.backing_allocator, block);
                 defer wal_entry.deinit(self.backing_allocator);
                 self.wal.write_entry(wal_entry) catch |err| {
                     fatal_assert(false, "WAL entry write failed before memtable update: {}", .{err});
@@ -185,7 +185,7 @@ pub const MemtableManager = struct {
         concurrency.assert_main_thread();
 
         // CRITICAL: WAL write must complete before memtable update for durability guarantees
-        const wal_entry = try WALEntry.create_delete_block(block_id, self.backing_allocator);
+        const wal_entry = try WALEntry.create_delete_block(self.backing_allocator, block_id);
         defer wal_entry.deinit(self.backing_allocator);
         self.wal.write_entry(wal_entry) catch |err| {
             fatal_assert(false, "WAL delete entry write failed before memtable update: {}", .{err});
@@ -219,7 +219,7 @@ pub const MemtableManager = struct {
     pub fn put_edge_durable(self: *MemtableManager, edge: GraphEdge) !void {
         concurrency.assert_main_thread();
 
-        const wal_entry = try WALEntry.create_put_edge(edge, self.backing_allocator);
+        const wal_entry = try WALEntry.create_put_edge(self.backing_allocator, edge);
         defer wal_entry.deinit(self.backing_allocator);
         try self.wal.write_entry(wal_entry);
 
@@ -285,7 +285,7 @@ pub const MemtableManager = struct {
         if (block.content.len >= 512 * 1024) {
             try self.wal.write_block_streaming(block.*);
         } else {
-            const wal_entry = try WALEntry.create_put_block(block.*, self.backing_allocator);
+            const wal_entry = try WALEntry.create_put_block(self.backing_allocator, block.*);
             defer wal_entry.deinit(self.backing_allocator);
             try self.wal.write_entry(wal_entry);
         }

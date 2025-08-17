@@ -558,7 +558,7 @@ pub const SSTable = struct {
 
         _ = try file.read(buffer);
 
-        const block_data = try ContextBlock.deserialize(buffer, self.arena_coordinator.allocator());
+        const block_data = try ContextBlock.deserialize(self.arena_coordinator.allocator(), buffer);
         return SSTableBlock.init(block_data);
     }
 
@@ -629,7 +629,7 @@ pub const SSTableIterator = struct {
 
         _ = try self.file.?.read(buffer);
 
-        const block_data = try ContextBlock.deserialize(buffer, self.sstable.arena_coordinator.allocator());
+        const block_data = try ContextBlock.deserialize(self.sstable.arena_coordinator.allocator(), buffer);
         return SSTableBlock.init(block_data);
     }
 };

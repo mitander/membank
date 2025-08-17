@@ -11,6 +11,7 @@ const RuleContext = rules.RuleContext;
 const FunctionInfo = RuleContext.FunctionInfo;
 const VariableInfo = RuleContext.VariableInfo;
 const ImportInfo = RuleContext.ImportInfo;
+const ParameterInfo = RuleContext.ParameterInfo;
 
 /// Parse source code into semantic context for rule evaluation
 pub fn parse_source(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8) !RuleContext {
@@ -67,6 +68,9 @@ fn parse_function(line: []const u8, line_num: u32) ?FunctionInfo {
     const params = remaining[paren_pos + 1 .. paren_pos + params_end];
     const param_count = if (std.mem.trim(u8, params, " \t").len == 0) 0 else count_commas(params) + 1;
 
+    // Parameter parsing used by allocator-first rule for semantic analysis
+    const parameters = parse_parameters(params) catch &[_]ParameterInfo{};
+
     return FunctionInfo{
         .name = func_name,
         .line = line_num,
@@ -74,6 +78,7 @@ fn parse_function(line: []const u8, line_num: u32) ?FunctionInfo {
         .parameter_count = @intCast(param_count),
         .line_count = 0, // TODO: Calculate by finding function end
         .calls = &[_][]const u8{}, // TODO: Extract function calls
+        .parameters = parameters,
     };
 }
 
@@ -131,6 +136,46 @@ fn parse_import(line: []const u8, line_num: u32) ?ImportInfo {
         .module = module_name,
         .line = line_num,
     };
+}
+
+/// Parse individual parameters from parameter list string
+fn parse_parameters(params_str: []const u8) ![]ParameterInfo {
+    const trimmed = std.mem.trim(u8, params_str, " \t");
+    if (trimmed.len == 0) return &[_]ParameterInfo{};
+
+    var parameters = std.ArrayList(ParameterInfo).init(std.heap.page_allocator);
+    var param_iter = std.mem.splitSequence(u8, trimmed, ",");
+    var position: u32 = 0;
+
+    while (param_iter.next()) |param| {
+        const param_trimmed = std.mem.trim(u8, param, " \t");
+        if (param_trimmed.len == 0) continue;
+
+        // Parse "name: type" pattern
+        if (std.mem.indexOf(u8, param_trimmed, ":")) |colon_pos| {
+            const param_name = std.mem.trim(u8, param_trimmed[0..colon_pos], " \t");
+            const type_part = std.mem.trim(u8, param_trimmed[colon_pos + 1 ..], " \t");
+
+            if (param_name.len > 0) {
+                try parameters.append(ParameterInfo{
+                    .name = param_name,
+                    .type_name = if (type_part.len > 0) type_part else null,
+                    .position = position,
+                });
+                position += 1;
+            }
+        } else {
+            // Handle cases like "self" without type annotation
+            try parameters.append(ParameterInfo{
+                .name = param_trimmed,
+                .type_name = null,
+                .position = position,
+            });
+            position += 1;
+        }
+    }
+
+    return parameters.toOwnedSlice();
 }
 
 /// Count commas in parameter list (simple parameter counting)
