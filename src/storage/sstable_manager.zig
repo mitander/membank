@@ -338,12 +338,25 @@ pub const SSTableManager = struct {
 
     /// Get the total number of blocks across all SSTables.
     /// Used for system-wide statistics and validation.
-    /// Returns 0 as placeholder - actual implementation would scan SSTable indexes.
+    /// Iterates through all managed SSTables and sums their block counts.
     pub fn total_block_count(self: *const SSTableManager) u64 {
-        // Placeholder implementation - real version would sum blocks across all SSTables
-        // For now, return 0 to avoid expensive SSTable scanning during validation
-        _ = self;
-        return 0;
+        var total: u64 = 0;
+
+        for (self.sstable_paths.items) |sstable_path| {
+            // Create temporary SSTable instance to read header and get block count
+            var sstable_file = SSTable.init(self.arena_coordinator, self.backing_allocator, self.vfs, sstable_path);
+            defer sstable_file.deinit();
+
+            // Read index to get the block count from SSTable header
+            if (sstable_file.read_index()) {
+                total += sstable_file.block_count;
+            } else |err| {
+                // Log error but continue counting other SSTables for resilience
+                log.warn("Failed to read SSTable index for '{s}': {any} - excluding from block count", .{ sstable_path, err });
+            }
+        }
+
+        return total;
     }
 
     /// Discover existing SSTable files and register with compaction manager.
@@ -681,4 +694,62 @@ test "SSTableManager finds owned blocks in SSTables" {
 
     const missing_block = try manager.find_block_in_sstables(BlockId.generate(), .simulation_test, query_arena.allocator());
     try testing.expect(missing_block == null);
+}
+
+test "SSTableManager total_block_count aggregates across SSTables" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = try simulation_vfs.SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const coordinator = ArenaCoordinator.init(&arena);
+    var manager = SSTableManager.init(&coordinator, allocator, sim_vfs.vfs(), "/test/data");
+    defer manager.deinit();
+
+    try manager.startup();
+
+    // Initially no blocks
+    try testing.expectEqual(@as(u64, 0), manager.total_block_count());
+
+    // Create first SSTable with 2 blocks
+    const block1 = ContextBlock{
+        .id = BlockId.generate(),
+        .version = 1,
+        .source_uri = "file://test1.zig",
+        .metadata_json = "{}",
+        .content = "test content 1",
+    };
+    const block2 = ContextBlock{
+        .id = BlockId.generate(),
+        .version = 1,
+        .source_uri = "file://test2.zig",
+        .metadata_json = "{}",
+        .content = "test content 2",
+    };
+
+    const owned_block1 = OwnedBlock.init(block1, .simulation_test, null);
+    const owned_block2 = OwnedBlock.init(block2, .simulation_test, null);
+    const first_sstable_blocks = [_]OwnedBlock{ owned_block1, owned_block2 };
+    try manager.create_new_sstable(&first_sstable_blocks, .simulation_test);
+
+    // Should have 2 blocks total
+    try testing.expectEqual(@as(u64, 2), manager.total_block_count());
+
+    // Create second SSTable with 1 block
+    const block3 = ContextBlock{
+        .id = BlockId.generate(),
+        .version = 1,
+        .source_uri = "file://test3.zig",
+        .metadata_json = "{}",
+        .content = "test content 3",
+    };
+
+    const owned_block3 = OwnedBlock.init(block3, .simulation_test, null);
+    const second_sstable_blocks = [_]OwnedBlock{owned_block3};
+    try manager.create_new_sstable(&second_sstable_blocks, .simulation_test);
+
+    // Should have 3 blocks total across both SSTables
+    try testing.expectEqual(@as(u64, 3), manager.total_block_count());
 }

@@ -229,7 +229,9 @@ pub const WAL = struct {
             self.vfs.sync() catch return WALError.IoError;
         }
 
-        if (write_buffer.len >= WALEntry.HEADER_SIZE) {
+        // Write verification enabled only in debug builds for performance
+        // In release builds, WAL corruption is detected during recovery
+        if (builtin.mode == .Debug and write_buffer.len >= WALEntry.HEADER_SIZE) {
             const current_pos = self.active_file.?.tell() catch return WALError.IoError;
             const verify_pos = current_pos - write_buffer.len;
 

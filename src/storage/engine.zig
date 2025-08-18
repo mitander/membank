@@ -454,15 +454,9 @@ pub const StorageEngine = struct {
         self.state.transition(.running);
     }
 
-    /// Write a Context Block to storage with full durability guarantees.
-    /// Uses zero-cost ownership for safety without performance overhead.
-    /// Accepts either OwnedBlock (preferred) or ContextBlock (wrapped automatically).
-    pub fn put_block(self: *StorageEngine, block: anytype) !void {
-        const owned_block = switch (@TypeOf(block)) {
-            OwnedBlock => block,
-            ContextBlock => OwnedBlock.take_ownership(block, .memtable_manager),
-            else => @compileError("put_block() accepts OwnedBlock or ContextBlock only"),
-        };
+    /// Write an OwnedBlock to storage with full durability guarantees.
+    /// Preferred method that uses zero-cost ownership for safety without performance overhead.
+    pub fn put_block_owned(self: *StorageEngine, owned_block: OwnedBlock) !void {
         concurrency.assert_main_thread();
 
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
@@ -510,6 +504,23 @@ pub const StorageEngine = struct {
         // Validate invariants after mutation in debug builds
         if (builtin.mode == .Debug) {
             self.validate_invariants();
+        }
+    }
+
+    /// Write a ContextBlock to storage with automatic ownership transfer.
+    /// Convenience method that wraps the block with memtable_manager ownership.
+    pub fn put_block_raw(self: *StorageEngine, block: ContextBlock) !void {
+        const owned_block = OwnedBlock.take_ownership(block, .memtable_manager);
+        return self.put_block_owned(owned_block);
+    }
+
+    /// Legacy compatibility method - delegates to type-safe overloads.
+    /// DEPRECATED: Use put_block_owned() or put_block_raw() for clarity.
+    pub fn put_block(self: *StorageEngine, block: anytype) !void {
+        switch (@TypeOf(block)) {
+            OwnedBlock => return self.put_block_owned(block),
+            ContextBlock => return self.put_block_raw(block),
+            else => @compileError("put_block() accepts OwnedBlock or ContextBlock only"),
         }
     }
 
