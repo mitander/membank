@@ -41,6 +41,7 @@ comptime {
     _ = @import("storage/engine.zig");
     _ = @import("storage/graph_edge_index.zig");
     _ = @import("storage/memtable_manager.zig");
+    _ = @import("storage/metadata_index.zig");
     _ = @import("storage/metrics.zig");
     _ = @import("storage/recovery.zig");
     _ = @import("storage/sstable.zig");

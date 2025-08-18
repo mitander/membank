@@ -2,7 +2,8 @@
 //!
 //! Provides configurable filter conditions for block metadata, content,
 //! and graph structure. Supports complex boolean logic and
-//! execution against the storage layer.
+//! execution against the storage layer. Includes secondary index support
+//! for optimized metadata field queries.
 
 const std = @import("std");
 const assert = @import("../core/assert.zig").assert;
@@ -10,6 +11,7 @@ const storage = @import("../storage/engine.zig");
 const context_block = @import("../core/types.zig");
 const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const metadata_index = @import("../storage/metadata_index.zig");
 const testing = std.testing;
 
 const StorageEngine = storage.StorageEngine;
@@ -207,7 +209,91 @@ pub const FilteredQuery = struct {
     }
 };
 
-/// Result set from a filtered query operation
+/// Streaming iterator for filtered query results - prevents memory exhaustion on large result sets
+pub const FilteredQueryIterator = struct {
+    allocator: std.mem.Allocator,
+    storage_iterator: StorageEngine.BlockIterator,
+    query: FilteredQuery,
+    total_scanned: u32,
+    total_matches: u32,
+    results_returned: u32,
+    finished: bool,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        storage_engine: *StorageEngine,
+        query: FilteredQuery,
+    ) FilteredQueryIterator {
+        return FilteredQueryIterator{
+            .allocator = allocator,
+            .storage_iterator = storage_engine.iterate_all_blocks(),
+            .query = query,
+            .total_scanned = 0,
+            .total_matches = 0,
+            .results_returned = 0,
+            .finished = false,
+        };
+    }
+
+    /// Get the next matching block, or null if no more results
+    pub fn next(self: *FilteredQueryIterator) !?QueryEngineBlock {
+        if (self.finished) return null;
+
+        while (try self.storage_iterator.next()) |block| {
+            self.total_scanned += 1;
+
+            if (try self.query.expression.matches(block, self.allocator)) {
+                self.total_matches += 1;
+
+                // Skip offset results
+                if (self.total_matches <= self.query.offset) continue;
+
+                // Check if we've returned enough results
+                if (self.results_returned >= self.query.max_results) {
+                    self.finished = true;
+                    return null;
+                }
+
+                // Clone block to ensure iterator owns the memory
+                const cloned_block = try clone_block(self.allocator, block);
+                self.results_returned += 1;
+                return QueryEngineBlock.init(cloned_block);
+            }
+        }
+
+        self.finished = true;
+        return null;
+    }
+
+    /// Calculate statistics about the filtering operation
+    pub fn calculate_stats(self: FilteredQueryIterator) FilteringStats {
+        return FilteringStats{
+            .total_scanned = self.total_scanned,
+            .total_matches = self.total_matches,
+            .results_returned = self.results_returned,
+            .finished = self.finished,
+        };
+    }
+
+    pub fn deinit(self: *FilteredQueryIterator) void {
+        // Storage iterator is owned by StorageEngine, no cleanup needed
+        _ = self;
+    }
+};
+
+/// Statistics for filtered query operations
+pub const FilteringStats = struct {
+    total_scanned: u32,
+    total_matches: u32,
+    results_returned: u32,
+    finished: bool,
+
+    pub fn has_more_results(self: FilteringStats) bool {
+        return !self.finished or self.results_returned < self.total_matches;
+    }
+};
+
+/// Legacy result set from a filtered query operation (deprecated - use FilteredQueryIterator)
 pub const FilteredQueryResult = struct {
     blocks: []QueryEngineBlock,
     total_matches: u32,
@@ -257,7 +343,130 @@ pub const FilteredQueryResult = struct {
     }
 };
 
-/// Execute a filtered query against the storage engine
+/// Execute a streaming filtered query against the storage engine (recommended)
+/// Returns an iterator that yields results one by one, preventing memory exhaustion
+pub fn execute_filtered_query_streaming(
+    allocator: std.mem.Allocator,
+    storage_engine: *StorageEngine,
+    query: FilteredQuery,
+) !FilteredQueryIterator {
+    try query.validate();
+    return FilteredQueryIterator.init(allocator, storage_engine, query);
+}
+
+/// Execute filtered query with optional secondary index optimization
+/// Automatically detects simple metadata field queries and uses indexes when available
+pub fn execute_filtered_query_optimized(
+    allocator: std.mem.Allocator,
+    storage_engine: *StorageEngine,
+    query: FilteredQuery,
+    metadata_indexes: ?*const metadata_index.MetadataIndexManager,
+) !FilteredQueryResult {
+    try query.validate();
+
+    // Analyze query for index optimization opportunities
+    if (metadata_indexes) |indexes| {
+        if (try analyze_for_index_optimization(allocator, query.expression, indexes)) |optimized_block_ids| {
+            defer allocator.free(optimized_block_ids);
+            return execute_indexed_query(allocator, storage_engine, query, optimized_block_ids);
+        }
+    }
+
+    // Fall back to full scan
+    return execute_filtered_query(allocator, storage_engine, query);
+}
+
+/// Analyze filter expression to determine if it can use secondary indexes
+/// Returns block IDs from index if optimization is possible, null otherwise
+fn analyze_for_index_optimization(
+    allocator: std.mem.Allocator,
+    expression: FilterExpression,
+    indexes: *const metadata_index.MetadataIndexManager,
+) !?[]BlockId {
+    switch (expression) {
+        .condition => |condition| {
+            // Only optimize simple equality conditions on metadata fields
+            if (condition.target == .metadata_field and
+                condition.operator == .equal and
+                condition.metadata_field != null)
+            {
+                const field_name = condition.metadata_field.?;
+                if (indexes.find_index(field_name)) |index| {
+                    if (index.find_blocks_by_value(condition.value)) |block_ids| {
+                        // Only use index if it's selective (reduces search space significantly)
+                        const stats = index.statistics();
+                        if (stats.is_selective()) {
+                            return try allocator.dupe(BlockId, block_ids);
+                        }
+                    }
+                }
+            }
+        },
+        .logical => {
+            // For now, only optimize simple conditions
+            // Future enhancement: support AND/OR operations with multiple indexed fields
+            return null;
+        },
+    }
+    return null;
+}
+
+/// Execute query using pre-filtered block IDs from secondary index
+fn execute_indexed_query(
+    allocator: std.mem.Allocator,
+    storage_engine: *StorageEngine,
+    query: FilteredQuery,
+    candidate_block_ids: []const BlockId,
+) !FilteredQueryResult {
+    var matched_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
+    errdefer {
+        for (matched_blocks.items) |block| {
+            const ctx_block = block.read(.query_engine);
+            allocator.free(ctx_block.source_uri);
+            allocator.free(ctx_block.metadata_json);
+            allocator.free(ctx_block.content);
+        }
+        matched_blocks.deinit();
+    }
+
+    var total_matches: u32 = 0;
+    var blocks_collected: u32 = 0;
+    const max_to_collect = query.max_results;
+
+    try matched_blocks.ensureTotalCapacity(@min(max_to_collect, candidate_block_ids.len));
+
+    // Only check blocks that match the index
+    for (candidate_block_ids) |block_id| {
+        if (try storage_engine.find_block(block_id, .query_engine)) |found_block| {
+            const ctx_block = found_block.read(.query_engine);
+
+            // Apply the full filter expression to ensure correctness
+            if (try query.expression.matches(ctx_block.*, allocator)) {
+                total_matches += 1;
+
+                if (total_matches <= query.offset) continue;
+
+                if (blocks_collected < max_to_collect) {
+                    // Clone block for ownership transfer
+                    const cloned_ctx_block = try clone_block(allocator, ctx_block.*);
+                    try matched_blocks.append(QueryEngineBlock.init(cloned_ctx_block));
+                    blocks_collected += 1;
+                }
+            }
+        }
+    }
+
+    const has_more = total_matches > query.offset + blocks_collected;
+    return FilteredQueryResult.init(
+        allocator,
+        try matched_blocks.toOwnedSlice(),
+        total_matches,
+        has_more,
+    );
+}
+
+/// Execute a filtered query against the storage engine (legacy - collects all results in memory)
+/// WARNING: This can cause memory exhaustion on large result sets. Use execute_filtered_query_streaming instead.
 pub fn execute_filtered_query(
     allocator: std.mem.Allocator,
     storage_engine: *StorageEngine,
@@ -908,4 +1117,66 @@ test "numeric comparison edge cases" {
 
     const mixed_condition = FilterCondition.init(.source_uri, .greater_than, "100");
     try testing.expect(try mixed_condition.matches(block, allocator)); // "numeric.zig" > "100" lexically
+}
+
+test "streaming filtered query prevents memory exhaustion" {
+    const allocator = testing.allocator;
+
+    var sim_vfs = try SimulationVFS.init(allocator);
+    defer sim_vfs.deinit();
+
+    const storage_config = @import("../storage/config.zig").Config{};
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_streaming", storage_config);
+    defer storage_engine.deinit();
+    try storage_engine.startup();
+
+    // Add many blocks that would exceed memory if collected all at once
+    for (0..1000) |i| {
+        var id_bytes: [16]u8 = undefined;
+        std.mem.writeInt(u128, &id_bytes, @as(u128, i), .big);
+        const block_id = BlockId{ .bytes = id_bytes };
+
+        const content = try std.fmt.allocPrint(allocator, "streaming test content {d}", .{i});
+        defer allocator.free(content);
+
+        const block = ContextBlock{
+            .id = block_id,
+            .version = 1,
+            .source_uri = "streaming.zig",
+            .metadata_json = "{}",
+            .content = content,
+        };
+        try storage_engine.put_block(block);
+    }
+
+    // Execute streaming query with small max_results to test pagination
+    const condition = FilterExpression{ .condition = filter_by_content_contains("streaming") };
+    const query = FilteredQuery{
+        .expression = condition,
+        .max_results = 10, // Small limit to test streaming behavior
+        .offset = 0,
+    };
+
+    var iterator = try execute_filtered_query_streaming(allocator, &storage_engine, query);
+    defer iterator.deinit();
+
+    var results_count: u32 = 0;
+    while (try iterator.next()) |block| {
+        results_count += 1;
+        // Clean up the block memory immediately - simulates low-memory processing
+        const ctx_block = block.read(.query_engine);
+        allocator.free(ctx_block.source_uri);
+        allocator.free(ctx_block.metadata_json);
+        allocator.free(ctx_block.content);
+    }
+
+    try testing.expectEqual(@as(u32, 10), results_count);
+
+    const stats = iterator.calculate_stats();
+    try testing.expect(stats.total_matches >= 10); // Should have found at least 10 matching blocks
+    try testing.expectEqual(@as(u32, 10), stats.results_returned);
+    try testing.expect(stats.finished);
+
+    // Verify streaming prevented memory exhaustion by only processing results_returned
+    try testing.expect(stats.results_returned == 10); // Only processed the limited results, not all matches
 }
