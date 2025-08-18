@@ -82,6 +82,10 @@ pub const StorageError = error{
     NotInitialized,
     /// Storage engine has been deinitialized
     StorageEngineDeinitialized,
+    /// Writes stalled due to compaction backpressure
+    WriteStalled,
+    /// Writes blocked due to excessive L0 pressure
+    WriteBlocked,
 } || config_mod.ConfigError || wal.WALError || vfs.VFSError || vfs.VFileError;
 
 /// Main storage engine coordinating all storage subsystems with state machine validation.
@@ -486,6 +490,16 @@ pub const StorageEngine = struct {
             return err;
         };
 
+        // Check compaction throttling - prevent runaway L0 growth
+        if (self.sstable_manager.compaction_manager.should_block_writes()) {
+            return error.WriteBlocked;
+        }
+        if (self.sstable_manager.compaction_manager.should_stall_writes()) {
+            // Record stall metrics for monitoring and backpressure feedback loop
+            self.sstable_manager.compaction_manager.update_throttle_state();
+            return error.WriteStalled;
+        }
+
         fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
         self.memtable_manager.put_block_durable_owned(owned_block) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("put_block_durable_owned", block_data.id));
@@ -498,6 +512,9 @@ pub const StorageEngine = struct {
                 return err;
             };
         }
+
+        // Update throttle state after successful write
+        self.sstable_manager.compaction_manager.update_throttle_state();
 
         self.track_write_metrics(start_time, block_data.content.len);
 

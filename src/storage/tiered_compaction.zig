@@ -303,7 +303,7 @@ pub const TieredCompactionManager = struct {
         };
     }
 
-    const ThrottleStatus = struct {
+    pub const ThrottleStatus = struct {
         l0_sstable_count: u32,
         write_stalled: bool,
         write_blocked: bool,

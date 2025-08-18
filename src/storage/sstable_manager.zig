@@ -315,6 +315,30 @@ pub const SSTableManager = struct {
         }
     }
 
+    /// Check if writes should be stalled due to L0 compaction pressure.
+    /// Used by StorageEngine to implement backpressure on write path.
+    pub fn should_stall_writes(self: *const SSTableManager) bool {
+        return self.compaction_manager.should_stall_writes();
+    }
+
+    /// Check if writes should be completely blocked due to excessive L0 pressure.
+    /// Used by StorageEngine to prevent runaway L0 growth that would degrade reads.
+    pub fn should_block_writes(self: *const SSTableManager) bool {
+        return self.compaction_manager.should_block_writes();
+    }
+
+    /// Update compaction throttling state based on current conditions.
+    /// Called by StorageEngine after write operations to track throttle status.
+    pub fn update_throttle_state(self: *SSTableManager) void {
+        self.compaction_manager.update_throttle_state();
+    }
+
+    /// Query current throttling status for monitoring and debugging.
+    /// Returns detailed throttle metrics including stall duration and L0 count.
+    pub fn query_throttle_status(self: *const SSTableManager) TieredCompactionManager.ThrottleStatus {
+        return self.compaction_manager.query_throttle_status();
+    }
+
     /// Get the total number of SSTables currently managed.
     /// Used for metrics and debugging. O(1) operation.
     pub fn sstable_count(self: *const SSTableManager) u32 {
