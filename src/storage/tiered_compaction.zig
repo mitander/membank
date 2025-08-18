@@ -37,6 +37,9 @@ pub const TieredCompactionManager = struct {
     /// Counter for generating unique compacted SSTable filenames
     compaction_counter: u32,
 
+    /// Compaction throttling state
+    throttle_state: ThrottleState,
+
     const MAX_TIERS = 8; // L0 through L7
 
     /// Configuration for the tiered compaction strategy.
@@ -55,6 +58,49 @@ pub const TieredCompactionManager = struct {
 
         /// Minimum number of SSTables to trigger size-tiered compaction
         min_compaction_threshold: u32 = 2,
+
+        // Compaction throttling configuration
+        /// L0 SSTable count that triggers write stall (prevents runaway growth)
+        l0_write_stall_threshold: u32 = 8,
+
+        /// Maximum L0 SSTable count before writes are completely blocked
+        l0_hard_limit: u32 = 12,
+
+        /// Enable write throttling when compaction falls behind
+        enable_write_throttling: bool = true,
+    };
+
+    /// Compaction throttling state tracking
+    const ThrottleState = struct {
+        write_stalled: bool = false,
+        stall_start_time: ?i64 = null,
+        consecutive_stalls: u32 = 0,
+        last_compaction_time: ?i64 = null,
+
+        pub fn init() ThrottleState {
+            return ThrottleState{};
+        }
+
+        pub fn record_stall_start(self: *ThrottleState) void {
+            if (!self.write_stalled) {
+                self.write_stalled = true;
+                self.stall_start_time = std.time.timestamp();
+                self.consecutive_stalls += 1;
+            }
+        }
+
+        pub fn record_stall_end(self: *ThrottleState) void {
+            self.write_stalled = false;
+            self.stall_start_time = null;
+        }
+
+        pub fn record_compaction_complete(self: *ThrottleState) void {
+            self.last_compaction_time = std.time.timestamp();
+            // Reset stall tracking after successful compaction
+            if (self.consecutive_stalls > 0) {
+                self.consecutive_stalls = 0;
+            }
+        }
     };
 
     /// State tracking for each tier
@@ -158,6 +204,7 @@ pub const TieredCompactionManager = struct {
             .config = CompactionConfig{},
             .tiers = tiers,
             .compaction_counter = 0,
+            .throttle_state = ThrottleState.init(),
         };
     }
 
@@ -208,6 +255,61 @@ pub const TieredCompactionManager = struct {
 
         return null;
     }
+
+    /// Check if writes should be stalled due to L0 pressure
+    pub fn should_stall_writes(self: *const TieredCompactionManager) bool {
+        concurrency.assert_main_thread();
+
+        if (!self.config.enable_write_throttling) {
+            return false;
+        }
+
+        const l0_count = self.tiers[0].sstables.items.len;
+        return l0_count >= self.config.l0_write_stall_threshold;
+    }
+
+    /// Check if writes should be completely blocked (hard limit)
+    pub fn should_block_writes(self: *const TieredCompactionManager) bool {
+        concurrency.assert_main_thread();
+
+        const l0_count = self.tiers[0].sstables.items.len;
+        return l0_count >= self.config.l0_hard_limit;
+    }
+
+    /// Update throttling state based on current compaction status
+    pub fn update_throttle_state(self: *TieredCompactionManager) void {
+        concurrency.assert_main_thread();
+
+        if (self.should_stall_writes()) {
+            self.throttle_state.record_stall_start();
+        } else {
+            self.throttle_state.record_stall_end();
+        }
+    }
+
+    /// Query current throttling status for monitoring
+    pub fn query_throttle_status(self: *const TieredCompactionManager) ThrottleStatus {
+        const l0_count = self.tiers[0].sstables.items.len;
+
+        return ThrottleStatus{
+            .l0_sstable_count = @intCast(l0_count),
+            .write_stalled = self.throttle_state.write_stalled,
+            .write_blocked = self.should_block_writes(),
+            .consecutive_stalls = self.throttle_state.consecutive_stalls,
+            .stall_duration_sec = if (self.throttle_state.stall_start_time) |start_time|
+                @intCast(std.time.timestamp() - start_time)
+            else
+                0,
+        };
+    }
+
+    const ThrottleStatus = struct {
+        l0_sstable_count: u32,
+        write_stalled: bool,
+        write_blocked: bool,
+        consecutive_stalls: u32,
+        stall_duration_sec: u32,
+    };
 
     /// Execute a compaction job
     pub fn execute_compaction(self: *TieredCompactionManager, job: CompactionJob) !void {
@@ -300,6 +402,9 @@ pub const TieredCompactionManager = struct {
         }
 
         try self.add_sstable(output_path, job.estimated_output_size, 1);
+
+        // Record successful compaction for throttling state
+        self.throttle_state.record_compaction_complete();
     }
 
     fn execute_tier_compaction(self: *TieredCompactionManager, job: CompactionJob) !void {
@@ -319,6 +424,9 @@ pub const TieredCompactionManager = struct {
         }
 
         try self.add_sstable(output_path, job.estimated_output_size, job.output_level);
+
+        // Record successful compaction for throttling state
+        self.throttle_state.record_compaction_complete();
     }
 };
 
