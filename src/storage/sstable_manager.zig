@@ -343,20 +343,51 @@ pub const SSTableManager = struct {
         var total: u64 = 0;
 
         for (self.sstable_paths.items) |sstable_path| {
-            // Create temporary SSTable instance to read header and get block count
-            var sstable_file = SSTable.init(self.arena_coordinator, self.backing_allocator, self.vfs, sstable_path);
-            defer sstable_file.deinit();
-
-            // Read index to get the block count from SSTable header
-            if (sstable_file.read_index()) {
-                total += sstable_file.block_count;
-            } else |err| {
-                // Log error but continue counting other SSTables for resilience
-                log.warn("Failed to read SSTable index for '{s}': {any} - excluding from block count", .{ sstable_path, err });
-            }
+            // Read block count directly from SSTable header without creating full SSTable instance
+            const block_count = self.read_sstable_block_count(sstable_path) catch |err| {
+                log.warn("Failed to read block count from '{s}': {any} - excluding from total", .{ sstable_path, err });
+                continue;
+            };
+            total += block_count;
         }
 
         return total;
+    }
+
+    /// Read block count directly from SSTable header without full initialization.
+    /// More efficient than creating a full SSTable instance for read-only access.
+    fn read_sstable_block_count(self: *const SSTableManager, file_path: []const u8) !u32 {
+        var file = try self.vfs.open(file_path, .read);
+        defer file.close();
+
+        // Read and validate the header to get block count safely
+        var header_buffer: [64]u8 = undefined; // SSTable.HEADER_SIZE = 64
+        const bytes_read = try file.read(&header_buffer);
+        if (bytes_read < 64) return error.InvalidSSTableHeader;
+
+        // Validate magic number and version (same as SSTable.Header.deserialize)
+        var offset: usize = 0;
+
+        // Check magic number to ensure this is a valid SSTable
+        const magic = header_buffer[offset .. offset + 4];
+        if (!std.mem.eql(u8, magic, "SSTB")) return error.InvalidMagic;
+        offset += 4;
+
+        // Check version compatibility
+        const format_version = std.mem.readInt(u16, header_buffer[offset..][0..2], .little);
+        if (format_version > 1) return error.UnsupportedVersion;
+        offset += 2;
+
+        // Skip flags (2 bytes) and index_offset (8 bytes)
+        offset += 10;
+
+        // Block count is at offset 16 in header for O(1) statistics without index loading
+        const block_count = std.mem.readInt(u32, header_buffer[offset..][0..4], .little);
+
+        // Validate block count is reasonable to catch corruption
+        if (block_count > 100_000_000) return error.CorruptedBlockCount;
+
+        return block_count;
     }
 
     /// Discover existing SSTable files and register with compaction manager.

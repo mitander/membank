@@ -481,6 +481,8 @@ fn benchmark_zero_cost_ownership(storage_engine: *StorageEngine, allocator: std.
         block_ids: []BlockId,
         current_index: usize = 0,
 
+        /// Perform zero-cost operation with direct block ID access.
+        /// Uses compile-time known access patterns for optimal performance measurement.
         pub fn run_operation(self: *@This()) !void {
             // Simulate zero-cost operation - direct block ID access (compile-time known)
             const block_id = self.block_ids[self.current_index % self.block_ids.len];
@@ -494,6 +496,8 @@ fn benchmark_zero_cost_ownership(storage_engine: *StorageEngine, allocator: std.
         block_ids: []BlockId,
         current_index: usize = 0,
 
+        /// Perform runtime operation with validation overhead.
+        /// Simulates runtime checks and validation for performance comparison.
         pub fn run_operation(self: *@This()) !void {
             // Simulate runtime validation - add some overhead
             const block_id = self.block_ids[self.current_index % self.block_ids.len];
