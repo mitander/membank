@@ -63,8 +63,8 @@ test "fault injection disk full during compaction" {
     fault_config.io_failures.operations.write = true;
 
     var harness = try FaultInjectionHarness.init_with_faults(allocator, 0xDEAD, "test_db", fault_config);
-    defer harness.deinit();
     try harness.startup();
+    defer harness.deinit();
 
     // Fill up storage with blocks to trigger compaction using standardized test data
     var blocks_written: u32 = 0;
@@ -104,8 +104,8 @@ test "fault injection read corruption during query" {
     fault_config.io_failures.operations.read = true;
 
     var harness = try FaultInjectionHarness.init_with_faults(allocator, 0xDEADBEEF, "test_db", fault_config);
-    defer harness.deinit();
     try harness.startup();
+    defer harness.deinit();
 
     // Create and store a test block using standardized test data
     const test_block = ContextBlock{

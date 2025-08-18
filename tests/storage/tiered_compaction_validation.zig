@@ -26,7 +26,7 @@ test "init cleanup" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -48,7 +48,7 @@ test "L0 threshold trigger" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -100,7 +100,7 @@ test "size based higher levels" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -147,7 +147,7 @@ test "tier state management and tracking" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -197,7 +197,7 @@ test "compaction job creation and validation" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -243,7 +243,7 @@ test "compaction configuration validation" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -299,7 +299,7 @@ test "multi level compaction scenarios" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -351,7 +351,7 @@ test "compaction with large SSTables" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -398,7 +398,7 @@ test "compaction edge cases and error conditions" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -446,7 +446,7 @@ test "compaction performance characteristics" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -512,7 +512,7 @@ test "tier state consistency under operations" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -585,7 +585,7 @@ test "compaction strategies across tier sizes" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,

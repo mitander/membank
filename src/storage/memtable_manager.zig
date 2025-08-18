@@ -589,7 +589,7 @@ test "MemtableManager basic lifecycle" {
     // Hierarchical memory model: create arena for content, use backing for structure
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
     var manager = try MemtableManager.init(&coordinator, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
@@ -607,7 +607,7 @@ test "MemtableManager with WAL operations" {
     // Hierarchical memory model: create arena for content, use backing for structure
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
     var manager = try MemtableManager.init(&coordinator, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
@@ -633,7 +633,7 @@ test "MemtableManager multiple blocks" {
     // Hierarchical memory model: create arena for content, use backing for structure
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
     var manager = try MemtableManager.init(&coordinator, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
@@ -661,7 +661,7 @@ test "MemtableManager edge operations" {
     // Hierarchical memory model: create arena for content, use backing for structure
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
     var manager = try MemtableManager.init(&coordinator, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 
@@ -688,7 +688,7 @@ test "MemtableManager clear operation" {
     // Hierarchical memory model: create arena for content, use backing for structure
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
     var manager = try MemtableManager.init(&coordinator, allocator, sim_vfs.vfs(), "/test/data", 1024 * 1024);
     defer manager.deinit();
 

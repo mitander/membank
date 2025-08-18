@@ -13,6 +13,14 @@ const builtin = @import("builtin");
 const assert = @import("assert.zig").assert;
 const fatal_assert = @import("assert.zig").fatal_assert;
 
+/// Memory generation validation errors
+pub const GenerationError = error{
+    /// Attempted to access memory after arena was reset
+    UseAfterArenaReset,
+    /// Index out of bounds for generation slice access
+    IndexOutOfBounds,
+};
+
 /// Arena coordinator providing stable allocation interface.
 /// Remains valid even when underlying arena is reset or struct is copied.
 /// All allocation methods dispatch to current arena state, eliminating temporal coupling.
@@ -20,12 +28,17 @@ const fatal_assert = @import("assert.zig").fatal_assert;
 pub const ArenaCoordinator = struct {
     /// Pointer to arena - never becomes invalid because it's a stable reference
     arena: *std.heap.ArenaAllocator,
+    /// Generation counter to detect use-after-reset
+    generation: u64,
 
     /// Create coordinator for existing arena.
     /// Arena must outlive the coordinator - typically owned by parent component.
     /// IMPORTANT: Return value must be stored in stable location and passed by pointer.
     pub fn init(arena: *std.heap.ArenaAllocator) ArenaCoordinator {
-        return ArenaCoordinator{ .arena = arena };
+        return ArenaCoordinator{
+            .arena = arena,
+            .generation = 0,
+        };
     }
 
     /// Get current allocator interface - always uses current arena state.
@@ -44,6 +57,18 @@ pub const ArenaCoordinator = struct {
         return self.arena.allocator().alloc(T, n);
     }
 
+    /// Allocate generation-tagged slice through coordinator for safe access validation.
+    /// Returns GenerationSlice that validates generation before each access.
+    pub fn alloc_generation_slice(self: *const ArenaCoordinator, comptime T: type, n: usize) !GenerationSliceType(T) {
+        const memory = try self.alloc(T, n);
+        return GenerationSliceType(T){
+            .ptr = memory.ptr,
+            .len = memory.len,
+            .generation = self.generation,
+            .coordinator = self,
+        };
+    }
+
     /// Duplicate slice through coordinator - always uses current arena state.
     /// Common pattern for cloning string content in storage subsystem.
     pub fn duplicate_slice(self: *const ArenaCoordinator, comptime T: type, slice: []const T) ![]T {
@@ -54,6 +79,85 @@ pub const ArenaCoordinator = struct {
         return self.arena.allocator().dupe(T, slice);
     }
 
+    /// Duplicate slice with generation tagging for safe access validation.
+    /// Returns GenerationSlice that validates generation before each access.
+    pub fn duplicate_generation_slice(
+        self: *const ArenaCoordinator,
+        comptime T: type,
+        slice: []const T,
+    ) !GenerationSliceType(T) {
+        const memory = try self.duplicate_slice(T, slice);
+        return GenerationSliceType(T){
+            .ptr = memory.ptr,
+            .len = memory.len,
+            .generation = self.generation,
+            .coordinator = self,
+        };
+    }
+
+    /// Reset arena and increment generation counter.
+    /// All previously allocated GenerationSlice instances become invalid.
+    pub fn reset(self: *ArenaCoordinator) void {
+        self.generation += 1;
+        _ = self.arena.reset(.retain_capacity);
+    }
+
+    /// Generation-tagged slice that validates arena generation before access.
+    /// Prevents use-after-reset bugs by checking that the arena hasn't been reset
+    /// since the slice was allocated. Provides safe access methods that fail
+    /// gracefully if the underlying memory has been invalidated.
+    pub fn GenerationSliceType(comptime T: type) type {
+        return struct {
+            ptr: [*]T,
+            len: usize,
+            generation: u64,
+            coordinator: *const ArenaCoordinator,
+
+            const Self = @This();
+
+            /// Access the underlying slice if generation is still valid.
+            /// Returns error if arena has been reset since allocation.
+            pub fn access_slice(self: *const Self) ![]T {
+                if (self.generation != self.coordinator.generation) {
+                    return error.UseAfterArenaReset;
+                }
+                return self.ptr[0..self.len];
+            }
+
+            /// Access a single element if generation is still valid.
+            /// Returns error if arena has been reset or index is out of bounds.
+            pub fn access_item(self: *const Self, index: usize) !T {
+                if (self.generation != self.coordinator.generation) {
+                    return error.UseAfterArenaReset;
+                }
+                if (index >= self.len) {
+                    return error.IndexOutOfBounds;
+                }
+                return self.ptr[index];
+            }
+
+            /// Get slice length (always safe, doesn't access memory).
+            pub fn length(self: *const Self) usize {
+                return self.len;
+            }
+
+            /// Check if this slice is still valid (generation matches).
+            pub fn is_valid(self: *const Self) bool {
+                return self.generation == self.coordinator.generation;
+            }
+
+            /// Debug validation - panics if generation is invalid.
+            /// Only active in debug builds.
+            pub fn debug_validate(self: *const Self) void {
+                if (comptime builtin.mode == .Debug) {
+                    if (!self.is_valid()) {
+                        fatal_assert(false, "GenerationSlice access after arena reset: slice gen {} != current gen {}", .{ self.generation, self.coordinator.generation });
+                    }
+                }
+            }
+        };
+    }
+
     /// Create single item through coordinator - always uses current arena state.
     /// Convenience method for single-item allocation patterns.
     pub fn create(self: *const ArenaCoordinator, comptime T: type) !*T {
@@ -62,12 +166,6 @@ pub const ArenaCoordinator = struct {
             self.track_allocation_pattern(@sizeOf(T), @typeName(T));
         }
         return self.arena.allocator().create(T);
-    }
-
-    /// Reset underlying arena while maintaining coordinator validity.
-    /// Coordinator interface remains stable after this operation.
-    pub fn reset(self: *ArenaCoordinator) void {
-        _ = self.arena.reset(.retain_capacity);
     }
 
     /// Validate coordinator points to valid arena (debug builds only).
@@ -480,4 +578,119 @@ test "Week 1 memory safety improvements comprehensive validation" {
         try testing.expect(debug_info.arena_address != 0);
         try testing.expect(debug_info.coordinator_address != 0);
     }
+}
+
+test "generation counter prevents use-after-reset" {
+    const allocator = testing.allocator;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var coordinator = ArenaCoordinator.init(&arena);
+
+    // Test 1: Basic generation slice allocation
+    var generation_slice = try coordinator.alloc_generation_slice(u8, 10);
+    try testing.expect(generation_slice.is_valid());
+    try testing.expectEqual(@as(usize, 10), generation_slice.length());
+
+    // Test 2: Valid access before reset
+    const slice = try generation_slice.access_slice();
+    try testing.expectEqual(@as(usize, 10), slice.len);
+
+    // Test 3: Arena reset invalidates generation slice
+    coordinator.reset();
+    try testing.expect(!generation_slice.is_valid());
+
+    // Test 4: Access after reset should fail
+    try testing.expectError(GenerationError.UseAfterArenaReset, generation_slice.access_slice());
+    try testing.expectError(GenerationError.UseAfterArenaReset, generation_slice.access_item(0));
+}
+
+test "generation counter with duplicate slice" {
+    const allocator = testing.allocator;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var coordinator = ArenaCoordinator.init(&arena);
+
+    // Test 1: Create source data
+    const source_data = "Hello, generation counter!";
+    var generation_slice = try coordinator.duplicate_generation_slice(u8, source_data);
+
+    // Test 2: Valid access before reset
+    const slice = try generation_slice.access_slice();
+    try testing.expect(std.mem.eql(u8, slice, source_data));
+
+    // Test 3: Item access works
+    try testing.expectEqual(@as(u8, 'H'), try generation_slice.access_item(0));
+    try testing.expectEqual(@as(u8, '!'), try generation_slice.access_item(source_data.len - 1));
+
+    // Test 4: Out of bounds access fails
+    try testing.expectError(GenerationError.IndexOutOfBounds, generation_slice.access_item(source_data.len));
+
+    // Test 5: Reset invalidates the slice
+    coordinator.reset();
+    try testing.expectError(GenerationError.UseAfterArenaReset, generation_slice.access_slice());
+    try testing.expectError(GenerationError.UseAfterArenaReset, generation_slice.access_item(0));
+}
+
+test "generation counter increments properly" {
+    const allocator = testing.allocator;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var coordinator = ArenaCoordinator.init(&arena);
+
+    // Test 1: Initial generation is 0
+    try testing.expectEqual(@as(u64, 0), coordinator.generation);
+
+    // Test 2: Create slice with generation 0
+    var slice1 = try coordinator.alloc_generation_slice(u32, 5);
+    try testing.expectEqual(@as(u64, 0), slice1.generation);
+    try testing.expect(slice1.is_valid());
+
+    // Test 3: Reset increments generation
+    coordinator.reset();
+    try testing.expectEqual(@as(u64, 1), coordinator.generation);
+    try testing.expect(!slice1.is_valid());
+
+    // Test 4: New slice has generation 1
+    var slice2 = try coordinator.alloc_generation_slice(u32, 3);
+    try testing.expectEqual(@as(u64, 1), slice2.generation);
+    try testing.expect(slice2.is_valid());
+
+    // Test 5: Multiple resets increment generation
+    coordinator.reset();
+    coordinator.reset();
+    try testing.expectEqual(@as(u64, 3), coordinator.generation);
+    try testing.expect(!slice2.is_valid());
+}
+
+test "mixed generation and regular allocations" {
+    const allocator = testing.allocator;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var coordinator = ArenaCoordinator.init(&arena);
+
+    // Test 1: Regular allocation still works
+    const regular_slice = try coordinator.alloc(u8, 20);
+    try testing.expectEqual(@as(usize, 20), regular_slice.len);
+
+    // Test 2: Generation slice alongside regular allocation
+    var generation_slice = try coordinator.alloc_generation_slice(u8, 15);
+    try testing.expect(generation_slice.is_valid());
+
+    // Test 3: Reset invalidates generation slice but regular slice is gone
+    coordinator.reset();
+    try testing.expect(!generation_slice.is_valid());
+
+    // Test 4: New allocations after reset work
+    const new_regular = try coordinator.alloc(u8, 5);
+    var new_generation = try coordinator.alloc_generation_slice(u8, 10);
+    try testing.expectEqual(@as(usize, 5), new_regular.len);
+    try testing.expect(new_generation.is_valid());
 }

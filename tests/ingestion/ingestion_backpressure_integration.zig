@@ -308,7 +308,7 @@ test "backpressure under normal memory conditions maintains full batch size" {
     try pipeline.register_chunker(chunker.chunker());
 
     // Execute with backpressure - should maintain full batch size under low pressure
-    const storage_ref = harness.storage_engine;
+    const storage_ref = harness.storage_engine();
     try pipeline.execute_with_backpressure(storage_ref);
 
     const stats = pipeline.stats();

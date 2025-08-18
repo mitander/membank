@@ -64,7 +64,7 @@ test "cross level compaction with realistic SSTable sizes" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     // Access the tiered compaction manager through the storage engine
     var manager = TieredCompactionManager.init(
@@ -204,7 +204,7 @@ test "compaction strategy adaptability to workload patterns" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -288,7 +288,7 @@ test "compaction robustness under concurrent modifications" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -368,7 +368,7 @@ test "large scale compaction validation with realistic data distribution" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -467,7 +467,7 @@ test "compaction edge cases and error resilience" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
@@ -549,7 +549,7 @@ test "compaction performance under stress conditions" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const coordinator = ArenaCoordinator{ .arena = &arena };
+    const coordinator = ArenaCoordinator.init(&arena);
 
     var manager = TieredCompactionManager.init(
         &coordinator,
