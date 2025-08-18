@@ -8,14 +8,13 @@
 //! and enhanced reliability through arena-per-subsystem memory management.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
+const builtin = @import("builtin");
+
 const kausaldb = @import("kausaldb");
-
-// Configure test output - use debug_print for algorithm statistics
 const test_config = kausaldb.test_config;
+const execute_traversal = kausaldb.query.traversal.execute_traversal;
 
-// Import types through kausaldb test API
 const ContextBlock = kausaldb.ContextBlock;
 const BlockId = kausaldb.BlockId;
 const GraphEdge = kausaldb.GraphEdge;
@@ -23,8 +22,6 @@ const EdgeType = kausaldb.EdgeType;
 const TraversalQuery = kausaldb.query.traversal.TraversalQuery;
 const TraversalAlgorithm = kausaldb.query.traversal.TraversalAlgorithm;
 const TraversalDirection = kausaldb.query.traversal.TraversalDirection;
-const execute_traversal = kausaldb.query.traversal.execute_traversal;
-
 const QueryHarness = kausaldb.QueryHarness;
 const TestData = kausaldb.TestData;
 const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;

@@ -146,6 +146,8 @@ pub const test_config = struct {
 
 pub const PerformanceTier = performance_assertions.PerformanceTier;
 pub const BatchPerformanceMeasurement = performance_assertions.BatchPerformanceMeasurement;
+pub const StatisticalSampler = performance_assertions.StatisticalSampler;
+pub const WarmupUtils = performance_assertions.WarmupUtils;
 
 pub const fatal_assertions = @import("testing/fatal_assertions.zig");
 pub const FatalCategory = fatal_assertions.FatalCategory;

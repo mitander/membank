@@ -14,18 +14,17 @@
 //! - Single-threaded execution model
 
 const std = @import("std");
+const testing = std.testing;
+
 const context_block = @import("../core/types.zig");
 const vfs = @import("../core/vfs.zig");
 const assert = @import("../core/assert.zig");
 const error_context = @import("../core/error_context.zig");
 const concurrency = @import("../core/concurrency.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
-const testing = std.testing;
-
-// Import storage types for backpressure
 const storage_metrics = @import("../storage/metrics.zig");
-const StorageMetrics = storage_metrics.StorageMetrics;
 
+const StorageMetrics = storage_metrics.StorageMetrics;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;

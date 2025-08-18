@@ -4,8 +4,6 @@
 //! and systematic architectural constraint enforcement.
 
 const tidy_main = @import("tidy/main.zig");
-
-// Import necessary types for the test
 const violation = @import("tidy/violation.zig");
 const rules = @import("tidy/rules.zig");
 const parser = @import("tidy/parser.zig");

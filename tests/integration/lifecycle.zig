@@ -6,18 +6,17 @@
 //! Migrated to use standardized harness infrastructure for simplified setup
 //! and enhanced reliability through arena-per-subsystem memory management.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
-const assert = kausaldb.assert.assert;
 const log = std.log.scoped(.integration_lifecycle);
 
-// Import types through kausaldb test API
+const kausaldb = @import("kausaldb");
+const assert = kausaldb.assert.assert;
+
 const ContextBlock = kausaldb.ContextBlock;
 const BlockId = kausaldb.BlockId;
 const GraphEdge = kausaldb.GraphEdge;
 const EdgeType = kausaldb.EdgeType;
-
 const SimulationHarness = kausaldb.SimulationHarness;
 const TestData = kausaldb.TestData;
 

@@ -7,9 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-// Import from kausaldb_test API for consistency with existing test infrastructure
 const kausaldb = @import("../testing_api.zig");
-
 const storage = kausaldb.storage;
 const query_engine = kausaldb.query_engine;
 const simulation = kausaldb.simulation;

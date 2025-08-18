@@ -480,7 +480,7 @@ pub const StatisticalSampler = struct {
         }
 
         // Stabilization delay after warmup
-        std.time.sleep(10 * std.time.ns_per_ms);
+        std.Thread.sleep(10 * std.time.ns_per_ms);
 
         // Measurement phase - record these samples
         if (builtin.mode == .Debug) {
@@ -595,7 +595,7 @@ pub const WarmupUtils = struct {
         }
 
         // Let OS settle and CPU frequencies stabilize
-        std.time.sleep(50 * std.time.ns_per_ms);
+        std.Thread.sleep(50 * std.time.ns_per_ms);
     }
 
     /// Standard warmup for query operations
@@ -612,7 +612,7 @@ pub const WarmupUtils = struct {
         }
 
         // CPU cache warming delay
-        std.time.sleep(25 * std.time.ns_per_ms);
+        std.Thread.sleep(25 * std.time.ns_per_ms);
     }
 
     fn create_warmup_block(allocator: std.mem.Allocator, index: usize) !@TypeOf(undefined) {

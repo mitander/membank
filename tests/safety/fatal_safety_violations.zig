@@ -6,17 +6,16 @@
 
 const std = @import("std");
 const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
+const storage = kausaldb.storage;
+
 const VFS = kausaldb.VFS;
 const VFile = kausaldb.VFile;
 const ContextBlock = kausaldb.ContextBlock;
 const BlockId = kausaldb.BlockId;
 const StorageEngine = kausaldb.StorageEngine;
 const SimulationVFS = kausaldb.SimulationVFS;
-
-// Import storage components
-const storage = kausaldb.storage;
-// Note: BlockIndex testing integrated through StorageEngine public API
 
 // Test that arena state validation triggers fatal assertion in storage components
 test "arena corruption detection through storage engine" {

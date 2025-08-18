@@ -3,31 +3,24 @@
 //! Tests streaming query formatting, storage engine throughput, memory management
 //! efficiency, and performance regression detection across all major subsystems.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
 const testing = std.testing;
-
-// Configure test output - use debug_print for performance debugging
-const test_config = kausaldb.test_config;
-
 const log = std.log.scoped(.streaming_memory_benchmark);
 
-// Import tiered performance assertions
+const kausaldb = @import("kausaldb");
+const test_config = kausaldb.test_config;
+const types = kausaldb.types;
+const assert = kausaldb.assert.assert;
+const operations = kausaldb.query_operations;
+
 const PerformanceAssertion = kausaldb.PerformanceAssertion;
 const PerformanceThresholds = kausaldb.PerformanceThresholds;
 const BatchPerformanceMeasurement = kausaldb.BatchPerformanceMeasurement;
-
-const types = kausaldb.types;
-const assert = kausaldb.assert.assert;
-
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const GraphEdge = types.GraphEdge;
 const EdgeType = types.EdgeType;
 const TestData = kausaldb.TestData;
-
-// Query operations and types
-const operations = kausaldb.query_operations;
 const FindBlocksQuery = kausaldb.FindBlocksQuery;
 
 // Performance targets aligned with ProductionVFS benchmark results
