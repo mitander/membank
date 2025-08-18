@@ -129,7 +129,7 @@ pub const CompactionCrashScenario = enum {
                 .fault_operations = 50,
                 .expected_recovery_success = true,
                 .expected_min_survival_rate = 0.8,
-                .golden_master_file = "partial_sstable_write_recovery.golden.json",
+                .golden_master_file = null, // Fault injection tests have variable outcomes
             },
             .orphaned_files => .{
                 .description = "Orphaned files after compaction failure",

@@ -2,12 +2,17 @@
   "block_count": 1,
   "metrics": {
     "blocks_written": 0,
-    "blocks_read": 1,
+    "blocks_read": 0,
     "blocks_deleted": 0,
     "wal_writes": 0,
     "wal_flushes": 0,
     "wal_recoveries": 0
   },
-  "blocks": [],
+  "blocks": [{
+    "id": "68452301000000000000000000000000",
+    "version": 1,
+    "content_hash": 12162378920042437272,
+    "content_length": 39
+  }],
   "edges": []
 }

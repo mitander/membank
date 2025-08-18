@@ -100,7 +100,7 @@ pub const PerformanceThresholds = struct {
 
         const multipliers: Multipliers = switch (tier) {
             .local => .{
-                .latency = 4.0, // ProductionVFS with filesystem contention during test-all
+                .latency = 3.0, // ProductionVFS with filesystem contention during test-all
                 .throughput = 0.6,
                 .memory = 2.0,
             },

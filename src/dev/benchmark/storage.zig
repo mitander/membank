@@ -21,7 +21,7 @@ const StorageEngineBlock = ownership.StorageEngineBlock;
 const OwnedBlock = ownership.OwnedBlock;
 
 const BLOCK_WRITE_THRESHOLD_NS = 50_000; // target: high-performance storage operations
-const BLOCK_READ_THRESHOLD_NS = 1_000; // measured 39ns → 1µs (25x margin)  
+const BLOCK_READ_THRESHOLD_NS = 1_000; // measured 39ns → 1µs (25x margin)
 const BLOCK_UPDATE_THRESHOLD_NS = 50_000; // target: same as writes (updates = write new version)
 const BLOCK_DELETE_THRESHOLD_NS = 20_000; // target: fast tombstone operations
 const WAL_FLUSH_THRESHOLD_NS = 80_000; // production: real filesystem sync overhead
@@ -63,7 +63,7 @@ pub fn run_block_writes(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_writes");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_writes");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -84,7 +84,7 @@ pub fn run_block_reads(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_reads");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_reads");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -105,7 +105,7 @@ pub fn run_block_updates(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_updates");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_updates");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -126,7 +126,7 @@ pub fn run_block_deletes(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_deletes");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_deletes");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -147,7 +147,7 @@ pub fn run_wal_flush(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_wal");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_wal");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -165,7 +165,7 @@ pub fn run_zero_cost_ownership(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_ownership");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_ownership");
     defer storage_engine.deinit();
     try storage_engine.startup();
 

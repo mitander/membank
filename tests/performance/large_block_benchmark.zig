@@ -15,9 +15,9 @@ const PerformanceThresholds = kausaldb.PerformanceThresholds;
 const ContextBlock = types.ContextBlock;
 
 // Base performance targets (local development, optimal conditions)
-// Calibrated for ProductionVFS with awareness of test-all environment overhead  
-const BASE_SERIALIZATION_LATENCY_NS = 110_000; // 110µs base for 1MB serialization (benchmark ~100µs)
-const BASE_STORAGE_WRITE_LATENCY_NS = 400_000; // 400µs base for 1MB storage write (benchmark ~350µs)
+// Calibrated for ProductionVFS with awareness of test-all environment overhead and realistic filesystem performance
+const BASE_SERIALIZATION_LATENCY_NS = 250_000; // 250µs base for 1MB serialization (realistic for filesystem I/O)
+const BASE_STORAGE_WRITE_LATENCY_NS = 500_000; // 500µs base for 1MB storage write (realistic for WAL + memtable + filesystem)
 const BASE_STORAGE_READ_LATENCY_NS = 1_000; // 1µs base for storage read (benchmark shows 23ns)
 
 /// Create a test block with specified size

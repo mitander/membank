@@ -44,7 +44,7 @@ pub fn run_compaction_benchmark(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_compaction");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_compaction");
     defer storage_engine.deinit();
 
     try storage_engine.startup();

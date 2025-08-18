@@ -50,7 +50,7 @@ pub fn run_single_queries(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_single_queries");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_single_queries");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -76,7 +76,7 @@ pub fn run_batch_queries(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "benchmark_batch_queries");
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_batch_queries");
     defer storage_engine.deinit();
     try storage_engine.startup();
 
