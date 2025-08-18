@@ -12,6 +12,7 @@ const storage = kausaldb.storage;
 const query_engine = kausaldb.query_engine;
 const context_block = kausaldb.types;
 const production_vfs = kausaldb.production_vfs;
+const operations = kausaldb.query_operations;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
@@ -19,6 +20,7 @@ const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 const GraphEdge = context_block.GraphEdge;
 const EdgeType = context_block.EdgeType;
+const FindBlocksQuery = operations.FindBlocksQuery;
 
 const SINGLE_QUERY_THRESHOLD_NS = 300; // direct storage access ~0.12µs → 300ns (2.5x margin)
 const BATCH_QUERY_THRESHOLD_NS = 3_000; // 10 blocks × 300ns = 3µs (simple loop)
@@ -160,9 +162,13 @@ fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allo
         const end_idx = @min(start_idx + BATCH_SIZE, test_block_ids.len);
         const batch_ids = test_block_ids[start_idx..end_idx];
 
-        for (batch_ids) |block_id| {
-            _ = try query_eng.find_block(block_id);
-        }
+        // Use proper batch API for warmup
+        const warmup_query = FindBlocksQuery{ .block_ids = batch_ids };
+        var warmup_result = try operations.execute_find_blocks(allocator, query_eng.storage_engine, warmup_query);
+        defer warmup_result.deinit();
+
+        // Consume results to ensure proper warmup
+        while (try warmup_result.next()) |_| {}
     }
 
     for (0..ITERATIONS) |i| {
@@ -171,11 +177,19 @@ fn benchmark_batch_queries_impl(query_eng: *QueryEngine, allocator: std.mem.Allo
         const batch_ids = test_block_ids[start_idx..end_idx];
 
         const start_time = std.time.nanoTimestamp();
-        for (batch_ids) |block_id| {
-            _ = try query_eng.find_block(block_id);
-        }
-        const end_time = std.time.nanoTimestamp();
 
+        // Use proper batch API instead of individual loops
+        const batch_query = FindBlocksQuery{ .block_ids = batch_ids };
+        var batch_result = try operations.execute_find_blocks(allocator, query_eng.storage_engine, batch_query);
+        defer batch_result.deinit();
+
+        // Consume all results to ensure complete execution
+        var result_count: u32 = 0;
+        while (try batch_result.next()) |_| {
+            result_count += 1;
+        }
+
+        const end_time = std.time.nanoTimestamp();
         timings[i] = @intCast(end_time - start_time);
     }
 
