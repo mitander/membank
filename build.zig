@@ -470,12 +470,13 @@ fn create_workflow_steps(
     test_fast_step.dependOn(test_step);
     test_fast_step.dependOn(test_integration_step);
 
-    const test_all_step = b.step("test-all", "Run all tests including stress tests");
+    const test_all_step = b.step("test-all", "Run all functional tests (excludes performance tests)");
     test_all_step.dependOn(test_fast_step);
     test_all_step.dependOn(test_ingestion_step);
     test_all_step.dependOn(test_simulation_step);
     test_all_step.dependOn(test_stress_step);
-    test_all_step.dependOn(test_performance_step);
+    // Performance tests excluded from test-all to prevent resource contention
+    // Use 'test-performance' or 'test-perf' for isolated performance testing
     test_all_step.dependOn(test_fault_injection_step);
     test_all_step.dependOn(test_recovery_step);
     test_all_step.dependOn(test_safety_step);
