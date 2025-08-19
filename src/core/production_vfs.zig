@@ -409,7 +409,6 @@ test "ProductionVFS global filesystem sync" {
     const test_path = "/tmp/kausaldb_sync_test_file";
     const test_data = "Sync test data";
 
-    // Create and write test file
     {
         var test_file = try vfs_interface.create(test_path);
         defer test_file.close();

@@ -121,7 +121,6 @@ pub fn ZeroCopyQueryInterfaceType(comptime StorageEngineType: type) type {
         pub fn find_block_zero_copy(self: *const Self, block_id: BlockId) ?ZeroCopyBlock {
             self.coordinator.validate_coordinator();
 
-            // Get direct pointer from storage engine
             // Implementation deferred to storage engine integration
             const block_ptr = self.query_block_pointer_from_storage(block_id) orelse return null;
 

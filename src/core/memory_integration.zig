@@ -231,7 +231,6 @@ pub const IntegratedMemorySystem = struct {
             .allocation_metrics = AllocationMetrics.init(),
         };
 
-        // Initialize typed storage coordinator pointing to self
         // Note: This creates a self-reference for demonstration purposes
         self.storage_coordinator = TypedStorageCoordinatorType(IntegratedMemorySystem).init(@ptrCast(&self));
 

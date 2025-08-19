@@ -296,7 +296,6 @@ pub const ZigParser = struct {
         var import_path: ?[]const u8 = null;
         var var_name: ?[]const u8 = null;
 
-        // Parse: const name = @import("path");
         if (std.mem.indexOf(u8, line, "const ")) |const_pos| {
             const after_const = line[const_pos + 6 ..];
             if (std.mem.indexOf(u8, after_const, " =")) |eq_pos| {
@@ -662,7 +661,6 @@ fn contains_keyword(line: []const u8, keyword: []const u8) bool {
 }
 
 fn extract_function_name(line: []const u8) ?[]const u8 {
-    // Handle: pub fn name(...) or fn name(...)
     const fn_pos = std.mem.indexOf(u8, line, "fn ") orelse return null;
     const after_fn = line[fn_pos + 3 ..];
 
@@ -683,7 +681,6 @@ fn extract_function_name(line: []const u8) ?[]const u8 {
 }
 
 fn extract_constant_name(line: []const u8) ?[]const u8 {
-    // Handle: pub const NAME or const NAME
     const const_pos = std.mem.indexOf(u8, line, "const ") orelse return null;
     const after_const = line[const_pos + 6 ..];
 
@@ -704,7 +701,6 @@ fn extract_constant_name(line: []const u8) ?[]const u8 {
 }
 
 fn extract_variable_name(line: []const u8) ?[]const u8 {
-    // Handle: pub var NAME or var NAME
     const var_pos = std.mem.indexOf(u8, line, "var ") orelse return null;
     const after_var = line[var_pos + 4 ..];
 
@@ -747,7 +743,6 @@ fn extract_struct_name(line: []const u8) ?[]const u8 {
 }
 
 fn extract_enum_name(line: []const u8) ?[]const u8 {
-    // Handle: pub const NAME = enum or const NAME = enum
     const const_pos = std.mem.indexOf(u8, line, "const ") orelse return null;
     const after_const = line[const_pos + 6 ..];
 
@@ -768,7 +763,6 @@ fn extract_enum_name(line: []const u8) ?[]const u8 {
 }
 
 fn extract_test_name(line: []const u8) ?[]const u8 {
-    // Handle: test "name" or test name
     const test_pos = std.mem.indexOf(u8, line, "test ") orelse return null;
     const after_test = line[test_pos + 5 ..];
 

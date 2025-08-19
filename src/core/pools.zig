@@ -462,7 +462,6 @@ test "ObjectPool basic allocation and release" {
     try testing.expect(item3.* == 126);
     try testing.expect(pool.active_count() == 2);
 
-    // Release remaining objects to prevent leaks
     pool.release(item2);
     pool.release(item3);
     try testing.expect(pool.active_count() == 0);
@@ -484,7 +483,6 @@ test "ObjectPool exhaustion handling" {
     const item3 = pool.acquire();
     try testing.expect(item3 == null);
 
-    // Release one item
     pool.release(item1.?);
     try testing.expect(!pool.is_exhausted());
 
@@ -492,7 +490,6 @@ test "ObjectPool exhaustion handling" {
     const item4 = pool.acquire();
     try testing.expect(item4 != null);
 
-    // Release remaining objects to prevent leaks
     pool.release(item2.?);
     pool.release(item4.?);
     try testing.expect(pool.active_count() == 0);
@@ -613,7 +610,6 @@ test "pool performance characteristics" {
         item.* = i;
         try acquired_items.append(item);
 
-        // Release every other item to simulate realistic usage
         if (i % 2 == 0) {
             pool.release(item);
             _ = acquired_items.pop(); // Remove from tracking list
@@ -623,7 +619,6 @@ test "pool performance characteristics" {
     const end_time = std.time.nanoTimestamp();
     const duration_ns = end_time - start_time;
 
-    // Release any remaining unreleased items
     while (acquired_items.items.len > 0) {
         const item = acquired_items.pop(); // Should be *u64 but compiler sees ?*u64
         pool.release(item.?); // Explicitly unwrap to fix compiler type inference

@@ -499,7 +499,6 @@ pub const SSTableManager = struct {
     /// Comprehensive ArrayList corruption detection and validation.
     /// Returns error if corruption is detected, logs detailed diagnostics.
     fn validate_sstable_paths_integrity(self: *const SSTableManager, context: []const u8) !void {
-        // Basic structure validation
         if (self.sstable_paths.items.len > 1000000) {
             log.err("CORRUPTION DETECTED [{s}]: ArrayList len corrupted: {}", .{ context, self.sstable_paths.items.len });
             return error.CorruptedSSTablePaths;

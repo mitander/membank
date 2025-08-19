@@ -161,7 +161,6 @@ pub const StorageEngine = struct {
         const arena_coordinator = try allocator.create(ArenaCoordinator);
         arena_coordinator.* = ArenaCoordinator.init(storage_arena);
 
-        // Initialize object pools for frequently allocated objects
         // Pool sizes chosen based on typical usage patterns:
         // - SSTable pool: 16 objects (handles concurrent reads + compaction)
         // - Iterator pool: 32 objects (query parallelism + background operations)
@@ -201,9 +200,6 @@ pub const StorageEngine = struct {
             .iterator_pool = iterator_pool,
         };
 
-        // Coordinator already points to stable heap-allocated arena
-
-        // Initialize submodules with coordinator interface (stable across struct operations)
         // CRITICAL: Pass ArenaCoordinator by pointer to prevent struct copying corruption
         engine.memtable_manager = MemtableManager.init(engine.arena_coordinator, allocator, filesystem, owned_data_dir, storage_config.memtable_max_size) catch |err| {
             storage_arena.deinit();
@@ -216,7 +212,6 @@ pub const StorageEngine = struct {
         };
         engine.sstable_manager = SSTableManager.init(engine.arena_coordinator, allocator, filesystem, owned_data_dir);
 
-        // Validate coordinator pattern integrity
         engine.validate_memory_hierarchy();
 
         return engine;
@@ -246,7 +241,6 @@ pub const StorageEngine = struct {
 
         // Only attempt flush operations if engine is in a running state
         if (self.state.can_write()) {
-            // Flush any pending memtable data before shutdown
             if (self.memtable_manager.block_count() > 0) {
                 try self.coordinate_memtable_flush();
             }
@@ -254,7 +248,6 @@ pub const StorageEngine = struct {
             try self.flush_wal();
         }
 
-        // Transition to stopped from any valid state
         if (self.state == .initialized) {
             // From initialized, can only go directly to stopped
             self.state.transition(.stopped);
@@ -265,7 +258,6 @@ pub const StorageEngine = struct {
         } else if (self.state == .stopping) {
             self.state.transition(.stopped);
         }
-        // If already stopped, do nothing
     }
 
     /// Arena Coordinator Pattern: Safe storage allocation through stable interface.
@@ -307,7 +299,6 @@ pub const StorageEngine = struct {
             return; // Already deinitialized
         }
 
-        // Graceful shutdown if not already stopped
         if (self.state != .stopped) {
             self.shutdown() catch |err| {
                 // Log error but continue cleanup to prevent resource leaks
@@ -936,11 +927,9 @@ pub const StorageEngine = struct {
                 // critical for preventing use-after-free in deserialization
                 self.sstable_manager.arena_coordinator.validate_coordinator();
 
-                // Try to get next block from current SSTable
                 if (try self.current_sstable_iterator.?.next()) |sstable_block| {
                     return sstable_block.read(.sstable_manager).*;
                 } else {
-                    // Current SSTable exhausted, move to next
                     if (self.current_sstable_iterator) |*iter| {
                         iter.deinit();
                     }
@@ -1000,7 +989,6 @@ pub const StorageEngine = struct {
             self.validate_subsystem_coherence();
             self.validate_arena_memory_consistency();
 
-            // Delegate to subsystem validation
             self.memtable_manager.validate_invariants();
             self.sstable_manager.validate_invariants();
         }
@@ -1010,16 +998,13 @@ pub const StorageEngine = struct {
     fn validate_storage_state_invariants(self: *const StorageEngine) void {
         assert_fmt(builtin.mode == .Debug, "Storage state validation should only run in debug builds", .{});
 
-        // Validate critical pointer integrity
         fatal_assert(@intFromPtr(self) != 0, "StorageEngine self pointer is null - memory corruption detected", .{});
         fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corruption in StorageEngine", .{});
         fatal_assert(@intFromPtr(&self.sstable_manager) != 0, "SSTableManager pointer corruption in StorageEngine", .{});
 
-        // Validate state machine consistency
         assert_fmt(self.state != .uninitialized or self.data_dir.len == 0, "Uninitialized state but data_dir is set: '{s}'", .{self.data_dir});
         assert_fmt(self.state == .uninitialized or self.data_dir.len > 0, "Initialized state but data_dir is empty", .{});
 
-        // Validate directory path is reasonable
         if (self.data_dir.len > 0) {
             assert_fmt(self.data_dir.len < 4096, "Data directory path too long: {} bytes", .{self.data_dir.len});
             assert_fmt(@intFromPtr(self.data_dir.ptr) != 0, "Data directory pointer is null with length {}", .{self.data_dir.len});
@@ -1030,16 +1015,13 @@ pub const StorageEngine = struct {
     fn validate_subsystem_coherence(self: *const StorageEngine) void {
         assert_fmt(builtin.mode == .Debug, "Subsystem coherence validation should only run in debug builds", .{});
 
-        // Validate memory accounting consistency between subsystems
         const memtable_memory = self.memtable_manager.memory_usage();
 
-        // Validate memory usage is reasonable
         if (self.memtable_manager.block_count() > 0) {
             const avg_block_size = memtable_memory / self.memtable_manager.block_count();
             assert_fmt(avg_block_size > 0 and avg_block_size < 500 * 1024 * 1024, "Average block size {} indicates memory corruption", .{avg_block_size});
         }
 
-        // Validate block counts are consistent
         const memtable_blocks = self.memtable_manager.block_count();
         const sstable_blocks = self.sstable_manager.total_block_count();
         assert_fmt(memtable_blocks < 1000000 and sstable_blocks < 10000000, "Block counts indicate potential corruption: memtable={} sstable={}", .{ memtable_blocks, sstable_blocks });
@@ -1049,7 +1031,6 @@ pub const StorageEngine = struct {
     fn validate_arena_memory_consistency(self: *const StorageEngine) void {
         assert_fmt(builtin.mode == .Debug, "Arena memory validation should only run in debug builds", .{});
 
-        // Validate storage arena state
         fatal_assert(@intFromPtr(&self.storage_arena) != 0, "Storage arena pointer corruption", .{});
         fatal_assert(@intFromPtr(&self.query_cache_arena) != 0, "Query cache arena pointer corruption", .{});
 
@@ -1057,7 +1038,6 @@ pub const StorageEngine = struct {
         // Skip allocation test in const validation - arena corruption would be caught elsewhere
         // The pointer validation above is sufficient for detecting major corruption
 
-        // Validate backing allocator is still functional
         const test_backing_alloc = self.backing_allocator.alloc(u8, 1) catch {
             fatal_assert(false, "StorageEngine backing allocator non-functional - corruption detected", .{});
             return;
@@ -1129,7 +1109,6 @@ pub const TypedStorageCoordinator = struct {
     /// Release SSTable back to pool for reuse.
     /// CRITICAL: Caller must not access SSTable after release.
     pub fn release_pooled_sstable(self: TypedStorageCoordinator, table: *SSTable) void {
-        // Ensure SSTable is properly reset before returning to pool
         table.deinit();
         self.storage_engine.sstable_pool.release(table);
     }
@@ -1143,7 +1122,6 @@ pub const TypedStorageCoordinator = struct {
     /// Release BlockIterator back to pool for reuse.
     /// CRITICAL: Caller must not access iterator after release.
     pub fn release_pooled_iterator(self: TypedStorageCoordinator, iterator: *StorageEngine.BlockIterator) void {
-        // Iterator cleanup is handled by its own deinit
         self.storage_engine.iterator_pool.release(iterator);
     }
 

@@ -111,7 +111,6 @@ pub const MetadataFieldIndex = struct {
 
         const result = try self.entries.getOrPut(metadata_value);
         if (!result.found_existing) {
-            // Create new entry
             const owned_value = try self.backing_allocator.dupe(u8, metadata_value);
             result.key_ptr.* = owned_value;
             result.value_ptr.* = IndexEntry.init(self.backing_allocator, owned_value);

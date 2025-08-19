@@ -850,7 +850,6 @@ test "OwnedBlockCollection management" {
     try std.testing.expect(found != null);
     try std.testing.expect(found.?.id.eql(block1.id));
 
-    // Get all blocks
     const blocks = collection.query_blocks(.storage_engine);
     try std.testing.expect(blocks.len == 2);
 }

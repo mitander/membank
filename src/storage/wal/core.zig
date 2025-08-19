@@ -90,7 +90,7 @@ pub const WAL = struct {
             else => return WALError.IoError,
         };
 
-        try self.initialize_active_segment();
+        try self.setup_active_segment();
     }
 
     /// Clean up WAL resources and close active files
@@ -390,7 +390,7 @@ pub const WAL = struct {
     }
 
     /// Initialize the active segment by discovering existing segments or creating the first one
-    fn initialize_active_segment(self: *WAL) WALError!void {
+    fn setup_active_segment(self: *WAL) WALError!void {
         self.segment_number = try self.discover_latest_segment_number();
 
         self.open_segment_file() catch |err| switch (err) {

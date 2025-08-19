@@ -125,7 +125,6 @@ pub const RecoveryContext = struct {
             return RecoveryError.GraphIndexCorruption;
         }
 
-        // Basic relationship validation
         if (source_count > edge_count or target_count > edge_count) {
             std.log.warn("GraphIndex validation failed: edge_count={}, source_count={}, target_count={}", .{ edge_count, source_count, target_count });
             return RecoveryError.GraphIndexCorruption;

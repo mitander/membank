@@ -92,7 +92,6 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     var port: u16 = 8080;
     var host: []const u8 = "127.0.0.1";
 
-    // Parse command line arguments FIRST - before any initialization
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--help")) {
@@ -134,7 +133,6 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
         }
     }
 
-    // Setup signal handlers for graceful shutdown
     try signals.setup_signal_handlers();
 
     var prod_vfs = production_vfs.ProductionVFS.init(allocator);
@@ -147,7 +145,6 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     const full_data_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, data_dir });
     defer allocator.free(full_data_dir);
 
-    // Ensure data directory exists before initializing storage engine
     vfs_interface.mkdir_all(full_data_dir) catch |err| switch (err) {
         vfs.VFSError.FileExists => {}, // Directory already exists, continue
         else => {
@@ -182,7 +179,6 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 
     try kausal_server.startup();
 
-    // Server has exited gracefully
     std.debug.print("KausalDB server shutdown complete\n", .{});
 }
 
@@ -198,7 +194,6 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, "demo_data" });
     defer allocator.free(data_dir);
 
-    // Ensure data directory exists before initializing storage engine
     vfs_interface.mkdir_all(data_dir) catch |err| switch (err) {
         vfs.VFSError.FileExists => {}, // Directory already exists, continue
         else => return err,
@@ -322,7 +317,6 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 fn run_status(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     var data_dir: []const u8 = "kausaldb_data";
 
-    // Parse command line arguments
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--data-dir") and i + 1 < args.len) {
@@ -366,14 +360,12 @@ fn run_status(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     std.debug.print("=== KausalDB Status ===\n\n", .{});
     std.debug.print("Data directory: {s}\n", .{full_data_dir});
 
-    // Check if data directory exists
     if (!vfs_interface.exists(full_data_dir)) {
         std.debug.print("Status: Not initialized (data directory does not exist)\n", .{});
         std.debug.print("\nTo initialize: kausaldb server\n", .{});
         return;
     }
 
-    // Try to initialize storage engine in read-only mode
     var storage_engine = StorageEngine.init_default(allocator, vfs_interface, full_data_dir) catch |err| {
         std.debug.print("Status: Database error - {any}\n", .{err});
         return;
@@ -409,7 +401,6 @@ fn run_list_blocks(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     var data_dir: []const u8 = "kausaldb_data";
     var limit: u32 = 10;
 
-    // Parse command line arguments
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--data-dir") and i + 1 < args.len) {
@@ -466,8 +457,6 @@ fn run_list_blocks(allocator: std.mem.Allocator, args: [][:0]u8) !void {
         return;
     }
 
-    // For this simple implementation, we'll just show the summary
-    // A full implementation would need iterator support in the storage engine
     std.debug.print("Use 'kausaldb query --id <block_id>' to view specific blocks\n", .{});
     std.debug.print("Listing functionality requires storage engine iteration support\n", .{});
 }
@@ -476,7 +465,6 @@ fn run_query(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     var data_dir: []const u8 = "kausaldb_data";
     var query_id: ?[]const u8 = null;
 
-    // Parse command line arguments
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--data-dir") and i + 1 < args.len) {
@@ -563,14 +551,12 @@ fn run_status_prometheus(allocator: std.mem.Allocator, data_dir: []const u8) !vo
     const full_data_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, data_dir });
     defer allocator.free(full_data_dir);
 
-    // Check if data directory exists
     if (!vfs_interface.exists(full_data_dir)) {
         std.debug.print("# KausalDB metrics - database not initialized\n", .{});
         std.debug.print("kausaldb_up 0\n", .{});
         return;
     }
 
-    // Try to initialize storage engine
     var storage_engine = StorageEngine.init_default(allocator, vfs_interface, full_data_dir) catch {
         std.debug.print("# KausalDB metrics - database error\n", .{});
         std.debug.print("kausaldb_up 0\n", .{});
@@ -591,7 +577,6 @@ fn run_status_prometheus(allocator: std.mem.Allocator, data_dir: []const u8) !vo
     const storage_metrics = storage_engine.metrics();
     const query_stats = query_eng.statistics();
 
-    // Output in Prometheus text format
     std.debug.print("# HELP kausaldb_up Whether KausalDB is up and responding\n", .{});
     std.debug.print("# TYPE kausaldb_up gauge\n", .{});
     std.debug.print("kausaldb_up 1\n", .{});
@@ -645,6 +630,4 @@ fn run_status_prometheus(allocator: std.mem.Allocator, data_dir: []const u8) !vo
     std.debug.print("kausaldb_traversal_queries_total {}\n", .{query_stats.traversal_queries});
 }
 
-test "main module tests" {
-    // Tests for main module
-}
+test "main module tests" {}

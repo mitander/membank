@@ -263,7 +263,6 @@ pub const SSTable = struct {
     pub fn deinit(self: *SSTable) void {
         self.backing_allocator.free(self.file_path);
         self.index.deinit();
-        // BloomFilter cleanup handled by arena coordinator
     }
 
     /// Write blocks to SSTable file in sorted order
@@ -286,12 +285,10 @@ pub const SSTable = struct {
         assert.assert_not_empty(blocks, "Cannot write empty blocks array", .{});
         assert.assert_fmt(blocks.len <= 1000000, "Too many blocks for single SSTable: {}", .{blocks.len});
 
-        // Clear existing index entries to prevent accumulation from multiple write operations
         self.index.clearAndFree();
         assert.assert_fmt(@intFromPtr(blocks.ptr) != 0, "Blocks array has null pointer", .{});
 
         for (blocks, 0..) |block_value, i| {
-            // Access block data through ownership interface when needed
             const block_data = switch (BlocksType) {
                 []const ContextBlock => block_value,
                 []ContextBlock => block_value,
@@ -421,7 +418,7 @@ pub const SSTable = struct {
         self.block_count = @intCast(context_blocks.len);
 
         // SUCCESS: All fallible operations completed. Now transfer ownership.
-        // Arena coordinator handles cleanup of existing bloom filter
+
         self.bloom_filter = new_bloom;
     }
 
@@ -453,7 +450,6 @@ pub const SSTable = struct {
         var file = try self.filesystem.open(self.file_path, .read);
         defer file.close();
 
-        // Clear index to prevent accumulating entries from previous reads
         self.index.clearRetainingCapacity();
 
         var header_buffer: [HEADER_SIZE]u8 = undefined;
@@ -488,9 +484,6 @@ pub const SSTable = struct {
             try self.index.append(entry);
         }
 
-        // Index entries are already sorted by block ID from write_blocks()
-        // No need to re-sort as this preserves the correct offset mapping
-
         // Validate index ordering in debug builds - critical for binary search correctness
         if (builtin.mode == .Debug) {
             self.validate_index_ordering();
@@ -513,7 +506,6 @@ pub const SSTable = struct {
     /// Uses the bloom filter for fast negative lookups, then performs binary search
     /// on the index. Returns null if the block is not found in this SSTable.
     pub fn find_block(self: *SSTable, block_id: BlockId) !?SSTableBlock {
-        // Validate index ordering before binary search in debug builds
         if (builtin.mode == .Debug) {
             self.validate_index_ordering();
         }
@@ -552,9 +544,7 @@ pub const SSTable = struct {
 
         _ = try file.seek(@intCast(found_entry.offset), .start);
 
-        // Allocate buffer from arena to ensure it lives as long as the deserialized block
         const buffer = try self.arena_coordinator.alloc(u8, found_entry.size);
-        // No defer free - arena manages lifetime
 
         _ = try file.read(buffer);
 
@@ -623,9 +613,7 @@ pub const SSTableIterator = struct {
 
         _ = try self.file.?.seek(@intCast(entry.offset), .start);
 
-        // Allocate buffer from arena to ensure it lives as long as the deserialized block
         const buffer = try self.sstable.arena_coordinator.alloc(u8, entry.size);
-        // No defer free - arena manages lifetime
 
         _ = try self.file.?.read(buffer);
 
@@ -703,8 +691,6 @@ pub const Compactor = struct {
         }
 
         const unique_blocks = try self.dedup_blocks(all_blocks.items);
-
-        // Arena coordinator handles cleanup of deserialized block strings automatically
 
         defer self.backing_allocator.free(unique_blocks);
         // Arena coordinator handles cleanup of cloned block strings automatically

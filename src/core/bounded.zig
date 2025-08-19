@@ -599,7 +599,6 @@ test "BoundedArrayType remove operations" {
     try array.append(3);
     try array.append(4);
 
-    // Remove from middle
     const removed = try array.remove_at(1);
     try std.testing.expect(removed == 2);
     try std.testing.expect(array.length() == 3);
@@ -658,7 +657,6 @@ test "BoundedQueueType wrap-around" {
     try queue.enqueue(2);
     try queue.enqueue(3);
 
-    // Remove one, add one (should wrap around)
     try std.testing.expect(queue.dequeue() == 1);
     try queue.enqueue(4);
 
@@ -698,13 +696,11 @@ test "BoundedHashMapType remove operations" {
     try map.put(2, 20);
     try map.put(3, 30);
 
-    // Remove existing key
     try std.testing.expect(map.remove(2));
     try std.testing.expect(map.length() == 2);
     try std.testing.expect(map.get(2) == null);
     try std.testing.expect(map.get(1) == 10); // Others remain
 
-    // Remove non-existent key
     try std.testing.expect(!map.remove(999));
     try std.testing.expect(map.length() == 2);
 }

@@ -270,7 +270,6 @@ pub const FileHandleRegistry = struct {
     pub fn register_handle(self: *FileHandleRegistry, path: []const u8, access_mode: FileAccessMode) !FileHandleId {
         const handle_id = FileHandleId.init(self.next_id, self.generation);
 
-        // Clone path for storage
         const owned_path = try self.allocator.dupe(u8, path);
         const handle = TypedFileHandle.init(handle_id, owned_path, access_mode);
 
@@ -590,7 +589,6 @@ test "TypedFileHandle lifecycle" {
     try std.testing.expect(handle.query_position() == 0);
     try std.testing.expect(handle.query_size() == 0);
 
-    // Write data
     try handle.write("hello");
     try std.testing.expect(handle.query_position() == 5);
     try std.testing.expect(handle.query_size() == 5);
@@ -604,7 +602,6 @@ test "TypedFileHandle lifecycle" {
     try std.testing.expect(bytes_read == 5);
     try std.testing.expect(handle.query_position() == 5);
 
-    // Close
     handle.close();
     try std.testing.expect(!handle.is_open());
 }
@@ -631,7 +628,6 @@ test "FileHandleRegistry management" {
     try std.testing.expect(!h2.?.can_read_now());
     try std.testing.expect(h2.?.can_write_now());
 
-    // Close specific handle
     try std.testing.expect(registry.close_handle(handle1));
     try std.testing.expect(registry.handle_count() == 1);
 
@@ -646,10 +642,8 @@ test "FileOperations comprehensive workflow" {
 
     var ops = FileOperations.init(&registry);
 
-    // Open file
     const handle = try ops.open_file("/test.txt", .read_write);
 
-    // Write data
     const write_result = ops.write_to_file(handle, "test data");
     try std.testing.expect(write_result.is_success());
     try std.testing.expect(write_result.query_bytes().? == 9);
@@ -658,20 +652,17 @@ test "FileOperations comprehensive workflow" {
     const seek_result = ops.seek_in_file(handle, 0);
     try std.testing.expect(seek_result.is_success());
 
-    // Read data back
     var buffer: [20]u8 = undefined;
     const read_result = ops.read_from_file(handle, &buffer);
     try std.testing.expect(read_result.is_success());
     try std.testing.expect(read_result.query_bytes().? == 9);
 
-    // Get file info
     const info = ops.query_file_info(handle);
     try std.testing.expect(info != null);
     try std.testing.expect(info.?.size == 9);
     try std.testing.expect(info.?.is_readable());
     try std.testing.expect(info.?.is_writable());
 
-    // Close file
     try std.testing.expect(ops.close_file(handle));
 }
 
@@ -701,7 +692,6 @@ test "file access mode restrictions" {
 
     var ops = FileOperations.init(&registry);
 
-    // Open read-only file
     const read_handle = try ops.open_file("/readonly.txt", .read_only);
 
     // Writing should fail

@@ -473,7 +473,6 @@ pub const IngestionPipeline = struct {
                 continue;
             };
 
-            // Transform raw text into structured elements for context building using temporary allocator
             const units = try parser.parse(temp_allocator, mutable_content);
             defer {
                 for (units) |*unit| {
@@ -486,14 +485,12 @@ pub const IngestionPipeline = struct {
             for (self.chunkers.items) |chunker| {
                 const temp_blocks = try chunker.chunk(temp_allocator, units);
 
-                // Copy blocks from temporary arena to main arena for persistence
                 for (temp_blocks) |temp_block| {
                     const persistent_block = try self.copy_block_to_main_arena(temp_block, main_allocator);
                     try blocks.append(persistent_block);
                 }
                 break;
             } else {
-                // Skip if no compatible chunker found
                 continue;
             }
         }
@@ -668,7 +665,6 @@ pub const IngestionPipeline = struct {
             const chunked_blocks = try chunker.chunk(temp_allocator, parsed_units);
             defer temp_allocator.free(chunked_blocks);
 
-            // Copy blocks from temp allocator to main allocator for persistence
             for (chunked_blocks) |temp_block| {
                 const persistent_block = ContextBlock{
                     .id = temp_block.id, // BlockId is copy-by-value

@@ -85,7 +85,6 @@ pub const ConnectionManager = struct {
     pub fn startup(self: *ConnectionManager) !void {
         concurrency.assert_main_thread();
 
-        // Allocate poll_fds for max connections plus listener socket
         const poll_fds_size = self.config.max_connections + 1;
         self.poll_fds = try self.backing_allocator.alloc(std.posix.pollfd, poll_fds_size);
 
@@ -98,14 +97,12 @@ pub const ConnectionManager = struct {
     /// Clean up all resources including connections and poll_fds.
     /// Connections use arena allocator so individual deinit() not needed.
     pub fn deinit(self: *ConnectionManager) void {
-        // Close all active connections
         for (self.connections.items) |connection| {
             connection.deinit();
             // Connection memory is arena-allocated, cleaned up below
         }
         self.connections.deinit();
 
-        // Free poll_fds allocated with backing allocator
         if (self.poll_fds.len > 0) {
             self.backing_allocator.free(self.poll_fds);
         }
@@ -140,7 +137,6 @@ pub const ConnectionManager = struct {
                 continue;
             }
 
-            // Create connection using arena allocator for automatic cleanup
             const arena_allocator = self.arena.allocator();
             const connection = try arena_allocator.create(ClientConnection);
             connection.* = ClientConnection.init(arena_allocator, tcp_connection.stream, self.next_connection_id);
@@ -252,7 +248,6 @@ pub const ConnectionManager = struct {
                 continue;
             }
 
-            // Add connections with ready I/O to result set
             if (poll_fd.revents & (std.posix.POLL.IN | std.posix.POLL.OUT) != 0) {
                 if (ready_index < ready_connections.len) {
                     ready_connections[ready_index] = connection;
@@ -275,11 +270,9 @@ pub const ConnectionManager = struct {
         const connection = self.connections.items[index];
         log.info("Connection {} closed", .{connection.connection_id});
 
-        // Close socket and clean up connection resources
         connection.deinit();
         // Arena handles memory deallocation automatically
 
-        // Remove from active connections list
         _ = self.connections.swapRemove(index);
         self.stats.connections_active -= 1;
         self.stats.connections_closed += 1;
