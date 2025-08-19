@@ -1,101 +1,65 @@
-# KausalDB
+# kausaldb
 
-[![CI](https://github.com/kausaldb/kausaldb/actions/workflows/ci.yml/badge.svg)](https://github.com/kausaldb/kausaldb/actions)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI Status](https://github.com/kausaldb/kausaldb/actions/workflows/ci.yml/badge.svg)](https://github.com/kausaldb/kausaldb/actions)
+[![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> _Code is a graph. Query it._
+> Code is a graph. Query it.
 
-A database built for the way code actually works—not as flat text, but as a living graph of dependencies, calls, and causal relationships. KausalDB lets Large Language Models reason about software with the ground truth of its architecture.
+KausalDB models your codebase as a directed graph of dependencies and relationships. Built for LLMs that need to understand software structure, not just grep through text.
 
 ## Quick Start
-
 ```bash
-# Get the source
 git clone https://github.com/kausaldb/kausaldb
 cd kausaldb
 
-# Install toolchain and hooks
 ./scripts/install_zig.sh
-./scripts/setup_hooks.sh
-
-# Build and test
-./zig/zig build test
-
-# Start the database
 ./zig/zig build run
 ```
 
-Connect and query:
+## Why
+
+Your codebase isn't a flat directory of text files. It's a network of dependencies with causal relationships. Grep and semantic search find text. KausalDB finds causality.
 
 ```zig
-const kausal = @import("kausaldb");
-
-// Find a function and trace its impact
-var func = try db.find("authenticate_user");
-var affected = try db.traverse(func.id, .incoming, .depth(3));
-var deps = try db.traverse(func.id, .outgoing, .depth(2));
-
-// Now your LLM has the actual dependency subgraph
-var context = ContextSubgraph{ func, affected, deps };
+// What breaks if we change authenticate_user()?
+var func = try kausaldb.find("function:authenticate_user");
+var affected = try kausaldb.traverse(func.id, .incoming, .depth(3));
 ```
 
-## The Problem
+The model operates on ground truth, not approximations.
 
-Standard RAG is broken for complex systems. Feeding an LLM chunks of "similar" text is guesswork. Code has structure—imports, calls, dependencies—that semantic search can't capture. You need the causal graph.
+## Performance
 
-## The Solution
+Single-threaded by design. Zero data races, deterministic testing.
 
-Instead of approximating with embeddings, KausalDB models the actual relationships in your codebase. When a function changes, you can precisely query what's affected upstream and downstream. No guessing. No hallucination. Just the graph.
-
-## Design Philosophy
-
-We build for purpose, not popularity. Every decision optimizes for modeling code as a queryable graph:
-
-- **Zero-cost abstractions**: Safety with no runtime overhead
-- **Single-threaded core**: Eliminates races by design
-- **Arena memory model**: O(1) cleanup, zero leaks
-- **Simulation-first testing**: Validates against disk corruption, network partitions, power loss
-- **LSM-tree storage**: Optimized for high-volume code ingestion
-
-_Performance: 76K writes/sec, 34M reads/sec, sub-microsecond block access_
-
-## Development
-
-Run the full validation suite (mirrors CI):
-
-```bash
-./scripts/local_ci.sh
-```
-
-Chaos testing with different intensity levels:
-
-```bash
-./scripts/fuzz.sh quick     # 500K iterations, ~30s
-./scripts/fuzz.sh deep      # 10M iterations, ~10min
-./scripts/fuzz.sh production # Continuous with monitoring
-```
-
-Performance analysis:
-
-```bash
-./zig/zig build benchmark && ./zig-out/bin/benchmark all
-```
+- **Block Write**: 15µs
+- **Block Read**: 0.08µs
+- **Graph Traversal**: <100µs for 3-hop queries
+- **Zero Dependencies**: Single static binary
 
 ## Architecture
 
-**Core Documents:**
+LSM-Tree storage with arena-based memory management. See [DESIGN.md](docs/DESIGN.md) for the philosophy.
 
-- [**Design Philosophy**](docs/DESIGN.md) - The why and how of KausalDB
-- [**Memory Architecture**](docs/architecture/memory-model.md) - Five-level memory hierarchy
-- [**Query Engine**](docs/architecture/query-engine.md) - Graph traversal algorithms
-- [**Development Guide**](docs/DEVELOPMENT.md) - Build system, workflows, debugging
+```
+src/
+├── core/       # Types, assertions, memory patterns
+├── storage/    # LSM-Tree implementation
+├── query/      # Graph traversal engine
+└── server/     # Binary protocol server
+```
 
-**Implementation Guides:**
+## Development
 
-- [**Coding Style**](docs/STYLE.md) - Naming, patterns, memory management
-- [**Testing Philosophy**](docs/TESTING_GUIDELINES.md) - Simulation-first approach
-- [**Performance Analysis**](docs/PERFORMANCE.md) - Benchmarking and regression detection
+```bash
+# Run tests (includes deterministic failure simulation)
+./zig/zig build test
 
----
+# Run benchmarks
+./zig/zig build benchmark
 
-Built with [Zig](https://ziglang.org). No dependencies. Single binary. Zero runtime.
+# Check for regressions
+./scripts/check_regression.sh
+```
+
+Tests run the exact production code against simulated disk corruption, network partitions, and power loss. No mocks.
