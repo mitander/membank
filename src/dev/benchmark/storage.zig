@@ -35,7 +35,7 @@ const MAX_MEMORY_GROWTH_PER_OP = 12 * 1024; // 12KB per operation (measured up t
 const ITERATIONS = 10;
 const WARMUP_ITERATIONS = 5;
 const LARGE_ITERATIONS = 50;
-const HIGH_PRECISION_ITERATIONS = 100; // Further reduced to prevent hangs
+const HIGH_PRECISION_ITERATIONS = 10000; // Restored for accurate sub-microsecond measurements
 const STATISTICAL_SAMPLES = 10; // Reduced for faster testing
 const TIMEOUT_MS = 30_000; // 30 second timeout for any single benchmark
 
@@ -205,101 +205,116 @@ pub fn run_zero_cost_ownership(allocator: std.mem.Allocator) !BenchmarkResult {
 }
 
 fn benchmark_block_writes(storage_engine: *StorageEngine, allocator: std.mem.Allocator) !BenchmarkResult {
-    // Simplified benchmark to avoid hanging issues
-    // Just measure a few basic operations to ensure benchmarks can complete
-    _ = storage_engine; // Use the passed storage engine for consistency
-
     const initial_memory = kausaldb.profiler.query_current_rss_memory();
 
-    // Create a single test block for measurement
-    const test_block = try create_test_block(allocator, 1);
-    defer free_test_block(allocator, test_block);
+    // Clear any residual data that might cause throttling
 
-    // Simple timing measurement - just measure block creation overhead
-    var total_time: u64 = 0;
-    const simple_iterations = 3; // Very conservative to avoid hangs
+    // Use statistical sampling for accurate measurement
+    var sampler = StatisticalSampler.init(allocator, "block_writes", WARMUP_ITERATIONS, STATISTICAL_SAMPLES);
+    defer sampler.deinit();
 
-    for (0..simple_iterations) |_| {
-        const start_time = std.time.nanoTimestamp();
+    const WriteContext = struct {
+        storage_engine: *StorageEngine,
+        allocator: std.mem.Allocator,
+        current_index: usize = 0,
 
-        // Measure simple operations instead of storage engine writes
-        const temp_block = try create_test_block(allocator, 999);
-        defer free_test_block(allocator, temp_block);
+        /// Execute a single write operation with throttling handling
+        pub fn run_operation(self: *@This()) !void {
+            const block = try create_test_block(self.allocator, self.current_index + 10000);
+            defer free_test_block(self.allocator, block);
+            self.current_index += 1;
 
-        const end_time = std.time.nanoTimestamp();
-        total_time += @intCast(end_time - start_time);
-    }
+            // Handle write throttling gracefully
+            self.storage_engine.put_block(block) catch |err| switch (err) {
+                error.WriteBlocked, error.WriteStalled => {
+                    // Wait for compaction and retry once
+                    std.Thread.sleep(10 * std.time.ns_per_ms);
+                    _ = try self.storage_engine.put_block(block);
+                },
+                else => return err,
+            };
+        }
+    };
+
+    var write_context = WriteContext{
+        .storage_engine = storage_engine,
+        .allocator = allocator,
+    };
+
+    try sampler.run_with_warmup(WriteContext.run_operation, &write_context);
 
     const peak_memory = kausaldb.profiler.query_current_rss_memory();
     const memory_growth = peak_memory - initial_memory;
 
-    const mean_time = total_time / simple_iterations;
-    const throughput = calculate_safe_throughput(simple_iterations, total_time);
+    const stats = sampler.calculate_statistics();
+    const throughput = calculate_safe_throughput(STATISTICAL_SAMPLES, @intCast(stats.mean * STATISTICAL_SAMPLES));
 
-    // Return a minimal but valid result that won't hang
     const result = BenchmarkResult{
-        .operation_name = "Block Write (Simplified)",
-        .iterations = simple_iterations,
-        .total_time_ns = total_time,
-        .min_ns = mean_time,
-        .max_ns = mean_time,
-        .mean_ns = mean_time,
-        .median_ns = mean_time,
-        .stddev_ns = 0,
+        .operation_name = "Block Write (Storage Engine)",
+        .iterations = STATISTICAL_SAMPLES,
+        .total_time_ns = @intCast(stats.mean * STATISTICAL_SAMPLES),
+        .min_ns = stats.min,
+        .max_ns = stats.max,
+        .mean_ns = stats.mean,
+        .median_ns = stats.median,
+        .stddev_ns = stats.stddev,
         .throughput_ops_per_sec = throughput,
-        .passed_threshold = true, // Always pass for simplified benchmark
+        .passed_threshold = stats.mean <= BLOCK_WRITE_THRESHOLD_NS,
         .threshold_ns = BLOCK_WRITE_THRESHOLD_NS,
         .peak_memory_bytes = peak_memory,
         .memory_growth_bytes = memory_growth,
-        .memory_efficient = true, // Simplified version should be efficient
+        .memory_efficient = peak_memory <= MAX_PEAK_MEMORY_BYTES and memory_growth <= (MAX_MEMORY_GROWTH_PER_OP * STATISTICAL_SAMPLES),
     };
 
     return result;
 }
 
 fn benchmark_block_reads(storage_engine: *StorageEngine, allocator: std.mem.Allocator) !BenchmarkResult {
-    // Simplified benchmark to avoid hanging issues with storage engine calls
-    _ = storage_engine; // Acknowledge parameter for consistency
+    const block_ids = try setup_read_test_blocks(storage_engine, allocator);
+    defer allocator.free(block_ids);
 
     const initial_memory = kausaldb.profiler.query_current_rss_memory();
+    var timings = try allocator.alloc(u64, HIGH_PRECISION_ITERATIONS);
+    defer allocator.free(timings);
 
-    // Simple timing measurement - just measure BlockId operations
-    var total_time: u64 = 0;
-    const simple_iterations = 3; // Very conservative to avoid hangs
+    // Warmup phase
+    for (0..WARMUP_ITERATIONS) |i| {
+        const block_id = block_ids[i % block_ids.len];
+        _ = try storage_engine.find_block(block_id, .temporary);
+    }
 
-    for (0..simple_iterations) |i| {
+    // High-precision measurement phase
+    for (0..HIGH_PRECISION_ITERATIONS) |i| {
+        const block_id = block_ids[i % block_ids.len];
+
         const start_time = std.time.nanoTimestamp();
-
-        // Measure BlockId creation instead of storage engine reads
-        const block_id_hex = try std.fmt.allocPrint(allocator, "{x:0>32}", .{i});
-        defer allocator.free(block_id_hex);
-        _ = try BlockId.from_hex(block_id_hex);
-
+        _ = try storage_engine.find_block(block_id, .temporary);
         const end_time = std.time.nanoTimestamp();
-        total_time += @intCast(end_time - start_time);
+
+        timings[i] = @intCast(end_time - start_time);
     }
 
     const peak_memory = kausaldb.profiler.query_current_rss_memory();
     const memory_growth = peak_memory - initial_memory;
 
-    const mean_time = total_time / simple_iterations;
-    const throughput = calculate_safe_throughput(simple_iterations, total_time);
+    const stats = analyze_timings(timings);
+    const throughput = calculate_safe_throughput(HIGH_PRECISION_ITERATIONS, stats.total_time_ns);
 
     const result = BenchmarkResult{
-        .operation_name = "Block Read (Simplified)",
-        .iterations = simple_iterations,
-        .total_time_ns = total_time,
-        .min_ns = mean_time,
-        .max_ns = mean_time,
-        .mean_ns = mean_time,
-        .median_ns = mean_time,
-        .stddev_ns = 0,
+        .operation_name = "Block Read",
+        .iterations = HIGH_PRECISION_ITERATIONS,
+        .total_time_ns = stats.total_time_ns,
+        .min_ns = stats.min,
+        .max_ns = stats.max,
+        .mean_ns = stats.mean,
+        .median_ns = stats.median,
+        .stddev_ns = stats.stddev,
         .throughput_ops_per_sec = throughput,
-        .passed_threshold = true, // Always pass for simplified benchmark
+        .passed_threshold = stats.mean <= BLOCK_READ_THRESHOLD_NS,
         .threshold_ns = BLOCK_READ_THRESHOLD_NS,
         .peak_memory_bytes = peak_memory,
         .memory_growth_bytes = memory_growth,
-        .memory_efficient = true, // Simplified version should be efficient
+        .memory_efficient = peak_memory <= MAX_PEAK_MEMORY_BYTES and memory_growth <= (MAX_MEMORY_GROWTH_PER_OP * HIGH_PRECISION_ITERATIONS),
     };
 
     return result;
@@ -483,6 +498,7 @@ fn benchmark_zero_cost_ownership(storage_engine: *StorageEngine, allocator: std.
 
         /// Perform zero-cost operation with direct block ID access.
         /// Uses compile-time known access patterns for optimal performance measurement.
+        /// Execute a single write operation with throttling handling
         pub fn run_operation(self: *@This()) !void {
             // Simulate zero-cost operation - direct block ID access (compile-time known)
             const block_id = self.block_ids[self.current_index % self.block_ids.len];
@@ -498,6 +514,7 @@ fn benchmark_zero_cost_ownership(storage_engine: *StorageEngine, allocator: std.
 
         /// Perform runtime operation with validation overhead.
         /// Simulates runtime checks and validation for performance comparison.
+        /// Execute a single write operation with throttling handling
         pub fn run_operation(self: *@This()) !void {
             // Simulate runtime validation - add some overhead
             const block_id = self.block_ids[self.current_index % self.block_ids.len];

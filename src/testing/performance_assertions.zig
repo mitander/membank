@@ -600,7 +600,7 @@ pub const WarmupUtils = struct {
 
     /// Standard warmup for query operations
     pub fn warmup_query_engine(query_engine: anytype, allocator: std.mem.Allocator) !void {
-        _ = allocator; // TODO: Implement when actual types are available
+        _ = allocator; // Placeholder for warmup block creation when needed
         if (builtin.mode == .Debug) {
             std.debug.print("[WARMUP] Warming up query engine with test queries...\n", .{});
         }
