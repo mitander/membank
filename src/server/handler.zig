@@ -317,7 +317,7 @@ pub const Server = struct {
             return;
         }
 
-        var found_blocks = std.ArrayList(ownership.QueryEngineBlock).init(allocator);
+        var found_blocks = std.array_list.Managed(ownership.QueryEngineBlock).init(allocator);
         defer found_blocks.deinit();
 
         for (0..block_count) |i| {
@@ -399,7 +399,7 @@ pub const Server = struct {
         const start_id_bytes = payload[4..20];
         const start_id = ctx_block.BlockId{ .bytes = start_id_bytes[0..16].* };
 
-        var result_blocks = std.ArrayList(ownership.QueryEngineBlock).init(allocator);
+        var result_blocks = std.array_list.Managed(ownership.QueryEngineBlock).init(allocator);
         defer result_blocks.deinit();
 
         const start_block = (try self.storage_engine.find_block(start_id, .query_engine)) orelse {

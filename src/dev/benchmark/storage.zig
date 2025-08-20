@@ -66,8 +66,8 @@ fn run_with_timeout(
 ///
 /// Runs benchmarks for writes, reads, updates, deletes, and WAL flush operations.
 /// Tests all main storage engine operations with timeout protection.
-pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
-    var results = std.ArrayList(BenchmarkResult).init(allocator);
+pub fn run_all(allocator: std.mem.Allocator) !std.array_list.Managed(BenchmarkResult) {
+    var results = std.array_list.Managed(BenchmarkResult).init(allocator);
 
     // Run each benchmark with timeout protection
     try results.append(try run_with_timeout(allocator, run_block_writes, TIMEOUT_MS));

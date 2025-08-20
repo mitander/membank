@@ -319,7 +319,7 @@ test "human readable format contains key metrics" {
     metrics.blocks_written.add(100);
     metrics.blocks_read.add(200);
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer = std.array_list.Managed(u8).init(allocator);
     defer buffer.deinit();
 
     try metrics.format_human_readable(buffer.writer());
@@ -337,7 +337,7 @@ test "json format produces valid json structure" {
     metrics.blocks_written.add(50);
     metrics.wal_writes.add(75);
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer = std.array_list.Managed(u8).init(allocator);
     defer buffer.deinit();
 
     try metrics.format_json(buffer.writer());

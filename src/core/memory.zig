@@ -254,7 +254,7 @@ pub const ArenaCoordinatorDebugInfo = struct {
 /// Arena allocation tracker for debug builds.
 /// Provides detailed allocation tracking and leak detection for arena usage patterns.
 pub const ArenaAllocationTracker = struct {
-    allocations: if (builtin.mode == .Debug) std.ArrayList(AllocationInfo) else void,
+    allocations: if (builtin.mode == .Debug) std.array_list.Managed(AllocationInfo) else void,
     total_allocations: if (builtin.mode == .Debug) usize else void,
     peak_memory: if (builtin.mode == .Debug) usize else void,
     current_memory: if (builtin.mode == .Debug) usize else void,
@@ -268,7 +268,7 @@ pub const ArenaAllocationTracker = struct {
 
     pub fn init(allocator: std.mem.Allocator) ArenaAllocationTracker {
         return ArenaAllocationTracker{
-            .allocations = if (builtin.mode == .Debug) std.ArrayList(AllocationInfo).init(allocator) else {},
+            .allocations = if (builtin.mode == .Debug) std.array_list.Managed(AllocationInfo).init(allocator) else {},
             .total_allocations = if (builtin.mode == .Debug) 0 else {},
             .peak_memory = if (builtin.mode == .Debug) 0 else {},
             .current_memory = if (builtin.mode == .Debug) 0 else {},

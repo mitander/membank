@@ -311,7 +311,7 @@ test "wal recovery stress with many entries" {
 
     try storage_engine1.startup();
 
-    var expected_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var expected_blocks = std.array_list.Managed(ContextBlock).init(allocator);
     try expected_blocks.ensureTotalCapacity(num_blocks);
     defer {
         for (expected_blocks.items) |block| {

@@ -167,7 +167,7 @@ test "cross-segment entry corruption recovery" {
     var dir_iterator = try harness.sim_vfs.vfs().iterate_directory(wal_dir, allocator);
     defer dir_iterator.deinit(allocator);
 
-    var segment_files = std.ArrayList([]u8).init(allocator);
+    var segment_files = std.array_list.Managed([]u8).init(allocator);
     defer {
         for (segment_files.items) |path| {
             allocator.free(path);
@@ -274,7 +274,7 @@ test "inter-segment boundary checksum corruption" {
     var dir_iterator = try harness.sim_vfs.vfs().iterate_directory(wal_dir, allocator);
     defer dir_iterator.deinit(allocator);
 
-    var segment_files = std.ArrayList([]u8).init(allocator);
+    var segment_files = std.array_list.Managed([]u8).init(allocator);
     defer {
         for (segment_files.items) |path| {
             allocator.free(path);

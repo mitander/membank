@@ -120,7 +120,7 @@ test "ingestion handles memory pressure during large file processing" {
     try vfs_interface.mkdir("test_repo");
 
     // Create artificially large source file
-    var large_content = std.ArrayList(u8).init(allocator);
+    var large_content = std.array_list.Managed(u8).init(allocator);
     defer large_content.deinit();
 
     // Generate 100KB of valid Zig code (smaller for test efficiency)

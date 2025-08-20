@@ -619,7 +619,7 @@ pub const VFile = struct {
 /// Simulation file data structure used by VFile.
 /// This must match the structure used by SimulationVFS implementations.
 pub const SimulationFileData = struct {
-    content: std.ArrayList(u8),
+    content: std.array_list.Managed(u8),
     created_time: i64,
     modified_time: i64,
     is_directory: bool,

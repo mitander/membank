@@ -27,16 +27,16 @@ const CLITestResult = struct {
 // CLI test harness that captures output and simulates command execution
 const CLITestHarness = struct {
     allocator: std.mem.Allocator,
-    stdout_buffer: std.ArrayList(u8),
-    stderr_buffer: std.ArrayList(u8),
+    stdout_buffer: std.array_list.Managed(u8),
+    stderr_buffer: std.array_list.Managed(u8),
 
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .allocator = allocator,
-            .stdout_buffer = std.ArrayList(u8).init(allocator),
-            .stderr_buffer = std.ArrayList(u8).init(allocator),
+            .stdout_buffer = std.array_list.Managed(u8).init(allocator),
+            .stderr_buffer = std.array_list.Managed(u8).init(allocator),
         };
     }
 

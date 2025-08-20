@@ -192,7 +192,7 @@ test "SingleThreadedAllocator as allocator interface" {
     defer allocator.free(memory);
 
     // Should work with ArrayList
-    var list = std.ArrayList(u32).init(allocator);
+    var list = std.array_list.Managed(u32).init(allocator);
     defer list.deinit();
 
     try list.append(1);

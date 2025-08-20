@@ -1392,7 +1392,7 @@ test "block iterator with memtable blocks only" {
     var iterator = engine.iterate_all_blocks();
     defer iterator.deinit();
 
-    var found_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var found_blocks = std.array_list.Managed(ContextBlock).init(allocator);
     defer found_blocks.deinit();
 
     while (try iterator.next()) |block| {
@@ -1452,7 +1452,7 @@ test "block iterator with SSTable blocks" {
     var iterator = engine.iterate_all_blocks();
     defer iterator.deinit();
 
-    var found_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var found_blocks = std.array_list.Managed(ContextBlock).init(allocator);
     defer found_blocks.deinit();
 
     while (try iterator.next()) |block| {
@@ -1497,7 +1497,7 @@ test "block iterator with mixed memtable and SSTable blocks" {
     var iterator = engine.iterate_all_blocks();
     defer iterator.deinit();
 
-    var found_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var found_blocks = std.array_list.Managed(ContextBlock).init(allocator);
     defer found_blocks.deinit();
 
     while (try iterator.next()) |block| {

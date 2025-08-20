@@ -47,13 +47,13 @@ pub const OwnedGraphEdge = struct {
 pub const GraphEdgeIndex = struct {
     outgoing_edges: std.HashMap(
         BlockId,
-        std.ArrayList(OwnedGraphEdge),
+        std.array_list.Managed(OwnedGraphEdge),
         BlockIdContext,
         std.hash_map.default_max_load_percentage,
     ),
     incoming_edges: std.HashMap(
         BlockId,
-        std.ArrayList(OwnedGraphEdge),
+        std.array_list.Managed(OwnedGraphEdge),
         BlockIdContext,
         std.hash_map.default_max_load_percentage,
     ),
@@ -80,13 +80,13 @@ pub const GraphEdgeIndex = struct {
         return GraphEdgeIndex{
             .outgoing_edges = std.HashMap(
                 BlockId,
-                std.ArrayList(OwnedGraphEdge),
+                std.array_list.Managed(OwnedGraphEdge),
                 BlockIdContext,
                 std.hash_map.default_max_load_percentage,
             ).init(backing),
             .incoming_edges = std.HashMap(
                 BlockId,
-                std.ArrayList(OwnedGraphEdge),
+                std.array_list.Managed(OwnedGraphEdge),
                 BlockIdContext,
                 std.hash_map.default_max_load_percentage,
             ).init(backing),
@@ -135,7 +135,7 @@ pub const GraphEdgeIndex = struct {
 
         var outgoing_result = try self.outgoing_edges.getOrPut(edge.source_id);
         if (!outgoing_result.found_existing) {
-            outgoing_result.value_ptr.* = std.ArrayList(OwnedGraphEdge).init(self.backing_allocator);
+            outgoing_result.value_ptr.* = std.array_list.Managed(OwnedGraphEdge).init(self.backing_allocator);
         }
         const outgoing_before = outgoing_result.value_ptr.items.len;
         try outgoing_result.value_ptr.append(owned_edge);
@@ -143,7 +143,7 @@ pub const GraphEdgeIndex = struct {
 
         var incoming_result = try self.incoming_edges.getOrPut(edge.target_id);
         if (!incoming_result.found_existing) {
-            incoming_result.value_ptr.* = std.ArrayList(OwnedGraphEdge).init(self.backing_allocator);
+            incoming_result.value_ptr.* = std.array_list.Managed(OwnedGraphEdge).init(self.backing_allocator);
         }
         const incoming_before = incoming_result.value_ptr.items.len;
         try incoming_result.value_ptr.append(owned_edge);

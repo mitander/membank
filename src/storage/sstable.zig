@@ -56,7 +56,7 @@ pub const SSTable = struct {
     filesystem: VFS,
     file_path: []const u8,
     block_count: u32,
-    index: std.ArrayList(IndexEntry),
+    index: std.array_list.Managed(IndexEntry),
     bloom_filter: ?BloomFilter,
 
     const MAGIC = [4]u8{ 'S', 'S', 'T', 'B' }; // "SSTB" for SSTable Blocks
@@ -255,7 +255,7 @@ pub const SSTable = struct {
             .filesystem = filesystem,
             .file_path = file_path,
             .block_count = 0,
-            .index = std.ArrayList(IndexEntry).init(backing),
+            .index = std.array_list.Managed(IndexEntry).init(backing),
             .bloom_filter = null,
         };
     }
@@ -674,7 +674,7 @@ pub const Compactor = struct {
         var output_table = SSTable.init(self.arena_coordinator, self.backing_allocator, self.filesystem, output_path_copy);
         defer output_table.deinit();
 
-        var all_blocks = std.ArrayList(SSTableBlock).init(self.backing_allocator);
+        var all_blocks = std.array_list.Managed(SSTableBlock).init(self.backing_allocator);
         defer all_blocks.deinit();
 
         var total_capacity: u32 = 0;
@@ -726,7 +726,7 @@ pub const Compactor = struct {
             }
         }.less_than);
 
-        var unique = std.ArrayList(SSTableBlock).init(self.backing_allocator);
+        var unique = std.array_list.Managed(SSTableBlock).init(self.backing_allocator);
         defer unique.deinit();
 
         try unique.ensureTotalCapacity(sorted.len);
@@ -782,7 +782,7 @@ test "SSTable write and read" {
         .content = "test content 2",
     };
 
-    var blocks = std.ArrayList(ContextBlock).init(testing.allocator);
+    var blocks = std.array_list.Managed(ContextBlock).init(testing.allocator);
     defer blocks.deinit();
     try blocks.append(block1);
     try blocks.append(block2);
@@ -819,7 +819,7 @@ test "SSTable iterator" {
     var sstable = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "test_iter.sst"));
     defer sstable.deinit();
 
-    var blocks = std.ArrayList(ContextBlock).init(testing.allocator);
+    var blocks = std.array_list.Managed(ContextBlock).init(testing.allocator);
     defer blocks.deinit();
 
     try blocks.append(ContextBlock{
@@ -893,7 +893,7 @@ test "SSTable compaction" {
     var sstable1 = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "table1.sst"));
     defer sstable1.deinit();
 
-    var blocks1 = std.ArrayList(ContextBlock).init(testing.allocator);
+    var blocks1 = std.array_list.Managed(ContextBlock).init(testing.allocator);
     defer blocks1.deinit();
     try blocks1.append(ContextBlock{
         .id = try BlockId.from_hex("11111111111111111111111111111111"),
@@ -908,7 +908,7 @@ test "SSTable compaction" {
     var sstable2 = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "table2.sst"));
     defer sstable2.deinit();
 
-    var blocks2 = std.ArrayList(ContextBlock).init(testing.allocator);
+    var blocks2 = std.array_list.Managed(ContextBlock).init(testing.allocator);
     defer blocks2.deinit();
 
     try blocks2.append(ContextBlock{
@@ -968,7 +968,7 @@ test "SSTable checksum validation" {
         .content = "checksum test content",
     };
 
-    var blocks = std.ArrayList(ContextBlock).init(testing.allocator);
+    var blocks = std.array_list.Managed(ContextBlock).init(testing.allocator);
     defer blocks.deinit();
     try blocks.append(block);
 
@@ -1024,7 +1024,7 @@ test "SSTable Bloom filter functionality" {
         .content = "test content 2",
     };
 
-    var blocks = std.ArrayList(ContextBlock).init(testing.allocator);
+    var blocks = std.array_list.Managed(ContextBlock).init(testing.allocator);
     defer blocks.deinit();
     try blocks.append(block1);
     try blocks.append(block2);
@@ -1083,7 +1083,7 @@ test "SSTable Bloom filter persistence" {
         var sstable_write = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, file_path));
         defer sstable_write.deinit();
 
-        var blocks_list = std.ArrayList(ContextBlock).init(allocator);
+        var blocks_list = std.array_list.Managed(ContextBlock).init(allocator);
         defer blocks_list.deinit();
         for (blocks) |block| {
             try blocks_list.append(block);
@@ -1122,7 +1122,7 @@ test "SSTable Bloom filter with many blocks" {
     var sstable = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "bloom_many_test.sst"));
     defer sstable.deinit();
 
-    var blocks = std.ArrayList(ContextBlock).init(allocator);
+    var blocks = std.array_list.Managed(ContextBlock).init(allocator);
     defer {
         for (blocks.items) |block| {
             allocator.free(block.source_uri);
@@ -1186,7 +1186,7 @@ test "SSTable binary search performance" {
     var sstable = SSTable.init(&coordinator, allocator, sim_vfs.vfs(), try allocator.dupe(u8, "binary_search_test.sst"));
     defer sstable.deinit();
 
-    var blocks = std.ArrayList(ContextBlock).init(allocator);
+    var blocks = std.array_list.Managed(ContextBlock).init(allocator);
     try blocks.ensureTotalCapacity(5); // Pre-allocate for 5 test blocks
     defer {
         for (blocks.items) |block| {

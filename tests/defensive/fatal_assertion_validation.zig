@@ -105,7 +105,7 @@ test "fatal context initialization and formatting" {
     try testing.expect(context.timestamp > 0);
 
     // Test header formatting
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer = std.array_list.Managed(u8).init(allocator);
     defer buffer.deinit();
 
     try context.format_header(buffer.writer());
@@ -286,7 +286,7 @@ test "fatal assertions provide rich debugging context" {
     for (contexts) |ctx| {
         const context = FatalContext.init(ctx.category, ctx.component, ctx.operation, @src());
 
-        var buffer = std.ArrayList(u8).init(allocator);
+        var buffer = std.array_list.Managed(u8).init(allocator);
         defer buffer.deinit();
 
         try context.format_header(buffer.writer());

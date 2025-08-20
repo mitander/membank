@@ -27,5 +27,5 @@ Initial release. Core storage and query engine.
 
 ### Dependencies
 
-- Zig 0.15.0-dev.1108+27212a3e6 (will be updated to stable 0.15 asap)
+- Zig 0.15.1
 - Zero runtime dependencies

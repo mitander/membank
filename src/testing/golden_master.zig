@@ -92,7 +92,7 @@ pub const GoldenMaster = struct {
         self: Self,
         storage_engine: *StorageEngine,
     ) !StorageSnapshot {
-        var blocks = std.ArrayList(StorageSnapshot.BlockSnapshot).init(self.allocator);
+        var blocks = std.array_list.Managed(StorageSnapshot.BlockSnapshot).init(self.allocator);
         defer blocks.deinit();
 
         // Capture all blocks using the available iterator API
@@ -199,7 +199,7 @@ pub const GoldenMaster = struct {
 
     /// Serialize snapshot to canonical JSON format
     fn serialize_snapshot(self: Self, snapshot: StorageSnapshot) ![]u8 {
-        var json_buf = std.ArrayList(u8).init(self.allocator);
+        var json_buf = std.array_list.Managed(u8).init(self.allocator);
         defer json_buf.deinit();
 
         const writer = json_buf.writer();
@@ -313,7 +313,7 @@ pub const GoldenMaster = struct {
 
     /// Parse blocks array from JSON content
     fn parse_blocks_array(self: Self, json_content: []const u8) ![]StorageSnapshot.BlockSnapshot {
-        var blocks = std.ArrayList(StorageSnapshot.BlockSnapshot).init(self.allocator);
+        var blocks = std.array_list.Managed(StorageSnapshot.BlockSnapshot).init(self.allocator);
         defer blocks.deinit();
 
         if (std.mem.indexOf(u8, json_content, "\"blocks\": [")) |blocks_start| {
@@ -331,7 +331,7 @@ pub const GoldenMaster = struct {
     fn parse_individual_blocks(
         self: Self,
         blocks_content: []const u8,
-        blocks: *std.ArrayList(StorageSnapshot.BlockSnapshot),
+        blocks: *std.array_list.Managed(StorageSnapshot.BlockSnapshot),
     ) !void {
         var block_start: usize = 0;
         while (std.mem.indexOf(u8, blocks_content[block_start..], "{")) |obj_start| {

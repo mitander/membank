@@ -174,7 +174,7 @@ test "streaming recovery memory efficiency" {
 
     // Create many entries to test memory efficiency
     const num_entries = 100; // Test with smaller number to debug the issue
-    var test_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var test_blocks = std.array_list.Managed(ContextBlock).init(allocator);
     defer test_blocks.deinit();
     try test_blocks.ensureTotalCapacity(num_entries);
 

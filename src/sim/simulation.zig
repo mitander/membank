@@ -25,7 +25,7 @@ pub const Simulation = struct {
     allocator: std.mem.Allocator,
     prng: std.Random.DefaultPrng,
     tick_count: u64,
-    nodes: std.ArrayList(Node),
+    nodes: std.array_list.Managed(Node),
     network: Network,
     ownership_injector: OwnershipViolationInjector,
     logger: ?DeterministicLogger,
@@ -40,7 +40,7 @@ pub const Simulation = struct {
             .allocator = allocator,
             .prng = prng,
             .tick_count = 0,
-            .nodes = std.ArrayList(Node).init(allocator),
+            .nodes = std.array_list.Managed(Node).init(allocator),
             .network = Network.init(allocator, &prng),
             .ownership_injector = OwnershipViolationInjector.init(seed),
             .logger = if (builtin.mode == .Debug) DeterministicLogger{ .sim = undefined } else null,
@@ -208,7 +208,7 @@ pub const NodeId = struct {
 pub const Node = struct {
     id: NodeId,
     filesystem: *sim_vfs.SimulationVFS,
-    message_queue: std.ArrayList(Message),
+    message_queue: std.array_list.Managed(Message),
     allocator: std.mem.Allocator,
 
     const Self = @This();
@@ -219,7 +219,7 @@ pub const Node = struct {
         return Self{
             .id = id,
             .filesystem = filesystem_ptr,
-            .message_queue = std.ArrayList(Message).init(allocator),
+            .message_queue = std.array_list.Managed(Message).init(allocator),
             .allocator = allocator,
         };
     }
@@ -296,10 +296,10 @@ pub const MessageType = enum {
 pub const Network = struct {
     allocator: std.mem.Allocator,
     prng: *std.Random.DefaultPrng,
-    nodes: std.ArrayList(NodeId),
+    nodes: std.array_list.Managed(NodeId),
     message_queues: std.HashMap(
         NodeId,
-        std.ArrayList(DelayedMessage),
+        std.array_list.Managed(DelayedMessage),
         NodeIdContext,
         std.hash_map.default_max_load_percentage,
     ),
@@ -378,10 +378,10 @@ pub const Network = struct {
         return Self{
             .allocator = allocator,
             .prng = prng,
-            .nodes = std.ArrayList(NodeId).init(allocator),
+            .nodes = std.array_list.Managed(NodeId).init(allocator),
             .message_queues = std.HashMap(
                 NodeId,
-                std.ArrayList(DelayedMessage),
+                std.array_list.Managed(DelayedMessage),
                 NodeIdContext,
                 std.hash_map.default_max_load_percentage,
             ).init(allocator),
@@ -430,7 +430,7 @@ pub const Network = struct {
         try self.nodes.append(node_id);
         try self.message_queues.put(
             node_id,
-            std.ArrayList(DelayedMessage).init(self.allocator),
+            std.array_list.Managed(DelayedMessage).init(self.allocator),
         );
     }
 

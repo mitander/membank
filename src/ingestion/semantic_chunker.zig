@@ -82,7 +82,7 @@ pub const SemanticChunker = struct {
     ) IngestionError![]ContextBlock {
         concurrency.assert_main_thread();
 
-        var blocks = std.ArrayList(ContextBlock).init(allocator);
+        var blocks = std.array_list.Managed(ContextBlock).init(allocator);
 
         for (units) |unit| {
             if (unit.content.len > self.config.max_chunk_size) {
@@ -197,7 +197,7 @@ pub const SemanticChunker = struct {
 
     /// Serialize unit metadata to JSON using simple string building
     fn serialize_metadata(self: *SemanticChunker, allocator: std.mem.Allocator, unit: ParsedUnit) ![]const u8 {
-        var json = std.ArrayList(u8).init(allocator);
+        var json = std.array_list.Managed(u8).init(allocator);
         defer json.deinit();
 
         try json.appendSlice("{");
@@ -304,7 +304,7 @@ test "convert unit to block" {
     const unit_content = try allocator.dupe(u8, "pub fn test_func() void {}");
     defer allocator.free(unit_content);
 
-    var unit_edges = std.ArrayList(ParsedEdge).init(allocator);
+    var unit_edges = std.array_list.Managed(ParsedEdge).init(allocator);
     defer unit_edges.deinit();
 
     const unit = ParsedUnit{
@@ -345,7 +345,7 @@ test "generate deterministic block ID" {
     var unit_metadata = std.StringHashMap([]const u8).init(allocator);
     defer unit_metadata.deinit();
 
-    var unit_edges = std.ArrayList(ParsedEdge).init(allocator);
+    var unit_edges = std.array_list.Managed(ParsedEdge).init(allocator);
     defer unit_edges.deinit();
 
     const unit_id = try allocator.dupe(u8, "test_function");
@@ -384,7 +384,7 @@ test "chunk multiple units" {
     var semantic_chunker = SemanticChunker.init(allocator, config);
     defer semantic_chunker.deinit(allocator);
 
-    var units = std.ArrayList(ParsedUnit).init(allocator);
+    var units = std.array_list.Managed(ParsedUnit).init(allocator);
     defer units.deinit();
 
     var metadata1 = std.StringHashMap([]const u8).init(allocator);
@@ -397,7 +397,7 @@ test "chunk multiple units" {
     defer allocator.free(unit1_type);
     const unit1_content = try allocator.dupe(u8, "fn func1() void {}");
     defer allocator.free(unit1_content);
-    var unit1_edges = std.ArrayList(ParsedEdge).init(allocator);
+    var unit1_edges = std.array_list.Managed(ParsedEdge).init(allocator);
     defer unit1_edges.deinit();
 
     const unit1 = ParsedUnit{
@@ -426,7 +426,7 @@ test "chunk multiple units" {
     defer allocator.free(unit2_type);
     const unit2_content = try allocator.dupe(u8, "const VERSION = \"1.0.0\";");
     defer allocator.free(unit2_content);
-    var unit2_edges = std.ArrayList(ParsedEdge).init(allocator);
+    var unit2_edges = std.array_list.Managed(ParsedEdge).init(allocator);
     defer unit2_edges.deinit();
 
     const unit2 = ParsedUnit{

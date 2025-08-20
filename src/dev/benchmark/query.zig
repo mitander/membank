@@ -33,8 +33,8 @@ const ITERATIONS = 1000;
 const WARMUP_ITERATIONS = 50;
 const BATCH_SIZE = 10;
 
-pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
-    var results = std.ArrayList(BenchmarkResult).init(allocator);
+pub fn run_all(allocator: std.mem.Allocator) !std.array_list.Managed(BenchmarkResult) {
+    var results = std.array_list.Managed(BenchmarkResult).init(allocator);
     try results.append(try run_single_queries(allocator));
     try results.append(try run_batch_queries(allocator));
     return results;

@@ -70,7 +70,7 @@ test "memory efficiency during large dataset operations" {
 
     for (result_sizes) |result_size| {
         // Prepare test blocks using TestData
-        var block_ids = std.ArrayList(BlockId).init(allocator);
+        var block_ids = std.array_list.Managed(BlockId).init(allocator);
         defer block_ids.deinit();
         try block_ids.ensureTotalCapacity(result_size);
 
@@ -177,7 +177,7 @@ test "query engine performance benchmark" {
 
     // Phase 1: Setup test data with relationships
     const block_count = 500;
-    var block_ids = std.ArrayList(BlockId).init(allocator);
+    var block_ids = std.array_list.Managed(BlockId).init(allocator);
     defer block_ids.deinit();
     try block_ids.ensureTotalCapacity(block_count);
 
@@ -400,7 +400,7 @@ test "streaming query result formatting performance" {
 
     // Phase 1: Setup diverse dataset
     const dataset_size = 200;
-    var block_ids = std.ArrayList(BlockId).init(allocator);
+    var block_ids = std.array_list.Managed(BlockId).init(allocator);
     defer block_ids.deinit();
     try block_ids.ensureTotalCapacity(dataset_size);
 
@@ -488,7 +488,7 @@ test "memory usage growth patterns under load" {
     _ = perf_assertion;
 
     const baseline_memory = harness.storage_engine().memory_usage().total_bytes;
-    var memory_samples = std.ArrayList(u64).init(allocator);
+    var memory_samples = std.array_list.Managed(u64).init(allocator);
     defer memory_samples.deinit();
     try memory_samples.ensureTotalCapacity(5);
 

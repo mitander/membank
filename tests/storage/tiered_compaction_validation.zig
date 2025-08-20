@@ -60,7 +60,7 @@ test "L0 threshold trigger" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(4); // 3 SSTables + 1 trigger
     defer {
         for (managed_paths.items) |path| {
@@ -112,7 +112,7 @@ test "size based higher levels" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(8); // 8 L1 SSTables
     defer {
         for (managed_paths.items) |path| {
@@ -159,7 +159,7 @@ test "tier state management and tracking" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(5); // 3 levels + 1 remove path + buffer
     defer {
         for (managed_paths.items) |path| {
@@ -209,7 +209,7 @@ test "compaction job creation and validation" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(5); // 5 SSTables for compaction job test
     defer {
         for (managed_paths.items) |path| {
@@ -255,7 +255,7 @@ test "compaction configuration validation" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(3); // 2 config test + 1 trigger
     defer {
         for (managed_paths.items) |path| {
@@ -311,7 +311,7 @@ test "multi level compaction scenarios" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(18); // 5 L0 + 10 L1 + 3 compacted results
     defer {
         for (managed_paths.items) |path| {
@@ -363,7 +363,7 @@ test "compaction with large SSTables" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(5); // 3 large files + 2 edge cases
     defer {
         for (managed_paths.items) |path| {
@@ -410,7 +410,7 @@ test "compaction edge cases and error conditions" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(100); // Large test with up to 100 files
     defer {
         for (managed_paths.items) |path| {
@@ -458,7 +458,7 @@ test "compaction performance characteristics" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(100); // sstable_count = 100
     defer {
         for (managed_paths.items) |path| {
@@ -524,7 +524,7 @@ test "tier state consistency under operations" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(30); // 10 + 15 + 5 lifecycle paths
     defer {
         for (managed_paths.items) |path| {
@@ -597,7 +597,7 @@ test "compaction strategies across tier sizes" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(16); // 4 L0 + 8 L1 + 4 compacted
     defer {
         for (managed_paths.items) |path| {

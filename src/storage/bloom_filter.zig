@@ -285,7 +285,7 @@ test "Bloom filter false positive behavior" {
     var filter = try BloomFilter.init(allocator, params);
     defer filter.deinit();
 
-    var added_blocks = std.ArrayList(BlockId).init(allocator);
+    var added_blocks = std.array_list.Managed(BlockId).init(allocator);
     defer added_blocks.deinit();
 
     var i: u8 = 0;
@@ -517,7 +517,7 @@ test "Bloom filter SSTable integration scenarios" {
     var filter = try BloomFilter.init(allocator, BloomFilter.Params.medium);
     defer filter.deinit();
 
-    var sstable_blocks = std.ArrayList(BlockId).init(allocator);
+    var sstable_blocks = std.array_list.Managed(BlockId).init(allocator);
     defer sstable_blocks.deinit();
 
     var i: u32 = 0;

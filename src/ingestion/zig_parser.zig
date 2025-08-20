@@ -83,7 +83,7 @@ const ParseContext = struct {
     /// Allocator for temporary allocations
     allocator: std.mem.Allocator,
     /// Parsed units accumulator
-    units: std.ArrayList(ParsedUnit),
+    units: std.array_list.Managed(ParsedUnit),
     /// Configuration
     config: ZigParserConfig,
 
@@ -195,7 +195,7 @@ pub const ZigParser = struct {
             .source = content.data,
             .file_path = file_path,
             .allocator = allocator,
-            .units = std.ArrayList(ParsedUnit).init(allocator),
+            .units = std.array_list.Managed(ParsedUnit).init(allocator),
             .config = self.config,
         };
 
@@ -248,7 +248,7 @@ pub const ZigParser = struct {
     fn parse_comment_block(self: *ZigParser, context: *ParseContext) !void {
         _ = self;
         const start_line = context.current_line;
-        var content_builder = std.ArrayList(u8).init(context.allocator);
+        var content_builder = std.array_list.Managed(u8).init(context.allocator);
         defer content_builder.deinit();
 
         while (!context.is_at_end()) {
@@ -280,7 +280,7 @@ pub const ZigParser = struct {
                     .col_start = 1,
                     .col_end = 1,
                 },
-                .edges = std.ArrayList(ParsedEdge).init(context.allocator),
+                .edges = std.array_list.Managed(ParsedEdge).init(context.allocator),
                 .metadata = std.StringHashMap([]const u8).init(context.allocator),
             };
 
@@ -331,7 +331,7 @@ pub const ZigParser = struct {
                     .col_start = 1,
                     .col_end = @intCast(line.len),
                 },
-                .edges = std.ArrayList(ParsedEdge).init(context.allocator),
+                .edges = std.array_list.Managed(ParsedEdge).init(context.allocator),
                 .metadata = metadata,
             };
 
@@ -346,7 +346,7 @@ pub const ZigParser = struct {
 
         const fn_name = extract_function_name(signature_line) orelse return;
 
-        var content_builder = std.ArrayList(u8).init(context.allocator);
+        var content_builder = std.array_list.Managed(u8).init(context.allocator);
         defer content_builder.deinit();
 
         try content_builder.appendSlice(std.mem.trim(u8, signature_line, " \t"));
@@ -396,7 +396,7 @@ pub const ZigParser = struct {
                 .col_start = 1,
                 .col_end = 1,
             },
-            .edges = std.ArrayList(ParsedEdge).init(context.allocator),
+            .edges = std.array_list.Managed(ParsedEdge).init(context.allocator),
             .metadata = metadata,
         };
 
@@ -429,7 +429,7 @@ pub const ZigParser = struct {
                 .col_start = 1,
                 .col_end = @intCast(line.len),
             },
-            .edges = std.ArrayList(ParsedEdge).init(context.allocator),
+            .edges = std.array_list.Managed(ParsedEdge).init(context.allocator),
             .metadata = metadata,
         };
 
@@ -462,7 +462,7 @@ pub const ZigParser = struct {
                 .col_start = 1,
                 .col_end = @intCast(line.len),
             },
-            .edges = std.ArrayList(ParsedEdge).init(context.allocator),
+            .edges = std.array_list.Managed(ParsedEdge).init(context.allocator),
             .metadata = metadata,
         };
 
@@ -477,7 +477,7 @@ pub const ZigParser = struct {
 
         const struct_name = extract_struct_name(signature_line) orelse return;
 
-        var content_builder = std.ArrayList(u8).init(context.allocator);
+        var content_builder = std.array_list.Managed(u8).init(context.allocator);
         defer content_builder.deinit();
 
         try content_builder.appendSlice(std.mem.trim(u8, signature_line, " \t"));
@@ -533,7 +533,7 @@ pub const ZigParser = struct {
                 .col_start = 1,
                 .col_end = 1,
             },
-            .edges = std.ArrayList(ParsedEdge).init(context.allocator),
+            .edges = std.array_list.Managed(ParsedEdge).init(context.allocator),
             .metadata = metadata,
         };
 
@@ -566,7 +566,7 @@ pub const ZigParser = struct {
                 .col_start = 1,
                 .col_end = @intCast(line.len),
             },
-            .edges = std.ArrayList(ParsedEdge).init(context.allocator),
+            .edges = std.array_list.Managed(ParsedEdge).init(context.allocator),
             .metadata = metadata,
         };
 
@@ -580,7 +580,7 @@ pub const ZigParser = struct {
 
         const test_name = extract_test_name(signature_line) orelse "unnamed_test";
 
-        var content_builder = std.ArrayList(u8).init(context.allocator);
+        var content_builder = std.array_list.Managed(u8).init(context.allocator);
         defer content_builder.deinit();
 
         try content_builder.appendSlice(std.mem.trim(u8, signature_line, " \t"));
@@ -628,7 +628,7 @@ pub const ZigParser = struct {
                 .col_start = 1,
                 .col_end = 1,
             },
-            .edges = std.ArrayList(ParsedEdge).init(context.allocator),
+            .edges = std.array_list.Managed(ParsedEdge).init(context.allocator),
             .metadata = metadata,
         };
 

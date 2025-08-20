@@ -509,7 +509,7 @@ pub const MemtableManager = struct {
 
         if (self.block_count() == 0) return;
 
-        var owned_blocks = std.ArrayList(OwnedBlock).init(self.backing_allocator);
+        var owned_blocks = std.array_list.Managed(OwnedBlock).init(self.backing_allocator);
         defer owned_blocks.deinit();
 
         var block_iterator = self.iterator();

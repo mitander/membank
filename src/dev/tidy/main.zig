@@ -104,7 +104,7 @@ fn analyze_file(
 
 /// Discover all Zig source files in the project
 fn discover_source_files(allocator: std.mem.Allocator) ![][]const u8 {
-    var file_paths = std.ArrayList([]const u8).init(allocator);
+    var file_paths = std.array_list.Managed([]const u8).init(allocator);
     const search_dirs = [_][]const u8{ "src", "tests" };
 
     for (search_dirs) |dir| {
@@ -120,7 +120,7 @@ fn discover_source_files(allocator: std.mem.Allocator) ![][]const u8 {
 /// Recursively find all .zig files in a directory
 fn discover_files_recursive(
     allocator: std.mem.Allocator,
-    file_paths: *std.ArrayList([]const u8),
+    file_paths: *std.array_list.Managed([]const u8),
     dir_path: []const u8,
 ) !void {
     var dir = fs.cwd().openDir(dir_path, .{ .iterate = true }) catch return;

@@ -34,7 +34,7 @@ test "streaming query results with large datasets" {
 
     // Create large dataset to test streaming behavior
     const dataset_size = if (builtin.mode == .Debug) 100 else 500;
-    var stored_block_ids = std.ArrayList(BlockId).init(allocator);
+    var stored_block_ids = std.array_list.Managed(BlockId).init(allocator);
     defer stored_block_ids.deinit();
     try stored_block_ids.ensureTotalCapacity(dataset_size);
 
@@ -160,7 +160,7 @@ test "memory efficient graph traversal with depth limits" {
 
     // Create a deep chain of nodes
     const chain_length = 50;
-    var nodes = std.ArrayList(BlockId).init(allocator);
+    var nodes = std.array_list.Managed(BlockId).init(allocator);
     defer nodes.deinit();
     try nodes.ensureTotalCapacity(chain_length);
 
@@ -231,7 +231,7 @@ test "query optimization with different algorithms" {
 
     // Create a small graph for algorithm comparison
     const nodes_count = 10;
-    var nodes = std.ArrayList(BlockId).init(allocator);
+    var nodes = std.array_list.Managed(BlockId).init(allocator);
     defer nodes.deinit();
     try nodes.ensureTotalCapacity(nodes_count);
 
@@ -351,7 +351,7 @@ test "streaming result pagination and memory bounds" {
 
     // Create test blocks for pagination
     const total_blocks = 200;
-    var block_ids = std.ArrayList(BlockId).init(allocator);
+    var block_ids = std.array_list.Managed(BlockId).init(allocator);
     defer block_ids.deinit();
     try block_ids.ensureTotalCapacity(total_blocks);
 
@@ -374,7 +374,7 @@ test "streaming result pagination and memory bounds" {
 
     // Count streamed results
     var streamed_count: usize = 0;
-    var memory_samples = std.ArrayList(usize).init(allocator);
+    var memory_samples = std.array_list.Managed(usize).init(allocator);
     defer memory_samples.deinit();
 
     while (try result.next()) |block| {
@@ -403,13 +403,13 @@ test "complex graph scenario performance characteristics" {
 
     // Create a complex graph with multiple components
     const component_size = 20;
-    var component_roots = std.ArrayList(BlockId).init(allocator);
+    var component_roots = std.array_list.Managed(BlockId).init(allocator);
     defer component_roots.deinit();
     try component_roots.ensureTotalCapacity(3);
 
     // Create 3 disconnected components
     for (0..3) |comp| {
-        var component_nodes = std.ArrayList(BlockId).init(allocator);
+        var component_nodes = std.array_list.Managed(BlockId).init(allocator);
         defer component_nodes.deinit();
         try component_nodes.ensureTotalCapacity(component_size);
 

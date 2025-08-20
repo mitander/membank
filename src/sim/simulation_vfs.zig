@@ -106,7 +106,7 @@ pub const SimulationVFS = struct {
     allocator: std.mem.Allocator,
     file_arena: std.heap.ArenaAllocator,
     files: std.StringHashMap(FileHandleId),
-    file_storage: std.ArrayList(FileStorage),
+    file_storage: std.array_list.Managed(FileStorage),
     // Direct handle-to-storage mapping for O(1) lookups - eliminates linear search
     handle_to_storage: std.HashMap(
         FileHandleId,
@@ -276,7 +276,7 @@ pub const SimulationVFS = struct {
         errdefer file_arena.deinit();
 
         const files = std.StringHashMap(FileHandleId).init(allocator);
-        var file_storage = std.ArrayList(FileStorage).init(allocator);
+        var file_storage = std.array_list.Managed(FileStorage).init(allocator);
         file_storage.ensureTotalCapacity(512) catch unreachable; // Safety: generous initial capacity for testing
 
         var handle_to_storage = std.HashMap(
@@ -320,7 +320,7 @@ pub const SimulationVFS = struct {
         sim_vfs.magic = MAGIC_NUMBER;
         sim_vfs.allocator = allocator;
         sim_vfs.files = std.StringHashMap(FileHandleId).init(allocator);
-        sim_vfs.file_storage = std.ArrayList(FileStorage).init(allocator);
+        sim_vfs.file_storage = std.array_list.Managed(FileStorage).init(allocator);
         sim_vfs.file_storage.ensureTotalCapacity(512) catch unreachable; // Safety: generous initial capacity for testing
 
         sim_vfs.handle_to_storage = std.HashMap(
@@ -579,7 +579,7 @@ pub const SimulationVFS = struct {
 
     /// Export filesystem state for deterministic testing verification
     pub fn state(self: *SimulationVFS, allocator: std.mem.Allocator) ![]SimulationFileState {
-        var states = std.ArrayList(SimulationFileState).init(allocator);
+        var states = std.array_list.Managed(SimulationFileState).init(allocator);
         try states.ensureTotalCapacity(self.files.count()); // Pre-allocate for known file count
         errdefer {
             for (states.items) |file_state| {
@@ -689,7 +689,7 @@ pub const SimulationVFS = struct {
         }
         assert(path.len > 0 and path.len < MAX_PATH_LENGTH);
 
-        var file_content = std.ArrayList(u8).init(self.file_arena.allocator());
+        var file_content = std.array_list.Managed(u8).init(self.file_arena.allocator());
         file_content.ensureTotalCapacity(4096) catch {}; // Pre-allocate 4KB for typical file content
 
         const file_data = FileData{
@@ -762,7 +762,7 @@ pub const SimulationVFS = struct {
             return VFSError.FileExists;
         }
 
-        var dir_content = std.ArrayList(u8).init(self.file_arena.allocator());
+        var dir_content = std.array_list.Managed(u8).init(self.file_arena.allocator());
         dir_content.ensureTotalCapacity(1024) catch {}; // Pre-allocate 1KB for directory metadata
 
         const dir_data = FileData{
@@ -858,7 +858,7 @@ pub const SimulationVFS = struct {
             return VFSError.NotDirectory;
         }
 
-        var entries = std.ArrayList(DirectoryEntry).init(allocator);
+        var entries = std.array_list.Managed(DirectoryEntry).init(allocator);
         try entries.ensureTotalCapacity(self.files.count()); // Pre-allocate for known directory entry count
         errdefer entries.deinit();
 

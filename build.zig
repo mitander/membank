@@ -153,8 +153,8 @@ const TestFile = struct {
     category: TestCategory,
 };
 
-fn discover_test_files(allocator: std.mem.Allocator) !std.ArrayList(TestFile) {
-    var discovered_tests = std.ArrayList(TestFile).init(allocator);
+fn discover_test_files(allocator: std.mem.Allocator) !std.array_list.Managed(TestFile) {
+    var discovered_tests = std.array_list.Managed(TestFile).init(allocator);
 
     var tests_dir = std.fs.cwd().openDir("tests", .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return discovered_tests,
@@ -277,18 +277,18 @@ fn create_test_executable(
 }
 
 const CategorizedTests = struct {
-    unit: std.ArrayList(*std.Build.Step.Run),
-    integration: std.ArrayList(*std.Build.Step.Run),
-    ingestion: std.ArrayList(*std.Build.Step.Run),
-    simulation: std.ArrayList(*std.Build.Step.Run),
-    stress: std.ArrayList(*std.Build.Step.Run),
-    performance: std.ArrayList(*std.Build.Step.Run),
-    fault_injection: std.ArrayList(*std.Build.Step.Run),
-    recovery: std.ArrayList(*std.Build.Step.Run),
-    safety: std.ArrayList(*std.Build.Step.Run),
-    defensive: std.ArrayList(*std.Build.Step.Run),
+    unit: std.array_list.Managed(*std.Build.Step.Run),
+    integration: std.array_list.Managed(*std.Build.Step.Run),
+    ingestion: std.array_list.Managed(*std.Build.Step.Run),
+    simulation: std.array_list.Managed(*std.Build.Step.Run),
+    stress: std.array_list.Managed(*std.Build.Step.Run),
+    performance: std.array_list.Managed(*std.Build.Step.Run),
+    fault_injection: std.array_list.Managed(*std.Build.Step.Run),
+    recovery: std.array_list.Managed(*std.Build.Step.Run),
+    safety: std.array_list.Managed(*std.Build.Step.Run),
+    defensive: std.array_list.Managed(*std.Build.Step.Run),
 
-    fn get_category_tests(self: *CategorizedTests, category: TestCategory) *std.ArrayList(*std.Build.Step.Run) {
+    fn get_category_tests(self: *CategorizedTests, category: TestCategory) *std.array_list.Managed(*std.Build.Step.Run) {
         return switch (category) {
             .unit => &self.unit,
             .integration => &self.integration,
@@ -305,16 +305,16 @@ const CategorizedTests = struct {
 
     fn init(allocator: std.mem.Allocator) CategorizedTests {
         return CategorizedTests{
-            .unit = std.ArrayList(*std.Build.Step.Run).init(allocator),
-            .integration = std.ArrayList(*std.Build.Step.Run).init(allocator),
-            .ingestion = std.ArrayList(*std.Build.Step.Run).init(allocator),
-            .simulation = std.ArrayList(*std.Build.Step.Run).init(allocator),
-            .stress = std.ArrayList(*std.Build.Step.Run).init(allocator),
-            .performance = std.ArrayList(*std.Build.Step.Run).init(allocator),
-            .fault_injection = std.ArrayList(*std.Build.Step.Run).init(allocator),
-            .recovery = std.ArrayList(*std.Build.Step.Run).init(allocator),
-            .safety = std.ArrayList(*std.Build.Step.Run).init(allocator),
-            .defensive = std.ArrayList(*std.Build.Step.Run).init(allocator),
+            .unit = std.array_list.Managed(*std.Build.Step.Run).init(allocator),
+            .integration = std.array_list.Managed(*std.Build.Step.Run).init(allocator),
+            .ingestion = std.array_list.Managed(*std.Build.Step.Run).init(allocator),
+            .simulation = std.array_list.Managed(*std.Build.Step.Run).init(allocator),
+            .stress = std.array_list.Managed(*std.Build.Step.Run).init(allocator),
+            .performance = std.array_list.Managed(*std.Build.Step.Run).init(allocator),
+            .fault_injection = std.array_list.Managed(*std.Build.Step.Run).init(allocator),
+            .recovery = std.array_list.Managed(*std.Build.Step.Run).init(allocator),
+            .safety = std.array_list.Managed(*std.Build.Step.Run).init(allocator),
+            .defensive = std.array_list.Managed(*std.Build.Step.Run).init(allocator),
         };
     }
 };

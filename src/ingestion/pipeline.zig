@@ -104,7 +104,7 @@ pub const ParsedUnit = struct {
     /// Source location information
     location: SourceLocation,
     /// Relationships to other units
-    edges: std.ArrayList(ParsedEdge),
+    edges: std.array_list.Managed(ParsedEdge),
     /// Unit-specific metadata
     metadata: std.StringHashMap([]const u8),
 
@@ -327,11 +327,11 @@ pub const IngestionPipeline = struct {
     /// Configuration
     config: PipelineConfig,
     /// Registered sources
-    sources: std.ArrayList(Source),
+    sources: std.array_list.Managed(Source),
     /// Registered parsers
-    parsers: std.ArrayList(Parser),
+    parsers: std.array_list.Managed(Parser),
     /// Registered chunkers
-    chunkers: std.ArrayList(Chunker),
+    chunkers: std.array_list.Managed(Chunker),
     /// Virtual file system for testing
     file_system: *VFS,
     /// Execution statistics
@@ -349,9 +349,9 @@ pub const IngestionPipeline = struct {
             .arena = arena,
             .config = config,
             // Use the external allocator for component lists to avoid cross-allocator references
-            .sources = std.ArrayList(Source).init(allocator),
-            .parsers = std.ArrayList(Parser).init(allocator),
-            .chunkers = std.ArrayList(Chunker).init(allocator),
+            .sources = std.array_list.Managed(Source).init(allocator),
+            .parsers = std.array_list.Managed(Parser).init(allocator),
+            .chunkers = std.array_list.Managed(Chunker).init(allocator),
             .file_system = file_system,
             .current_stats = PipelineStats{},
             .last_pressure_check = std.time.nanoTimestamp(),
@@ -393,7 +393,7 @@ pub const IngestionPipeline = struct {
         defer self.current_stats.processing_time_ns = @intCast(std.time.nanoTimestamp() - start_time);
 
         const allocator = self.arena.allocator();
-        var all_blocks = std.ArrayList(ContextBlock).init(allocator);
+        var all_blocks = std.array_list.Managed(ContextBlock).init(allocator);
 
         for (self.sources.items) |source| {
             self.process_source(source, &all_blocks) catch |err| {
@@ -449,7 +449,7 @@ pub const IngestionPipeline = struct {
     fn process_source(
         self: *IngestionPipeline,
         source: Source,
-        blocks: *std.ArrayList(ContextBlock),
+        blocks: *std.array_list.Managed(ContextBlock),
     ) IngestionError!void {
         const main_allocator = self.arena.allocator();
 
@@ -537,7 +537,7 @@ pub const IngestionPipeline = struct {
         defer content_iterator.deinit(temp_allocator);
 
         // Use main allocator for batch buffer to survive arena resets
-        var batch_buffer = std.ArrayList(ContextBlock).init(self.allocator);
+        var batch_buffer = std.array_list.Managed(ContextBlock).init(self.allocator);
         defer {
             for (batch_buffer.items) |*block| {
                 self.allocator.free(block.source_uri);
@@ -622,7 +622,7 @@ pub const IngestionPipeline = struct {
         self: *IngestionPipeline,
         content: SourceContent,
         temp_allocator: std.mem.Allocator,
-        batch_buffer: *std.ArrayList(ContextBlock),
+        batch_buffer: *std.array_list.Managed(ContextBlock),
     ) !void {
         const parser = self.find_parser(content.content_type) orelse return;
 
@@ -649,7 +649,7 @@ pub const IngestionPipeline = struct {
         self: *IngestionPipeline,
         content: SourceContent,
         temp_allocator: std.mem.Allocator,
-        batch_buffer: *std.ArrayList(ContextBlock),
+        batch_buffer: *std.array_list.Managed(ContextBlock),
     ) !void {
         const parser = self.find_parser(content.content_type) orelse return;
 
@@ -684,7 +684,7 @@ pub const IngestionPipeline = struct {
     fn flush_batch_to_storage(
         self: *IngestionPipeline,
         storage_engine: anytype,
-        batch_buffer: *std.ArrayList(ContextBlock),
+        batch_buffer: *std.array_list.Managed(ContextBlock),
     ) IngestionError!void {
         const flush_start = std.time.nanoTimestamp();
         defer {

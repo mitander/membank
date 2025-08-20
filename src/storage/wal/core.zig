@@ -309,7 +309,7 @@ pub const WAL = struct {
 
     /// List all WAL segment files in the directory, sorted in chronological order
     pub fn list_segment_files(self: *WAL) WALError![][]const u8 {
-        var file_list = std.ArrayList([]const u8).init(self.allocator);
+        var file_list = std.array_list.Managed([]const u8).init(self.allocator);
         defer file_list.deinit();
 
         var dir_iter = self.vfs.iterate_directory(self.directory, self.allocator) catch |err| switch (err) {

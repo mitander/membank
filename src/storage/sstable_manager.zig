@@ -54,7 +54,7 @@ pub const SSTableManager = struct {
     backing_allocator: std.mem.Allocator,
     vfs: VFS,
     data_dir: []const u8,
-    sstable_paths: std.ArrayList([]const u8),
+    sstable_paths: std.array_list.Managed([]const u8),
     next_sstable_id: u32,
     compaction_manager: TieredCompactionManager,
 
@@ -73,7 +73,7 @@ pub const SSTableManager = struct {
             .backing_allocator = backing,
             .vfs = filesystem,
             .data_dir = data_dir,
-            .sstable_paths = std.ArrayList([]const u8).init(backing),
+            .sstable_paths = std.array_list.Managed([]const u8).init(backing),
             .next_sstable_id = 0,
             .compaction_manager = TieredCompactionManager.init(
                 coordinator,

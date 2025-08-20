@@ -56,7 +56,7 @@ test "streaming WAL recovery basic correctness" {
 
     // Create and store test blocks
     const test_blocks = [_]u8{ 1, 2, 3, 4, 5 };
-    var expected_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var expected_blocks = std.array_list.Managed(ContextBlock).init(allocator);
     defer {
         for (expected_blocks.items) |block| {
             block.deinit(allocator);

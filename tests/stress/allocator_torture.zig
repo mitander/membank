@@ -173,7 +173,7 @@ pub const AllocatorTortureTester = struct {
     config: TortureTestConfig,
     current_stats: TortureTestStats,
     prng: std.Random.DefaultPrng,
-    tracked_allocations: std.ArrayList(TrackedAllocation),
+    tracked_allocations: std.array_list.Managed(TrackedAllocation),
     next_allocation_id: u32,
     current_bytes_allocated: u64,
 
@@ -183,7 +183,7 @@ pub const AllocatorTortureTester = struct {
             .config = config,
             .current_stats = TortureTestStats{},
             .prng = std.Random.DefaultPrng.init(config.random_seed),
-            .tracked_allocations = std.ArrayList(TrackedAllocation).init(allocator),
+            .tracked_allocations = std.array_list.Managed(TrackedAllocation).init(allocator),
             .next_allocation_id = 1,
             .current_bytes_allocated = 0,
         };

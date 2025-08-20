@@ -26,12 +26,12 @@ const WALEntry = wal.WALEntry;
 
 /// Test recovery context to capture recovered entries for validation
 const RecoveryContext = struct {
-    recovered_entries: std.ArrayList(WALEntry),
+    recovered_entries: std.array_list.Managed(WALEntry),
     allocator: std.mem.Allocator,
 
     fn init(allocator: std.mem.Allocator) RecoveryContext {
         return RecoveryContext{
-            .recovered_entries = std.ArrayList(WALEntry).init(allocator),
+            .recovered_entries = std.array_list.Managed(WALEntry).init(allocator),
             .allocator = allocator,
         };
     }

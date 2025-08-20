@@ -16,9 +16,9 @@ const ParameterInfo = RuleContext.ParameterInfo;
 
 /// Parse source code into semantic context for rule evaluation
 pub fn parse_source(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8) !RuleContext {
-    var functions = std.ArrayList(FunctionInfo).init(allocator);
-    var variables = std.ArrayList(VariableInfo).init(allocator);
-    var imports = std.ArrayList(ImportInfo).init(allocator);
+    var functions = std.array_list.Managed(FunctionInfo).init(allocator);
+    var variables = std.array_list.Managed(VariableInfo).init(allocator);
+    var imports = std.array_list.Managed(ImportInfo).init(allocator);
 
     var lines = std.mem.splitScalar(u8, source, '\n');
     var line_num: u32 = 0;
@@ -144,7 +144,7 @@ fn parse_parameters(params_str: []const u8) ![]ParameterInfo {
     const trimmed = std.mem.trim(u8, params_str, " \t");
     if (trimmed.len == 0) return &[_]ParameterInfo{};
 
-    var parameters = std.ArrayList(ParameterInfo).init(std.heap.page_allocator);
+    var parameters = std.array_list.Managed(ParameterInfo).init(std.heap.page_allocator);
     var param_iter = std.mem.splitSequence(u8, trimmed, ",");
     var position: u32 = 0;
 

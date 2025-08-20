@@ -23,12 +23,12 @@ const TieredCompactionManager = kausaldb.storage.TieredCompactionManager;
 // Helper for managing path lifetimes in TieredCompactionManager tests
 const TestPathManager = struct {
     allocator: std.mem.Allocator,
-    paths: std.ArrayList([]const u8),
+    paths: std.array_list.Managed([]const u8),
 
     fn init(allocator: std.mem.Allocator) TestPathManager {
         return TestPathManager{
             .allocator = allocator,
-            .paths = std.ArrayList([]const u8).init(allocator),
+            .paths = std.array_list.Managed([]const u8).init(allocator),
         };
     }
 
@@ -146,7 +146,7 @@ test "compaction memory efficiency under large datasets" {
 
     // Create large dataset to test memory efficiency during compaction
     const large_dataset_size = 10000;
-    var test_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var test_blocks = std.array_list.Managed(ContextBlock).init(allocator);
     try test_blocks.ensureTotalCapacity(large_dataset_size);
     defer {
         for (test_blocks.items) |block| {
@@ -217,7 +217,7 @@ test "compaction strategy adaptability to workload patterns" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(25); // 15 write_heavy + 10 large_l1 paths
     defer {
         for (managed_paths.items) |path| {
@@ -301,7 +301,7 @@ test "compaction robustness under concurrent modifications" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(500); // ~1/3 of 1000 operations are adds
     defer {
         for (managed_paths.items) |path| {
@@ -562,7 +562,7 @@ test "compaction performance under stress conditions" {
     defer manager.deinit();
 
     // Track paths for proper lifetime management to prevent use-after-free
-    var managed_paths = std.ArrayList([]const u8).init(allocator);
+    var managed_paths = std.array_list.Managed([]const u8).init(allocator);
     try managed_paths.ensureTotalCapacity(300); // 100 stress + 200 mixed operations
     defer {
         for (managed_paths.items) |path| {

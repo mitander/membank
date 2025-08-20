@@ -75,7 +75,7 @@ test {
         .iterate = true,
     });
 
-    var unit_tests_contents = std.ArrayList(u8).init(arena);
+    var unit_tests_contents = std.array_list.Managed(u8).init(arena);
     try unit_tests_contents.writer().writeAll("//! Comprehensive unit test runner for KausalDB components\n//! Automatically discovers and includes all .zig files with tests\n\ncomptime {\n");
 
     for (try unit_test_files(arena, src_dir)) |unit_test_file| {
@@ -124,7 +124,7 @@ test {
 fn unit_test_files(arena: std.mem.Allocator, src_dir: std.fs.Dir) ![]const []const u8 {
     // Different platforms can walk the directory in different orders. Store the paths and sort them
     // to ensure consistency.
-    var result = std.ArrayList([]const u8).init(arena);
+    var result = std.array_list.Managed([]const u8).init(arena);
 
     var src_walker = try src_dir.walk(arena);
     defer src_walker.deinit();

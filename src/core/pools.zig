@@ -24,7 +24,7 @@ fn DebugTrackerType(comptime T: type) type {
         peak_usage: u32,
         total_acquisitions: u64,
         total_releases: u64,
-        current_allocations: std.ArrayList(AllocationInfo),
+        current_allocations: std.array_list.Managed(AllocationInfo),
 
         const AllocationInfo = struct {
             ptr: *T,
@@ -37,7 +37,7 @@ fn DebugTrackerType(comptime T: type) type {
                 .peak_usage = 0,
                 .total_acquisitions = 0,
                 .total_releases = 0,
-                .current_allocations = std.ArrayList(AllocationInfo).init(allocator),
+                .current_allocations = std.array_list.Managed(AllocationInfo).init(allocator),
             };
         }
 
@@ -496,12 +496,12 @@ test "ObjectPool exhaustion handling" {
 }
 
 test "ObjectPool with initialization function" {
-    var pool = try ObjectPoolType(std.ArrayList(u8)).init(testing.allocator, 2);
+    var pool = try ObjectPoolType(std.array_list.Managed(u8)).init(testing.allocator, 2);
     defer pool.deinit();
 
     const init_fn = struct {
-        fn init(list: *std.ArrayList(u8)) void {
-            list.* = std.ArrayList(u8).init(testing.allocator);
+        fn init(list: *std.array_list.Managed(u8)) void {
+            list.* = std.array_list.Managed(u8).init(testing.allocator);
         }
     }.init;
 
@@ -594,7 +594,7 @@ test "pool performance characteristics" {
     defer pool.deinit();
 
     // Track items to ensure they're all released
-    var acquired_items = std.ArrayList(*u64).init(testing.allocator);
+    var acquired_items = std.array_list.Managed(*u64).init(testing.allocator);
     defer acquired_items.deinit();
 
     // Measure allocation performance

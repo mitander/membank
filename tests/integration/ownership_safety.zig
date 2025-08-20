@@ -86,14 +86,14 @@ const StorageSubsystem = struct {
 
 const QuerySubsystem = struct {
     arena: TypedArenaType(u8, @This()),
-    temp_blocks: std.ArrayList(OwnedBlock),
+    temp_blocks: std.array_list.Managed(OwnedBlock),
 
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .arena = TypedArenaType(u8, Self).init(allocator, .query_engine),
-            .temp_blocks = std.ArrayList(OwnedBlock).init(allocator),
+            .temp_blocks = std.array_list.Managed(OwnedBlock).init(allocator),
         };
     }
 

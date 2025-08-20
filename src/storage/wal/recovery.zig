@@ -179,7 +179,7 @@ pub fn recover_from_segments(
 
 /// List all WAL segment files in the directory, sorted in chronological order
 fn list_segment_files(allocator: std.mem.Allocator, filesystem: VFS, directory: []const u8) WALError![][]const u8 {
-    var file_list = std.ArrayList([]const u8).init(allocator);
+    var file_list = std.array_list.Managed([]const u8).init(allocator);
     defer file_list.deinit();
 
     var dir_iter = filesystem.iterate_directory(directory, allocator) catch |err| switch (err) {
@@ -241,12 +241,12 @@ fn create_test_block() ContextBlock {
 }
 
 const TestRecoveryContext = struct {
-    entries_recovered: std.ArrayList(entry_mod.WALEntry),
+    entries_recovered: std.array_list.Managed(entry_mod.WALEntry),
     callback_errors: u32,
 
     fn init(allocator: std.mem.Allocator) TestRecoveryContext {
         return TestRecoveryContext{
-            .entries_recovered = std.ArrayList(entry_mod.WALEntry).init(allocator),
+            .entries_recovered = std.array_list.Managed(entry_mod.WALEntry).init(allocator),
             .callback_errors = 0,
         };
     }

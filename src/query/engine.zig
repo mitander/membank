@@ -658,7 +658,7 @@ pub const QueryEngine = struct {
         );
         defer full_result.deinit();
 
-        var streaming_blocks = std.ArrayList(ContextBlock).init(self.allocator);
+        var streaming_blocks = std.array_list.Managed(ContextBlock).init(self.allocator);
         defer streaming_blocks.deinit();
 
         try streaming_blocks.ensureTotalCapacity(@min(FILTER_STREAMING_CHUNK_SIZE, full_result.blocks.len));

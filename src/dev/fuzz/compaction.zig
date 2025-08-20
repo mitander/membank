@@ -77,7 +77,7 @@ fn generate_compaction_test_blocks(
             1 => try std.fmt.allocPrint(allocator, "Medium sized block {} with more content that should trigger different compaction behaviors", .{i}),
             2 => blk: {
                 // Large block with repeated patterns
-                var large_content = std.ArrayList(u8).init(allocator);
+                var large_content = std.array_list.Managed(u8).init(allocator);
                 const pattern = "This is a large test block pattern. ";
                 var j: u32 = 0;
                 while (j < 100) : (j += 1) {

@@ -27,8 +27,8 @@ const MAX_MEMORY_GROWTH_PER_OP = 200 * 1024; // 200KB per compaction (measured 1
 const COMPACTION_ITERATIONS = 10;
 const WARMUP_ITERATIONS = 2;
 
-pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
-    var results = std.ArrayList(BenchmarkResult).init(allocator);
+pub fn run_all(allocator: std.mem.Allocator) !std.array_list.Managed(BenchmarkResult) {
+    var results = std.array_list.Managed(BenchmarkResult).init(allocator);
     try results.append(try run_compaction_benchmark(allocator));
     return results;
 }

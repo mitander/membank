@@ -429,7 +429,7 @@ test "CORRUPTION PREVENTION: Memory safety integration test" {
     };
 
     // Simulate memtable operations
-    var memtable_blocks = std.ArrayList(OwnedBlock).init(testing.allocator);
+    var memtable_blocks = std.array_list.Managed(OwnedBlock).init(testing.allocator);
     defer memtable_blocks.deinit();
 
     for (blocks) |block| {
@@ -438,7 +438,7 @@ test "CORRUPTION PREVENTION: Memory safety integration test" {
     }
 
     // Simulate memtable flush: transfer to SSTable with ownership
-    var sstable_blocks = std.ArrayList(OwnedBlock).init(testing.allocator);
+    var sstable_blocks = std.array_list.Managed(OwnedBlock).init(testing.allocator);
     defer sstable_blocks.deinit(); // Don't call deinit on blocks with string literals
 
     for (memtable_blocks.items) |*memtable_block| {

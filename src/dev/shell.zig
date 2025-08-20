@@ -11,7 +11,7 @@
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.array_list.Managed;
 
 pub const Shell = struct {
     arena: std.heap.ArenaAllocator,
@@ -48,7 +48,7 @@ pub const Shell = struct {
         const full_cmd = try std.fmt.allocPrint(arena_allocator, cmd, args);
 
         // Split command into argv
-        var argv = ArrayList([]const u8).init(arena_allocator);
+        var argv = std.array_list.Managed([]const u8).init(arena_allocator);
         var arg_iter = std.mem.tokenizeAny(u8, full_cmd, " \t");
         while (arg_iter.next()) |arg| {
             try argv.append(arg);

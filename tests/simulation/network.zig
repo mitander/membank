@@ -329,7 +329,7 @@ test "performance regression detection" {
     // Baseline: Normal operation performance with detailed timing
     var baseline_min: i128 = std.math.maxInt(i128);
     var baseline_max: i128 = 0;
-    var baseline_times = std.ArrayList(i128).init(allocator);
+    var baseline_times = std.array_list.Managed(i128).init(allocator);
     defer baseline_times.deinit();
     try baseline_times.ensureTotalCapacity(50); // Pre-allocate for known baseline operation count
 
@@ -360,7 +360,7 @@ test "performance regression detection" {
     const stress_start = std.time.nanoTimestamp();
 
     var successful_ops: u32 = 0;
-    var stress_times = std.ArrayList(i128).init(allocator);
+    var stress_times = std.array_list.Managed(i128).init(allocator);
     defer stress_times.deinit();
     try stress_times.ensureTotalCapacity(50); // Pre-allocate for known stress operation count
     var stress_min: i128 = std.math.maxInt(i128);
@@ -504,7 +504,7 @@ test "same seed produces identical results" {
     const REPLAY_SEED = 0xDE7E411E;
 
     // First run
-    var results1 = std.ArrayList([]const u8).init(allocator);
+    var results1 = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (results1.items) |item| {
             allocator.free(item);
@@ -545,7 +545,7 @@ test "same seed produces identical results" {
     }
 
     // Second run with same seed
-    var results2 = std.ArrayList([]const u8).init(allocator);
+    var results2 = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (results2.items) |item| {
             allocator.free(item);

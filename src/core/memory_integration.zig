@@ -118,17 +118,17 @@ pub const IntegratedMemorySystem = struct {
 
     /// Data-oriented block metadata storage (Struct-of-Arrays)
     const BlockMetadataSOA = struct {
-        ids: std.ArrayList(BlockId),
-        versions: std.ArrayList(u64),
-        sizes: std.ArrayList(u32),
-        timestamps: std.ArrayList(i64),
+        ids: std.array_list.Managed(BlockId),
+        versions: std.array_list.Managed(u64),
+        sizes: std.array_list.Managed(u32),
+        timestamps: std.array_list.Managed(i64),
 
         pub fn init(allocator: std.mem.Allocator) BlockMetadataSOA {
             return BlockMetadataSOA{
-                .ids = std.ArrayList(BlockId).init(allocator),
-                .versions = std.ArrayList(u64).init(allocator),
-                .sizes = std.ArrayList(u32).init(allocator),
-                .timestamps = std.ArrayList(i64).init(allocator),
+                .ids = std.array_list.Managed(BlockId).init(allocator),
+                .versions = std.array_list.Managed(u64).init(allocator),
+                .sizes = std.array_list.Managed(u32).init(allocator),
+                .timestamps = std.array_list.Managed(i64).init(allocator),
             };
         }
 
@@ -145,7 +145,7 @@ pub const IntegratedMemorySystem = struct {
             min_timestamp: i64,
             allocator: std.mem.Allocator,
         ) ![]BlockId {
-            var results = std.ArrayList(BlockId).init(allocator);
+            var results = std.array_list.Managed(BlockId).init(allocator);
             try results.ensureTotalCapacity(self.ids.items.len / 4); // Estimate 25% match rate
             errdefer results.deinit();
 

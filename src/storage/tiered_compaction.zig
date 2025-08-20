@@ -112,7 +112,7 @@ pub const TieredCompactionManager = struct {
 
     /// State tracking for each tier
     const TierState = struct {
-        sstables: std.ArrayList(SSTableInfo),
+        sstables: std.array_list.Managed(SSTableInfo),
         total_size: u64 = 0,
 
         const SSTableInfo = struct {
@@ -123,7 +123,7 @@ pub const TieredCompactionManager = struct {
 
         pub fn init(allocator: std.mem.Allocator) TierState {
             return TierState{
-                .sstables = std.ArrayList(SSTableInfo).init(allocator),
+                .sstables = std.array_list.Managed(SSTableInfo).init(allocator),
             };
         }
 
@@ -332,7 +332,7 @@ pub const TieredCompactionManager = struct {
     }
 
     fn create_l0_compaction_job(self: *TieredCompactionManager) CompactionJob {
-        var input_paths = std.ArrayList([]const u8).init(self.backing_allocator);
+        var input_paths = std.array_list.Managed([]const u8).init(self.backing_allocator);
         for (self.tiers[0].sstables.items) |info| {
             input_paths.append(info.path) catch unreachable; // Safety: paths are pre-allocated strings
         }
@@ -348,7 +348,7 @@ pub const TieredCompactionManager = struct {
 
     fn create_tier_compaction_job(self: *TieredCompactionManager, level: u8) !CompactionJob {
         const tier = &self.tiers[level];
-        var candidates = std.ArrayList(usize).init(self.backing_allocator);
+        var candidates = std.array_list.Managed(usize).init(self.backing_allocator);
         defer candidates.deinit();
         try candidates.ensureTotalCapacity(self.config.max_sstables_per_tier);
 
@@ -358,7 +358,7 @@ pub const TieredCompactionManager = struct {
             if (candidates.items.len >= self.config.max_sstables_per_tier) break;
         }
 
-        var input_paths = std.ArrayList([]const u8).init(self.backing_allocator);
+        var input_paths = std.array_list.Managed([]const u8).init(self.backing_allocator);
         try input_paths.ensureTotalCapacity(candidates.items.len);
         var total_size: u64 = 0;
 
@@ -442,7 +442,7 @@ pub const CompactionJob = struct {
     compaction_type: CompactionType,
     input_level: u8,
     output_level: u8,
-    input_paths: std.ArrayList([]const u8),
+    input_paths: std.array_list.Managed([]const u8),
     estimated_output_size: u64,
 
     pub const CompactionType = enum {

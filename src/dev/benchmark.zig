@@ -136,7 +136,7 @@ pub fn main() !void {
         }
     }
 
-    var results = std.ArrayList(BenchmarkResult).init(allocator);
+    var results = std.array_list.Managed(BenchmarkResult).init(allocator);
     defer results.deinit();
 
     if (std.mem.eql(u8, benchmark_name, "all")) {
@@ -187,7 +187,7 @@ pub fn main() !void {
     }
 }
 
-fn run_all_benchmarks(allocator: std.mem.Allocator, results: *std.ArrayList(BenchmarkResult)) !void {
+fn run_all_benchmarks(allocator: std.mem.Allocator, results: *std.array_list.Managed(BenchmarkResult)) !void {
     var storage_results = try storage_benchmarks.run_all(allocator);
     defer storage_results.deinit();
     try results.appendSlice(storage_results.items);

@@ -36,14 +36,14 @@ pub const ViolationSummary = struct {
     total_violations: u32,
     violations_by_type: std.EnumMap(ViolationType, u32),
     violations_by_file: std.StringHashMap(u32),
-    all_violations: std.ArrayList(Violation),
+    all_violations: std.array_list.Managed(Violation),
 
     pub fn init(allocator: std.mem.Allocator) ViolationSummary {
         return ViolationSummary{
             .total_violations = 0,
             .violations_by_type = std.EnumMap(ViolationType, u32).init(.{}),
             .violations_by_file = std.StringHashMap(u32).init(allocator),
-            .all_violations = std.ArrayList(Violation).init(allocator),
+            .all_violations = std.array_list.Managed(Violation).init(allocator),
         };
     }
 
@@ -105,7 +105,7 @@ pub const ViolationSummary = struct {
         }
 
         std.debug.print("\nBY FILE (most problematic first):\n", .{});
-        var file_list = std.ArrayList(struct { []const u8, u32 }).init(std.heap.page_allocator);
+        var file_list = std.array_list.Managed(struct { []const u8, u32 }).init(std.heap.page_allocator);
         defer file_list.deinit();
 
         var file_iter = self.violations_by_file.iterator();

@@ -455,7 +455,7 @@ test "algorithm performance edge case timing validation" {
 
     // Create a moderately sized graph for performance testing
     const graph_size = 100;
-    var nodes = std.ArrayList(BlockId).init(allocator);
+    var nodes = std.array_list.Managed(BlockId).init(allocator);
     defer nodes.deinit();
     try nodes.ensureTotalCapacity(graph_size);
 

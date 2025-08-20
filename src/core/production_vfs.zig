@@ -251,7 +251,7 @@ pub const ProductionVFS = struct {
         };
         defer dir.close();
 
-        var entries = std.ArrayList(DirectoryEntry).init(allocator);
+        var entries = std.array_list.Managed(DirectoryEntry).init(allocator);
         errdefer entries.deinit();
 
         var fs_iterator = dir.iterate();

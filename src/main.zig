@@ -267,7 +267,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
     std.debug.print("\nQuerying multiple blocks...\n", .{});
     const block_ids = &[_]BlockId{ block1_id, block2_id };
 
-    var found_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var found_blocks = std.array_list.Managed(ContextBlock).init(allocator);
     try found_blocks.ensureTotalCapacity(block_ids.len);
     defer found_blocks.deinit();
 

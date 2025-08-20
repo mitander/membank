@@ -357,7 +357,7 @@ pub fn execute_keyword_query(
 ) !SemanticQueryResult {
     try query.validate();
 
-    var results = std.ArrayList(SemanticResult).init(allocator);
+    var results = std.array_list.Managed(SemanticResult).init(allocator);
     defer results.deinit();
     try results.ensureTotalCapacity(query.max_results);
 

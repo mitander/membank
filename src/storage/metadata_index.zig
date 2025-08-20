@@ -23,13 +23,13 @@ const ContextBlock = context_block.ContextBlock;
 /// Secondary index entry mapping metadata value to block IDs
 const IndexEntry = struct {
     value: []const u8, // Metadata field value (e.g., "function", "struct")
-    block_ids: std.ArrayList(BlockId), // All blocks with this metadata value
+    block_ids: std.array_list.Managed(BlockId), // All blocks with this metadata value
 
     /// Initialize new index entry with allocated value storage
     pub fn init(allocator: std.mem.Allocator, value: []const u8) IndexEntry {
         return IndexEntry{
             .value = value,
-            .block_ids = std.ArrayList(BlockId).init(allocator),
+            .block_ids = std.array_list.Managed(BlockId).init(allocator),
         };
     }
 
@@ -154,7 +154,7 @@ pub const MetadataFieldIndex = struct {
 
     /// Calculate all unique values for this metadata field
     pub fn calculate_all_values(self: *const MetadataFieldIndex, allocator: std.mem.Allocator) ![][]const u8 {
-        var values = std.ArrayList([]const u8).init(allocator);
+        var values = std.array_list.Managed([]const u8).init(allocator);
         errdefer values.deinit();
 
         var iterator = self.entries.iterator();
@@ -235,7 +235,7 @@ pub const IndexStatistics = struct {
 
 /// Multi-field metadata index manager
 pub const MetadataIndexManager = struct {
-    indexes: std.ArrayList(MetadataFieldIndex),
+    indexes: std.array_list.Managed(MetadataFieldIndex),
     arena_coordinator: *const ArenaCoordinator,
     backing_allocator: std.mem.Allocator,
 
@@ -244,7 +244,7 @@ pub const MetadataIndexManager = struct {
         arena_coordinator: *const ArenaCoordinator,
     ) MetadataIndexManager {
         return MetadataIndexManager{
-            .indexes = std.ArrayList(MetadataFieldIndex).init(allocator),
+            .indexes = std.array_list.Managed(MetadataFieldIndex).init(allocator),
             .arena_coordinator = arena_coordinator,
             .backing_allocator = allocator,
         };

@@ -144,7 +144,7 @@ const MockParser = struct {
     fn parse(ptr: *anyopaque, allocator: std.mem.Allocator, content: SourceContent) IngestionError![]ParsedUnit {
         const self: *Self = @ptrCast(@alignCast(ptr));
 
-        var edges = std.ArrayList(kausaldb.pipeline.ParsedEdge).init(allocator);
+        var edges = std.array_list.Managed(kausaldb.pipeline.ParsedEdge).init(allocator);
         if (self.blocks_per_unit > 1) {
             try edges.ensureTotalCapacity(self.blocks_per_unit - 1);
         }
@@ -166,7 +166,7 @@ const MockParser = struct {
         const units = try allocator.alloc(ParsedUnit, self.blocks_per_unit);
 
         for (0..self.blocks_per_unit) |i| {
-            var unit_edges = std.ArrayList(kausaldb.pipeline.ParsedEdge).init(allocator);
+            var unit_edges = std.array_list.Managed(kausaldb.pipeline.ParsedEdge).init(allocator);
             if (i == 0) {
                 unit_edges = edges;
             }
@@ -226,7 +226,7 @@ const MockChunker = struct {
     fn chunk(ptr: *anyopaque, allocator: std.mem.Allocator, units: []const ParsedUnit) IngestionError![]ContextBlock {
         const self: *Self = @ptrCast(@alignCast(ptr));
 
-        var blocks = std.ArrayList(ContextBlock).init(allocator);
+        var blocks = std.array_list.Managed(ContextBlock).init(allocator);
 
         // Pre-calculate total chunks across all units
         var total_chunks: usize = 0;

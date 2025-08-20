@@ -43,7 +43,7 @@ pub const GitSourceConfig = struct {
     follow_symlinks: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, repository_path: []const u8) !GitSourceConfig {
-        var include_patterns = std.ArrayList([]const u8).init(allocator);
+        var include_patterns = std.array_list.Managed([]const u8).init(allocator);
         try include_patterns.append(try allocator.dupe(u8, "**/*.zig"));
         try include_patterns.append(try allocator.dupe(u8, "**/*.md"));
         try include_patterns.append(try allocator.dupe(u8, "**/*.txt"));
@@ -52,7 +52,7 @@ pub const GitSourceConfig = struct {
         try include_patterns.append(try allocator.dupe(u8, "**/*.yaml"));
         try include_patterns.append(try allocator.dupe(u8, "**/*.yml"));
 
-        var exclude_patterns = std.ArrayList([]const u8).init(allocator);
+        var exclude_patterns = std.array_list.Managed([]const u8).init(allocator);
         try exclude_patterns.append(try allocator.dupe(u8, ".git/*"));
         try exclude_patterns.append(try allocator.dupe(u8, "*.bin"));
         try exclude_patterns.append(try allocator.dupe(u8, "*.exe"));
@@ -353,7 +353,7 @@ pub const GitSource = struct {
 
     /// Find all files matching the configured patterns
     fn find_matching_files(self: *GitSource, allocator: std.mem.Allocator, file_system: *VFS) ![]GitFileInfo {
-        var files = std.ArrayList(GitFileInfo).init(allocator);
+        var files = std.array_list.Managed(GitFileInfo).init(allocator);
         try self.scan_directory_recursive(allocator, file_system, self.config.repository_path, "", &files);
 
         const file_slice = try files.toOwnedSlice();
@@ -374,7 +374,7 @@ pub const GitSource = struct {
         file_system: *VFS,
         base_path: []const u8,
         relative_path: []const u8,
-        files: *std.ArrayList(GitFileInfo),
+        files: *std.array_list.Managed(GitFileInfo),
     ) !void {
         const full_path = if (relative_path.len == 0)
             try allocator.dupe(u8, base_path)

@@ -58,7 +58,7 @@ pub const ConnectionManager = struct {
     /// Configuration controlling connection behavior
     config: ConnectionManagerConfig,
     /// Active connections owned by this manager
-    connections: std.ArrayList(*ClientConnection),
+    connections: std.array_list.Managed(*ClientConnection),
     /// Monotonic connection ID counter
     next_connection_id: u32,
     /// Poll file descriptors array for I/O event detection
@@ -73,7 +73,7 @@ pub const ConnectionManager = struct {
             .arena = std.heap.ArenaAllocator.init(allocator),
             .backing_allocator = allocator,
             .config = config,
-            .connections = std.ArrayList(*ClientConnection).init(allocator),
+            .connections = std.array_list.Managed(*ClientConnection).init(allocator),
             .next_connection_id = 1,
             .poll_fds = &[_]std.posix.pollfd{}, // Allocated in startup()
             .stats = ConnectionManagerStats{},

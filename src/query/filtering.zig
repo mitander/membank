@@ -423,7 +423,7 @@ fn execute_indexed_query(
     query: FilteredQuery,
     candidate_block_ids: []const BlockId,
 ) !FilteredQueryResult {
-    var matched_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
+    var matched_blocks = std.array_list.Managed(QueryEngineBlock).init(allocator);
     errdefer {
         for (matched_blocks.items) |block| {
             const ctx_block = block.read(.query_engine);
@@ -483,7 +483,7 @@ pub fn execute_filtered_query(
     var blocks_collected: u32 = 0;
     const max_to_collect = query.max_results;
 
-    var matched_blocks = std.ArrayList(QueryEngineBlock).init(allocator);
+    var matched_blocks = std.array_list.Managed(QueryEngineBlock).init(allocator);
     errdefer {
         for (matched_blocks.items) |block| {
             const ctx_block = block.read(.query_engine);
@@ -935,7 +935,7 @@ test "filtered query result operations" {
     try testing.expectEqual(@as(usize, 2), result.blocks.len);
     try testing.expect(result.has_more);
 
-    var formatted_output = std.ArrayList(u8).init(allocator);
+    var formatted_output = std.array_list.Managed(u8).init(allocator);
     defer formatted_output.deinit();
 
     try result.format_for_llm(formatted_output.writer().any());

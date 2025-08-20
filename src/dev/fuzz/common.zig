@@ -34,7 +34,7 @@ pub const FuzzStats = struct {
     start_time: i128,
     last_progress_time: i128,
     last_git_check: i128,
-    seen_crashes: std.ArrayList(u64),
+    seen_crashes: std.array_list.Managed(u64),
 
     pub fn init(allocator: std.mem.Allocator) FuzzStats {
         const now = std.time.nanoTimestamp();
@@ -42,7 +42,7 @@ pub const FuzzStats = struct {
             .start_time = now,
             .last_progress_time = now,
             .last_git_check = now,
-            .seen_crashes = std.ArrayList(u64).init(allocator),
+            .seen_crashes = std.array_list.Managed(u64).init(allocator),
         };
     }
 
@@ -317,7 +317,7 @@ pub fn generate_malformed_zig_source(allocator: std.mem.Allocator, random: std.R
     const line_count = random.intRangeAtMost(usize, 1, 20);
     const estimated_capacity = 100 * line_count;
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     try result.ensureTotalCapacity(estimated_capacity);
     defer result.deinit();
 

@@ -136,7 +136,7 @@ test "complex graph traversal scenarios" {
     defer result.deinit();
 
     // Should find all reachable functions within 3 hops
-    var found_blocks = std.ArrayList(BlockId).init(allocator);
+    var found_blocks = std.array_list.Managed(BlockId).init(allocator);
     try found_blocks.ensureTotalCapacity(10); // Expected number of matching blocks
     defer found_blocks.deinit();
 
@@ -184,7 +184,7 @@ test "query optimization strategy validation" {
     defer small_result.deinit();
 
     // Test large query (should use optimized strategy)
-    var large_block_ids = std.ArrayList(BlockId).init(allocator);
+    var large_block_ids = std.array_list.Managed(BlockId).init(allocator);
     try large_block_ids.ensureTotalCapacity(50); // Number of large blocks in the test
     defer large_block_ids.deinit();
     i = 0;
@@ -218,7 +218,7 @@ test "query performance under memory pressure" {
     while (i < 500) : (i += 1) {
         // Create blocks with increasing content size
         const content_size = (i % 100) * 50 + 100; // 100-5000 bytes
-        var content = std.ArrayList(u8).init(allocator);
+        var content = std.array_list.Managed(u8).init(allocator);
         try content.ensureTotalCapacity(1024); // Expected size of the content
         defer content.deinit();
 
@@ -241,7 +241,7 @@ test "query performance under memory pressure" {
     // Perform multiple queries to test memory efficiency
     var query_round: u32 = 0;
     while (query_round < 10) : (query_round += 1) {
-        var query_block_ids = std.ArrayList(BlockId).init(allocator);
+        var query_block_ids = std.array_list.Managed(BlockId).init(allocator);
         try query_block_ids.ensureTotalCapacity(10); // Expected number of blocks in the test query
         defer query_block_ids.deinit();
 
@@ -301,7 +301,7 @@ test "complex filtering and search scenarios" {
     }
 
     // Test content-based queries (when filtering is implemented)
-    var all_block_ids = std.ArrayList(BlockId).init(allocator);
+    var all_block_ids = std.array_list.Managed(BlockId).init(allocator);
     try all_block_ids.ensureTotalCapacity(100); // Total number of blocks in the test
     defer all_block_ids.deinit();
 
@@ -394,7 +394,7 @@ test "graph traversal with cycle detection" {
     defer result.deinit();
 
     // Should find all blocks but not infinite loop
-    var found_blocks = std.ArrayList(BlockId).init(allocator);
+    var found_blocks = std.array_list.Managed(BlockId).init(allocator);
     try found_blocks.ensureTotalCapacity(10); // Expected number of matching blocks
     defer found_blocks.deinit();
 
@@ -435,7 +435,7 @@ test "batch query operations and efficiency" {
     // Perform multiple batch queries
     var batch_round: u32 = 0;
     while (batch_round < 10) : (batch_round += 1) {
-        var batch_block_ids = std.ArrayList(BlockId).init(allocator);
+        var batch_block_ids = std.array_list.Managed(BlockId).init(allocator);
         try batch_block_ids.ensureTotalCapacity(10); // Batch size for testing
         defer batch_block_ids.deinit();
 
@@ -476,7 +476,7 @@ test "query error handling and recovery" {
     defer harness.deinit();
 
     // Test query with non-existent blocks
-    var nonexistent_ids = std.ArrayList(BlockId).init(allocator);
+    var nonexistent_ids = std.array_list.Managed(BlockId).init(allocator);
     try nonexistent_ids.ensureTotalCapacity(5); // Number of non-existent IDs to test
     defer nonexistent_ids.deinit();
 
@@ -570,7 +570,7 @@ test "mixed query workload simulation" {
         defer single_result.deinit();
 
         // Batch lookup
-        var batch_ids = std.ArrayList(BlockId).init(allocator);
+        var batch_ids = std.array_list.Managed(BlockId).init(allocator);
         try batch_ids.ensureTotalCapacity(10); // Batch size for mixed workload
         defer batch_ids.deinit();
         i = workload_round * 5;

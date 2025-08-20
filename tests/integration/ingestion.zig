@@ -267,7 +267,7 @@ test "semantic chunker preserves metadata" {
             .col_start = 1,
             .col_end = 1,
         },
-        .edges = std.ArrayList(ingestion.ParsedEdge).init(allocator),
+        .edges = std.array_list.Managed(ingestion.ParsedEdge).init(allocator),
         .metadata = unit_metadata,
     };
 

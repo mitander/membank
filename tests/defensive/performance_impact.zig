@@ -41,7 +41,7 @@ const PerformanceResult = struct {
     throughput_ops_per_sec: u64,
 
     fn from_samples(samples: []const u64) !PerformanceResult {
-        var sorted_samples = std.ArrayList(u64).init(std.testing.allocator);
+        var sorted_samples = std.array_list.Managed(u64).init(std.testing.allocator);
         try sorted_samples.ensureTotalCapacity(samples.len);
         defer sorted_samples.deinit();
 
@@ -137,7 +137,7 @@ test "assertion framework performance overhead measurement" {
     };
 
     // Baseline: computation without assertions
-    var baseline_samples = std.ArrayList(u64).init(allocator);
+    var baseline_samples = std.array_list.Managed(u64).init(allocator);
     defer baseline_samples.deinit();
     try baseline_samples.ensureTotalCapacity(config.statistical_samples);
 
@@ -162,7 +162,7 @@ test "assertion framework performance overhead measurement" {
     }
 
     // With assertions: same computation plus assertion checks
-    var assertion_samples = std.ArrayList(u64).init(allocator);
+    var assertion_samples = std.array_list.Managed(u64).init(allocator);
     defer assertion_samples.deinit();
     try assertion_samples.ensureTotalCapacity(config.statistical_samples);
 
@@ -252,13 +252,13 @@ test "storage operations performance with defensive programming" {
     try engine.startup();
 
     // Benchmark block write operations
-    var write_samples = std.ArrayList(u64).init(allocator);
+    var write_samples = std.array_list.Managed(u64).init(allocator);
     try write_samples.ensureTotalCapacity(config.iterations);
     defer write_samples.deinit();
     try write_samples.ensureTotalCapacity(config.statistical_samples);
 
     // Create test blocks
-    var test_blocks = std.ArrayList(ContextBlock).init(allocator);
+    var test_blocks = std.array_list.Managed(ContextBlock).init(allocator);
     try test_blocks.ensureTotalCapacity(@intCast(config.iterations));
     defer {
         for (test_blocks.items) |block| {
@@ -299,7 +299,7 @@ test "storage operations performance with defensive programming" {
     const write_result = try PerformanceResult.from_samples(write_samples.items);
 
     // Benchmark block read operations
-    var read_samples = std.ArrayList(u64).init(allocator);
+    var read_samples = std.array_list.Managed(u64).init(allocator);
     try read_samples.ensureTotalCapacity(config.iterations);
     defer read_samples.deinit();
 
@@ -348,7 +348,7 @@ test "graph operations performance with defensive programming" {
     try engine.startup();
 
     // Create blocks for edge testing
-    var blocks = std.ArrayList(ContextBlock).init(allocator);
+    var blocks = std.array_list.Managed(ContextBlock).init(allocator);
     try blocks.ensureTotalCapacity(100); // Reasonable default for test data
     defer {
         for (blocks.items) |block| {
@@ -366,7 +366,7 @@ test "graph operations performance with defensive programming" {
     }
 
     // Benchmark edge write operations
-    var edge_write_samples = std.ArrayList(u64).init(allocator);
+    var edge_write_samples = std.array_list.Managed(u64).init(allocator);
     try edge_write_samples.ensureTotalCapacity(config.iterations);
     defer edge_write_samples.deinit();
     try edge_write_samples.ensureTotalCapacity(config.statistical_samples);
@@ -398,7 +398,7 @@ test "graph operations performance with defensive programming" {
     const edge_write_result = try PerformanceResult.from_samples(edge_write_samples.items);
 
     // Benchmark edge traversal operations
-    var traversal_samples = std.ArrayList(u64).init(allocator);
+    var traversal_samples = std.array_list.Managed(u64).init(allocator);
     try traversal_samples.ensureTotalCapacity(config.iterations);
     defer traversal_samples.deinit();
 
@@ -429,7 +429,7 @@ test "memory allocation performance with defensive programming" {
     const config = BenchmarkConfig{ .iterations = 1000 };
 
     // Test allocation-heavy operations that trigger many assertions
-    var allocation_samples = std.ArrayList(u64).init(allocator);
+    var allocation_samples = std.array_list.Managed(u64).init(allocator);
     try allocation_samples.ensureTotalCapacity(1000); // Large enough for allocation patterns
     defer allocation_samples.deinit();
 
@@ -463,7 +463,7 @@ test "defensive programming zero cost abstraction validation" {
     const config = BenchmarkConfig{ .iterations = 10000 };
 
     // Baseline: pure computation without assertions
-    var baseline_samples = std.ArrayList(u64).init(testing.allocator);
+    var baseline_samples = std.array_list.Managed(u64).init(testing.allocator);
     try baseline_samples.ensureTotalCapacity(1000); // Sufficient for baseline measurements
     defer baseline_samples.deinit();
 
@@ -480,7 +480,7 @@ test "defensive programming zero cost abstraction validation" {
     }
 
     // With assertions: same computation plus assertions
-    var assertion_samples = std.ArrayList(u64).init(testing.allocator);
+    var assertion_samples = std.array_list.Managed(u64).init(testing.allocator);
     try assertion_samples.ensureTotalCapacity(1000); // Sufficient for assertion measurements
     defer assertion_samples.deinit();
 
@@ -539,7 +539,7 @@ test "assertion framework consistency under load" {
     try engine.startup();
 
     // Test that assertions maintain consistent performance under sustained load
-    var load_samples = std.ArrayList(u64).init(allocator);
+    var load_samples = std.array_list.Managed(u64).init(allocator);
     try load_samples.ensureTotalCapacity(1000); // Sufficient for load testing
     defer load_samples.deinit();
 

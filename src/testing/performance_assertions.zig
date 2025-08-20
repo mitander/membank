@@ -327,12 +327,12 @@ fn measure_storage_latency(
 
 /// Batch performance measurement for statistical validation
 pub const BatchPerformanceMeasurement = struct {
-    measurements: std.ArrayList(u64),
+    measurements: std.array_list.Managed(u64),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) BatchPerformanceMeasurement {
         return BatchPerformanceMeasurement{
-            .measurements = std.ArrayList(u64).init(allocator),
+            .measurements = std.array_list.Managed(u64).init(allocator),
             .allocator = allocator,
         };
     }
@@ -373,7 +373,7 @@ pub const BatchPerformanceMeasurement = struct {
         }
 
         // Calculate P99 - sort and find 99th percentile
-        var sorted_measurements = std.ArrayList(u64).init(self.allocator);
+        var sorted_measurements = std.array_list.Managed(u64).init(self.allocator);
         defer sorted_measurements.deinit();
         sorted_measurements.appendSlice(self.measurements.items) catch unreachable;
         std.mem.sort(u64, sorted_measurements.items, {}, comptime std.sort.asc(u64));
@@ -444,7 +444,7 @@ pub const BatchPerformanceMeasurement = struct {
 
 /// Statistical performance sampling framework with warmup support
 pub const StatisticalSampler = struct {
-    measurements: std.ArrayList(u64),
+    measurements: std.array_list.Managed(u64),
     allocator: std.mem.Allocator,
     warmup_samples: u32,
     measurement_samples: u32,
@@ -458,7 +458,7 @@ pub const StatisticalSampler = struct {
         measurement_samples: u32,
     ) StatisticalSampler {
         return StatisticalSampler{
-            .measurements = std.ArrayList(u64).init(allocator),
+            .measurements = std.array_list.Managed(u64).init(allocator),
             .allocator = allocator,
             .warmup_samples = warmup_samples,
             .measurement_samples = measurement_samples,

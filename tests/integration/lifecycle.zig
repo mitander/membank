@@ -33,7 +33,7 @@ test "full data lifecycle with compaction" {
 
     // Phase 1: Bulk data ingestion (trigger compaction)
     const num_blocks = 1200; // Exceeds flush threshold of 1000
-    var created_blocks = try std.ArrayList(ContextBlock).initCapacity(allocator, num_blocks);
+    var created_blocks = try std.array_list.Managed(ContextBlock).initCapacity(allocator, num_blocks);
     // CAPACITY_MANAGED: Pre-allocated for known bounds performance
     defer {
         for (created_blocks.items) |block| {
@@ -81,7 +81,7 @@ test "full data lifecycle with compaction" {
     const pre_compaction_reads = pre_compaction_metrics.blocks_read.load();
 
     // Query first 100 blocks
-    var query_block_ids = std.ArrayList(BlockId).init(allocator);
+    var query_block_ids = std.array_list.Managed(BlockId).init(allocator);
     defer query_block_ids.deinit();
     try query_block_ids.ensureTotalCapacity(100);
 
@@ -301,7 +301,7 @@ test "concurrent storage and query operations" {
 
         // Query multiple blocks
         if (round % 10 == 0) {
-            var batch_ids = std.ArrayList(BlockId).init(allocator);
+            var batch_ids = std.array_list.Managed(BlockId).init(allocator);
             defer batch_ids.deinit();
             try batch_ids.ensureTotalCapacity(5);
 

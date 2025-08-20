@@ -2,7 +2,7 @@
 set -eu
 
 # Default to the specific dev version required by KausalDB
-ZIG_RELEASE_DEFAULT="0.15.0-dev.1108+27212a3e6"
+ZIG_RELEASE_DEFAULT="0.15.1"
 ZIG_RELEASE=${1:-$ZIG_RELEASE_DEFAULT}
 
 # Get the project root directory (parent of scripts)
@@ -19,7 +19,6 @@ elif echo "$ZIG_RELEASE" | grep -q '^[0-9]\+\.[0-9]\+\.[0-9]\+$'; then
     USE_INDEX_JSON=true
     echo "Downloading Zig $ZIG_RELEASE release build..."
 elif echo "$ZIG_RELEASE" | grep -q '^[0-9]\+\.[0-9]\+\.[0-9]\+-dev\.'; then
-    # Handle dev versions like 0.15.0-dev.1108+27212a3e6
     USE_INDEX_JSON=false
     echo "Downloading Zig $ZIG_RELEASE development build..."
 else

@@ -164,7 +164,7 @@ fn generate_edges_by_pattern(
     blocks: []ContextBlock,
     config: TestGraphConfig,
 ) ![]GraphEdge {
-    var edges = std.ArrayList(GraphEdge).init(allocator);
+    var edges = std.array_list.Managed(GraphEdge).init(allocator);
     defer edges.deinit();
 
     // Pre-allocate capacity based on expected edge count for performance

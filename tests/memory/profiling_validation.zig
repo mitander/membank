@@ -181,7 +181,7 @@ test "memory profiler stability over multiple measurement cycles" {
     var memory_profiler = MemoryProfiler.init();
     memory_profiler.start_profiling();
 
-    var measurements = std.ArrayList(u64).init(allocator);
+    var measurements = std.array_list.Managed(u64).init(allocator);
     try measurements.ensureTotalCapacity(100);
     defer measurements.deinit();
 

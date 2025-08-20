@@ -378,12 +378,12 @@ pub fn create_temporary_owned_block(block: ContextBlock) TemporaryBlock {
 /// Collection of owned blocks with batch operations.
 /// Provides type-safe batch operations while maintaining ownership tracking.
 pub const OwnedBlockCollection = struct {
-    blocks: std.ArrayList(OwnedBlock),
+    blocks: std.array_list.Managed(OwnedBlock),
     ownership: BlockOwnership,
 
     /// Initialize collection for specific ownership.
     pub fn init(allocator: std.mem.Allocator, ownership: BlockOwnership) OwnedBlockCollection {
-        var blocks = std.ArrayList(OwnedBlock).init(allocator);
+        var blocks = std.array_list.Managed(OwnedBlock).init(allocator);
         blocks.ensureTotalCapacity(16) catch {}; // Pre-allocate for typical subsystem usage patterns
         return OwnedBlockCollection{
             .blocks = blocks,
@@ -494,7 +494,7 @@ pub const OwnershipTransfer = struct {
 /// Global ownership tracker for debugging memory issues.
 /// Only active in debug builds to track ownership patterns.
 pub const OwnershipTracker = struct {
-    transfers: if (builtin.mode == .Debug) std.ArrayList(OwnershipTransfer) else void,
+    transfers: if (builtin.mode == .Debug) std.array_list.Managed(OwnershipTransfer) else void,
     active_blocks: if (builtin.mode == .Debug) std.HashMap(BlockId, BlockOwnership, BlockIdContext, std.hash_map.default_max_load_percentage) else void,
 
     const BlockIdContext = struct {
@@ -514,7 +514,7 @@ pub const OwnershipTracker = struct {
     pub fn init(allocator: std.mem.Allocator) OwnershipTracker {
         return OwnershipTracker{
             .transfers = if (builtin.mode == .Debug) blk: {
-                var transfers = std.ArrayList(OwnershipTransfer).init(allocator);
+                var transfers = std.array_list.Managed(OwnershipTransfer).init(allocator);
                 transfers.ensureTotalCapacity(32) catch {}; // Pre-allocate for typical ownership transfer tracking
                 break :blk transfers;
             } else {},

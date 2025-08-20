@@ -276,7 +276,7 @@ pub const QueryCache = struct {
     fn evict_lru_entries(self: *QueryCache) !void {
         const target_size = (self.max_entries * 3) / 4; // Evict 25% of entries
 
-        var eviction_candidates = try std.ArrayList(struct {
+        var eviction_candidates = try std.array_list.Managed(struct {
             key: CacheKey,
             last_access: i64,
             access_count: u32,

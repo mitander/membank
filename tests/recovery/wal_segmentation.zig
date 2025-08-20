@@ -61,7 +61,7 @@ test "rotation at size limit" {
     var dir_iterator = try node_vfs.iterate_directory(wal_dir, allocator);
     defer dir_iterator.deinit(allocator);
 
-    var wal_files_list = std.ArrayList([]const u8).init(allocator);
+    var wal_files_list = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (wal_files_list.items) |file_name| {
             allocator.free(file_name);
@@ -123,7 +123,7 @@ test "cleanup after sstable flush" {
     var pre_flush_iterator = try node_vfs.iterate_directory(wal_dir, allocator);
     defer pre_flush_iterator.deinit(allocator);
 
-    var pre_flush_files_list = std.ArrayList([]const u8).init(allocator);
+    var pre_flush_files_list = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (pre_flush_files_list.items) |file_name| {
             allocator.free(file_name);
@@ -151,7 +151,7 @@ test "cleanup after sstable flush" {
     var post_flush_iterator = try (&node_vfs).iterate_directory(wal_dir, allocator);
     defer post_flush_iterator.deinit(allocator);
 
-    var post_flush_files_list = std.ArrayList([]const u8).init(allocator);
+    var post_flush_files_list = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (post_flush_files_list.items) |file_name| {
             allocator.free(file_name);
@@ -295,7 +295,7 @@ test "recovery from mixed segments and sstables" {
     // Note: block_count() only shows memtable blocks, not SSTable blocks
     // So instead we verify individual blocks can be found
     var found_blocks: u32 = 0;
-    var not_found_list = std.ArrayList(u32).init(allocator);
+    var not_found_list = std.array_list.Managed(u32).init(allocator);
     defer not_found_list.deinit();
 
     var test_i: u32 = 1;
@@ -391,7 +391,7 @@ test "segment number persistence" {
     var dir_iterator = try node_vfs.iterate_directory(wal_dir, allocator);
     defer dir_iterator.deinit(allocator);
 
-    var wal_files_list = std.ArrayList([]const u8).init(allocator);
+    var wal_files_list = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (wal_files_list.items) |file_name| {
             allocator.free(file_name);
@@ -432,7 +432,7 @@ test "empty segment handling" {
     var dir_iterator = try node_vfs.iterate_directory(wal_dir, allocator);
     defer dir_iterator.deinit(allocator);
 
-    var wal_files_list = std.ArrayList([]const u8).init(allocator);
+    var wal_files_list = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (wal_files_list.items) |file_name| {
             allocator.free(file_name);
