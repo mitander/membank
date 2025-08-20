@@ -687,7 +687,7 @@ fn analyze_timings(timings: []u64) struct {
     // Only filter if we have enough data and significant outliers
     const outlier_threshold = if (iqr > 1000) iqr * 3 / 2 else std.math.maxInt(u64); // 1.5 * IQR, only if IQR > 1µs
     const lower_bound = if (q1 > outlier_threshold) q1 - outlier_threshold else 0;
-    const upper_bound = q3 + outlier_threshold;
+    const upper_bound = if (outlier_threshold == std.math.maxInt(u64)) std.math.maxInt(u64) else q3 +| outlier_threshold;
 
     // Aggregate statistics from outlier-filtered data to ensure
     // benchmark results reflect typical performance, not anomalies

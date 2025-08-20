@@ -59,6 +59,8 @@ pub fn main() !void {
         try run_list_blocks(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "query")) {
         try run_query(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "analyze")) {
+        try run_analyze(allocator);
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
         try print_usage();
@@ -85,6 +87,7 @@ fn print_usage() !void {
         \\  status       Show database status and statistics
         \\  list-blocks  List stored context blocks
         \\  query        Query blocks by ID or content
+        \\  analyze      Show project analysis and metrics
         \\
         \\Examples:
         \\  kausaldb server --port 8080
@@ -93,6 +96,7 @@ fn print_usage() !void {
         \\  kausaldb status --data-dir ./my_data
         \\  kausaldb list-blocks --limit 10
         \\  kausaldb query --id 0123456789abcdef...
+        \\  kausaldb analyze
         \\
     , .{});
 }
@@ -218,6 +222,7 @@ fn run_demo(allocator: std.mem.Allocator) !void {
 
     var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();
+    query_eng.startup();
     std.debug.print("✓ Query engine initialized\n\n", .{});
     log.info("Query engine initialization completed", .{});
 

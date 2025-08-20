@@ -19,24 +19,17 @@ KausalDB models your codebase as a directed graph of dependencies and relationsh
 git clone https://github.com/kausaldb/kausaldb
 cd kausaldb
 
-# Install Zig toolchain and setup Git hooks
+# One-time setup (installs Zig toolchain and Git hooks)
 ./scripts/setup.sh
 
-# Build and run the server
-./zig/zig build run
+# Build and start the server
+./zig/zig build server
+
+# Or run a quick demo
+./zig/zig build demo
 ```
 
-The server starts on port 8080. You can now ingest code and run graph queries:
-
-```bash
-# Example: Ingest a Zig project
-curl -X POST http://localhost:8080/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"source": {"type": "git", "path": "/path/to/zig/project"}}'
-
-# Query function dependencies
-curl http://localhost:8080/query/traverse/function:main/outgoing/3
-```
+The server starts on port 8080 with a binary protocol for client connections.
 
 ## Why
 
@@ -46,7 +39,7 @@ Your codebase isn't a flat directory of text files. It's a network of dependenci
 // What breaks if we change authenticate_user()?
 var func = try kausaldb.find("function:authenticate_user");
 var affected = try kausaldb.traverse(func.id, .incoming, .depth(3));
-```
+````
 
 The model operates on ground truth, not approximations.
 
@@ -74,23 +67,23 @@ src/
 ## Development
 
 ```bash
-# Run fast unit tests
-./zig/zig build test
+# Quick development cycle
+./zig/zig build                   # Build all executables
+./zig/zig build server            # Start server (Ctrl+C to stop)
+./zig/zig build demo              # Run demo
+./zig/zig build analyze           # Self-analysis demo
+./zig/zig build bench-write       # Run specific benchmark
 
-# Run comprehensive test suite (includes simulation, fault injection)
-./zig/zig build test-all
+# Testing and validation
+./zig/zig build test              # Fast tests (unit + integration)
+./zig/zig build test-all          # Full test suite (simulation, fault injection)
+./zig/zig build perf              # Validate performance thresholds
 
-# Run benchmarks
-./zig/zig build benchmark
-
-# Format code
-./zig/zig build fmt
-
-# Quality checks
-./zig/zig build tidy
+# Code quality
+./zig/zig build fmt-fix           # Fix formatting
+./zig/zig build tidy              # Check code quality
+./zig/zig build ci                # Run all CI checks
 ```
-
-Tests run the exact production code against simulated disk corruption, network partitions, and power loss. No mocks.
 
 ## Contributing
 

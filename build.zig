@@ -590,4 +590,131 @@ pub fn build(b: *std.Build) void {
     // Create development tools and workflow steps
     create_development_tools(b, modules, target);
     create_workflow_steps(b, categorized);
+
+    // Create convenience commands for development workflow
+    create_convenience_commands(b, exe, target, optimize, modules);
+}
+
+/// Creates convenient development commands for common workflows
+fn create_convenience_commands(
+    b: *std.Build,
+    exe: *std.Build.Step.Compile,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    modules: BuildModules,
+) void {
+    // Server command: ./zig build server [-- --port 3000]
+    const server_cmd = b.addRunArtifact(exe);
+    server_cmd.step.dependOn(b.getInstallStep());
+    server_cmd.addArg("server");
+    if (b.args) |args| {
+        server_cmd.addArgs(args);
+    }
+    const server_step = b.step("server", "Start KausalDB server");
+    server_step.dependOn(&server_cmd.step);
+
+    // Demo command: ./zig build demo
+    const demo_cmd = b.addRunArtifact(exe);
+    demo_cmd.step.dependOn(b.getInstallStep());
+    demo_cmd.addArg("demo");
+    if (b.args) |args| {
+        demo_cmd.addArgs(args);
+    }
+    const demo_step = b.step("demo", "Run KausalDB storage and query demonstration");
+    demo_step.dependOn(&demo_cmd.step);
+
+    // Analyze command: ./zig build analyze
+    const analyze_cmd = b.addRunArtifact(exe);
+    analyze_cmd.step.dependOn(b.getInstallStep());
+    analyze_cmd.addArg("analyze");
+    if (b.args) |args| {
+        analyze_cmd.addArgs(args);
+    }
+    const analyze_step = b.step("analyze", "Run KausalDB self-analysis demo");
+    analyze_step.dependOn(&analyze_cmd.step);
+
+    // Performance validation: ./zig build perf
+    const perf_cmd = create_performance_validation_step(b, target, optimize, modules);
+    const perf_step = b.step("perf", "Validate performance thresholds");
+    perf_step.dependOn(&perf_cmd.step);
+
+    // Benchmark commands with different targets
+    create_benchmark_commands(b, target, optimize, modules);
+}
+
+/// Creates performance validation step using benchmark tools
+fn create_performance_validation_step(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    modules: BuildModules,
+) *std.Build.Step.Run {
+    // Build benchmark first, then run performance validation
+    const benchmark_exe = create_benchmark_executable(b, target, optimize, modules);
+
+    const perf_cmd = b.addRunArtifact(benchmark_exe);
+    perf_cmd.step.dependOn(b.getInstallStep());
+
+    // Run storage benchmarks and validate thresholds
+    perf_cmd.addArgs(&.{ "storage", "--json" });
+
+    return perf_cmd;
+}
+
+/// Creates benchmark command shortcuts
+fn create_benchmark_commands(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    modules: BuildModules,
+) void {
+    const benchmark_exe = create_benchmark_executable(b, target, optimize, modules);
+
+    // Generic benchmark command: ./zig build bench [-- block-write]
+    const bench_cmd = b.addRunArtifact(benchmark_exe);
+    bench_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        bench_cmd.addArgs(args);
+    }
+    const bench_step = b.step("bench", "Run performance benchmarks");
+    bench_step.dependOn(&bench_cmd.step);
+
+    // Quick benchmark shortcuts
+    const shortcuts = .{
+        .{ "bench-write", "block-write", "Benchmark block write operations" },
+        .{ "bench-read", "block-read", "Benchmark block read operations" },
+        .{ "bench-graph", "graph-traversal", "Benchmark graph traversal operations" },
+        .{ "bench-all", "all", "Run all benchmarks" },
+    };
+
+    inline for (shortcuts) |shortcut| {
+        const cmd = b.addRunArtifact(benchmark_exe);
+        cmd.step.dependOn(b.getInstallStep());
+        cmd.addArg(shortcut[1]);
+        const step = b.step(shortcut[0], shortcut[2]);
+        step.dependOn(&cmd.step);
+    }
+}
+
+/// Creates or reuses benchmark executable
+fn create_benchmark_executable(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    modules: BuildModules,
+) *std.Build.Step.Compile {
+    // Create benchmark executable
+    const benchmark_exe = b.addExecutable(.{
+        .name = "benchmark",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/dev/benchmark.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    benchmark_exe.root_module.addImport("kausaldb", modules.kausaldb_test);
+    benchmark_exe.linkLibC();
+    b.installArtifact(benchmark_exe);
+
+    return benchmark_exe;
 }

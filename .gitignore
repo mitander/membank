@@ -13,6 +13,7 @@ fuzz_reports/
 
 # Data directories (runtime generated)
 kausaldb_data/
+self_analysis_data/
 demo_data/
 test_data/
 .kausaldb-tests/
