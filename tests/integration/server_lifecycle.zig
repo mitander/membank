@@ -137,7 +137,7 @@ test "server startup and shutdown with ProductionVFS" {
     test_server.shutdown();
 
     // Cleanup test directory
-    std.fs.cwd().deleteTree(test_dir) catch {}; // Best effort cleanup // tidy:ignore-simulation
+    std.fs.cwd().deleteTree(test_dir) catch {}; // Best effort cleanup
 }
 
 // Server startup with SimulationVFS demonstrates VFS abstraction
@@ -213,7 +213,7 @@ test "server resource cleanup and lifecycle management" {
     test_server.shutdown();
 
     // Cleanup test directory
-    std.fs.cwd().deleteTree(test_dir) catch {}; // tidy:ignore-simulation
+    std.fs.cwd().deleteTree(test_dir) catch {};
 }
 
 // Server initialization with proper error handling patterns
@@ -304,6 +304,6 @@ test "multiple server instances with ephemeral ports" {
         // Best effort cleanup
         var test_dir_buf: [256]u8 = undefined;
         const test_dir = try std.fmt.bufPrint(&test_dir_buf, "/tmp/kausaldb_multi_test_{d}_{d}", .{ std.time.timestamp(), i });
-        std.fs.cwd().deleteTree(test_dir) catch {}; // tidy:ignore-simulation
+        std.fs.cwd().deleteTree(test_dir) catch {};
     }
 }

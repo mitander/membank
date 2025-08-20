@@ -158,7 +158,7 @@ fn run_all_targets(allocator: std.mem.Allocator, iterations: u64, seed: u64) !vo
             try compaction_fuzz.run(allocator, batch_size, current_seed + 5, &global_verbose_mode, &global_validation_errors);
             current_seed += 6;
 
-            std.Thread.sleep(100_000_000); // 100ms // tidy:ignore-arch - controlled coordination for system stability
+            std.Thread.sleep(100_000_000); // 100ms
         }
     } else {
         std.debug.print("Fuzzing all targets with {} iterations, seed {}\n", .{ iterations, seed });

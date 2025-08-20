@@ -325,7 +325,7 @@ pub const DebugAllocator = struct {
     }
 
     /// Dump information about all active allocations
-    pub fn dump_allocations( // tidy:ignore-length - debug function with detailed allocation reporting
+    pub fn dump_allocations(
         self: *DebugAllocator,
         writer: anytype,
     ) !void {
@@ -409,7 +409,7 @@ pub const DebugAllocator = struct {
         return null;
     }
 
-    fn alloc_internal( // tidy:ignore-length - debug allocation function with safety checks
+    fn alloc_internal(
         self: *DebugAllocator,
         len: usize,
         ptr_align: std.mem.Alignment,

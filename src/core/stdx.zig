@@ -18,7 +18,7 @@ const assert = assert_mod.assert;
 /// This provides atomic operations for incrementing, getting, and resetting
 /// a counter value in a thread-safe manner.
 pub const MetricsCounter = struct {
-    value: std.atomic.Value(u64) = .{ .raw = 0 }, // tidy:ignore-arch - safe abstraction over atomics
+    value: std.atomic.Value(u64) = .{ .raw = 0 }, // tidy:ignore-arch
 
     /// Initialize a new counter with an initial value.
     pub fn init(initial_value: u64) MetricsCounter {

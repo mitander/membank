@@ -182,7 +182,7 @@ test "memory profiler stability over multiple measurement cycles" {
     memory_profiler.start_profiling();
 
     var measurements = std.ArrayList(u64).init(allocator);
-    try measurements.ensureTotalCapacity(100); // tidy:ignore-perf - capacity pre-allocated for 100 measurements
+    try measurements.ensureTotalCapacity(100);
     defer measurements.deinit();
 
     // Take 100 measurements with small delays

@@ -138,7 +138,7 @@ pub const GraphEdgeIndex = struct {
             outgoing_result.value_ptr.* = std.ArrayList(OwnedGraphEdge).init(self.backing_allocator);
         }
         const outgoing_before = outgoing_result.value_ptr.items.len;
-        try outgoing_result.value_ptr.append(owned_edge); // tidy:ignore-perf dynamic edge collection size
+        try outgoing_result.value_ptr.append(owned_edge);
         assert_mod.assert_fmt(outgoing_result.value_ptr.items.len == outgoing_before + 1, "Outgoing edge append failed", .{});
 
         var incoming_result = try self.incoming_edges.getOrPut(edge.target_id);
@@ -146,7 +146,7 @@ pub const GraphEdgeIndex = struct {
             incoming_result.value_ptr.* = std.ArrayList(OwnedGraphEdge).init(self.backing_allocator);
         }
         const incoming_before = incoming_result.value_ptr.items.len;
-        try incoming_result.value_ptr.append(owned_edge); // tidy:ignore-perf dynamic edge collection size
+        try incoming_result.value_ptr.append(owned_edge);
         assert_mod.assert_fmt(incoming_result.value_ptr.items.len == incoming_before + 1, "Incoming edge append failed", .{});
     }
 

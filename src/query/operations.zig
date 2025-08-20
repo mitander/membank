@@ -357,7 +357,7 @@ pub fn execute_keyword_query(
 ) !SemanticQueryResult {
     try query.validate();
 
-    var results = std.ArrayList(SemanticResult).init(allocator); // tidy:ignore-memory ensureCapacity called with query.max_results
+    var results = std.ArrayList(SemanticResult).init(allocator);
     defer results.deinit();
     try results.ensureTotalCapacity(query.max_results);
 

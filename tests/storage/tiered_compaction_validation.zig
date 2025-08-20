@@ -183,7 +183,7 @@ test "tier state management and tracking" {
 
     // Test removal
     const remove_path = try std.fmt.allocPrint(allocator, "level_0_sstable_0.sst", .{});
-    try managed_paths.append(remove_path); // tidy:ignore-perf Single append in test cleanup
+    try managed_paths.append(remove_path);
     manager.remove_sstable(remove_path, 0);
 
     // State should be updated correctly (hard to verify without exposing internals)

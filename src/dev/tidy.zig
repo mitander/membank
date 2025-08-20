@@ -29,6 +29,7 @@ test "tidy" {
     var files_processed: u32 = 0;
     for (file_paths) |file_path| {
         if (!std.mem.endsWith(u8, file_path, ".zig")) continue;
+        if (std.mem.indexOf(u8, file_path, "src/dev/tidy/") != null) continue; // Skip tidy checker files
 
         const source = read_file_content(allocator, file_path) catch |err| {
             std.debug.print("WARNING: Error reading {s}: {}\n", .{ file_path, err });

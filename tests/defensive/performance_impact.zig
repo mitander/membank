@@ -191,7 +191,7 @@ test "assertion framework performance overhead measurement" {
         }
         std.mem.doNotOptimizeAway(&result);
 
-        try assertion_samples.append(timer.elapsed_ns()); // tidy:ignore-perf - capacity pre-allocated line 160
+        try assertion_samples.append(timer.elapsed_ns());
     }
 
     const baseline_result = try PerformanceResult.from_samples(baseline_samples.items);
@@ -448,7 +448,7 @@ test "memory allocation performance with defensive programming" {
             assert.assert_buffer_bounds(0, size, size, "Buffer bounds check: {} + {} <= {}", .{ 0, size, size });
         }
 
-        try allocation_samples.append(timer.elapsed_ns()); // tidy:ignore-perf - capacity pre-allocated line 326
+        try allocation_samples.append(timer.elapsed_ns());
     }
 
     const allocation_result = try PerformanceResult.from_samples(allocation_samples.items);
@@ -572,7 +572,7 @@ test "assertion framework consistency under load" {
             prev_block_id = block.id;
         }
 
-        try load_samples.append(timer.elapsed_ns()); // tidy:ignore-perf ensureCapacity called with 1000 capacity
+        try load_samples.append(timer.elapsed_ns());
     }
 
     const load_result = try PerformanceResult.from_samples(load_samples.items);

@@ -312,7 +312,7 @@ test "wal recovery stress with many entries" {
     try storage_engine1.startup();
 
     var expected_blocks = std.ArrayList(ContextBlock).init(allocator);
-    try expected_blocks.ensureTotalCapacity(num_blocks); // tidy:ignore-perf - capacity pre-allocated for num_blocks
+    try expected_blocks.ensureTotalCapacity(num_blocks);
     defer {
         for (expected_blocks.items) |block| {
             allocator.free(block.source_uri);
@@ -356,7 +356,7 @@ test "wal recovery stress with many entries" {
             .content = content_copy,
         };
 
-        try expected_blocks.append(block_copy); // tidy:ignore-perf - capacity pre-allocated line 304
+        try expected_blocks.append(block_copy);
     }
 
     // Recover all blocks using same VFS

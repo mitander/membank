@@ -315,7 +315,7 @@ pub fn generate_malformed_zig_source(allocator: std.mem.Allocator, random: std.R
     };
 
     const line_count = random.intRangeAtMost(usize, 1, 20);
-    const estimated_capacity = 100 * line_count; // tidy:ignore-perf - capacity managed explicitly
+    const estimated_capacity = 100 * line_count;
 
     var result = std.ArrayList(u8).init(allocator);
     try result.ensureTotalCapacity(estimated_capacity);

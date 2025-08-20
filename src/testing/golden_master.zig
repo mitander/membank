@@ -211,7 +211,7 @@ pub const GoldenMaster = struct {
     }
 
     /// Write JSON header with metadata and metrics
-    fn write_json_header( // tidy:ignore-length - large JSON template string causes false positive
+    fn write_json_header(
         self: Self,
         writer: anytype,
         snapshot: StorageSnapshot,

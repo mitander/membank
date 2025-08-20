@@ -29,7 +29,7 @@ const fatal_assert = assert_mod.fatal_assert;
 /// - Zero heap allocations (stack-allocated array)
 /// - O(1) append, get, and clear operations
 /// - Debug-mode validation for all operations
-pub fn BoundedArrayType( // tidy:ignore-length type definition requires all methods in single function
+pub fn BoundedArrayType(
     comptime T: type,
     comptime max_size: usize,
 ) type {

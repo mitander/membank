@@ -1187,6 +1187,7 @@ test "SSTable binary search performance" {
     defer sstable.deinit();
 
     var blocks = std.ArrayList(ContextBlock).init(allocator);
+    try blocks.ensureTotalCapacity(5); // Pre-allocate for 5 test blocks
     defer {
         for (blocks.items) |block| {
             allocator.free(block.source_uri);
