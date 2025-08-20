@@ -10,16 +10,18 @@
 //! All tests use deterministic simulation for reproducible failure scenarios.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
+const testing = std.testing;
+
+const BlockId = kausaldb.types.BlockId;
+const ContextBlock = kausaldb.types.ContextBlock;
+const FaultInjectionConfig = kausaldb.FaultInjectionConfig;
+const FaultInjectionHarness = kausaldb.FaultInjectionHarness;
 const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
 const StorageEngine = kausaldb.storage.StorageEngine;
-const ContextBlock = kausaldb.types.ContextBlock;
-const BlockId = kausaldb.types.BlockId;
 const TestData = kausaldb.TestData;
-const FaultInjectionHarness = kausaldb.FaultInjectionHarness;
-const FaultInjectionConfig = kausaldb.FaultInjectionConfig;
 
 test "ingestion handles source file read errors gracefully" {
     const allocator = testing.allocator;

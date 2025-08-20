@@ -4,7 +4,9 @@
 //! edge cases, and malformed input to validate data integrity and error handling.
 
 const std = @import("std");
+
 const kausaldb = @import("kausaldb");
+
 const common = @import("common.zig");
 
 const stdx = kausaldb.stdx;

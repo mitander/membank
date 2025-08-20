@@ -12,13 +12,15 @@
 //! array and socket state transitions without exposing low-level details.
 
 const std = @import("std");
-const testing = std.testing;
-const assert = @import("../core/assert.zig");
-const concurrency = @import("../core/concurrency.zig");
-const error_context = @import("../core/error_context.zig");
-const log = std.log.scoped(.connection_manager);
 
+const assert_mod = @import("../core/assert.zig");
+const concurrency = @import("../core/concurrency.zig");
 const conn = @import("connection.zig");
+const error_context = @import("../core/error_context.zig");
+
+const log = std.log.scoped(.connection_manager);
+const testing = std.testing;
+
 const ClientConnection = conn.ClientConnection;
 const ConnectionState = conn.ConnectionState;
 
@@ -162,7 +164,7 @@ pub const ConnectionManager = struct {
     /// Build poll_fds array based on current connection states.
     /// Returns count of file descriptors to monitor.
     fn build_poll_fds(self: *ConnectionManager, listener: *std.net.Server) usize {
-        assert.assert_fmt(self.poll_fds.len > 0, "poll_fds not allocated - startup() not called", .{});
+        assert_mod.assert_fmt(self.poll_fds.len > 0, "poll_fds not allocated - startup() not called", .{});
 
         // Listener socket always monitored for new connections
         self.poll_fds[0] = std.posix.pollfd{
@@ -265,7 +267,7 @@ pub const ConnectionManager = struct {
     /// Close connection at specified index and update statistics.
     /// Connection memory is arena-allocated so no explicit deallocation needed.
     pub fn close_connection(self: *ConnectionManager, index: usize) void {
-        assert.assert_fmt(index < self.connections.items.len, "Connection index out of bounds: {} >= {}", .{ index, self.connections.items.len });
+        assert_mod.assert_fmt(index < self.connections.items.len, "Connection index out of bounds: {} >= {}", .{ index, self.connections.items.len });
 
         const connection = self.connections.items[index];
         log.info("Connection {} closed", .{connection.connection_id});

@@ -5,12 +5,15 @@
 //! reads, and connection failures.
 
 const std = @import("std");
+
 const kausaldb = @import("kausaldb");
 
+const common = @import("common.zig");
+
 const stdx = kausaldb.stdx;
+
 const ConnectionManager = kausaldb.server.ConnectionManager;
 const SimulationVFS = kausaldb.SimulationVFS;
-const common = @import("common.zig");
 
 const NetworkFuzzStats = struct {
     total_connections: u64 = 0,

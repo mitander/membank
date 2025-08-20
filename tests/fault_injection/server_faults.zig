@@ -9,14 +9,16 @@
 //! conditions and demonstrate proper fault tolerance patterns.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
 const simulation_vfs = kausaldb.simulation_vfs;
+const testing = std.testing;
+const handler = kausaldb.handler;
+
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = kausaldb.StorageEngine;
 const QueryEngine = kausaldb.QueryEngine;
-const handler = kausaldb.handler;
 const Server = handler.Server;
 const ServerConfig = handler.ServerConfig;
 const ConnectionManager = handler.ConnectionManager;

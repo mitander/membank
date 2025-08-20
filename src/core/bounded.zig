@@ -7,12 +7,14 @@
 //! The bounded collections integrate with the TypedArena system and provide zero-cost
 //! abstractions in release builds while maintaining comprehensive validation in debug builds.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
+
+const assert_mod = @import("assert.zig");
 const stdx = @import("stdx.zig");
-const custom_assert = @import("assert.zig");
-const fatal_assert = custom_assert.fatal_assert;
-const assert_fmt = custom_assert.assert_fmt;
+
+const assert_fmt = assert_mod.assert_fmt;
+const fatal_assert = assert_mod.fatal_assert;
 
 /// Fixed-size array with compile-time maximum enforcement.
 /// Prevents buffer overflows and provides O(1) append operations
@@ -528,9 +530,9 @@ comptime {
     const TestQueue = BoundedQueueType(u8, 20);
     const TestMap = BoundedHashMapType(u32, []const u8, 16);
 
-    custom_assert.comptime_assert(@sizeOf(TestArray) > 0, "BoundedArrayType must have non-zero size");
-    custom_assert.comptime_assert(@sizeOf(TestQueue) > 0, "BoundedQueueType must have non-zero size");
-    custom_assert.comptime_assert(@sizeOf(TestMap) > 0, "BoundedHashMapType must have non-zero size");
+    assert_mod.comptime_assert(@sizeOf(TestArray) > 0, "BoundedArrayType must have non-zero size");
+    assert_mod.comptime_assert(@sizeOf(TestQueue) > 0, "BoundedQueueType must have non-zero size");
+    assert_mod.comptime_assert(@sizeOf(TestMap) > 0, "BoundedHashMapType must have non-zero size");
 }
 
 // Tests

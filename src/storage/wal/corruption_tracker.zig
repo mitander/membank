@@ -5,8 +5,11 @@
 //! torn writes or environmental failures.
 
 const std = @import("std");
-const assert = @import("../../core/assert.zig").assert;
-const fatal_assert = @import("../../core/assert.zig").fatal_assert;
+
+const assert_mod = @import("../../core/assert.zig");
+
+const assert = assert_mod.assert;
+const fatal_assert = assert_mod.fatal_assert;
 const log = std.log.scoped(.corruption_tracker);
 
 /// Maximum consecutive failures before considering corruption systematic

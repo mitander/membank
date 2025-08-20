@@ -3,13 +3,16 @@
 //! Provides a framework for running the entire KausalDB system
 //! in a controlled, deterministic environment for testing.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../core/assert.zig");
-const vfs = @import("../core/vfs.zig");
-const sim_vfs = @import("simulation_vfs.zig");
+const std = @import("std");
+
+const assert_mod = @import("../core/assert.zig");
+const deterministic_logger_mod = @import("deterministic_logger.zig");
 const ownership = @import("../core/ownership.zig");
-const DeterministicLogger = @import("deterministic_logger.zig").DeterministicLogger;
+const sim_vfs = @import("simulation_vfs.zig");
+const vfs = @import("../core/vfs.zig");
+
+const DeterministicLogger = deterministic_logger_mod.DeterministicLogger;
 
 /// Deterministic simulation harness.
 pub const Simulation = struct {
@@ -64,7 +67,7 @@ pub const Simulation = struct {
 
     /// Get a node by its ID.
     pub fn find_node(self: *Self, node_id: NodeId) *Node {
-        assert.assert_index_valid(
+        assert_mod.assert_index_valid(
             node_id.id,
             self.nodes.items.len,
             "Invalid node ID: {}",
@@ -104,7 +107,7 @@ pub const Simulation = struct {
 
     /// Configure packet loss between two nodes.
     pub fn configure_packet_loss(self: *Self, node_a: NodeId, node_b: NodeId, loss_rate: f32) void {
-        assert.assert_range(loss_rate, 0.0, 1.0, "Invalid loss rate: {}", .{loss_rate});
+        assert_mod.assert_range(loss_rate, 0.0, 1.0, "Invalid loss rate: {}", .{loss_rate});
         self.network.configure_packet_loss(node_a, node_b, loss_rate);
     }
 
@@ -512,7 +515,7 @@ pub const OwnershipViolationInjector = struct {
     /// Enable ownership violation injection with specified rate.
     /// Rate should be between 0.0 (never) and 1.0 (always).
     pub fn enable_injection(self: *Self, rate: f32) void {
-        assert.assert_fmt(rate >= 0.0 and rate <= 1.0, "Invalid injection rate: {d}", .{rate});
+        assert_mod.assert_fmt(rate >= 0.0 and rate <= 1.0, "Invalid injection rate: {d}", .{rate});
         self.injection_rate = rate;
         self.is_enabled = true;
     }

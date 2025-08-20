@@ -7,16 +7,17 @@
 //! and enhanced reliability through arena-per-subsystem memory management.
 
 const std = @import("std");
-const testing = std.testing;
-const log = std.log.scoped(.integration_lifecycle);
 
 const kausaldb = @import("kausaldb");
-const assert = kausaldb.assert.assert;
 
-const ContextBlock = kausaldb.ContextBlock;
+const assert = kausaldb.assert.assert;
+const log = std.log.scoped(.integration_lifecycle);
+const testing = std.testing;
+
 const BlockId = kausaldb.BlockId;
-const GraphEdge = kausaldb.GraphEdge;
+const ContextBlock = kausaldb.ContextBlock;
 const EdgeType = kausaldb.EdgeType;
+const GraphEdge = kausaldb.GraphEdge;
 const SimulationHarness = kausaldb.SimulationHarness;
 const TestData = kausaldb.TestData;
 

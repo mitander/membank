@@ -7,9 +7,6 @@
 
 const std = @import("std");
 
-// Configure quieter logging for tests by default
-// Note: Test configuration needs to be called at runtime, not comptime
-
 const kausaldb_public = @import("kausaldb.zig");
 
 pub const types = kausaldb_public.types;
@@ -31,7 +28,9 @@ pub const TraversalDirection = kausaldb_public.TraversalDirection;
 pub const TraversalResult = kausaldb_public.TraversalResult;
 pub const TraversalQuery = kausaldb_public.TraversalQuery;
 pub const TraversalAlgorithm = kausaldb_public.TraversalAlgorithm;
-pub const FindBlocksQuery = @import("query/operations.zig").FindBlocksQuery;
+const query_operations_mod = @import("query/operations.zig");
+
+pub const FindBlocksQuery = query_operations_mod.FindBlocksQuery;
 pub const SemanticQuery = kausaldb_public.SemanticQuery;
 pub const SemanticQueryResult = kausaldb_public.SemanticQueryResult;
 pub const SemanticResult = kausaldb_public.SemanticResult;
@@ -78,8 +77,10 @@ pub const simulation_vfs = @import("sim/simulation_vfs.zig");
 pub const Simulation = simulation.Simulation;
 pub const SimulationVFS = simulation_vfs.SimulationVFS;
 
-pub const VFS = @import("core/vfs.zig").VFS;
-pub const VFile = @import("core/vfs.zig").VFile;
+const core_vfs_mod = @import("core/vfs.zig");
+
+pub const VFS = core_vfs_mod.VFS;
+pub const VFile = core_vfs_mod.VFile;
 pub const vfs = @import("core/vfs.zig");
 pub const production_vfs = @import("core/production_vfs.zig");
 
@@ -102,6 +103,7 @@ pub const golden_master = @import("testing/golden_master.zig");
 pub const performance_assertions = @import("testing/performance_assertions.zig");
 pub const PerformanceAssertion = performance_assertions.PerformanceAssertion;
 pub const PerformanceThresholds = performance_assertions.PerformanceThresholds;
+
 // Simple test configuration - use build_options.debug_tests for conditional output
 pub const test_config = struct {
     /// Simple test configuration using build-level control
@@ -118,13 +120,15 @@ pub const test_config = struct {
     };
 
     /// Query current test log level from build options
+    const build_options_mod = @import("build_options");
+
     pub fn query_log_level() std.log.Level {
-        return if (@import("build_options").debug_tests) .debug else .warn;
+        return if (build_options_mod.debug_tests) .debug else .warn;
     }
 
     /// Check if debug mode is enabled
     pub fn is_debug_enabled() bool {
-        return @import("build_options").debug_tests;
+        return build_options_mod.debug_tests;
     }
 
     /// Debug print function that respects build-level configuration
@@ -174,11 +178,15 @@ pub const bloom_filter = @import("storage/bloom_filter.zig");
 pub const sstable = @import("storage/sstable.zig");
 pub const tiered_compaction = @import("storage/tiered_compaction.zig");
 
+const wal_core_mod = @import("storage/wal/core.zig");
+const wal_entry_mod = @import("storage/wal/entry.zig");
+const wal_types_mod = @import("storage/wal/types.zig");
+
 pub const wal = struct {
-    pub const WAL = @import("storage/wal/core.zig").WAL;
-    pub const WALEntry = @import("storage/wal/entry.zig").WALEntry;
-    pub const WALError = @import("storage/wal/types.zig").WALError;
-    pub const WALEntryType = @import("storage/wal/types.zig").WALEntryType;
+    pub const WAL = wal_core_mod.WAL;
+    pub const WALEntry = wal_entry_mod.WALEntry;
+    pub const WALError = wal_types_mod.WALError;
+    pub const WALEntryType = wal_types_mod.WALEntryType;
     pub const corruption_tracker = @import("storage/wal/corruption_tracker.zig");
     pub const entry = @import("storage/wal/entry.zig");
     pub const recovery = @import("storage/wal/recovery.zig");
@@ -196,7 +204,7 @@ pub const query = struct {
     pub const traversal = @import("query/traversal.zig");
     pub const filtering = @import("query/filtering.zig");
     pub const cache = @import("query/cache.zig");
-    pub const FindBlocksQuery = @import("query/operations.zig").FindBlocksQuery;
+    pub const FindBlocksQuery = query_operations_mod.FindBlocksQuery;
 };
 
 pub const debug_allocator = @import("dev/debug_allocator.zig");

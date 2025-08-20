@@ -5,17 +5,16 @@
 //! Validates that memory tracking is accurate enough for performance regression detection.
 
 const std = @import("std");
-const testing = std.testing;
-const kausaldb = @import("kausaldb");
-
-// Configure test output - use debug_print for profiling reports
-const test_config = kausaldb.test_config;
 const builtin = @import("builtin");
 
+const kausaldb = @import("kausaldb");
+
+const testing = std.testing;
+const test_config = kausaldb.test_config;
 const assert = kausaldb.assert.assert;
+const query_current_rss_memory = kausaldb.profiler.query_current_rss_memory;
 
 const MemoryProfiler = kausaldb.profiler.MemoryProfiler;
-const query_current_rss_memory = kausaldb.profiler.query_current_rss_memory;
 
 // Test RSS measurement accuracy
 test "memory profiler RSS measurement accuracy" {

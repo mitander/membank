@@ -5,21 +5,24 @@
 //! and result formatting with traversal statistics.
 
 const std = @import("std");
-const assert = @import("../core/assert.zig").assert;
-const storage = @import("../storage/engine.zig");
+
 const context_block = @import("../core/types.zig");
 const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const storage = @import("../storage/engine.zig");
+const assert_mod = @import("../core/assert.zig");
+
+const assert = assert_mod.assert;
 const testing = std.testing;
 
-const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
-const GraphEdge = context_block.GraphEdge;
 const BlockId = context_block.BlockId;
-const EdgeType = context_block.EdgeType;
-const SimulationVFS = simulation_vfs.SimulationVFS;
-const QueryEngineBlock = ownership.QueryEngineBlock;
 const BlockOwnership = ownership.BlockOwnership;
+const ContextBlock = context_block.ContextBlock;
+const EdgeType = context_block.EdgeType;
+const GraphEdge = context_block.GraphEdge;
+const QueryEngineBlock = ownership.QueryEngineBlock;
+const SimulationVFS = simulation_vfs.SimulationVFS;
+const StorageEngine = storage.StorageEngine;
 
 /// Hash context for BlockId HashMap operations
 const BlockIdHashContext = struct {

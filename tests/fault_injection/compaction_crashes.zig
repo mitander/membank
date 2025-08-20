@@ -4,8 +4,10 @@
 //! Validates that the system can recover gracefully from intermediate states
 //! and maintain data integrity across crash boundaries.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
+
+const kausaldb = @import("kausaldb");
+
 const testing = std.testing;
 
 test "recovery from partial sstable write" {

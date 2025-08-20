@@ -3,18 +3,20 @@
 //! Tests the complete type-safe ownership system across multiple subsystems
 //! to verify memory safety, ownership transfer, and cross-arena protection.
 
-const std = @import("std");
-const testing = std.testing;
 const builtin = @import("builtin");
+const std = @import("std");
 
 const kausaldb = @import("kausaldb");
-const TypedArenaType = kausaldb.arena.TypedArenaType;
+
+const testing = std.testing;
+
 const ArenaOwnership = kausaldb.arena.ArenaOwnership;
+const BlockId = kausaldb.core_types.BlockId;
 const BlockOwnership = kausaldb.ownership.BlockOwnership;
+const ContextBlock = kausaldb.core_types.ContextBlock;
 const OwnedBlock = kausaldb.ownership.OwnedBlock;
 const OwnedBlockCollection = kausaldb.ownership.OwnedBlockCollection;
-const ContextBlock = kausaldb.core_types.ContextBlock;
-const BlockId = kausaldb.core_types.BlockId;
+const TypedArenaType = kausaldb.arena.TypedArenaType;
 
 // Test subsystem simulators
 const MemtableSubsystem = struct {

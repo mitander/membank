@@ -5,13 +5,14 @@
 //! This module encapsulates the core entry format and validation logic.
 
 const std = @import("std");
-const custom_assert = @import("../../core/assert.zig");
-const assert = custom_assert.assert;
 
-const types = @import("types.zig");
 const context_block = @import("../../core/types.zig");
+const assert_mod = @import("../../core/assert.zig");
 const ownership = @import("../../core/ownership.zig");
 const stream = @import("stream.zig");
+const types = @import("types.zig");
+
+const assert = assert_mod.assert;
 
 const WALError = types.WALError;
 pub const WALEntryType = types.WALEntryType;

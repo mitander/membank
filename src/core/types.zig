@@ -9,11 +9,13 @@
 //! All types include serialization/deserialization support
 //! and validation methods to ensure data integrity.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const custom_assert = @import("assert.zig");
-const assert_fmt = custom_assert.assert_fmt;
-const comptime_assert = custom_assert.comptime_assert;
+const std = @import("std");
+
+const assert_mod = @import("assert.zig");
+
+const assert_fmt = assert_mod.assert_fmt;
+const comptime_assert = assert_mod.comptime_assert;
 
 /// Unique identifier for a Context Block.
 /// Uses 128-bit UUID to ensure global uniqueness across distributed systems.

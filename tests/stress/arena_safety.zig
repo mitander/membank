@@ -7,21 +7,22 @@
 //! - Memory fragmentation and stress scenarios
 //! - O(1) cleanup validation
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
+
 const kausaldb = @import("kausaldb");
-const testing = std.testing;
 
 const assert = kausaldb.assert.assert;
+const log = std.log.scoped(.arena_safety);
+const testing = std.testing;
+
+const BlockId = kausaldb.types.BlockId;
+const ContextBlock = kausaldb.types.ContextBlock;
+const MemtableManager = kausaldb.storage.MemtableManager;
 const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
 const StorageEngine = kausaldb.storage.StorageEngine;
-const MemtableManager = kausaldb.storage.MemtableManager;
-const ContextBlock = kausaldb.types.ContextBlock;
-const BlockId = kausaldb.types.BlockId;
-const TestData = kausaldb.TestData;
 const StorageHarness = kausaldb.StorageHarness;
-
-const log = std.log.scoped(.arena_safety);
+const TestData = kausaldb.TestData;
 
 test "memtable manager lifecycle safety" {
     // Use GPA with safety checks to detect any memory corruption

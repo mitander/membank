@@ -4,19 +4,21 @@
 //! Thresholds calibrated based on measured performance with safety margins
 //! for reliable CI regression detection.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
+
 const kausaldb = @import("kausaldb");
+
 const coordinator = @import("../benchmark.zig");
 
-const storage = kausaldb.storage;
 const context_block = kausaldb.types;
-const production_vfs = kausaldb.production_vfs;
 const ownership = kausaldb.ownership;
+const production_vfs = kausaldb.production_vfs;
+const storage = kausaldb.storage;
 
+const BenchmarkResult = coordinator.BenchmarkResult;
 const StatisticalSampler = kausaldb.StatisticalSampler;
 const WarmupUtils = kausaldb.WarmupUtils;
-
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
@@ -28,18 +30,14 @@ const BLOCK_READ_THRESHOLD_NS = 1_000; // measured 39ns → 1µs (25x margin)
 const BLOCK_UPDATE_THRESHOLD_NS = 50_000; // target: same as writes (updates = write new version)
 const BLOCK_DELETE_THRESHOLD_NS = 20_000; // target: fast tombstone operations
 const WAL_FLUSH_THRESHOLD_NS = 80_000; // production: real filesystem sync overhead
-
 const MAX_PEAK_MEMORY_BYTES = 100 * 1024 * 1024; // 100MB for 10K operations
 const MAX_MEMORY_GROWTH_PER_OP = 12 * 1024; // 12KB per operation (measured up to 9.6KB)
-
 const ITERATIONS = 10;
 const WARMUP_ITERATIONS = 5;
 const LARGE_ITERATIONS = 50;
 const HIGH_PRECISION_ITERATIONS = 10000; // Restored for accurate sub-microsecond measurements
 const STATISTICAL_SAMPLES = 10; // Reduced for faster testing
 const TIMEOUT_MS = 30_000; // 30 second timeout for any single benchmark
-
-const BenchmarkResult = coordinator.BenchmarkResult;
 
 /// Timeout wrapper for benchmark operations to prevent infinite hangs
 fn run_with_timeout(

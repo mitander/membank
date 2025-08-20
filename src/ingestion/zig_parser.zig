@@ -11,18 +11,20 @@
 //! - Single-threaded execution model
 
 const std = @import("std");
-const ingestion = @import("pipeline.zig");
-const assert = @import("../core/assert.zig");
-const concurrency = @import("../core/concurrency.zig");
-const error_context = @import("../core/error_context.zig");
 
+const assert_mod = @import("../core/assert.zig");
+const concurrency = @import("../core/concurrency.zig");
+const context_block = @import("../core/types.zig");
+const error_context = @import("../core/error_context.zig");
+const ingestion = @import("pipeline.zig");
+
+const EdgeType = context_block.EdgeType;
 const IngestionError = ingestion.IngestionError;
-const SourceContent = ingestion.SourceContent;
-const ParsedUnit = ingestion.ParsedUnit;
 const ParsedEdge = ingestion.ParsedEdge;
-const SourceLocation = ingestion.SourceLocation;
+const ParsedUnit = ingestion.ParsedUnit;
 const Parser = ingestion.Parser;
-const EdgeType = @import("../core/types.zig").EdgeType;
+const SourceContent = ingestion.SourceContent;
+const SourceLocation = ingestion.SourceLocation;
 
 /// Types of semantic units we can extract from Zig code
 pub const ZigUnitType = enum {

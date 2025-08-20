@@ -4,20 +4,23 @@
 //! backed by arena allocation for content storage. Follows the arena refresh pattern
 //! to eliminate dangling allocator references and enable O(1) bulk memory cleanup.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../core/assert.zig").assert;
-const assert_fmt = @import("../core/assert.zig").assert_fmt;
-const fatal_assert = @import("../core/assert.zig").fatal_assert;
-const context_block = @import("../core/types.zig");
-const ownership = @import("../core/ownership.zig");
-const memory = @import("../core/memory.zig");
+const std = @import("std");
 
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const OwnedBlock = ownership.OwnedBlock;
-const BlockOwnership = ownership.BlockOwnership;
+const context_block = @import("../core/types.zig");
+const memory = @import("../core/memory.zig");
+const ownership = @import("../core/ownership.zig");
+const assert_mod = @import("../core/assert.zig");
+
+const assert = assert_mod.assert;
+const assert_fmt = assert_mod.assert_fmt;
+const fatal_assert = assert_mod.fatal_assert;
+
 const ArenaCoordinator = memory.ArenaCoordinator;
+const BlockId = context_block.BlockId;
+const BlockOwnership = ownership.BlockOwnership;
+const ContextBlock = context_block.ContextBlock;
+const OwnedBlock = ownership.OwnedBlock;
 
 /// In-memory block index using Arena Coordinator Pattern for efficient bulk operations.
 /// Provides fast writes and reads while maintaining O(1) memory cleanup through

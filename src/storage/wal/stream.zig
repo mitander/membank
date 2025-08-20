@@ -10,19 +10,20 @@
 //! was difficult to test and debug. This stream abstraction handles only the
 //! I/O complexity, allowing recovery logic to focus on business rules.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const custom_assert = @import("../../core/assert.zig");
-const assert = custom_assert.assert;
-const testing = std.testing;
-const log = std.log.scoped(.wal_stream);
+const std = @import("std");
 
-const vfs = @import("../../core/vfs.zig");
+const assert_mod = @import("../../core/assert.zig");
 const simulation_vfs = @import("../../sim/simulation_vfs.zig");
 const stdx = @import("../../core/stdx.zig");
+const vfs = @import("../../core/vfs.zig");
 
-const VFile = vfs.VFile;
+const assert = assert_mod.assert;
+const log = std.log.scoped(.wal_stream);
+const testing = std.testing;
+
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const VFile = vfs.VFile;
 
 /// Maximum payload size for a single WAL entry (16MB)
 /// Must match the constant in wal.zig for compatibility
@@ -330,9 +331,9 @@ pub const WALEntryStream = struct {
 // Compile-time validation of buffer relationships
 comptime {
     // Process buffer must accommodate multiple headers to prevent thrashing
-    custom_assert.comptime_assert(PROCESS_BUFFER_SIZE >= WAL_HEADER_SIZE * 4, "Process buffer too small for multiple headers");
-    custom_assert.comptime_assert(READ_BUFFER_SIZE >= WAL_HEADER_SIZE * 4, "Read buffer too small for multiple headers");
-    custom_assert.comptime_assert(PROCESS_BUFFER_SIZE >= READ_BUFFER_SIZE, "Process buffer must be at least as large as read buffer");
+    assert_mod.comptime_assert(PROCESS_BUFFER_SIZE >= WAL_HEADER_SIZE * 4, "Process buffer too small for multiple headers");
+    assert_mod.comptime_assert(READ_BUFFER_SIZE >= WAL_HEADER_SIZE * 4, "Read buffer too small for multiple headers");
+    assert_mod.comptime_assert(PROCESS_BUFFER_SIZE >= READ_BUFFER_SIZE, "Process buffer must be at least as large as read buffer");
 }
 
 test "WALEntryStream initialization" {

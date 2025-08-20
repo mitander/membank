@@ -78,6 +78,44 @@ counter += 1;
 - TODO/FIXME/HACK markers
 - Obvious operations
 
+## Import Format
+
+Imports are manually formatted with consistent ordering and grouping. No automated formatter - maintain through code review.
+
+### Standard Ordering
+
+```zig
+// 1. Standard library
+const std = @import("std");
+
+// 2. Third-party packages
+const kausaldb = @import("kausaldb");
+
+// 3. Internal modules
+const concurrency = @import("../core/concurrency.zig");
+const assert_mod = @import("../core/assert.zig");
+const memory = @import("../core/memory.zig");
+const vfs = @import("../core/vfs.zig");
+const sstable = @import("sstable.zig");
+
+// 4. Re-declarations (modules, functions, etc.)
+const log = std.log.scoped(.tiered_compaction);
+const assert = assert_mod.assert;
+const fatal_assert = assert_mod.fatal_assert;
+
+// 5. Types
+const ArenaCoordinator = memory.ArenaCoordinator;
+const Compactor = sstable.Compactor;
+const SSTable = sstable.SSTable;
+const VFS = vfs.VFS;
+```
+
+### Rules
+
+- **Blank line separation** between import groups
+- **No direct field access**: Use two-phase pattern (`const mod = @import(); const Type = mod.Type`)
+- **Manual maintenance**: Format violations caught in code review, not automation
+
 ## Memory: Arena Coordinator Pattern
 
 Coordinators provide stable interfaces that survive arena operations.

@@ -5,18 +5,20 @@
 //! and robustness under hostile conditions.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
-const TieredCompactionManager = kausaldb.storage.TieredCompactionManager;
-const SSTableManager = kausaldb.storage.SSTableManager;
-const StorageEngine = kausaldb.storage.StorageEngine;
-const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
-const ContextBlock = kausaldb.types.ContextBlock;
+const testing = std.testing;
+
 const ArenaCoordinator = kausaldb.memory.ArenaCoordinator;
 const BlockId = kausaldb.types.BlockId;
-const TestData = kausaldb.TestData;
+const ContextBlock = kausaldb.types.ContextBlock;
+const SSTableManager = kausaldb.storage.SSTableManager;
+const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
+const StorageEngine = kausaldb.storage.StorageEngine;
 const StorageHarness = kausaldb.StorageHarness;
+const TestData = kausaldb.TestData;
+const TieredCompactionManager = kausaldb.storage.TieredCompactionManager;
 
 // Helper for managing path lifetimes in TieredCompactionManager tests
 const TestPathManager = struct {

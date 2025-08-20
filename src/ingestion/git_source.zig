@@ -11,18 +11,20 @@
 //! - Single-threaded execution model
 
 const std = @import("std");
-const testing = std.testing;
-const ingestion = @import("pipeline.zig");
-const vfs = @import("../core/vfs.zig");
-const assert = @import("../core/assert.zig");
+
+const assert_mod = @import("../core/assert.zig");
 const concurrency = @import("../core/concurrency.zig");
 const error_context = @import("../core/error_context.zig");
 const glob_matcher = @import("glob_matcher.zig");
+const ingestion = @import("pipeline.zig");
+const vfs = @import("../core/vfs.zig");
+
+const testing = std.testing;
 
 const IngestionError = ingestion.IngestionError;
+const Source = ingestion.Source;
 const SourceContent = ingestion.SourceContent;
 const SourceIterator = ingestion.SourceIterator;
-const Source = ingestion.Source;
 const VFS = vfs.VFS;
 
 /// Configuration for Git repository source

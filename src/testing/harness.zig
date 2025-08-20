@@ -5,23 +5,26 @@
 //! All harnesses use arena allocation for O(1) cleanup and explicit lifecycle management.
 
 const std = @import("std");
-const testing = std.testing;
 
 const kausaldb = @import("../testing_api.zig");
-const storage = kausaldb.storage;
+
+const production_vfs = @import("../core/production_vfs.zig");
+
+const assert = kausaldb.assert;
 const query_engine = kausaldb.query_engine;
 const simulation = kausaldb.simulation;
 const simulation_vfs = kausaldb.simulation_vfs;
+const storage = kausaldb.storage;
+const testing = std.testing;
 const types = kausaldb.types;
-const assert = kausaldb.assert;
 
+const ProductionVFS = production_vfs.ProductionVFS;
 const StorageEngine = storage.StorageEngine;
 const NodeId = simulation.NodeId;
 const Node = simulation.Node;
 const QueryEngine = query_engine.QueryEngine;
 const Simulation = simulation.Simulation;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const ProductionVFS = @import("../core/production_vfs.zig").ProductionVFS;
 const VFS = kausaldb.VFS;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;

@@ -2,11 +2,13 @@
 //!
 //! Validates memory safety patterns and debug allocator functionality.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
+
+const kausaldb = @import("kausaldb");
 
 const debug_allocator = kausaldb.debug_allocator;
+const testing = std.testing;
+
 const DebugAllocator = debug_allocator.DebugAllocator;
 
 test "arena allocator basic safety" {

@@ -4,19 +4,21 @@
 //! processes WAL entries without loading entire segments into memory.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
 const assert = kausaldb.assert.assert;
-const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
-const ContextBlock = kausaldb.types.ContextBlock;
+const testing = std.testing;
+
 const BlockId = kausaldb.types.BlockId;
-const GraphEdge = kausaldb.types.GraphEdge;
+const ContextBlock = kausaldb.types.ContextBlock;
 const EdgeType = kausaldb.types.EdgeType;
-const StorageEngine = kausaldb.storage.StorageEngine;
+const GraphEdge = kausaldb.types.GraphEdge;
 const QueryEngine = kausaldb.query_engine.QueryEngine;
-const TestData = kausaldb.TestData;
+const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
+const StorageEngine = kausaldb.storage.StorageEngine;
 const StorageHarness = kausaldb.StorageHarness;
+const TestData = kausaldb.TestData;
 
 /// Test recovery context to capture recovered entries
 const RecoveryContext = struct {

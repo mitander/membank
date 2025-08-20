@@ -5,17 +5,20 @@
 //! system. Each test represents a class of bug that would have caused
 //! silent corruption or crashes in the raw pointer system.
 
-const std = @import("std");
-const testing = std.testing;
 const builtin = @import("builtin");
+const std = @import("std");
 
 const kausaldb = @import("kausaldb");
+
 const arena_mod = kausaldb.arena;
-const ownership_mod = kausaldb.ownership;
-const state_machines_mod = kausaldb.state_machines;
-const file_handle_mod = kausaldb.file_handle;
 const bounded_mod = kausaldb.bounded;
 const core_types = kausaldb.core_types;
+const file_handle_mod = kausaldb.file_handle;
+const ownership_mod = kausaldb.ownership;
+const state_machines_mod = kausaldb.state_machines;
+const testing = std.testing;
+const validate_no_raw_pointers = arena_mod.validate_no_raw_pointers;
+const validate_ownership_usage = ownership_mod.validate_ownership_usage;
 
 const TypedArenaType = arena_mod.TypedArenaType;
 const ArenaCoordinator = kausaldb.memory.ArenaCoordinator;
@@ -32,8 +35,6 @@ const TypedFileHandle = file_handle_mod.TypedFileHandle;
 const FileHandleId = file_handle_mod.FileHandleId;
 const FileAccessMode = file_handle_mod.FileAccessMode;
 const BoundedArrayType = bounded_mod.BoundedArrayType;
-const validate_no_raw_pointers = arena_mod.validate_no_raw_pointers;
-const validate_ownership_usage = ownership_mod.validate_ownership_usage;
 const ContextBlock = core_types.ContextBlock;
 const BlockId = core_types.BlockId;
 

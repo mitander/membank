@@ -3,17 +3,20 @@
 //! Tests single queries, batch operations, and graph traversal performance.
 //! Focuses on query execution time and memory efficiency during result processing.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
+
 const kausaldb = @import("kausaldb");
+
 const coordinator = @import("../benchmark.zig");
 
-const storage = kausaldb.storage;
-const query_engine = kausaldb.query_engine;
 const context_block = kausaldb.types;
-const production_vfs = kausaldb.production_vfs;
 const operations = kausaldb.query_operations;
+const production_vfs = kausaldb.production_vfs;
+const query_engine = kausaldb.query_engine;
+const storage = kausaldb.storage;
 
+const BenchmarkResult = coordinator.BenchmarkResult;
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
 const ContextBlock = context_block.ContextBlock;
@@ -24,15 +27,11 @@ const FindBlocksQuery = operations.FindBlocksQuery;
 
 const SINGLE_QUERY_THRESHOLD_NS = 300; // direct storage access ~0.12µs → 300ns (2.5x margin)
 const BATCH_QUERY_THRESHOLD_NS = 3_000; // 10 blocks × 300ns = 3µs (simple loop)
-
 const MAX_PEAK_MEMORY_BYTES = 100 * 1024 * 1024;
 const MAX_MEMORY_GROWTH_PER_OP = 1024;
-
 const ITERATIONS = 1000;
 const WARMUP_ITERATIONS = 50;
 const BATCH_SIZE = 10;
-
-const BenchmarkResult = coordinator.BenchmarkResult;
 
 pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
     var results = std.ArrayList(BenchmarkResult).init(allocator);

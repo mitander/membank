@@ -8,9 +8,10 @@
 //! false positives. All pattern matches should be precise and documented.
 
 const std = @import("std");
-const mem = std.mem;
+
 const kausaldb = @import("kausaldb");
 
+const mem = std.mem;
 const stdx = kausaldb.stdx;
 
 /// Check source code for patterns that violate KausalDB's architectural principles.

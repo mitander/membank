@@ -6,12 +6,14 @@
 //! programming principles with validation.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
+
 const assert = kausaldb.assert;
-const types = kausaldb.types;
-const storage = kausaldb.storage;
 const simulation = kausaldb.simulation;
+const storage = kausaldb.storage;
+const testing = std.testing;
+const types = kausaldb.types;
 
 const BlockId = types.BlockId;
 const ContextBlock = types.ContextBlock;

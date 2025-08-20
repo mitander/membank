@@ -4,10 +4,11 @@
 //! for local development vs CI environments. Enables strict performance standards
 //! in production while allowing reasonable tolerance for local development.
 
-const std = @import("std");
-const testing = std.testing;
 const builtin = @import("builtin");
+const std = @import("std");
 const build_options = @import("build_options");
+
+const testing = std.testing;
 
 /// Performance assertion tier configuration
 pub const PerformanceTier = enum {

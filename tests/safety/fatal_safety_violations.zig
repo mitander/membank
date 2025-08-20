@@ -5,17 +5,18 @@
 //! the system fails fast on critical invariant violations.
 
 const std = @import("std");
-const testing = std.testing;
 
 const kausaldb = @import("kausaldb");
-const storage = kausaldb.storage;
 
+const storage = kausaldb.storage;
+const testing = std.testing;
+
+const BlockId = kausaldb.BlockId;
+const ContextBlock = kausaldb.ContextBlock;
+const SimulationVFS = kausaldb.SimulationVFS;
+const StorageEngine = kausaldb.StorageEngine;
 const VFS = kausaldb.VFS;
 const VFile = kausaldb.VFile;
-const ContextBlock = kausaldb.ContextBlock;
-const BlockId = kausaldb.BlockId;
-const StorageEngine = kausaldb.StorageEngine;
-const SimulationVFS = kausaldb.SimulationVFS;
 
 // Test that arena state validation triggers fatal assertion in storage components
 test "arena corruption detection through storage engine" {

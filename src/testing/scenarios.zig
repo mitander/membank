@@ -4,16 +4,16 @@
 //! All scenario parameters declared upfront for reproducible hostile condition testing.
 
 const std = @import("std");
-const testing = std.testing;
 
 const kausaldb = @import("../testing_api.zig");
 
-const storage = kausaldb.storage;
-const simulation_vfs = kausaldb.simulation_vfs;
-const types = kausaldb.types;
 const golden_master = kausaldb.golden_master;
-const TestData = kausaldb.TestData;
+const simulation_vfs = kausaldb.simulation_vfs;
+const storage = kausaldb.storage;
+const testing = std.testing;
+const types = kausaldb.types;
 
+const TestData = kausaldb.TestData;
 const StorageEngine = storage.StorageEngine;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const ContextBlock = types.ContextBlock;

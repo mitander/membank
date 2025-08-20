@@ -8,19 +8,21 @@
 //! eliminating manual cleanup and enabling O(1) bulk deallocation when the
 //! arena is reset. This prevents memory leaks from incomplete iteration.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const custom_assert = @import("assert.zig");
-const assert = custom_assert.assert;
-const testing = std.testing;
+const std = @import("std");
+
+const assert_mod = @import("assert.zig");
 const vfs = @import("vfs.zig");
 
-const VFS = vfs.VFS;
-const VFile = vfs.VFile;
-const VFSError = vfs.VFSError;
-const VFileError = vfs.VFileError;
-const DirectoryIterator = vfs.DirectoryIterator;
+const assert = assert_mod.assert;
+const testing = std.testing;
+
 const DirectoryEntry = vfs.DirectoryEntry;
+const DirectoryIterator = vfs.DirectoryIterator;
+const VFS = vfs.VFS;
+const VFSError = vfs.VFSError;
+const VFile = vfs.VFile;
+const VFileError = vfs.VFileError;
 
 /// Maximum path length for defensive validation across platforms
 const MAX_PATH_LENGTH = 4096;

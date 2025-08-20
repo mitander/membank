@@ -13,17 +13,19 @@
 //! - Non-blocking I/O with proper state transitions
 
 const std = @import("std");
-const custom_assert = @import("../core/assert.zig");
-const assert = custom_assert.assert;
-const comptime_assert = custom_assert.comptime_assert;
-const comptime_no_padding = custom_assert.comptime_no_padding;
-const log = std.log.scoped(.connection);
-const ctx_block = @import("../core/types.zig");
-const query_engine = @import("../query/engine.zig");
-const error_context = @import("../core/error_context.zig");
 
-const ContextBlock = ctx_block.ContextBlock;
+const ctx_block = @import("../core/types.zig");
+const assert_mod = @import("../core/assert.zig");
+const error_context = @import("../core/error_context.zig");
+const query_engine = @import("../query/engine.zig");
+
+const assert = assert_mod.assert;
+const comptime_assert = assert_mod.comptime_assert;
+const comptime_no_padding = assert_mod.comptime_no_padding;
+const log = std.log.scoped(.connection);
+
 const BlockId = ctx_block.BlockId;
+const ContextBlock = ctx_block.ContextBlock;
 
 /// Binary protocol message types
 pub const MessageType = enum(u8) {

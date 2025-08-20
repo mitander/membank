@@ -10,12 +10,13 @@
 //!
 //! All tests use deterministic simulation for reproducible failure scenarios.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
+
+const kausaldb = @import("kausaldb");
 
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
+const testing = std.testing;
 const types = kausaldb.types;
 const vfs = kausaldb.vfs;
 

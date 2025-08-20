@@ -5,9 +5,10 @@
 //! Fatal assertions are always active regardless of build mode and provide
 //! detailed forensic information for debugging critical failures.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../core/assert.zig");
+const std = @import("std");
+
+const assert_mod = @import("../core/assert.zig");
 
 /// Categories of fatal assertion failures for better debugging
 pub const FatalCategory = enum {

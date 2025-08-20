@@ -11,14 +11,17 @@
 //! All debug features are controlled by compile-time flags and can be disabled
 //! in release builds for zero overhead.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const mem = std.mem;
-const math = std.math;
-const testing = std.testing;
-const Allocator = std.mem.Allocator;
+const std = @import("std");
+
+const assert_mod = @import("../core/assert.zig");
 const stdx = @import("../core/stdx.zig");
-const assert = @import("../core/assert.zig");
+
+const math = std.math;
+const mem = std.mem;
+const testing = std.testing;
+
+const Allocator = std.mem.Allocator;
 
 /// Magic values for allocation validation
 const ALLOCATION_MAGIC: u32 = 0xDEAD_BEEF;

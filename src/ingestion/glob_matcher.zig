@@ -4,7 +4,10 @@
 //! with performance optimized for typical repository scanning patterns.
 
 const std = @import("std");
-const assert = @import("../core/assert.zig").assert;
+
+const assert_mod = @import("../core/assert.zig");
+
+const assert = assert_mod.assert;
 
 const GlobError = error{
     InvalidPattern,

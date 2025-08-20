@@ -12,13 +12,12 @@
 //! - Disk space exhaustion during WAL operations
 //! - Recovery consistency after partial WAL writes
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
+
+const kausaldb = @import("kausaldb");
+
 const testing = std.testing;
-
-// Configure test output - suppress expected fault injection warnings
 const test_config = kausaldb.test_config;
-
 const vfs = kausaldb.vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
@@ -30,7 +29,6 @@ const WALEntry = storage.WALEntry;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-
 const TestData = kausaldb.TestData;
 const StorageHarness = kausaldb.StorageHarness;
 

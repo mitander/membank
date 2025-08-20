@@ -3,30 +3,29 @@
 //! Tests SSTable compaction operations, merge performance, and memory efficiency
 //! during compaction cycles. Focuses on background operation impact on system performance.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const kausaldb = @import("kausaldb");
-const coordinator = @import("../benchmark.zig");
-const assert = kausaldb.assert;
+const std = @import("std");
 
-const storage = kausaldb.storage;
+const kausaldb = @import("kausaldb");
+
+const coordinator = @import("../benchmark.zig");
+
+const assert = kausaldb.assert;
 const context_block = kausaldb.types;
 const production_vfs = kausaldb.production_vfs;
+const storage = kausaldb.storage;
 
+const BenchmarkResult = coordinator.BenchmarkResult;
 const StorageEngine = storage.StorageEngine;
 const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
 
 const COMPACTION_THRESHOLD_NS = 50_000_000; // 50ms for compaction operations
 const MERGE_THRESHOLD_NS = 10_000_000; // 10ms for merge operations
-
 const MAX_PEAK_MEMORY_BYTES = 200 * 1024 * 1024; // 200MB during compaction
 const MAX_MEMORY_GROWTH_PER_OP = 200 * 1024; // 200KB per compaction (measured 189KB)
-
 const COMPACTION_ITERATIONS = 10;
 const WARMUP_ITERATIONS = 2;
-
-const BenchmarkResult = coordinator.BenchmarkResult;
 
 pub fn run_all(allocator: std.mem.Allocator) !std.ArrayList(BenchmarkResult) {
     var results = std.ArrayList(BenchmarkResult).init(allocator);

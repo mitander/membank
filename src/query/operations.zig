@@ -4,20 +4,23 @@
 //! retrieval, batch operations, and semantic search. Handles memory management,
 //! error recovery, and result formatting for basic query patterns.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../core/assert.zig").assert;
-const error_context = @import("../core/error_context.zig");
-const storage = @import("../storage/engine.zig");
-const context_block = @import("../core/types.zig");
-const ownership = @import("../core/ownership.zig");
+const std = @import("std");
 
-const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
+const context_block = @import("../core/types.zig");
+const error_context = @import("../core/error_context.zig");
+const ownership = @import("../core/ownership.zig");
+const storage = @import("../storage/engine.zig");
+const assert_mod = @import("../core/assert.zig");
+
+const assert = assert_mod.assert;
+
 const BlockId = context_block.BlockId;
-const QueryEngineBlock = ownership.QueryEngineBlock;
-const TemporaryBlock = ownership.TemporaryBlock;
 const BlockOwnership = ownership.BlockOwnership;
+const ContextBlock = context_block.ContextBlock;
+const QueryEngineBlock = ownership.QueryEngineBlock;
+const StorageEngine = storage.StorageEngine;
+const TemporaryBlock = ownership.TemporaryBlock;
 
 /// Basic query operation errors
 pub const QueryError = error{

@@ -7,28 +7,30 @@
 //! operations and reconstruct storage engine state.
 
 const std = @import("std");
-const testing = std.testing;
-const log = std.log.scoped(.storage_recovery);
 
-const assert = @import("../core/assert.zig").assert;
-const assert_fmt = @import("../core/assert.zig").assert_fmt;
-const context_block = @import("../core/types.zig");
-const concurrency = @import("../core/concurrency.zig");
-const simulation_vfs = @import("../sim/simulation_vfs.zig");
-const harness = @import("../testing/harness.zig");
 const block_index = @import("block_index.zig");
+const concurrency = @import("../core/concurrency.zig");
+const context_block = @import("../core/types.zig");
 const graph_edge_index = @import("graph_edge_index.zig");
-const wal = @import("wal.zig");
+const harness = @import("../testing/harness.zig");
 const memory = @import("../core/memory.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const wal = @import("wal.zig");
+const assert_mod = @import("../core/assert.zig");
 
-const TestData = harness.TestData;
-const ContextBlock = context_block.ContextBlock;
-const GraphEdge = context_block.GraphEdge;
+const assert = assert_mod.assert;
+const assert_fmt = assert_mod.assert_fmt;
+const log = std.log.scoped(.storage_recovery);
+const testing = std.testing;
+
+const ArenaCoordinator = memory.ArenaCoordinator;
 const BlockId = context_block.BlockId;
 const BlockIndex = block_index.BlockIndex;
+const ContextBlock = context_block.ContextBlock;
+const GraphEdge = context_block.GraphEdge;
 const GraphEdgeIndex = graph_edge_index.GraphEdgeIndex;
-const ArenaCoordinator = memory.ArenaCoordinator;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const TestData = harness.TestData;
 const WALEntry = wal.WALEntry;
 
 /// Recovery statistics for monitoring and debugging.

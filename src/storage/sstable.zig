@@ -16,29 +16,31 @@
 //!     upgrades. The `reserved` fields provide space for new features without
 //!     breaking the format for older clients.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../core/assert.zig");
-const comptime_assert = assert.comptime_assert;
-const log = std.log.scoped(.sstable);
-const context_block = @import("../core/types.zig");
-const ownership = @import("../core/ownership.zig");
-const vfs = @import("../core/vfs.zig");
-const memory = @import("../core/memory.zig");
+const std = @import("std");
+
+const assert_mod = @import("../core/assert.zig");
 const bloom_filter = @import("bloom_filter.zig");
+const context_block = @import("../core/types.zig");
+const memory = @import("../core/memory.zig");
+const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const vfs = @import("../core/vfs.zig");
+
+const comptime_assert = assert_mod.comptime_assert;
+const log = std.log.scoped(.sstable);
 const testing = std.testing;
 
-const ContextBlock = context_block.ContextBlock;
+const ArenaCoordinator = memory.ArenaCoordinator;
 const BlockId = context_block.BlockId;
+const BloomFilter = bloom_filter.BloomFilter;
+const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
+const OwnedBlock = ownership.OwnedBlock;
+const SSTableBlock = ownership.SSTableBlock;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;
-const BloomFilter = bloom_filter.BloomFilter;
-const SimulationVFS = simulation_vfs.SimulationVFS;
-const SSTableBlock = ownership.SSTableBlock;
-const OwnedBlock = ownership.OwnedBlock;
-const ArenaCoordinator = memory.ArenaCoordinator;
 
 /// SSTable file format:
 /// | Magic (4) | Version (4) | Index Offset (8) | Block Count (4) | Reserved (12) |
@@ -75,7 +77,7 @@ pub const SSTable = struct {
         /// Writes the block ID, offset, and size to the buffer in little-endian format.
         /// Buffer must have at least SERIALIZED_SIZE bytes available.
         pub fn serialize(self: IndexEntry, buffer: []u8) !void {
-            assert.assert(buffer.len >= SERIALIZED_SIZE);
+            assert_mod.assert(buffer.len >= SERIALIZED_SIZE);
 
             var offset: usize = 0;
 
@@ -93,7 +95,7 @@ pub const SSTable = struct {
         /// Reads the block ID, offset, and size from little-endian format.
         /// Buffer must contain at least SERIALIZED_SIZE bytes of valid data.
         pub fn deserialize(buffer: []const u8) !IndexEntry {
-            assert.assert(buffer.len >= SERIALIZED_SIZE);
+            assert_mod.assert(buffer.len >= SERIALIZED_SIZE);
             if (buffer.len < SERIALIZED_SIZE) return error.BufferTooSmall;
 
             var offset: usize = 0;
@@ -141,7 +143,7 @@ pub const SSTable = struct {
         /// Writes all header fields including magic number, version, counts, and offsets
         /// to the buffer in little-endian format. Essential for SSTable file format integrity.
         pub fn serialize(self: Header, buffer: []u8) !void {
-            assert.assert(buffer.len >= HEADER_SIZE);
+            assert_mod.assert(buffer.len >= HEADER_SIZE);
 
             var offset: usize = 0;
 
@@ -180,7 +182,7 @@ pub const SSTable = struct {
         /// Reads and validates the complete header structure from storage buffer.
         /// Critical for ensuring data integrity when opening existing SSTables.
         pub fn deserialize(buffer: []const u8) !Header {
-            assert.assert(buffer.len >= HEADER_SIZE);
+            assert_mod.assert(buffer.len >= HEADER_SIZE);
             if (buffer.len < HEADER_SIZE) return error.BufferTooSmall;
 
             var offset: usize = 0;
@@ -243,9 +245,9 @@ pub const SSTable = struct {
         filesystem: VFS,
         file_path: []const u8,
     ) SSTable {
-        assert.assert_not_empty(file_path, "SSTable file_path cannot be empty", .{});
-        assert.assert_fmt(file_path.len < 4096, "SSTable file_path too long: {} bytes", .{file_path.len});
-        assert.assert_fmt(@intFromPtr(file_path.ptr) != 0, "SSTable file_path has null pointer", .{});
+        assert_mod.assert_not_empty(file_path, "SSTable file_path cannot be empty", .{});
+        assert_mod.assert_fmt(file_path.len < 4096, "SSTable file_path too long: {} bytes", .{file_path.len});
+        assert_mod.assert_fmt(@intFromPtr(file_path.ptr) != 0, "SSTable file_path has null pointer", .{});
 
         return SSTable{
             .arena_coordinator = coordinator,
@@ -282,11 +284,11 @@ pub const SSTable = struct {
             std.debug.print("DEBUG: write_blocks() called with unsupported type: {s}\n", .{@typeName(BlocksType)});
             @panic("write_blocks() accepts []const ContextBlock, []ContextBlock, []const SSTableBlock, []SSTableBlock, []const OwnedBlock, or []OwnedBlock only");
         }
-        assert.assert_not_empty(blocks, "Cannot write empty blocks array", .{});
-        assert.assert_fmt(blocks.len <= 1000000, "Too many blocks for single SSTable: {}", .{blocks.len});
+        assert_mod.assert_not_empty(blocks, "Cannot write empty blocks array", .{});
+        assert_mod.assert_fmt(blocks.len <= 1000000, "Too many blocks for single SSTable: {}", .{blocks.len});
 
         self.index.clearAndFree();
-        assert.assert_fmt(@intFromPtr(blocks.ptr) != 0, "Blocks array has null pointer", .{});
+        assert_mod.assert_fmt(@intFromPtr(blocks.ptr) != 0, "Blocks array has null pointer", .{});
 
         for (blocks, 0..) |block_value, i| {
             const block_data = switch (BlocksType) {
@@ -299,9 +301,9 @@ pub const SSTable = struct {
                 else => unreachable,
             };
 
-            assert.assert_fmt(block_data.content.len > 0, "Block {} has empty content", .{i});
-            assert.assert_fmt(block_data.source_uri.len > 0, "Block {} has empty source_uri", .{i});
-            assert.assert_fmt(block_data.content.len < 100 * 1024 * 1024, "Block {} content too large: {} bytes", .{ i, block_data.content.len });
+            assert_mod.assert_fmt(block_data.content.len > 0, "Block {} has empty content", .{i});
+            assert_mod.assert_fmt(block_data.source_uri.len > 0, "Block {} has empty source_uri", .{i});
+            assert_mod.assert_fmt(block_data.content.len < 100 * 1024 * 1024, "Block {} content too large: {} bytes", .{ i, block_data.content.len });
         }
 
         // Convert all blocks to ContextBlock for sorting (zero-cost for ContextBlock arrays)
@@ -354,7 +356,7 @@ pub const SSTable = struct {
             defer self.backing_allocator.free(buffer);
 
             const written = try block.serialize(buffer);
-            assert.assert_equal(written, block_size, "Block serialization size mismatch: {} != {}", .{ written, block_size });
+            assert_mod.assert_equal(written, block_size, "Block serialization size mismatch: {} != {}", .{ written, block_size });
 
             _ = try file.write(buffer);
 
@@ -565,7 +567,7 @@ pub const SSTable = struct {
 
         for (self.index.items[0 .. self.index.items.len - 1], self.index.items[1..]) |current, next| {
             const order = std.mem.order(u8, &current.block_id.bytes, &next.block_id.bytes);
-            assert.fatal_assert(order == .lt, "SSTable index not properly sorted: {any} >= {any} at positions", .{ current.block_id, next.block_id });
+            assert_mod.fatal_assert(order == .lt, "SSTable index not properly sorted: {any} >= {any} at positions", .{ current.block_id, next.block_id });
         }
     }
 };
@@ -579,8 +581,8 @@ pub const SSTableIterator = struct {
     /// Initialize a new iterator for the given SSTable.
     /// The SSTable must have a loaded index with at least one entry.
     pub fn init(sstable: *SSTable) SSTableIterator {
-        assert.assert_fmt(@intFromPtr(sstable) != 0, "SSTable pointer cannot be null", .{});
-        assert.assert_fmt(sstable.index.items.len > 0, "Cannot iterate over SSTable with empty index", .{});
+        assert_mod.assert_fmt(@intFromPtr(sstable) != 0, "SSTable pointer cannot be null", .{});
+        assert_mod.assert_fmt(sstable.index.items.len > 0, "Cannot iterate over SSTable with empty index", .{});
 
         return SSTableIterator{
             .sstable = sstable,
@@ -597,8 +599,8 @@ pub const SSTableIterator = struct {
 
     /// Get next block from iterator, opening file if needed
     pub fn next(self: *SSTableIterator) !?SSTableBlock {
-        assert.assert_fmt(@intFromPtr(self.sstable) != 0, "Iterator sstable pointer corrupted", .{});
-        assert.assert_index_valid(self.current_index, self.sstable.index.items.len + 1, "Iterator index out of bounds: {} >= {}", .{ self.current_index, self.sstable.index.items.len + 1 });
+        assert_mod.assert_fmt(@intFromPtr(self.sstable) != 0, "Iterator sstable pointer corrupted", .{});
+        assert_mod.assert_index_valid(self.current_index, self.sstable.index.items.len + 1, "Iterator index out of bounds: {} >= {}", .{ self.current_index, self.sstable.index.items.len + 1 });
 
         if (self.current_index >= self.sstable.index.items.len) {
             return null;
@@ -652,7 +654,7 @@ pub const Compactor = struct {
         input_paths: []const []const u8,
         output_path: []const u8,
     ) !void {
-        assert.assert(input_paths.len > 1);
+        assert_mod.assert(input_paths.len > 1);
 
         var input_tables = try self.backing_allocator.alloc(SSTable, input_paths.len);
         defer {
@@ -706,7 +708,7 @@ pub const Compactor = struct {
 
     /// Remove duplicate blocks, keeping the one with highest version
     fn dedup_blocks(self: *Compactor, blocks: []SSTableBlock) ![]SSTableBlock {
-        assert.assert_fmt(@intFromPtr(blocks.ptr) != 0 or blocks.len == 0, "Blocks array has null pointer with non-zero length", .{});
+        assert_mod.assert_fmt(@intFromPtr(blocks.ptr) != 0 or blocks.len == 0, "Blocks array has null pointer with non-zero length", .{});
 
         if (blocks.len == 0) return try self.backing_allocator.alloc(SSTableBlock, 0);
 

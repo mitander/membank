@@ -6,13 +6,13 @@
 //! recommendation from the external review.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
-// Configure test output - use verbose_print for demo output
+const testing = std.testing;
 const test_config = kausaldb.test_config;
-
 const fatal_assertions = kausaldb.fatal_assertions;
+
 const FatalCategory = kausaldb.FatalCategory;
 const FatalContext = kausaldb.FatalContext;
 

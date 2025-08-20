@@ -3,8 +3,8 @@
 //! Provides runtime checks that help catch bugs early in development
 //! while being compiled out in release builds for performance.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
 
 /// Assert that a condition is true.
 /// This assertion is active in debug builds and compiled out in release builds.

@@ -10,27 +10,27 @@
 //! deterministic based on operation count and seeded PRNG state.
 
 const std = @import("std");
-const custom_assert = @import("../core/assert.zig");
-const assert = custom_assert.assert;
-const fatal_assert = custom_assert.fatal_assert;
-const testing = std.testing;
-const vfs_types = @import("../core/vfs.zig");
-const state_machines = @import("../core/state_machines.zig");
+
+const assert_mod = @import("../core/assert.zig");
 const file_handle = @import("../core/file_handle.zig");
+const state_machines = @import("../core/state_machines.zig");
+const vfs_types = @import("../core/vfs.zig");
 
-const VFS = vfs_types.VFS;
-const VFile = vfs_types.VFile;
-const VFSError = vfs_types.VFSError;
-const VFileError = vfs_types.VFileError;
-const SimulationFileData = vfs_types.SimulationFileData;
-const MachineFileState = state_machines.FileState;
-const TypedFileHandle = file_handle.TypedFileHandle;
-const FileHandleId = file_handle.FileHandleId;
+const assert = assert_mod.assert;
+const fatal_assert = assert_mod.fatal_assert;
+const testing = std.testing;
+
 const FileAccessMode = file_handle.FileAccessMode;
-const FileOperations = file_handle.FileOperations;
+const FileHandleId = file_handle.FileHandleId;
 const FileHandleRegistry = file_handle.FileHandleRegistry;
-
-/// Type alias for VFile write operations with fault injection
+const FileOperations = file_handle.FileOperations;
+const MachineFileState = state_machines.FileState;
+const SimulationFileData = vfs_types.SimulationFileData;
+const TypedFileHandle = file_handle.TypedFileHandle;
+const VFS = vfs_types.VFS;
+const VFSError = vfs_types.VFSError;
+const VFile = vfs_types.VFile;
+const VFileError = vfs_types.VFileError;
 const VFileWriteError = VFileError;
 const DirectoryIterator = vfs_types.DirectoryIterator;
 const DirectoryEntry = vfs_types.DirectoryEntry;

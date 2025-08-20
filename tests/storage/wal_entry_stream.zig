@@ -4,17 +4,18 @@
 //! real-world scenarios including buffer boundaries, large entries, corruption,
 //! and memory management. Uses simulation VFS for deterministic testing.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
-const assert = kausaldb.assert.assert;
 
-const WALEntryStream = kausaldb.wal.stream.WALEntryStream;
+const kausaldb = @import("kausaldb");
+
+const assert = kausaldb.assert.assert;
+const simulation_vfs = kausaldb.simulation_vfs;
+const testing = std.testing;
+const vfs = kausaldb.vfs;
+
 const StreamEntry = kausaldb.wal.stream.StreamEntry;
 const StreamError = kausaldb.wal.stream.StreamError;
-const vfs = kausaldb.vfs;
-const simulation_vfs = kausaldb.simulation_vfs;
-
+const WALEntryStream = kausaldb.wal.stream.WALEntryStream;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
 /// Helper to create a valid WAL entry header + payload using VFile directly

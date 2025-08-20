@@ -4,12 +4,13 @@
 //! corruption scenarios. Validates that corrupted data fails gracefully
 //! without memory corruption or crashes.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
 
-const types = kausaldb.types;
+const kausaldb = @import("kausaldb");
+
 const simulation_vfs = kausaldb.simulation_vfs;
+const testing = std.testing;
+const types = kausaldb.types;
 
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;

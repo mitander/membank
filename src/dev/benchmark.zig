@@ -5,9 +5,10 @@
 //! Follows separation of concerns - benchmarks produce data, main handles presentation.
 
 const std = @import("std");
-const storage_benchmarks = @import("benchmark/storage.zig");
-const query_benchmarks = @import("benchmark/query.zig");
+
 const compaction_benchmarks = @import("benchmark/compaction.zig");
+const query_benchmarks = @import("benchmark/query.zig");
+const storage_benchmarks = @import("benchmark/storage.zig");
 
 pub const BenchmarkResult = struct {
     operation_name: []const u8,

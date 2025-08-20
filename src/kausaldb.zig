@@ -3,8 +3,8 @@
 //! Clean, minimal interface for the knowledge graph database.
 //! For testing and internal APIs, use @import("kausaldb_test.zig").
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
 
 pub const types = @import("core/types.zig");
 pub const ContextBlock = types.ContextBlock;

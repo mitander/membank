@@ -9,14 +9,17 @@
 //! and ownership validation, enabling safe memory transfer between subsystems
 //! while maintaining zero runtime overhead in release builds.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const custom_assert = @import("assert.zig");
-const fatal_assert = custom_assert.fatal_assert;
-const assert_fmt = custom_assert.assert_fmt;
+const std = @import("std");
+
+const assert_mod = @import("assert.zig");
 const types = @import("types.zig");
-const ContextBlock = types.ContextBlock;
+
+const assert_fmt = assert_mod.assert_fmt;
+const fatal_assert = assert_mod.fatal_assert;
+
 const BlockId = types.BlockId;
+const ContextBlock = types.ContextBlock;
 
 /// Ownership categories for subsystem memory management.
 /// Each subsystem uses a distinct ownership type to prevent accidental
@@ -689,11 +692,11 @@ pub fn validate_ownership_usage(comptime T: type) void {
 comptime {
     // Enforce reasonable enum size limits to prevent excessive compile-time overhead
     const ownership_count = @typeInfo(BlockOwnership).@"enum".fields.len;
-    custom_assert.comptime_assert(ownership_count >= 3 and ownership_count <= 16, "BlockOwnership should have 3-16 variants for reasonable subsystem count");
+    assert_mod.comptime_assert(ownership_count >= 3 and ownership_count <= 16, "BlockOwnership should have 3-16 variants for reasonable subsystem count");
 
     // Prevent memory bloat by enforcing size constraints on core ownership structures
-    custom_assert.comptime_assert(@sizeOf(OwnedBlock) <= 256, "OwnedBlock should be reasonably sized");
-    custom_assert.comptime_assert(@sizeOf(OwnershipTransfer) <= 128, "OwnershipTransfer should be compact");
+    assert_mod.comptime_assert(@sizeOf(OwnedBlock) <= 256, "OwnedBlock should be reasonably sized");
+    assert_mod.comptime_assert(@sizeOf(OwnershipTransfer) <= 128, "OwnershipTransfer should be compact");
 }
 
 // Tests

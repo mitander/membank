@@ -3,17 +3,18 @@
 //! Simplified testing of the TCP server implementation and binary protocol.
 //! Tests cover basic functionality without complex networking scenarios.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
-const net = std.net;
 
-const vfs = kausaldb.vfs;
+const kausaldb = @import("kausaldb");
+
+const net = std.net;
+const query_engine = kausaldb.query_engine;
+const server_handler = kausaldb.handler;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
-const query_engine = kausaldb.query_engine;
+const testing = std.testing;
 const types = kausaldb.types;
-const server_handler = kausaldb.handler;
+const vfs = kausaldb.vfs;
 
 const StorageEngine = storage.StorageEngine;
 const QueryEngine = query_engine.QueryEngine;
@@ -26,7 +27,6 @@ const MessageHeader = server_handler.MessageHeader;
 const MessageType = server_handler.MessageType;
 const ClientConnection = server_handler.ClientConnection;
 const ConnectionState = server_handler.ConnectionState;
-
 const TestData = kausaldb.TestData;
 
 test "config default values" {

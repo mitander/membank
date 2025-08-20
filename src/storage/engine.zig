@@ -12,52 +12,51 @@
 //! - Enforce arena-per-subsystem memory management patterns
 //! - Provide metrics and error handling
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../core/assert.zig");
-const assert_fmt = @import("../core/assert.zig").assert_fmt;
-const fatal_assert = @import("../core/assert.zig").fatal_assert;
-const vfs = @import("../core/vfs.zig");
-const context_block = @import("../core/types.zig");
-const pools = @import("../core/pools.zig");
-const error_context = @import("../core/error_context.zig");
-const concurrency = @import("../core/concurrency.zig");
-const state_machines = @import("../core/state_machines.zig");
-const memory = @import("../core/memory.zig");
-const simulation_vfs = @import("../sim/simulation_vfs.zig");
-const testing = std.testing;
+const std = @import("std");
 
-const config_mod = @import("config.zig");
-const metrics_mod = @import("metrics.zig");
-const memtable_manager_mod = @import("memtable_manager.zig");
-const sstable_manager_mod = @import("sstable_manager.zig");
+const assert_mod = @import("../core/assert.zig");
 const block_index_mod = @import("block_index.zig");
-
-const sstable = @import("sstable.zig");
-const tiered_compaction = @import("tiered_compaction.zig");
-const wal = @import("wal.zig");
-const ownership = @import("../core/ownership.zig");
+const concurrency = @import("../core/concurrency.zig");
+const config_mod = @import("config.zig");
+const context_block = @import("../core/types.zig");
+const error_context = @import("../core/error_context.zig");
 const graph_edge_index = @import("graph_edge_index.zig");
+const memory = @import("../core/memory.zig");
+const memtable_manager_mod = @import("memtable_manager.zig");
+const metrics_mod = @import("metrics.zig");
+const ownership = @import("../core/ownership.zig");
+const pools = @import("../core/pools.zig");
+const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const sstable = @import("sstable.zig");
+const sstable_manager_mod = @import("sstable_manager.zig");
+const state_machines = @import("../core/state_machines.zig");
+const tiered_compaction = @import("tiered_compaction.zig");
+const vfs = @import("../core/vfs.zig");
+const wal = @import("wal.zig");
 
-const VFS = vfs.VFS;
-const ContextBlock = context_block.ContextBlock;
-const GraphEdge = context_block.GraphEdge;
-const BlockId = context_block.BlockId;
-const SimulationVFS = simulation_vfs.SimulationVFS;
-const StorageState = state_machines.StorageState;
-const BlockOwnership = ownership.BlockOwnership;
-const OwnedBlock = ownership.OwnedBlock;
-const ComptimeOwnedBlock = ownership.ComptimeOwnedBlock;
-const StorageEngineBlock = ownership.StorageEngineBlock;
-const MemtableBlock = ownership.MemtableBlock;
-const SSTableBlock = ownership.SSTableBlock;
-const QueryEngineBlock = ownership.QueryEngineBlock;
-const TemporaryBlock = ownership.TemporaryBlock;
-const OwnedGraphEdge = graph_edge_index.OwnedGraphEdge;
-const ArenaCoordinator = memory.ArenaCoordinator;
+const assert_fmt = assert_mod.assert_fmt;
+const fatal_assert = assert_mod.fatal_assert;
+const testing = std.testing;
 
 const BlockHashMap = std.HashMap(BlockId, OwnedBlock, block_index_mod.BlockIndex.BlockIdContext, std.hash_map.default_max_load_percentage);
 const BlockHashMapIterator = BlockHashMap.Iterator;
+const ArenaCoordinator = memory.ArenaCoordinator;
+const BlockId = context_block.BlockId;
+const BlockOwnership = ownership.BlockOwnership;
+const ComptimeOwnedBlock = ownership.ComptimeOwnedBlock;
+const ContextBlock = context_block.ContextBlock;
+const GraphEdge = context_block.GraphEdge;
+const MemtableBlock = ownership.MemtableBlock;
+const OwnedBlock = ownership.OwnedBlock;
+const OwnedGraphEdge = graph_edge_index.OwnedGraphEdge;
+const QueryEngineBlock = ownership.QueryEngineBlock;
+const SSTableBlock = ownership.SSTableBlock;
+const SimulationVFS = simulation_vfs.SimulationVFS;
+const StorageEngineBlock = ownership.StorageEngineBlock;
+const StorageState = state_machines.StorageState;
+const TemporaryBlock = ownership.TemporaryBlock;
+const VFS = vfs.VFS;
 
 pub const Config = config_mod.Config;
 pub const StorageMetrics = metrics_mod.StorageMetrics;
@@ -141,8 +140,8 @@ pub const StorageEngine = struct {
         data_dir: []const u8,
         storage_config: Config,
     ) !StorageEngine {
-        assert.assert_not_empty(data_dir, "Storage data_dir cannot be empty", .{});
-        assert.assert_fmt(@intFromPtr(data_dir.ptr) != 0, "Storage data_dir has null pointer", .{});
+        assert_mod.assert_not_empty(data_dir, "Storage data_dir cannot be empty", .{});
+        assert_mod.assert_fmt(@intFromPtr(data_dir.ptr) != 0, "Storage data_dir has null pointer", .{});
 
         storage_config.validate() catch |err| {
             error_context.log_storage_error(err, error_context.StorageContext{ .operation = "config_validation" });
@@ -334,7 +333,7 @@ pub const StorageEngine = struct {
     /// Coordinate memtable flush operation without containing business logic.
     /// Pure delegation to subsystems for flush orchestration.
     fn coordinate_memtable_flush(self: *StorageEngine) !void {
-        assert.assert_fmt(@intFromPtr(&self.sstable_manager) != 0, "SSTableManager corrupted before flush", .{});
+        assert_mod.assert_fmt(@intFromPtr(&self.sstable_manager) != 0, "SSTableManager corrupted before flush", .{});
         self.flush_memtable() catch |err| {
             error_context.log_storage_error(err, error_context.StorageContext{ .operation = "coordinate_memtable_flush" });
             return err;
@@ -397,7 +396,7 @@ pub const StorageEngine = struct {
         self.storage_metrics.total_write_time_ns.add(write_duration);
         self.storage_metrics.total_bytes_written.add(content_len);
 
-        assert.assert_fmt(self.storage_metrics.blocks_written.load() == blocks_before + 1, "Blocks written counter update failed", .{});
+        assert_mod.assert_fmt(self.storage_metrics.blocks_written.load() == blocks_before + 1, "Blocks written counter update failed", .{});
     }
 
     /// Create directory structure and discover existing data files.
@@ -462,19 +461,19 @@ pub const StorageEngine = struct {
 
         const block_data = owned_block.read_runtime(.temporary);
 
-        assert.assert_fmt(block_data.content.len > 0, "Block content cannot be empty", .{});
-        assert.assert_fmt(block_data.source_uri.len > 0, "Block source_uri cannot be empty", .{});
-        assert.assert_fmt(block_data.content.len < 100 * 1024 * 1024, "Block content too large: {} bytes", .{block_data.content.len});
-        assert.assert_fmt(block_data.source_uri.len < 2048, "Block source_uri too long: {} bytes", .{block_data.source_uri.len});
-        assert.assert_fmt(block_data.metadata_json.len < 1024 * 1024, "Block metadata_json too large: {} bytes", .{block_data.metadata_json.len});
-        assert.assert_fmt(block_data.version > 0, "Block version must be positive: {}", .{block_data.version});
+        assert_mod.assert_fmt(block_data.content.len > 0, "Block content cannot be empty", .{});
+        assert_mod.assert_fmt(block_data.source_uri.len > 0, "Block source_uri cannot be empty", .{});
+        assert_mod.assert_fmt(block_data.content.len < 100 * 1024 * 1024, "Block content too large: {} bytes", .{block_data.content.len});
+        assert_mod.assert_fmt(block_data.source_uri.len < 2048, "Block source_uri too long: {} bytes", .{block_data.source_uri.len});
+        assert_mod.assert_fmt(block_data.metadata_json.len < 1024 * 1024, "Block metadata_json too large: {} bytes", .{block_data.metadata_json.len});
+        assert_mod.assert_fmt(block_data.version > 0, "Block version must be positive: {}", .{block_data.version});
 
         if (!self.state.can_write()) {
             return if (self.state == .uninitialized or self.state == .initialized) StorageError.NotInitialized else StorageError.StorageEngineDeinitialized;
         }
 
         const start_time = std.time.nanoTimestamp();
-        assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
+        assert_mod.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
 
         block_data.validate(self.backing_allocator) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("block_validation", block_data.id));
@@ -551,7 +550,7 @@ pub const StorageEngine = struct {
         for (block_id.bytes) |byte| {
             if (byte != 0) non_zero_bytes += 1;
         }
-        assert.assert_fmt(non_zero_bytes > 0, "Block ID cannot be all zeros", .{});
+        assert_mod.assert_fmt(non_zero_bytes > 0, "Block ID cannot be all zeros", .{});
 
         if (!self.state.can_read()) {
             return if (self.state == .uninitialized or self.state == .initialized) StorageError.NotInitialized else StorageError.StorageEngineDeinitialized;
@@ -612,7 +611,7 @@ pub const StorageEngine = struct {
         // Hot path optimizations: minimal validation, direct access
         if (comptime builtin.mode == .Debug) {
             fatal_assert(@intFromPtr(self) != 0, "StorageEngine corrupted", .{});
-            assert.assert_fmt(!block_id.eql(BlockId.from_bytes([_]u8{0} ** 16)), "Invalid block ID: cannot be all zeros", .{});
+            assert_mod.assert_fmt(!block_id.eql(BlockId.from_bytes([_]u8{0} ** 16)), "Invalid block ID: cannot be all zeros", .{});
         }
 
         if (!self.state.can_read()) {
@@ -723,16 +722,16 @@ pub const StorageEngine = struct {
         for (edge.target_id.bytes) |byte| {
             if (byte != 0) target_non_zero += 1;
         }
-        assert.assert_fmt(source_non_zero > 0, "Edge source_id cannot be all zeros", .{});
-        assert.assert_fmt(target_non_zero > 0, "Edge target_id cannot be all zeros", .{});
-        assert.assert_fmt(!std.mem.eql(u8, &edge.source_id.bytes, &edge.target_id.bytes), "Edge cannot be self-referential", .{});
+        assert_mod.assert_fmt(source_non_zero > 0, "Edge source_id cannot be all zeros", .{});
+        assert_mod.assert_fmt(target_non_zero > 0, "Edge target_id cannot be all zeros", .{});
+        assert_mod.assert_fmt(!std.mem.eql(u8, &edge.source_id.bytes, &edge.target_id.bytes), "Edge cannot be self-referential", .{});
 
         if (!self.state.can_write()) {
             return if (self.state == .uninitialized or self.state == .initialized) StorageError.NotInitialized else StorageError.StorageEngineDeinitialized;
         }
 
         const start_time = std.time.nanoTimestamp();
-        assert.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
+        assert_mod.assert_fmt(start_time > 0, "Invalid timestamp: {}", .{start_time});
 
         fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
 
@@ -807,7 +806,7 @@ pub const StorageEngine = struct {
         for (source_id.bytes) |byte| {
             if (byte != 0) non_zero_bytes += 1;
         }
-        assert.assert_fmt(non_zero_bytes > 0, "Source block ID cannot be all zeros", .{});
+        assert_mod.assert_fmt(non_zero_bytes > 0, "Source block ID cannot be all zeros", .{});
 
         fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
 
@@ -834,7 +833,7 @@ pub const StorageEngine = struct {
         for (target_id.bytes) |byte| {
             if (byte != 0) non_zero_bytes += 1;
         }
-        assert.assert_fmt(non_zero_bytes > 0, "Target block ID cannot be all zeros", .{});
+        assert_mod.assert_fmt(non_zero_bytes > 0, "Target block ID cannot be all zeros", .{});
 
         fatal_assert(@intFromPtr(&self.memtable_manager) != 0, "MemtableManager pointer corrupted - memory safety violation detected", .{});
 
@@ -1598,6 +1597,6 @@ test "storage engine error context wrapping validation" {
     defer engine.deinit();
 
     // Startup may fail with I/O errors, demonstrating error context is provided
-    // Don't assert error since it's probabilistic, but demonstrates context wrapping
+    // Don't assert_mod error since it's probabilistic, but demonstrates context wrapping
     _ = engine.startup() catch {}; // Just demonstrate that error context is provided
 }

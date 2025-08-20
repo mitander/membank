@@ -4,15 +4,16 @@
 //! query optimization strategies, caching behavior, complex graph scenarios,
 //! and performance characteristics under various conditions.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const testing = std.testing;
+const std = @import("std");
+
 const kausaldb = @import("kausaldb");
 
-const types = kausaldb.types;
+const operations = kausaldb.query_operations;
 const query_engine = kausaldb.query_engine;
 const query_traversal = kausaldb.query_traversal;
-const operations = kausaldb.query_operations;
+const testing = std.testing;
+const types = kausaldb.types;
 
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
@@ -22,7 +23,6 @@ const FindBlocksQuery = kausaldb.FindBlocksQuery;
 const TraversalQuery = query_traversal.TraversalQuery;
 const TraversalDirection = query_traversal.TraversalDirection;
 const QueryResult = operations.QueryResult;
-
 const TestData = kausaldb.TestData;
 const QueryHarness = kausaldb.QueryHarness;
 

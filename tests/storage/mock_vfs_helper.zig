@@ -5,12 +5,14 @@
 //! with testing-specific convenience methods and failure injection
 //! capabilities.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
 
-const vfs = kausaldb.vfs;
+const kausaldb = @import("kausaldb");
+
 const simulation_vfs = kausaldb.simulation_vfs;
+const testing = std.testing;
+const vfs = kausaldb.vfs;
+
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const VFS = vfs.VFS;
 

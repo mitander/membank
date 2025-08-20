@@ -8,22 +8,23 @@
 //! - Arena reset safety under failure conditions
 
 const std = @import("std");
+
 const kausaldb = @import("kausaldb");
-const testing = std.testing;
+
 const assert = kausaldb.assert.assert;
-
-const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
-const StorageEngine = kausaldb.storage.StorageEngine;
-const MemtableManager = kausaldb.storage.MemtableManager;
-const ArenaCoordinator = kausaldb.memory.ArenaCoordinator;
-const ContextBlock = kausaldb.types.ContextBlock;
-const BlockId = kausaldb.types.BlockId;
-const GraphEdge = kausaldb.types.GraphEdge;
-const EdgeType = kausaldb.types.EdgeType;
-const TestData = kausaldb.TestData;
-
 const log = std.log.scoped(.memory_fault_injection);
 const test_config = kausaldb.test_config;
+const testing = std.testing;
+
+const ArenaCoordinator = kausaldb.memory.ArenaCoordinator;
+const BlockId = kausaldb.types.BlockId;
+const ContextBlock = kausaldb.types.ContextBlock;
+const EdgeType = kausaldb.types.EdgeType;
+const GraphEdge = kausaldb.types.GraphEdge;
+const MemtableManager = kausaldb.storage.MemtableManager;
+const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
+const StorageEngine = kausaldb.storage.StorageEngine;
+const TestData = kausaldb.TestData;
 
 /// Failing allocator that simulates memory pressure conditions
 const FailingAllocator = struct {

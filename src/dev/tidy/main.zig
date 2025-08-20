@@ -5,16 +5,17 @@
 //! violation summaries for batch fixing.
 
 const std = @import("std");
+
+const parser = @import("parser.zig");
+const rules = @import("rules.zig");
+const violation = @import("violation.zig");
+
 const fs = std.fs;
 const mem = std.mem;
 
-const violation = @import("violation.zig");
-const rules = @import("rules.zig");
-const parser = @import("parser.zig");
-
+const Violation = violation.Violation;
 const ViolationSummary = violation.ViolationSummary;
 const ViolationType = violation.ViolationType;
-const Violation = violation.Violation;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -25,8 +26,8 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len > 1) {
-        std.debug.print("Usage: tidy\n");
-        std.debug.print("Systematically checks KausalDB code quality and architectural compliance.\n");
+        std.debug.print("Usage: tidy\n", .{});
+        std.debug.print("Systematically checks KausalDB code quality and architectural compliance.\n", .{});
         return;
     }
 

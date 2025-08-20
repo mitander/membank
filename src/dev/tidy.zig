@@ -3,10 +3,10 @@
 //! Rule-based checker with violation reporting
 //! and systematic architectural constraint enforcement.
 
+const parser = @import("tidy/parser.zig");
+const rules = @import("tidy/rules.zig");
 const tidy_main = @import("tidy/main.zig");
 const violation = @import("tidy/violation.zig");
-const rules = @import("tidy/rules.zig");
-const parser = @import("tidy/parser.zig");
 
 pub const main = tidy_main.main;
 

@@ -4,8 +4,8 @@
 //! simplicity, determinism, and performance. This eliminates data races,
 //! simplifies debugging, and enables deterministic simulation testing.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
 
 /// Thread ID of the main KausalDB thread. All operations must occur on this thread.
 var main_thread_id: ?std.Thread.Id = null;

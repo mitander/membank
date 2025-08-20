@@ -7,7 +7,10 @@
 //! - Production-safe with proper cleanup coordination
 
 const std = @import("std");
-const assert = @import("assert.zig").assert;
+
+const assert_mod = @import("assert.zig");
+
+const assert = assert_mod.assert;
 const log = std.log.scoped(.signals);
 
 /// Global shutdown signal state

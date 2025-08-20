@@ -8,14 +8,15 @@
 //! These scenarios represent real-world corruption that could cause
 //! silent data loss if not properly detected and handled.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
+
+const kausaldb = @import("kausaldb");
 
 const assert = kausaldb.assert.assert;
-const types = kausaldb.types;
-const storage = kausaldb.storage;
 const simulation = kausaldb.simulation;
+const storage = kausaldb.storage;
+const testing = std.testing;
+const types = kausaldb.types;
 
 const StorageEngine = storage.StorageEngine;
 const WAL = storage.WAL;

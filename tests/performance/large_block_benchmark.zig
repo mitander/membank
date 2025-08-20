@@ -4,14 +4,16 @@
 //! pool optimizations provide measurable performance improvements for large blocks.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
+const testing = std.testing;
 const types = kausaldb.types;
-const TestData = kausaldb.test_harness.TestData;
-const ProductionHarness = kausaldb.test_harness.ProductionHarness;
+
 const PerformanceAssertion = kausaldb.PerformanceAssertion;
 const PerformanceThresholds = kausaldb.PerformanceThresholds;
+const ProductionHarness = kausaldb.test_harness.ProductionHarness;
+const TestData = kausaldb.test_harness.TestData;
 const ContextBlock = types.ContextBlock;
 
 // Base performance targets (local development, optimal conditions)

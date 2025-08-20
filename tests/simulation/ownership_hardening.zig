@@ -5,17 +5,19 @@
 //! a deterministic simulation environment.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
 const assert = kausaldb.assert.assert;
-const Simulation = kausaldb.simulation.Simulation;
 const ownership = kausaldb.ownership;
-const ContextBlock = kausaldb.types.ContextBlock;
+const testing = std.testing;
+
 const BlockId = kausaldb.types.BlockId;
-const TestData = kausaldb.TestData;
-const StorageHarness = kausaldb.StorageHarness;
+const ContextBlock = kausaldb.types.ContextBlock;
+const Simulation = kausaldb.simulation.Simulation;
 const SimulationHarness = kausaldb.SimulationHarness;
+const StorageHarness = kausaldb.StorageHarness;
+const TestData = kausaldb.TestData;
 
 test "cross-subsystem memory access violation detection" {
     const allocator = testing.allocator;

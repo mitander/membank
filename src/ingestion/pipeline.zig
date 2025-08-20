@@ -14,23 +14,24 @@
 //! - Single-threaded execution model
 
 const std = @import("std");
-const testing = std.testing;
 
-const context_block = @import("../core/types.zig");
-const vfs = @import("../core/vfs.zig");
-const assert = @import("../core/assert.zig");
-const error_context = @import("../core/error_context.zig");
+const assert_mod = @import("../core/assert.zig");
 const concurrency = @import("../core/concurrency.zig");
+const context_block = @import("../core/types.zig");
+const error_context = @import("../core/error_context.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const storage_metrics = @import("../storage/metrics.zig");
+const vfs = @import("../core/vfs.zig");
 
-const StorageMetrics = storage_metrics.StorageMetrics;
-const ContextBlock = context_block.ContextBlock;
+const testing = std.testing;
+
 const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
+const ContextBlock = context_block.ContextBlock;
 const EdgeType = context_block.EdgeType;
-const VFS = vfs.VFS;
+const GraphEdge = context_block.GraphEdge;
 const SimulationVFS = simulation_vfs.SimulationVFS;
+const StorageMetrics = storage_metrics.StorageMetrics;
+const VFS = vfs.VFS;
 
 /// Errors that can occur during ingestion pipeline operations
 pub const IngestionError = error{

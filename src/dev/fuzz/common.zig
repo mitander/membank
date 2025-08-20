@@ -3,12 +3,13 @@
 //! Provides crash reporting, statistics tracking, data generation helpers,
 //! and other shared functionality across all fuzzing modules.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
+
 const kausaldb = @import("kausaldb");
 
-const types = kausaldb.types;
 const concurrency = kausaldb.concurrency;
+const types = kausaldb.types;
 
 const BlockId = types.BlockId;
 const ContextBlock = types.ContextBlock;
@@ -16,8 +17,6 @@ const ContextBlock = types.ContextBlock;
 pub const CRASH_REPORT_DIR = "fuzz_reports";
 pub const PROGRESS_INTERVAL_SEC = 60;
 pub const GIT_CHECK_INTERVAL_SEC = 600; // 10 minutes
-
-// Exit codes for coordination with shell script
 pub const EXIT_GIT_UPDATE_NEEDED = 0; // Shell should rebuild and restart
 pub const EXIT_NORMAL = 0;
 pub const EXIT_ERROR = 1;

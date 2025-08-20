@@ -8,12 +8,15 @@
 //! and provides zero-cost abstractions in release builds while maintaining
 //! comprehensive validation in debug builds.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const custom_assert = @import("assert.zig");
-const fatal_assert = custom_assert.fatal_assert;
-const assert_fmt = custom_assert.assert_fmt;
+const std = @import("std");
+
+const assert_mod = @import("assert.zig");
 const state_machines = @import("state_machines.zig");
+
+const assert_fmt = assert_mod.assert_fmt;
+const fatal_assert = assert_mod.fatal_assert;
+
 const FileState = state_machines.FileState;
 
 /// Unique identifier for file handles with type safety.
@@ -534,12 +537,12 @@ pub const FileInfo = struct {
 
 // Compile-time validation
 comptime {
-    custom_assert.comptime_assert(@sizeOf(FileHandleId) <= 16, "FileHandleId should be compact");
-    custom_assert.comptime_assert(@sizeOf(TypedFileHandle) <= 128, "TypedFileHandle should be reasonably sized");
+    assert_mod.comptime_assert(@sizeOf(FileHandleId) <= 16, "FileHandleId should be compact");
+    assert_mod.comptime_assert(@sizeOf(TypedFileHandle) <= 128, "TypedFileHandle should be reasonably sized");
 
     // Validate that file access modes cover all cases
     const mode_count = @typeInfo(FileAccessMode).@"enum".fields.len;
-    custom_assert.comptime_assert(mode_count == 3, "FileAccessMode should have exactly 3 variants");
+    assert_mod.comptime_assert(mode_count == 3, "FileAccessMode should have exactly 3 variants");
 }
 
 // Tests

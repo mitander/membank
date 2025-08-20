@@ -5,14 +5,17 @@
 //! cache invalidation on data mutations for correctness guarantees.
 
 const std = @import("std");
-const assert = @import("../core/assert.zig").assert;
-const assert_fmt = @import("../core/assert.zig").assert_fmt;
+
 const context_block = @import("../core/types.zig");
 const operations = @import("operations.zig");
 const traversal = @import("traversal.zig");
+const assert_mod = @import("../core/assert.zig");
 
-const ContextBlock = context_block.ContextBlock;
+const assert = assert_mod.assert;
+const assert_fmt = assert_mod.assert_fmt;
+
 const BlockId = context_block.BlockId;
+const ContextBlock = context_block.ContextBlock;
 const QueryResult = operations.QueryResult;
 const TraversalResult = traversal.TraversalResult;
 

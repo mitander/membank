@@ -5,7 +5,10 @@
 //! without implementation details, enabling clean module boundaries.
 
 const std = @import("std");
-const entry_mod = @import("entry.zig");
+
+const entry = @import("entry.zig");
+
+const testing = std.testing;
 
 /// Maximum size of a WAL segment before rotation (64MB).
 /// Power of two for efficient alignment and bitwise operations.
@@ -69,7 +72,7 @@ pub const WALEntryType = enum(u8) {
 };
 
 /// Recovery callback enables pluggable WAL replay strategies
-pub const RecoveryCallback = *const fn (entry: entry_mod.WALEntry, context: *anyopaque) WALError!void;
+pub const RecoveryCallback = *const fn (entry: entry.WALEntry, context: *anyopaque) WALError!void;
 
 /// Statistics for WAL operations and recovery
 pub const WALStats = struct {
@@ -89,8 +92,6 @@ pub const WALStats = struct {
         };
     }
 };
-
-const testing = @import("std").testing;
 
 test "WALEntryType from_u8 valid values" {
     try testing.expectEqual(WALEntryType.put_block, try WALEntryType.from_u8(0x01));

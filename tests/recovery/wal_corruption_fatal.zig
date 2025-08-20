@@ -5,11 +5,14 @@
 //! distinguishes between isolated failures and unrecoverable corruption.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
 const corruption_tracker_mod = kausaldb.wal.corruption_tracker;
+const testing = std.testing;
+
 const CorruptionTracker = corruption_tracker_mod.CorruptionTracker;
+
 const WAL_MAGIC_NUMBER = corruption_tracker_mod.WAL_MAGIC_NUMBER;
 const WAL_ENTRY_MAGIC = corruption_tracker_mod.WAL_ENTRY_MAGIC;
 

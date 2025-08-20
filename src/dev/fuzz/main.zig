@@ -3,19 +3,20 @@
 //! Orchestrates different fuzzing modules and provides unified command-line interface.
 //! This module handles argument parsing, target selection, and crash reporting coordination.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
+
 const kausaldb = @import("kausaldb");
 
-const stdx = kausaldb.stdx;
-
-const storage_fuzz = @import("storage.zig");
-const query_fuzz = @import("query.zig");
-const parser_fuzz = @import("parser.zig");
-const serialization_fuzz = @import("serialization.zig");
-const network_fuzz = @import("network.zig");
-const compaction_fuzz = @import("compaction.zig");
 const common = @import("common.zig");
+const compaction_fuzz = @import("compaction.zig");
+const network_fuzz = @import("network.zig");
+const parser_fuzz = @import("parser.zig");
+const query_fuzz = @import("query.zig");
+const serialization_fuzz = @import("serialization.zig");
+const storage_fuzz = @import("storage.zig");
+
+const stdx = kausaldb.stdx;
 
 const FUZZ_ITERATIONS_DEFAULT = 100_000;
 const FUZZ_ITERATIONS_CONTINUOUS = std.math.maxInt(u64);

@@ -11,25 +11,28 @@
 //! - Level 4: Zero-copy query paths for allocation-free reads
 //! - Level 5: Type-safe coordinators eliminating *anyopaque patterns
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("assert.zig").assert;
-const fatal_assert = @import("assert.zig").fatal_assert;
-const memory = @import("memory.zig");
-const pools = @import("pools.zig");
-const ownership = @import("ownership.zig");
+const std = @import("std");
+
 const PerformanceAssertion = @import("../testing/performance_assertions.zig");
+const assert_mod = @import("assert.zig");
 const context_block = @import("types.zig");
+const memory = @import("memory.zig");
+const ownership = @import("ownership.zig");
+const pools = @import("pools.zig");
+
+const assert = assert_mod.assert;
+const fatal_assert = assert_mod.fatal_assert;
 
 const ArenaCoordinator = memory.ArenaCoordinator;
-const TypedStorageCoordinatorType = memory.TypedStorageCoordinatorType;
-const ObjectPoolType = pools.ObjectPoolType;
-const PoolManagerType = pools.PoolManagerType;
-const StackPoolType = pools.StackPoolType;
-const OwnedBlock = ownership.OwnedBlock;
+const BlockId = context_block.BlockId;
 const BlockOwnership = ownership.BlockOwnership;
 const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
+const ObjectPoolType = pools.ObjectPoolType;
+const OwnedBlock = ownership.OwnedBlock;
+const PoolManagerType = pools.PoolManagerType;
+const StackPoolType = pools.StackPoolType;
+const TypedStorageCoordinatorType = memory.TypedStorageCoordinatorType;
 
 /// Integrated memory management system combining all architectural improvements.
 /// Demonstrates the complete memory model working together as designed.

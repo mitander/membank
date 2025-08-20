@@ -3,14 +3,15 @@
 //! Tests for Write-Ahead Log recovery functionality.
 //! Tests cover successful recovery, corruption handling, and edge cases.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
 
+const kausaldb = @import("kausaldb");
+
+const golden_master = kausaldb.golden_master;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
+const testing = std.testing;
 const types = kausaldb.types;
-const golden_master = kausaldb.golden_master;
 
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
@@ -18,7 +19,6 @@ const GraphEdge = types.GraphEdge;
 const EdgeType = types.EdgeType;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = storage.StorageEngine;
-
 const TestData = kausaldb.TestData;
 const StorageHarness = kausaldb.StorageHarness;
 

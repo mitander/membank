@@ -9,11 +9,13 @@
 //! comprehensive debugging support in development builds, including allocation
 //! tracking and ownership violation detection.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const custom_assert = @import("assert.zig");
-const fatal_assert = custom_assert.fatal_assert;
-const assert_fmt = custom_assert.assert_fmt;
+const std = @import("std");
+
+const assert_mod = @import("assert.zig");
+
+const assert_fmt = assert_mod.assert_fmt;
+const fatal_assert = assert_mod.fatal_assert;
 
 /// Ownership categories for type-safe memory management.
 /// Each subsystem uses a distinct ownership type to prevent accidental
@@ -326,10 +328,10 @@ pub fn OwnedPtrCompatibilityType(comptime T: type) type {
 comptime {
     // Validate ownership enum has reasonable number of variants
     const ownership_count = @typeInfo(ArenaOwnership).@"enum".fields.len;
-    custom_assert.comptime_assert(ownership_count >= 3 and ownership_count <= 16, "ArenaOwnership should have 3-16 variants, found " ++ std.fmt.comptimePrint("{}", .{ownership_count}));
+    assert_mod.comptime_assert(ownership_count >= 3 and ownership_count <= 16, "ArenaOwnership should have 3-16 variants, found " ++ std.fmt.comptimePrint("{}", .{ownership_count}));
 
     // Validate ArenaDebugInfo struct layout
-    custom_assert.comptime_assert(@sizeOf(ArenaDebugInfo) > 0, "ArenaDebugInfo must have non-zero size");
+    assert_mod.comptime_assert(@sizeOf(ArenaDebugInfo) > 0, "ArenaDebugInfo must have non-zero size");
 }
 
 // Tests

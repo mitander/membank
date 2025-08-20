@@ -4,31 +4,35 @@
 //! query operation modules. Handles metrics, statistics, and provides a
 //! unified public API for all query types.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../core/assert.zig").assert;
-const stdx = @import("../core/stdx.zig");
-const storage = @import("../storage/engine.zig");
-const Config = @import("../storage/config.zig").Config;
+const std = @import("std");
+
+const cache = @import("cache.zig");
 const context_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
-const state_machines = @import("../core/state_machines.zig");
-const ownership = @import("../core/ownership.zig");
-const operations = @import("operations.zig");
-const traversal = @import("traversal.zig");
 const filtering = @import("filtering.zig");
-const cache = @import("cache.zig");
+const operations = @import("operations.zig");
+const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
+const state_machines = @import("../core/state_machines.zig");
+const stdx = @import("../core/stdx.zig");
+const storage = @import("../storage/engine.zig");
+const traversal = @import("traversal.zig");
+const storage_config_mod = @import("../storage/config.zig");
+const assert_mod = @import("../core/assert.zig");
+
+const assert = assert_mod.assert;
 const testing = std.testing;
 
-const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
+const Config = storage_config_mod.Config;
 const BlockId = context_block.BlockId;
-const SimulationVFS = simulation_vfs.SimulationVFS;
-const OwnedBlock = ownership.OwnedBlock;
 const BlockOwnership = ownership.BlockOwnership;
+const ContextBlock = context_block.ContextBlock;
+const OwnedBlock = ownership.OwnedBlock;
 const QueryEngineBlock = ownership.QueryEngineBlock;
 const QueryState = state_machines.QueryState;
+const SimulationVFS = simulation_vfs.SimulationVFS;
+const StorageEngine = storage.StorageEngine;
 
 pub const QueryError = operations.QueryError;
 pub const QueryResult = operations.QueryResult;

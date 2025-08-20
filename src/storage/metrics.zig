@@ -6,8 +6,11 @@
 //! concurrent access from monitoring threads without impacting storage performance.
 
 const std = @import("std");
-const assert = @import("../core/assert.zig").assert;
+
 const stdx = @import("../core/stdx.zig");
+const assert_mod = @import("../core/assert.zig");
+
+const assert = assert_mod.assert;
 
 /// Performance metrics for storage engine observability.
 /// Atomic counters enable safe concurrent access from monitoring threads

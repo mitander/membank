@@ -5,6 +5,7 @@
 //! rather than complete syntax analysis.
 
 const std = @import("std");
+
 const rules = @import("rules.zig");
 
 const RuleContext = rules.RuleContext;

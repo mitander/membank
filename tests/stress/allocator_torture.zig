@@ -11,6 +11,7 @@
 //! only appear under specific stress conditions or allocation patterns.
 
 const std = @import("std");
+
 const kausaldb = @import("kausaldb");
 
 const assert = kausaldb.assert;

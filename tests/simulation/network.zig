@@ -4,23 +4,24 @@
 //! of complex failure scenarios including network partitions, disk corruption,
 //! memory pressure, and systematic failures using KausalDB's simulation framework.
 
-const kausaldb = @import("kausaldb");
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
+
+const kausaldb = @import("kausaldb");
+
 const testing = std.testing;
 
 // Configure test output - use debug_print for simulation debug info
 const test_config = kausaldb.test_config;
-
 const simulation = kausaldb.simulation;
 const vfs = kausaldb.vfs;
 const storage = kausaldb.storage;
 const types = kausaldb.types;
 const assert = kausaldb.assert.assert;
 const fatal_assert = kausaldb.assert.fatal_assert;
+
 const PerformanceTier = kausaldb.PerformanceTier;
 const PerformanceThresholds = kausaldb.performance_assertions.PerformanceThresholds;
-
 const Simulation = simulation.Simulation;
 const NodeId = simulation.NodeId;
 const MessageType = simulation.MessageType;

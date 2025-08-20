@@ -3,9 +3,11 @@
 //! Provides rich debugging information in debug builds while maintaining
 //! zero runtime overhead in release builds.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
+
 const context_block = @import("types.zig");
+
 const log = std.log.scoped(.error_context);
 
 const BlockId = context_block.BlockId;
@@ -281,8 +283,7 @@ fn is_verbose_mode() bool {
 /// Increment global validation error counter if available
 fn increment_validation_errors() void {
     if (@hasDecl(@import("root"), "global_validation_errors")) {
-        const root = @import("root");
-        _ = root.global_validation_errors.fetchAdd(1, .seq_cst);
+        _ = @import("root").global_validation_errors.fetchAdd(1, .seq_cst);
     }
 }
 

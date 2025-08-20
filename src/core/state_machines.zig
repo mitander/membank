@@ -8,12 +8,14 @@
 //! and transition() for safe state changes with debug logging and fatal assertions
 //! for invalid transitions in debug builds.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
+
+const assert_mod = @import("assert.zig");
 const stdx = @import("stdx.zig");
-const custom_assert = @import("assert.zig");
-const fatal_assert = custom_assert.fatal_assert;
-const assert_fmt = custom_assert.assert_fmt;
+
+const assert_fmt = assert_mod.assert_fmt;
+const fatal_assert = assert_mod.fatal_assert;
 
 /// File state for VFS operations with transition validation.
 /// Prevents invalid file operations by encoding valid states in the type system.

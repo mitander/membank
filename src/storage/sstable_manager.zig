@@ -6,25 +6,24 @@
 //! creation for testability. Coordinates with TieredCompactionManager to
 //! maintain optimal read performance through background compaction.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const log = std.log.scoped(.sstable_manager);
-const assert = @import("../core/assert.zig").assert;
-const assert_fmt = @import("../core/assert.zig").assert_fmt;
-const fatal_assert = @import("../core/assert.zig").fatal_assert;
-const vfs = @import("../core/vfs.zig");
-const context_block = @import("../core/types.zig");
-const concurrency = @import("../core/concurrency.zig");
-const memory = @import("../core/memory.zig");
+const std = @import("std");
 
+const concurrency = @import("../core/concurrency.zig");
+const context_block = @import("../core/types.zig");
+const memory = @import("../core/memory.zig");
 const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
-const testing = std.testing;
-
-// Test helper: Mock StorageEngine for unit tests
-
+const vfs = @import("../core/vfs.zig");
 const sstable = @import("sstable.zig");
 const tiered_compaction = @import("tiered_compaction.zig");
+const assert_mod = @import("../core/assert.zig");
+
+const log = std.log.scoped(.sstable_manager);
+const testing = std.testing;
+const assert = assert_mod.assert;
+const assert_fmt = assert_mod.assert_fmt;
+const fatal_assert = assert_mod.fatal_assert;
 
 const VFS = vfs.VFS;
 const ContextBlock = context_block.ContextBlock;
@@ -32,7 +31,6 @@ const BlockId = context_block.BlockId;
 const SSTable = sstable.SSTable;
 const TieredCompactionManager = tiered_compaction.TieredCompactionManager;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-
 const OwnedBlock = ownership.OwnedBlock;
 const BlockOwnership = ownership.BlockOwnership;
 const ArenaCoordinator = memory.ArenaCoordinator;

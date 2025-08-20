@@ -6,9 +6,12 @@
 //! programming strategy.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
+
 const fatal_assertions = kausaldb.fatal_assertions;
+const testing = std.testing;
+
 const PerformanceAssertion = kausaldb.PerformanceAssertion;
 
 const FatalCategory = fatal_assertions.FatalCategory;

@@ -5,7 +5,10 @@
 //! excessive flush overhead from undersized memtables.
 
 const std = @import("std");
-const assert = @import("../core/assert.zig").assert;
+
+const assert_mod = @import("../core/assert.zig");
+
+const assert = assert_mod.assert;
 
 /// Default maximum memory size for memtable before flushing to SSTable (128MB).
 /// Size chosen to balance memory usage with flush frequency - smaller values

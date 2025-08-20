@@ -7,8 +7,10 @@
 //! safe concurrency primitives.
 
 const std = @import("std");
-const custom_assert = @import("assert.zig");
-const assert = custom_assert.assert;
+
+const assert_mod = @import("assert.zig");
+
+const assert = assert_mod.assert;
 
 /// Thread-safe metrics counter for tracking various statistics.
 ///

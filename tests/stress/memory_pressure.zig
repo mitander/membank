@@ -5,15 +5,17 @@
 //! maintain memory isolation and prevent cross-contamination between cycles.
 
 const std = @import("std");
-const testing = std.testing;
-const kausaldb = @import("kausaldb");
-const log = std.log.scoped(.stress_memory);
 
-const StorageEngine = kausaldb.storage.StorageEngine;
-const ContextBlock = kausaldb.types.ContextBlock;
+const kausaldb = @import("kausaldb");
+
+const log = std.log.scoped(.stress_memory);
+const testing = std.testing;
+
 const BlockId = kausaldb.types.BlockId;
+const ContextBlock = kausaldb.types.ContextBlock;
 const Simulation = kausaldb.simulation.Simulation;
 const SimulationHarness = kausaldb.SimulationHarness;
+const StorageEngine = kausaldb.storage.StorageEngine;
 const TestData = kausaldb.TestData;
 
 test "memory isolation with 5 storage cycles" {

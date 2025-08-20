@@ -10,21 +10,23 @@
 //! - Deterministic testing support via abstracted networking
 
 const std = @import("std");
-const custom_assert = @import("../core/assert.zig");
-const assert = custom_assert.assert;
-const comptime_assert = custom_assert.comptime_assert;
-const comptime_no_padding = custom_assert.comptime_no_padding;
-const log = std.log.scoped(.server);
-const concurrency = @import("../core/concurrency.zig");
-const signals = @import("../core/signals.zig");
-const storage = @import("../storage/engine.zig");
-const query_engine = @import("../query/engine.zig");
-const ctx_block = @import("../core/types.zig");
-const ownership = @import("../core/ownership.zig");
-const error_context = @import("../core/error_context.zig");
 
+const concurrency = @import("../core/concurrency.zig");
 const conn = @import("connection.zig");
 const connection_manager = @import("connection_manager.zig");
+const ctx_block = @import("../core/types.zig");
+const assert_mod = @import("../core/assert.zig");
+const error_context = @import("../core/error_context.zig");
+const ownership = @import("../core/ownership.zig");
+const query_engine = @import("../query/engine.zig");
+const signals = @import("../core/signals.zig");
+const storage = @import("../storage/engine.zig");
+
+const assert = assert_mod.assert;
+const comptime_assert = assert_mod.comptime_assert;
+const comptime_no_padding = assert_mod.comptime_no_padding;
+const log = std.log.scoped(.server);
+
 pub const ClientConnection = conn.ClientConnection;
 pub const MessageType = conn.MessageType;
 pub const MessageHeader = conn.MessageHeader;

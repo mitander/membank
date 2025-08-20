@@ -4,14 +4,15 @@
 //! and edge cases across the query engine. Validates query plan generation,
 //! execution strategies, and memory efficiency under various workloads.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const testing = std.testing;
+const std = @import("std");
+
 const kausaldb = @import("kausaldb");
 
-const storage = kausaldb.storage;
 const query = kausaldb.query;
 const simulation_vfs = kausaldb.simulation_vfs;
+const storage = kausaldb.storage;
+const testing = std.testing;
 const types = kausaldb.types;
 
 const StorageEngine = storage.StorageEngine;
@@ -24,7 +25,6 @@ const EdgeType = types.EdgeType;
 const FindBlocksQuery = query.operations.FindBlocksQuery;
 const TraversalQuery = query.traversal.TraversalQuery;
 const QueryResult = query.operations.QueryResult;
-
 const TestData = kausaldb.TestData;
 const StorageHarness = kausaldb.StorageHarness;
 const QueryHarness = kausaldb.QueryHarness;

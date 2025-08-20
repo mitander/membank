@@ -11,15 +11,18 @@
 //! - Type-safe access through coordinator patterns
 //! - Cache-optimal access with data-oriented storage
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../core/assert.zig").assert;
-const fatal_assert = @import("../core/assert.zig").fatal_assert;
+const std = @import("std");
+
 const context_block = @import("../core/types.zig");
 const memory = @import("../core/memory.zig");
+const assert_mod = @import("../core/assert.zig");
 
-const ContextBlock = context_block.ContextBlock;
+const assert = assert_mod.assert;
+const fatal_assert = assert_mod.fatal_assert;
+
 const BlockId = context_block.BlockId;
+const ContextBlock = context_block.ContextBlock;
 const TypedStorageCoordinatorType = memory.TypedStorageCoordinatorType;
 
 /// Zero-copy query result containing direct references to storage data.

@@ -4,14 +4,13 @@
 //! Verifies segment size limits, rotation behavior, multi-segment recovery,
 //! and cleanup after SSTable flushes.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
 
-// Configure test output - use debug_print for recovery debugging
+const kausaldb = @import("kausaldb");
+
+const testing = std.testing;
 const test_config = kausaldb.test_config;
 const assert = kausaldb.assert.assert;
-
 const types = kausaldb.types;
 const storage = kausaldb.storage;
 const simulation = kausaldb.simulation;
@@ -21,9 +20,7 @@ const StorageEngine = storage.StorageEngine;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const GraphEdge = types.GraphEdge;
-
 const EdgeType = types.EdgeType;
-
 const Simulation = simulation.Simulation;
 
 test "rotation at size limit" {

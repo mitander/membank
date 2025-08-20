@@ -10,11 +10,13 @@
 //! - Debug tracking for leak detection and usage analysis
 //! - Single-threaded optimization (no synchronization overhead)
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("assert.zig");
-const fatal_assert = @import("assert.zig").fatal_assert;
+const std = @import("std");
+
+const assert_mod = @import("assert.zig");
 const stdx = @import("stdx.zig");
+
+const fatal_assert = assert_mod.fatal_assert;
 
 /// Debug tracker for object pools with allocation monitoring and leak detection.
 fn DebugTrackerType(comptime T: type) type {

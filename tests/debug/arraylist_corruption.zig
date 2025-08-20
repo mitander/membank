@@ -6,17 +6,19 @@
 //! characters (���...) when memory gets overwritten.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
 const assert = kausaldb.assert.assert;
 const fatal_assert = kausaldb.assert.fatal_assert;
+const testing = std.testing;
+
+const ArenaCoordinator = kausaldb.memory.ArenaCoordinator;
+const BlockId = kausaldb.types.BlockId;
+const ContextBlock = kausaldb.types.ContextBlock;
 const SSTableManager = kausaldb.storage.SSTableManager;
 const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
-const ContextBlock = kausaldb.types.ContextBlock;
-const BlockId = kausaldb.types.BlockId;
 const TestData = kausaldb.TestData;
-const ArenaCoordinator = kausaldb.memory.ArenaCoordinator;
 
 /// Validate ArrayList integrity and detect string corruption patterns
 fn validate_path_integrity(manager: *SSTableManager, context: []const u8) !void {

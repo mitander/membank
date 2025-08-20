@@ -10,11 +10,13 @@
 //! All string memory is owned by the caller's arena and freed atomically.
 
 const std = @import("std");
-const custom_assert = @import("assert.zig");
-const assert = custom_assert.assert;
-const fatal_assert = custom_assert.fatal_assert;
-const testing = std.testing;
+
+const assert_mod = @import("assert.zig");
 const file_handle = @import("file_handle.zig");
+
+const assert = assert_mod.assert;
+const fatal_assert = assert_mod.fatal_assert;
+const testing = std.testing;
 
 /// Maximum path length for defensive validation across platforms
 const MAX_PATH_LENGTH = 4096;

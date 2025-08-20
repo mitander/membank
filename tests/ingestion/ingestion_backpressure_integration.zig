@@ -5,24 +5,25 @@
 //! while maintaining throughput under normal conditions.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
-const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
+const testing = std.testing;
 
-const ContextBlock = kausaldb.types.ContextBlock;
-const BlockId = kausaldb.types.BlockId;
-const EdgeType = kausaldb.types.EdgeType;
-const IngestionPipeline = kausaldb.pipeline.IngestionPipeline;
-const PipelineConfig = kausaldb.pipeline.PipelineConfig;
 const BackpressureConfig = kausaldb.pipeline.BackpressureConfig;
-const Source = kausaldb.pipeline.Source;
-const Parser = kausaldb.pipeline.Parser;
+const BlockId = kausaldb.types.BlockId;
 const Chunker = kausaldb.pipeline.Chunker;
-const SourceIterator = kausaldb.pipeline.SourceIterator;
-const SourceContent = kausaldb.pipeline.SourceContent;
-const ParsedUnit = kausaldb.pipeline.ParsedUnit;
+const ContextBlock = kausaldb.types.ContextBlock;
+const EdgeType = kausaldb.types.EdgeType;
 const IngestionError = kausaldb.pipeline.IngestionError;
+const IngestionPipeline = kausaldb.pipeline.IngestionPipeline;
+const ParsedUnit = kausaldb.pipeline.ParsedUnit;
+const Parser = kausaldb.pipeline.Parser;
+const PipelineConfig = kausaldb.pipeline.PipelineConfig;
+const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
+const Source = kausaldb.pipeline.Source;
+const SourceContent = kausaldb.pipeline.SourceContent;
+const SourceIterator = kausaldb.pipeline.SourceIterator;
 const StorageMetrics = kausaldb.storage.StorageMetrics;
 const TestData = kausaldb.TestData;
 const VFS = kausaldb.VFS;

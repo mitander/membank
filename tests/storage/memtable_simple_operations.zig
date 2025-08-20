@@ -4,15 +4,17 @@
 //! Focus: basic operations, memory management, block lifecycle.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
-const ContextBlock = kausaldb.types.ContextBlock;
+const testing = std.testing;
+
 const BlockId = kausaldb.types.BlockId;
+const ContextBlock = kausaldb.types.ContextBlock;
 const MemtableManager = kausaldb.storage.MemtableManager;
 const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
-const TestData = kausaldb.TestData;
 const StorageHarness = kausaldb.StorageHarness;
+const TestData = kausaldb.TestData;
 
 test "put block basic" {
     const allocator = testing.allocator;

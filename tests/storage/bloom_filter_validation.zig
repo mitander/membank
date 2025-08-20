@@ -4,10 +4,12 @@
 //! Focus: add/query operations, parameter calculation, serialization, memory efficiency.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
+const testing = std.testing;
 const types = kausaldb.types;
+
 const BloomFilter = kausaldb.bloom_filter.BloomFilter;
 const BlockId = types.BlockId;
 

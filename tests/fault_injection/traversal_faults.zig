@@ -12,16 +12,17 @@
 //!
 //! All tests use SimulationVFS for deterministic, reproducible failure injection.
 
-const kausaldb = @import("kausaldb");
-const std = @import("std");
 const builtin = @import("builtin");
-const testing = std.testing;
-const assert = kausaldb.assert;
+const std = @import("std");
 
+const kausaldb = @import("kausaldb");
+
+const assert = kausaldb.assert;
+const query_engine = kausaldb.query_engine;
 const simulation_vfs = kausaldb.simulation_vfs;
 const storage = kausaldb.storage;
+const testing = std.testing;
 const types = kausaldb.types;
-const query_engine = kausaldb.query_engine;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = storage.StorageEngine;

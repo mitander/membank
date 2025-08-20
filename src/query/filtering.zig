@@ -6,20 +6,25 @@
 //! for optimized metadata field queries.
 
 const std = @import("std");
-const assert = @import("../core/assert.zig").assert;
-const storage = @import("../storage/engine.zig");
+
 const context_block = @import("../core/types.zig");
+const metadata_index = @import("../storage/metadata_index.zig");
 const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
-const metadata_index = @import("../storage/metadata_index.zig");
+const storage = @import("../storage/engine.zig");
+const assert_mod = @import("../core/assert.zig");
+const storage_config_mod = @import("../storage/config.zig");
+
+const assert = assert_mod.assert;
 const testing = std.testing;
 
-const StorageEngine = storage.StorageEngine;
-const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
-const SimulationVFS = simulation_vfs.SimulationVFS;
-const QueryEngineBlock = ownership.QueryEngineBlock;
 const BlockOwnership = ownership.BlockOwnership;
+const Config = storage_config_mod.Config;
+const ContextBlock = context_block.ContextBlock;
+const QueryEngineBlock = ownership.QueryEngineBlock;
+const SimulationVFS = simulation_vfs.SimulationVFS;
+const StorageEngine = storage.StorageEngine;
 
 /// Filtering operation errors
 pub const FilterError = error{
@@ -948,8 +953,7 @@ test "execute filtered query with storage engine" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    const storage_config = @import("../storage/config.zig").Config{};
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_filtering", storage_config);
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_filtering", Config{});
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -1014,8 +1018,7 @@ test "filtered query with pagination" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    const storage_config = @import("../storage/config.zig").Config{};
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_pagination", storage_config);
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_pagination", Config{});
     defer storage_engine.deinit();
     try storage_engine.startup();
 
@@ -1125,8 +1128,7 @@ test "streaming filtered query prevents memory exhaustion" {
     var sim_vfs = try SimulationVFS.init(allocator);
     defer sim_vfs.deinit();
 
-    const storage_config = @import("../storage/config.zig").Config{};
-    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_streaming", storage_config);
+    var storage_engine = try StorageEngine.init(allocator, sim_vfs.vfs(), "./test_streaming", Config{});
     defer storage_engine.deinit();
     try storage_engine.startup();
 

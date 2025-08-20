@@ -5,15 +5,18 @@
 //! data integrity and crash resilience.
 
 const std = @import("std");
+
 const kausaldb = @import("kausaldb");
 
+const common = @import("common.zig");
+
 const stdx = kausaldb.stdx;
+
+const BlockId = kausaldb.types.BlockId;
+const ContextBlock = kausaldb.types.ContextBlock;
+const SimulationVFS = kausaldb.SimulationVFS;
 const StorageEngine = kausaldb.storage.StorageEngine;
 const TieredCompaction = kausaldb.storage.TieredCompaction;
-const ContextBlock = kausaldb.types.ContextBlock;
-const BlockId = kausaldb.types.BlockId;
-const SimulationVFS = kausaldb.SimulationVFS;
-const common = @import("common.zig");
 
 const CompactionFuzzStats = struct {
     total_compactions: u64 = 0,

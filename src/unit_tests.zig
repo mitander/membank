@@ -56,10 +56,13 @@ comptime {
     _ = @import("storage/wal/types.zig");
 }
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("core/assert.zig").assert;
+const std = @import("std");
+
 const stdx = @import("core/stdx.zig");
+const assert_mod = @import("core/assert.zig");
+
+const assert = assert_mod.assert;
 
 test {
     var arena_instance = std.heap.ArenaAllocator.init(std.testing.allocator);

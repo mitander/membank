@@ -5,14 +5,15 @@
 //! less memory. Tests focus on real-world scenarios including large segments,
 //! corruption handling, and callback integration.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
-const assert = kausaldb.assert.assert;
 
-const vfs = kausaldb.vfs;
+const kausaldb = @import("kausaldb");
+
+const assert = kausaldb.assert.assert;
 const simulation_vfs = kausaldb.simulation_vfs;
+const testing = std.testing;
 const types = kausaldb.types;
+const vfs = kausaldb.vfs;
 const wal = kausaldb.wal;
 
 const SimulationVFS = simulation_vfs.SimulationVFS;

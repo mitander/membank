@@ -5,19 +5,21 @@
 //! with optimizations for KausalDB's workload characteristics.
 
 const std = @import("std");
-const log = std.log.scoped(.tiered_compaction);
-const custom_assert = @import("../core/assert.zig");
-const assert = custom_assert.assert;
-const fatal_assert = custom_assert.fatal_assert;
-const vfs = @import("../core/vfs.zig");
-const memory = @import("../core/memory.zig");
-const sstable = @import("sstable.zig");
-const concurrency = @import("../core/concurrency.zig");
 
-const VFS = vfs.VFS;
+const concurrency = @import("../core/concurrency.zig");
+const assert_mod = @import("../core/assert.zig");
+const memory = @import("../core/memory.zig");
+const vfs = @import("../core/vfs.zig");
+const sstable = @import("sstable.zig");
+
+const log = std.log.scoped(.tiered_compaction);
+const assert = assert_mod.assert;
+const fatal_assert = assert_mod.fatal_assert;
+
 const ArenaCoordinator = memory.ArenaCoordinator;
-const SSTable = sstable.SSTable;
 const Compactor = sstable.Compactor;
+const SSTable = sstable.SSTable;
+const VFS = vfs.VFS;
 
 /// Tiered compaction configuration and strategy implementation.
 pub const TieredCompactionManager = struct {

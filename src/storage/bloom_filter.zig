@@ -1,7 +1,10 @@
 const std = @import("std");
-const custom_assert = @import("../core/assert.zig");
-const assert = custom_assert.assert;
+
 const context_block = @import("../core/types.zig");
+const assert_mod = @import("../core/assert.zig");
+
+const assert = assert_mod.assert;
+
 const BlockId = context_block.BlockId;
 
 /// Bloom filter optimized for BlockId lookups in SSTables.

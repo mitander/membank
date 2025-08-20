@@ -13,21 +13,22 @@
 //! - Single-threaded execution model
 
 const std = @import("std");
-const ingestion = @import("pipeline.zig");
-const context_block = @import("../core/types.zig");
-const assert = @import("../core/assert.zig");
-const concurrency = @import("../core/concurrency.zig");
-const error_context = @import("../core/error_context.zig");
 
-const IngestionError = ingestion.IngestionError;
-const ParsedUnit = ingestion.ParsedUnit;
-const ParsedEdge = ingestion.ParsedEdge;
-const SourceLocation = ingestion.SourceLocation;
+const assert_mod = @import("../core/assert.zig");
+const concurrency = @import("../core/concurrency.zig");
+const context_block = @import("../core/types.zig");
+const error_context = @import("../core/error_context.zig");
+const ingestion = @import("pipeline.zig");
+
+const BlockId = context_block.BlockId;
 const Chunker = ingestion.Chunker;
 const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
 const EdgeType = context_block.EdgeType;
+const GraphEdge = context_block.GraphEdge;
+const IngestionError = ingestion.IngestionError;
+const ParsedEdge = ingestion.ParsedEdge;
+const ParsedUnit = ingestion.ParsedUnit;
+const SourceLocation = ingestion.SourceLocation;
 
 /// Configuration for semantic chunker
 pub const SemanticChunkerConfig = struct {

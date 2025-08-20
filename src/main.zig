@@ -1,22 +1,24 @@
 //! Main entry point and CLI interface.
 
 const std = @import("std");
-const custom_assert = @import("core/assert.zig");
-const assert = custom_assert.assert;
-const log = std.log.scoped(.main);
-const storage_mod = @import("storage/engine.zig");
-const query_engine = @import("query/engine.zig");
-const context_block = @import("core/types.zig");
-const vfs = @import("core/vfs.zig");
-const production_vfs = @import("core/production_vfs.zig");
-const concurrency = @import("core/concurrency.zig");
-const signals = @import("core/signals.zig");
-const server = @import("server/handler.zig");
 
-const StorageEngine = storage_mod.StorageEngine;
-const QueryEngine = query_engine.QueryEngine;
-const ContextBlock = context_block.ContextBlock;
+const concurrency = @import("core/concurrency.zig");
+const context_block = @import("core/types.zig");
+const assert_mod = @import("core/assert.zig");
+const production_vfs = @import("core/production_vfs.zig");
+const query_engine = @import("query/engine.zig");
+const server = @import("server/handler.zig");
+const signals = @import("core/signals.zig");
+const storage_mod = @import("storage/engine.zig");
+const vfs = @import("core/vfs.zig");
+
+const assert = assert_mod.assert;
+const log = std.log.scoped(.main);
+
 const BlockId = context_block.BlockId;
+const ContextBlock = context_block.ContextBlock;
+const QueryEngine = query_engine.QueryEngine;
+const StorageEngine = storage_mod.StorageEngine;
 
 pub fn main() !void {
     concurrency.init();

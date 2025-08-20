@@ -5,12 +5,14 @@
 //! Validates algorithm correctness under hostile conditions and ensures memory safety.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
-const types = kausaldb.types;
 const query_engine = kausaldb.query_engine;
 const query_traversal = kausaldb.query_traversal;
+const testing = std.testing;
+const types = kausaldb.types;
+const execute_traversal = kausaldb.query.traversal.execute_traversal;
 
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
@@ -18,8 +20,6 @@ const GraphEdge = types.GraphEdge;
 const EdgeType = types.EdgeType;
 const TraversalQuery = query_traversal.TraversalQuery;
 const TraversalDirection = query_traversal.TraversalDirection;
-const execute_traversal = kausaldb.query.traversal.execute_traversal;
-
 const TestData = kausaldb.TestData;
 const QueryHarness = kausaldb.QueryHarness;
 

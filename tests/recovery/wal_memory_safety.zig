@@ -5,16 +5,18 @@
 //! that could lead to corruption in production environments.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
 const simulation_vfs = kausaldb.simulation_vfs;
-const Simulation = kausaldb.simulation.Simulation;
-const ContextBlock = kausaldb.types.ContextBlock;
+const testing = std.testing;
+
 const BlockId = kausaldb.types.BlockId;
-const StorageEngine = kausaldb.storage.StorageEngine;
+const ContextBlock = kausaldb.types.ContextBlock;
 const QueryEngine = kausaldb.query_engine.QueryEngine;
+const Simulation = kausaldb.simulation.Simulation;
 const SimulationHarness = kausaldb.SimulationHarness;
+const StorageEngine = kausaldb.storage.StorageEngine;
 const TestData = kausaldb.TestData;
 
 // Test WAL recovery robustness under memory pressure scenarios

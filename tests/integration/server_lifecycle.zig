@@ -6,22 +6,22 @@
 //!
 //! Focus: Proper resource management and lifecycle patterns rather than failure injection.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const testing = std.testing;
+const std = @import("std");
+
 const kausaldb = @import("kausaldb");
 
-// Configure test output - use debug_print for server lifecycle logging
-const test_config = kausaldb.test_config;
+const testing = std.testing;
 
+const test_config = kausaldb.test_config;
 const vfs = kausaldb.vfs;
 const production_vfs = kausaldb.production_vfs;
 const simulation_vfs = kausaldb.simulation_vfs;
+
 const StorageEngine = kausaldb.StorageEngine;
 const QueryEngine = kausaldb.QueryEngine;
 const Server = kausaldb.handler.Server;
 const ServerConfig = kausaldb.handler.ServerConfig;
-
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const ProductionVFS = production_vfs.ProductionVFS;
 

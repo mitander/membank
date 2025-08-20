@@ -8,10 +8,12 @@
 //! as examples of proper component testing in KausalDB.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
 const simulation_vfs = kausaldb.simulation_vfs;
+const testing = std.testing;
+
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = kausaldb.StorageEngine;
 const QueryEngine = kausaldb.QueryEngine;

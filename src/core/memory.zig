@@ -8,10 +8,13 @@
 //! **Design Principle**: Coordinators provide method-based allocation instead of
 //! direct allocator references, ensuring allocation always uses current arena state.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("assert.zig").assert;
-const fatal_assert = @import("assert.zig").fatal_assert;
+const std = @import("std");
+
+const assert_mod = @import("assert.zig");
+
+const assert = assert_mod.assert;
+const fatal_assert = assert_mod.fatal_assert;
 
 /// Memory generation validation errors
 pub const GenerationError = error{

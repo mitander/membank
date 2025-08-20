@@ -4,9 +4,12 @@
 //! real-world timestamps to ensure log outputs are reproducible across runs.
 //! Enabled only in debug builds to maintain zero overhead in release builds.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const Simulation = @import("simulation.zig").Simulation;
+const std = @import("std");
+
+const simulation_mod = @import("simulation.zig");
+
+const Simulation = simulation_mod.Simulation;
 
 pub const DeterministicLogger = struct {
     sim: *const Simulation,

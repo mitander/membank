@@ -7,25 +7,26 @@
 //! Migrated to use standardized harness infrastructure for simplified setup
 //! and enhanced reliability through arena-per-subsystem memory management.
 
-const std = @import("std");
-const testing = std.testing;
 const builtin = @import("builtin");
+const std = @import("std");
 
 const kausaldb = @import("kausaldb");
-const test_config = kausaldb.test_config;
-const execute_traversal = kausaldb.query.traversal.execute_traversal;
 
-const ContextBlock = kausaldb.ContextBlock;
+const execute_traversal = kausaldb.query.traversal.execute_traversal;
+const test_config = kausaldb.test_config;
+const testing = std.testing;
+
 const BlockId = kausaldb.BlockId;
-const GraphEdge = kausaldb.GraphEdge;
+const ContextBlock = kausaldb.ContextBlock;
 const EdgeType = kausaldb.EdgeType;
-const TraversalQuery = kausaldb.query.traversal.TraversalQuery;
-const TraversalAlgorithm = kausaldb.query.traversal.TraversalAlgorithm;
-const TraversalDirection = kausaldb.query.traversal.TraversalDirection;
+const GraphEdge = kausaldb.GraphEdge;
 const QueryHarness = kausaldb.QueryHarness;
-const TestData = kausaldb.TestData;
 const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
 const StorageEngine = kausaldb.StorageEngine;
+const TestData = kausaldb.TestData;
+const TraversalAlgorithm = kausaldb.query.traversal.TraversalAlgorithm;
+const TraversalDirection = kausaldb.query.traversal.TraversalDirection;
+const TraversalQuery = kausaldb.query.traversal.TraversalQuery;
 
 test "A* search integration with storage engine" {
     // Arena allocator for complex graph traversal test with many temporary allocations

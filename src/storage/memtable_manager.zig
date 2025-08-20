@@ -9,35 +9,29 @@
 //! **Architectural Responsibility**: Owns WAL for durability guarantees.
 //! All mutations go through WAL-first pattern before updating in-memory state.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../core/assert.zig").assert;
-const assert_fmt = @import("../core/assert.zig").assert_fmt;
-const fatal_assert = @import("../core/assert.zig").fatal_assert;
-const context_block = @import("../core/types.zig");
-const concurrency = @import("../core/concurrency.zig");
-const vfs = @import("../core/vfs.zig");
-const ownership = @import("../core/ownership.zig");
-const memory = @import("../core/memory.zig");
+const std = @import("std");
 
-const SSTableManager = @import("sstable_manager.zig").SSTableManager;
-const BlockIndex = @import("block_index.zig").BlockIndex;
+const concurrency = @import("../core/concurrency.zig");
+const context_block = @import("../core/types.zig");
 const graph_edge_index = @import("graph_edge_index.zig");
-const GraphEdgeIndex = graph_edge_index.GraphEdgeIndex;
+const memory = @import("../core/memory.zig");
+const ownership = @import("../core/ownership.zig");
+const vfs = @import("../core/vfs.zig");
 const wal = @import("wal.zig");
 
-const ContextBlock = context_block.ContextBlock;
-const GraphEdge = context_block.GraphEdge;
+const ArenaCoordinator = memory.ArenaCoordinator;
 const BlockId = context_block.BlockId;
+const BlockOwnership = ownership.BlockOwnership;
+const ContextBlock = context_block.ContextBlock;
 const EdgeType = context_block.EdgeType;
-
+const GraphEdge = context_block.GraphEdge;
+const GraphEdgeIndex = graph_edge_index.GraphEdgeIndex;
+const OwnedBlock = ownership.OwnedBlock;
 const OwnedGraphEdge = graph_edge_index.OwnedGraphEdge;
 const VFS = vfs.VFS;
 const WAL = wal.WAL;
 const WALEntry = wal.WALEntry;
-const OwnedBlock = ownership.OwnedBlock;
-const BlockOwnership = ownership.BlockOwnership;
-const ArenaCoordinator = memory.ArenaCoordinator;
 
 pub const BlockIterator = struct {
     block_index: *const BlockIndex,
@@ -562,6 +556,15 @@ const testing = std.testing;
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
 const SimulationVFS = simulation_vfs.SimulationVFS;
 
+const block_index_mod = @import("block_index.zig");
+const sstable_manager_mod = @import("sstable_manager.zig");
+const assert_mod = @import("../core/assert.zig");
+
+const BlockIndex = block_index_mod.BlockIndex;
+const SSTableManager = sstable_manager_mod.SSTableManager;
+const assert = assert_mod.assert;
+const assert_fmt = assert_mod.assert_fmt;
+const fatal_assert = assert_mod.fatal_assert;
 fn create_test_block(id: BlockId, content: []const u8) ContextBlock {
     return ContextBlock{
         .id = id,

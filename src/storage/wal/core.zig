@@ -4,38 +4,39 @@
 //! segment management, and coordination with recovery subsystem. This module
 //! provides the primary interface for WAL operations.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const custom_assert = @import("../../core/assert.zig");
-const assert = custom_assert.assert;
-const log = std.log.scoped(.wal);
+const std = @import("std");
 
-const types = @import("types.zig");
-const entry_mod = @import("entry.zig");
-const recovery = @import("recovery.zig");
-const vfs = @import("../../core/vfs.zig");
 const concurrency = @import("../../core/concurrency.zig");
-const error_context = @import("../../core/error_context.zig");
-const simulation_vfs = @import("../../sim/simulation_vfs.zig");
 const context_block = @import("../../core/types.zig");
+const assert_mod = @import("../../core/assert.zig");
+const entry_mod = @import("entry.zig");
+const error_context = @import("../../core/error_context.zig");
+const recovery = @import("recovery.zig");
+const simulation_vfs = @import("../../sim/simulation_vfs.zig");
+const types = @import("types.zig");
+const vfs = @import("../../core/vfs.zig");
+
+const assert = assert_mod.assert;
+const log = std.log.scoped(.wal);
 const testing = std.testing;
 
-const WALError = types.WALError;
-const WALEntryType = types.WALEntryType;
-const WALStats = types.WALStats;
-const RecoveryCallback = types.RecoveryCallback;
-const WALEntry = entry_mod.WALEntry;
-const MAX_SEGMENT_SIZE = types.MAX_SEGMENT_SIZE;
-const MAX_PAYLOAD_SIZE = types.MAX_PAYLOAD_SIZE;
-const ContextBlock = context_block.ContextBlock;
 const BlockId = context_block.BlockId;
+const ContextBlock = context_block.ContextBlock;
 const GraphEdge = context_block.GraphEdge;
+const RecoveryCallback = types.RecoveryCallback;
 const SimulationVFS = simulation_vfs.SimulationVFS;
-const WAL_FILE_PREFIX = types.WAL_FILE_PREFIX;
-const WAL_FILE_SUFFIX = types.WAL_FILE_SUFFIX;
-const WAL_FILE_NUMBER_DIGITS = types.WAL_FILE_NUMBER_DIGITS;
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;
+const WALEntry = entry_mod.WALEntry;
+const WALEntryType = types.WALEntryType;
+const WALError = types.WALError;
+const WALStats = types.WALStats;
+const MAX_PAYLOAD_SIZE = types.MAX_PAYLOAD_SIZE;
+const MAX_SEGMENT_SIZE = types.MAX_SEGMENT_SIZE;
+const WAL_FILE_NUMBER_DIGITS = types.WAL_FILE_NUMBER_DIGITS;
+const WAL_FILE_PREFIX = types.WAL_FILE_PREFIX;
+const WAL_FILE_SUFFIX = types.WAL_FILE_SUFFIX;
 
 /// Write-Ahead Log manager with segmented files and streaming recovery
 pub const WAL = struct {

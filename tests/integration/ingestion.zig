@@ -6,20 +6,21 @@
 //! These tests validate the end-to-end workflow of automatically
 //! populating the database from Git repositories.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
 
+const kausaldb = @import("kausaldb");
+
+const git_source = kausaldb.git_source;
+const ingestion = kausaldb.pipeline;
+const semantic_chunker = kausaldb.semantic_chunker;
 const simulation = kausaldb.simulation;
 const simulation_vfs = kausaldb.simulation_vfs;
+const stdx = kausaldb.stdx;
 const storage = kausaldb.storage;
+const testing = std.testing;
 const types = kausaldb.types;
 const vfs = kausaldb.vfs;
-const ingestion = kausaldb.pipeline;
-const git_source = kausaldb.git_source;
 const zig_parser = kausaldb.zig_parser;
-const semantic_chunker = kausaldb.semantic_chunker;
-const stdx = kausaldb.stdx;
 
 const Simulation = simulation.Simulation;
 const StorageEngine = storage.StorageEngine;

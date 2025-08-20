@@ -4,18 +4,19 @@
 //! efficiency, and performance regression detection across all major subsystems.
 
 const std = @import("std");
-const testing = std.testing;
-const log = std.log.scoped(.streaming_memory_benchmark);
 
 const kausaldb = @import("kausaldb");
-const test_config = kausaldb.test_config;
-const types = kausaldb.types;
-const assert = kausaldb.assert.assert;
-const operations = kausaldb.query_operations;
 
+const assert = kausaldb.assert.assert;
+const log = std.log.scoped(.streaming_memory_benchmark);
+const operations = kausaldb.query_operations;
+const test_config = kausaldb.test_config;
+const testing = std.testing;
+const types = kausaldb.types;
+
+const BatchPerformanceMeasurement = kausaldb.BatchPerformanceMeasurement;
 const PerformanceAssertion = kausaldb.PerformanceAssertion;
 const PerformanceThresholds = kausaldb.PerformanceThresholds;
-const BatchPerformanceMeasurement = kausaldb.BatchPerformanceMeasurement;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const GraphEdge = types.GraphEdge;

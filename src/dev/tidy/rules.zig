@@ -5,6 +5,8 @@
 //! requirements and can be systematically validated and evolved.
 
 const std = @import("std");
+const mem = std.mem;
+
 const violation = @import("violation.zig");
 
 const Violation = violation.Violation;
@@ -196,6 +198,12 @@ pub const KAUSALDB_RULES = [_]Rule{
         .description = "Enforce function declaration line length limits with multiline formatting",
         .violation_type = .function_length,
         .check_fn = check_function_declaration_length,
+    },
+    .{
+        .name = "import_field_access",
+        .description = "Prevent direct field access in import statements, require two-phase pattern",
+        .violation_type = .import_pattern,
+        .check_fn = check_import_field_access,
     },
     .{
         .name = "two_phase_initialization",
@@ -1768,4 +1776,74 @@ fn is_allocator_type(type_name: []const u8) bool {
         std.mem.endsWith(u8, type_name, "Allocator") or
         std.mem.indexOf(u8, type_name, "arena") != null or
         std.mem.indexOf(u8, type_name, "Arena") != null;
+}
+
+/// Check for direct field access in import statements.
+/// Enforces two-phase pattern: import module, then extract fields separately.
+fn check_import_field_access(context: *RuleContext) []const Rule.RuleViolation {
+    var violations = std.ArrayList(Rule.RuleViolation).init(context.allocator);
+
+    var lines = mem.splitScalar(u8, context.source, '\n');
+    var line_number: u32 = 1;
+
+    while (lines.next()) |line| {
+        defer line_number += 1;
+
+        const trimmed = mem.trim(u8, line, " \t");
+        if (is_import_field_access_pattern(trimmed) and !is_in_string_literal(trimmed)) {
+            const rule_violation = Rule.RuleViolation{
+                .line = line_number,
+                .message = "Direct field access in import statement violates two-phase pattern",
+                .context = context.allocator.dupe(u8, trimmed) catch trimmed,
+                .suggested_fix = "Split into: const module_name = @import(\"...\"); const field = module_name.field;",
+            };
+            violations.append(rule_violation) catch break;
+        }
+    }
+
+    return violations.toOwnedSlice() catch &[_]Rule.RuleViolation{};
+}
+
+/// Detect pattern: const name = @import("path").field;
+fn is_import_field_access_pattern(line: []const u8) bool {
+    if (!mem.startsWith(u8, line, "const ") or
+        mem.indexOf(u8, line, "= @import(") == null)
+    {
+        return false;
+    }
+
+    // Look for pattern: @import("...").field_name;
+    const import_end = mem.indexOf(u8, line, "\").") orelse return false;
+    const after_dot = line[import_end + 3 ..];
+
+    // Check if there's a valid field access followed by semicolon
+    const semicolon = mem.indexOf(u8, after_dot, ";") orelse return false;
+    const field_part = mem.trim(u8, after_dot[0..semicolon], " \t");
+
+    // Must be a simple field access (no spaces, parentheses, etc.)
+    return field_part.len > 0 and
+        mem.indexOf(u8, field_part, " ") == null and
+        mem.indexOf(u8, field_part, "(") == null and
+        mem.indexOf(u8, field_part, "[") == null;
+}
+
+/// Check if the import pattern appears inside a string literal
+fn is_in_string_literal(line: []const u8) bool {
+    // Look for the import pattern within quotes
+    if (mem.indexOf(u8, line, "\"") == null) return false;
+
+    const import_pos = mem.indexOf(u8, line, "@import(") orelse return false;
+
+    // Find all quote positions before the import
+    var quote_count: u32 = 0;
+    var i: usize = 0;
+    while (i < import_pos) {
+        if (line[i] == '"' and (i == 0 or line[i - 1] != '\\')) {
+            quote_count += 1;
+        }
+        i += 1;
+    }
+
+    // If odd number of quotes before @import, we're inside a string literal
+    return quote_count % 2 == 1;
 }

@@ -7,14 +7,15 @@
 //! 3. Maintain liveness guarantees under realistic failure scenarios
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
+const testing = std.testing;
 const types = kausaldb.types;
-const TestData = kausaldb.test_harness.TestData;
-const FaultInjectionHarness = kausaldb.test_harness.FaultInjectionHarness;
-const FaultInjectionConfig = kausaldb.test_harness.FaultInjectionConfig;
 
+const FaultInjectionConfig = kausaldb.test_harness.FaultInjectionConfig;
+const FaultInjectionHarness = kausaldb.test_harness.FaultInjectionHarness;
+const TestData = kausaldb.test_harness.TestData;
 const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const GraphEdge = types.GraphEdge;

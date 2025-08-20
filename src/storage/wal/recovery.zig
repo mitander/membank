@@ -4,32 +4,33 @@
 //! and streaming recovery using the WALEntryStream abstraction. This module
 //! handles corruption detection, error recovery, and callback management.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const custom_assert = @import("../../core/assert.zig");
-const assert = custom_assert.assert;
-const log = std.log.scoped(.wal_recovery);
+const std = @import("std");
 
-const types = @import("types.zig");
-const entry_mod = @import("entry.zig");
-const wal_entry_stream = @import("stream.zig");
-const corruption_tracker_mod = @import("corruption_tracker.zig");
-const vfs = @import("../../core/vfs.zig");
-const simulation_vfs = @import("../../sim/simulation_vfs.zig");
 const context_block = @import("../../core/types.zig");
+const corruption_tracker_mod = @import("corruption_tracker.zig");
+const assert_mod = @import("../../core/assert.zig");
+const entry_mod = @import("entry.zig");
+const simulation_vfs = @import("../../sim/simulation_vfs.zig");
+const types = @import("types.zig");
+const vfs = @import("../../core/vfs.zig");
+const wal_entry_stream = @import("stream.zig");
+
+const assert = assert_mod.assert;
+const log = std.log.scoped(.wal_recovery);
 const testing = std.testing;
 
-const WALError = types.WALError;
-const RecoveryCallback = types.RecoveryCallback;
-const MAX_PATH_LENGTH = types.MAX_PATH_LENGTH;
-const WALEntry = entry_mod.WALEntry;
+const BlockId = context_block.BlockId;
+const ContextBlock = context_block.ContextBlock;
 const CorruptionTracker = corruption_tracker_mod.CorruptionTracker;
+const GraphEdge = context_block.GraphEdge;
+const MAX_PATH_LENGTH = types.MAX_PATH_LENGTH;
+const RecoveryCallback = types.RecoveryCallback;
+const SimulationVFS = simulation_vfs.SimulationVFS;
 const VFS = vfs.VFS;
 const VFile = vfs.VFile;
-const ContextBlock = context_block.ContextBlock;
-const BlockId = context_block.BlockId;
-const GraphEdge = context_block.GraphEdge;
-const SimulationVFS = simulation_vfs.SimulationVFS;
+const WALEntry = entry_mod.WALEntry;
+const WALError = types.WALError;
 
 /// Recover entries from a single WAL segment file using streaming approach
 /// Processes entries one at a time to minimize memory usage and improve corruption resilience

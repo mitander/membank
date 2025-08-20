@@ -14,15 +14,19 @@
 
 const std = @import("std");
 
-const types = @import("wal/types.zig");
-const entry_mod = @import("wal/entry.zig");
-const recovery = @import("wal/recovery.zig");
 const core = @import("wal/core.zig");
+const entry = @import("wal/entry.zig");
+const recovery = @import("wal/recovery.zig");
+const types = @import("wal/types.zig");
+
+pub const recover_from_segment = recovery.recover_from_segment;
+pub const recover_from_segments = recovery.recover_from_segments;
 
 pub const WALError = types.WALError;
 pub const WALEntryType = types.WALEntryType;
 pub const WALStats = types.WALStats;
 pub const RecoveryCallback = types.RecoveryCallback;
+pub const WALEntry = entry.WALEntry;
 
 pub const MAX_SEGMENT_SIZE = types.MAX_SEGMENT_SIZE;
 pub const MAX_PAYLOAD_SIZE = types.MAX_PAYLOAD_SIZE;
@@ -30,12 +34,7 @@ pub const WAL_FILE_PREFIX = types.WAL_FILE_PREFIX;
 pub const WAL_FILE_SUFFIX = types.WAL_FILE_SUFFIX;
 pub const WAL_FILE_NUMBER_DIGITS = types.WAL_FILE_NUMBER_DIGITS;
 pub const MAX_PATH_LENGTH = types.MAX_PATH_LENGTH;
-
-pub const WALEntry = entry_mod.WALEntry;
 pub const WAL = core.WAL;
-
-pub const recover_from_segment = recovery.recover_from_segment;
-pub const recover_from_segments = recovery.recover_from_segments;
 
 const testing = std.testing;
 const context_block = @import("../core/types.zig");
@@ -97,10 +96,10 @@ test "WAL basic write and recovery" {
         .content = "Test content",
     };
 
-    var entry = try WALEntry.create_put_block(allocator, test_block);
-    defer entry.deinit(allocator);
+    var block_entry = try WALEntry.create_put_block(allocator, test_block);
+    defer block_entry.deinit(allocator);
 
-    try wal.write_entry(entry);
+    try wal.write_entry(block_entry);
 
     const stats = wal.statistics();
     try testing.expect(stats.entries_written == 1);
@@ -154,10 +153,10 @@ test "WAL segment rotation" {
             .content = large_content,
         };
 
-        var entry = try WALEntry.create_put_block(allocator, test_block);
-        defer entry.deinit(allocator);
+        var block_entry = try WALEntry.create_put_block(allocator, test_block);
+        defer block_entry.deinit(allocator);
 
-        try wal.write_entry(entry);
+        try wal.write_entry(block_entry);
         entries_written += 1;
 
         const stats = wal.statistics();

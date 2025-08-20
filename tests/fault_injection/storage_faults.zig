@@ -7,16 +7,18 @@
 //! - Disk full during compaction
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
-const ContextBlock = kausaldb.types.ContextBlock;
+const testing = std.testing;
+
 const BlockId = kausaldb.types.BlockId;
+const ContextBlock = kausaldb.types.ContextBlock;
+const FaultInjectionConfig = kausaldb.FaultInjectionConfig;
+const FaultInjectionHarness = kausaldb.FaultInjectionHarness;
 const SimulationVFS = kausaldb.simulation_vfs.SimulationVFS;
 const StorageEngine = kausaldb.storage.StorageEngine;
 const TestData = kausaldb.TestData;
-const FaultInjectionHarness = kausaldb.FaultInjectionHarness;
-const FaultInjectionConfig = kausaldb.FaultInjectionConfig;
 
 test "fault injection simulation vfs infrastructure" {
     // Test basic fault injection infrastructure without full storage engine

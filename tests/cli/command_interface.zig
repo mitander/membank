@@ -4,10 +4,10 @@
 //! Does not test actual server startup - that belongs in integration tests.
 
 const std = @import("std");
-const testing = std.testing;
+
 const kausaldb = @import("kausaldb");
 
-// Configure test output - use debug_print for CLI performance stats
+const testing = std.testing;
 const test_config = kausaldb.test_config;
 
 // Test result structure for CLI command testing

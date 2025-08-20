@@ -4,20 +4,22 @@
 //! and query engine coordination under random queries and malformed inputs.
 
 const std = @import("std");
+
 const kausaldb = @import("kausaldb");
+
 const common = @import("common.zig");
 
 const stdx = kausaldb.stdx;
 
-const SimulationVFS = kausaldb.SimulationVFS;
-const StorageEngine = kausaldb.StorageEngine;
-const QueryEngine = kausaldb.QueryEngine;
-const TraversalQuery = kausaldb.TraversalQuery;
-const FilteredQuery = kausaldb.FilteredQuery;
-const TraversalDirection = kausaldb.TraversalDirection;
-const TraversalAlgorithm = kausaldb.TraversalAlgorithm;
 const FilterCondition = kausaldb.FilterCondition;
 const FilterExpression = kausaldb.FilterExpression;
+const FilteredQuery = kausaldb.FilteredQuery;
+const QueryEngine = kausaldb.QueryEngine;
+const SimulationVFS = kausaldb.SimulationVFS;
+const StorageEngine = kausaldb.StorageEngine;
+const TraversalAlgorithm = kausaldb.TraversalAlgorithm;
+const TraversalDirection = kausaldb.TraversalDirection;
+const TraversalQuery = kausaldb.TraversalQuery;
 
 const FUZZ_ITERATIONS_CONTINUOUS = std.math.maxInt(u64);
 

@@ -4,8 +4,8 @@
 //! capabilities for performance monitoring and memory usage analysis.
 //! Used by benchmarks and profiling tests to track memory efficiency.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
 const build_options = @import("build_options");
 
 /// Memory profiler for tracking RSS usage patterns

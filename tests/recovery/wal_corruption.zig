@@ -4,15 +4,16 @@
 //! systematic corruption detection, magic number corruption, checksum
 //! failures, and recovery boundary conditions under hostile environments.
 
-const kausaldb = @import("kausaldb");
 const std = @import("std");
-const testing = std.testing;
 
-const storage = kausaldb.storage;
-const simulation_vfs = kausaldb.simulation_vfs;
-const types = kausaldb.types;
+const kausaldb = @import("kausaldb");
+
 const assert = kausaldb.assert.assert;
 const fatal_assert = kausaldb.assert.fatal_assert;
+const simulation_vfs = kausaldb.simulation_vfs;
+const storage = kausaldb.storage;
+const testing = std.testing;
+const types = kausaldb.types;
 
 const WAL = storage.WAL;
 const WALEntry = storage.WALEntry;
@@ -22,15 +23,14 @@ const ContextBlock = types.ContextBlock;
 const BlockId = types.BlockId;
 const GraphEdge = types.GraphEdge;
 const EdgeType = types.EdgeType;
+const TestData = kausaldb.TestData;
+const StorageHarness = kausaldb.StorageHarness;
 
 // Defensive limits to prevent runaway tests
 const MAX_TEST_DURATION_MS = 5000;
 const MAX_RECOVERY_ENTRIES = 1000;
 const MAX_CORRUPTION_ATTEMPTS = 50;
 const SYSTEMATIC_CORRUPTION_THRESHOLD = 4;
-
-const TestData = kausaldb.TestData;
-const StorageHarness = kausaldb.StorageHarness;
 
 fn create_test_block_from_int(id_int: u32, content: []const u8) ContextBlock {
     return ContextBlock{

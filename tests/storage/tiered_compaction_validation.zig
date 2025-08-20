@@ -3,13 +3,14 @@
 //! Tests individual TieredCompactionManager functionality in isolation.
 //! Focus: compaction threshold logic, job creation, tier management.
 
-const std = @import("std");
 const builtin = @import("builtin");
-const testing = std.testing;
+const std = @import("std");
+
 const kausaldb = @import("kausaldb");
 
-const storage = kausaldb.storage;
 const simulation_vfs = kausaldb.simulation_vfs;
+const storage = kausaldb.storage;
+const testing = std.testing;
 const types = kausaldb.types;
 
 const TieredCompactionManager = storage.TieredCompactionManager;
