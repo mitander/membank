@@ -141,10 +141,9 @@ pub const WAL = struct {
         bytes_written += try self.write_streaming_block_header(block);
         bytes_written += try self.write_streaming_block_content(block);
 
-        // Conditional sync for durability
+        // Conditional sync for durability - only sync the WAL file, not entire filesystem
         if (self.enable_immediate_sync) {
             self.active_file.?.flush() catch return WALError.IoError;
-            self.vfs.sync() catch return WALError.IoError;
         }
 
         self.update_write_stats(bytes_written);
@@ -232,7 +231,6 @@ pub const WAL = struct {
         // Conditional sync for performance optimization
         if (self.enable_immediate_sync) {
             self.active_file.?.flush() catch return WALError.IoError;
-            self.vfs.sync() catch return WALError.IoError;
         }
 
         // Write verification enabled only in debug builds for performance

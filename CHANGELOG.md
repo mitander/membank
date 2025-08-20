@@ -14,9 +14,10 @@ Initial release. Core storage and query engine.
 
 ### Performance
 
-- 15µs block writes (67K ops/sec)
-- 0.08µs block reads (12.6M ops/sec)
-- Sub-100µs graph traversal
+- 30µs block writes (33K ops/sec) optimized benchmark
+- 33ns block reads (29.9M ops/sec) from memtable
+- 56ns single queries (17.9M ops/sec)
+- O(1) memory cleanup through arena coordinator
 
 ### Known Limitations
 

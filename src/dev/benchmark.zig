@@ -171,6 +171,9 @@ pub fn main() !void {
     } else if (std.mem.eql(u8, benchmark_name, "batch-query")) {
         const result = try query_benchmarks.run_batch_queries(allocator);
         try results.append(result);
+    } else if (std.mem.eql(u8, benchmark_name, "graph-traversal")) {
+        const result = try query_benchmarks.run_graph_traversal(allocator);
+        try results.append(result);
     } else if (std.mem.eql(u8, benchmark_name, "wal-flush")) {
         const result = try storage_benchmarks.run_wal_flush(allocator);
         try results.append(result);
@@ -237,9 +240,10 @@ fn print_usage() void {
         \\  block-read     Single block read operations
         \\  block-update   Single block update operations
         \\  block-delete   Single block delete operations
-        \\  single-query   Individual query operations
-        \\  batch-query    Batch query operations
-        \\  wal-flush      Write-ahead log flush operations
+        \\  single-query     Individual query operations
+        \\  batch-query      Batch query operations
+        \\  graph-traversal  Graph traversal operations (3-hop)
+        \\  wal-flush        Write-ahead log flush operations
         \\
         \\Options:
         \\  --json         Output results in JSON format

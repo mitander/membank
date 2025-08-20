@@ -253,7 +253,8 @@ test "ownership validation with fatal assertions" {
     try testing.expect(!owned.is_owned_by(.query_engine));
 
     // Test ownership transfer
-    owned.transfer_ownership(.storage_engine, null);
+    var transferred = owned.transfer(.storage_engine, null);
+    owned = transferred;
     try testing.expect(owned.is_owned_by(.storage_engine));
     try testing.expect(!owned.is_owned_by(.memtable_manager));
 

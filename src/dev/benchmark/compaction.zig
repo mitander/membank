@@ -23,7 +23,7 @@ const BlockId = context_block.BlockId;
 const COMPACTION_THRESHOLD_NS = 50_000_000; // 50ms for compaction operations
 const MERGE_THRESHOLD_NS = 10_000_000; // 10ms for merge operations
 const MAX_PEAK_MEMORY_BYTES = 200 * 1024 * 1024; // 200MB during compaction
-const MAX_MEMORY_GROWTH_PER_OP = 200 * 1024; // 200KB per compaction (measured 189KB)
+const MAX_MEMORY_GROWTH_PER_OP = 50 * 1024; // 50KB per compaction (actual storage usage)
 const COMPACTION_ITERATIONS = 10;
 const WARMUP_ITERATIONS = 2;
 
@@ -61,7 +61,7 @@ fn benchmark_compaction_operations(
 ) !BenchmarkResult {
     try setup_compaction_test_data(storage_engine, allocator);
 
-    const initial_memory = kausaldb.profiler.query_current_rss_memory();
+    const initial_memory = storage_engine.memory_usage().total_bytes;
     var timings = try allocator.alloc(u64, COMPACTION_ITERATIONS);
     defer allocator.free(timings);
 
@@ -87,8 +87,8 @@ fn benchmark_compaction_operations(
         timings[i] = @intCast(end_time - start_time);
     }
 
-    const peak_memory = kausaldb.profiler.query_current_rss_memory();
-    const memory_growth = peak_memory - initial_memory;
+    const final_memory = storage_engine.memory_usage().total_bytes;
+    const memory_growth = if (final_memory >= initial_memory) final_memory - initial_memory else 0;
 
     const stats = analyze_timings(timings);
     const throughput = calculate_safe_throughput(COMPACTION_ITERATIONS, stats.total_time_ns);
@@ -105,9 +105,9 @@ fn benchmark_compaction_operations(
         .throughput_ops_per_sec = throughput,
         .passed_threshold = stats.mean <= COMPACTION_THRESHOLD_NS,
         .threshold_ns = COMPACTION_THRESHOLD_NS,
-        .peak_memory_bytes = peak_memory,
+        .peak_memory_bytes = final_memory,
         .memory_growth_bytes = memory_growth,
-        .memory_efficient = peak_memory <= MAX_PEAK_MEMORY_BYTES and memory_growth <= (MAX_MEMORY_GROWTH_PER_OP * COMPACTION_ITERATIONS),
+        .memory_efficient = final_memory <= MAX_PEAK_MEMORY_BYTES and memory_growth <= (MAX_MEMORY_GROWTH_PER_OP * COMPACTION_ITERATIONS),
     };
 
     return result;
