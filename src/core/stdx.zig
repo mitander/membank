@@ -35,17 +35,17 @@ pub const MetricsCounter = struct {
         _ = self.value.fetchAdd(1, .monotonic);
     }
 
-    /// Load the current value of the counter atomically.
+    /// Atomic read with monotonic ordering for thread-safe access.
     pub fn load(self: *const MetricsCounter) u64 {
         return self.value.load(.monotonic);
     }
 
-    /// Set the counter to a specific value.
+    /// Atomic replace with monotonic ordering for thread-safe updates.
     pub fn store(self: *MetricsCounter, new_value: u64) void {
         _ = self.value.swap(new_value, .monotonic);
     }
 
-    /// Reset the counter to zero.
+    /// Atomic reset to zero for clean metric initialization.
     pub fn reset(self: *MetricsCounter) void {
         _ = self.value.swap(0, .monotonic);
     }

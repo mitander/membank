@@ -914,14 +914,12 @@ test "filtered query result operations" {
         },
     };
 
-    // Convert to QueryEngineBlock
     var test_blocks = try allocator.alloc(QueryEngineBlock, test_ctx_blocks.len);
     defer allocator.free(test_blocks);
     for (test_ctx_blocks, 0..) |ctx_block, i| {
         test_blocks[i] = QueryEngineBlock.init(ctx_block);
     }
 
-    // Clone test blocks to ensure FilteredQueryResult owns all strings
     var owned_blocks = try allocator.alloc(QueryEngineBlock, test_blocks.len);
     for (test_blocks, 0..) |test_block, i| {
         const cloned_block = try clone_block(allocator, test_block.read(.query_engine).*);
@@ -985,19 +983,16 @@ test "execute filtered query with storage engine" {
         try storage_engine.put_block(block);
     }
 
-    // Execute filtered query for content containing "test"
     const condition = FilterExpression{ .condition = filter_by_content_contains("test") };
     const query = FilteredQuery.init(condition);
 
     const result = try execute_filtered_query(allocator, &storage_engine, query);
     defer result.deinit();
 
-    // Should find 2 matching blocks
     try testing.expectEqual(@as(u32, 2), result.total_matches);
     try testing.expectEqual(@as(usize, 2), result.blocks.len);
     try testing.expect(!result.has_more);
 
-    // Verify correct blocks were found
     var found_function = false;
     var found_variable = false;
     var found_struct = false;
@@ -1132,7 +1127,6 @@ test "streaming filtered query prevents memory exhaustion" {
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    // Add many blocks that would exceed memory if collected all at once
     for (0..1000) |i| {
         var id_bytes: [16]u8 = undefined;
         std.mem.writeInt(u128, &id_bytes, @as(u128, i), .big);
@@ -1151,7 +1145,6 @@ test "streaming filtered query prevents memory exhaustion" {
         try storage_engine.put_block(block);
     }
 
-    // Execute streaming query with small max_results to test pagination
     const condition = FilterExpression{ .condition = filter_by_content_contains("streaming") };
     const query = FilteredQuery{
         .expression = condition,
@@ -1179,6 +1172,5 @@ test "streaming filtered query prevents memory exhaustion" {
     try testing.expectEqual(@as(u32, 10), stats.results_returned);
     try testing.expect(stats.finished);
 
-    // Verify streaming prevented memory exhaustion by only processing results_returned
     try testing.expect(stats.results_returned == 10); // Only processed the limited results, not all matches
 }

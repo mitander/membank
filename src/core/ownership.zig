@@ -230,21 +230,6 @@ pub const OwnedBlock = struct {
         return transferred;
     }
 
-    /// Legacy transfer method - DEPRECATED, use transfer() instead.
-    /// Transfer ownership without cloning data.
-    /// DANGEROUS: Only use when you're certain the original owner won't access the block.
-    pub fn transfer_ownership(
-        self: *OwnedBlock,
-        new_ownership: BlockOwnership,
-        new_arena: anytype,
-    ) void {
-        if (builtin.mode == .Debug) {
-            std.log.debug("Ownership transfer: block {any} from {s} to {s} (DANGEROUS - ensure original owner won't access)", .{ self.block.id, self.ownership.name(), new_ownership.name() });
-        }
-        self.ownership = new_ownership;
-        _ = new_arena; // Arena tracking handled separately for consistent alignment
-    }
-
     /// Validate read access for the given accessor.
     /// Debug-only validation - compiled out in release builds for zero cost.
     pub fn validate_read_access(self: *const OwnedBlock, accessor: BlockOwnership) void {
@@ -766,13 +751,13 @@ test "OwnedBlock ownership transfer" {
 
     var owned = OwnedBlock.init(block, .memtable_manager, null);
 
-    // Transfer ownership using legacy method (demonstrates old pattern)
-    owned.transfer_ownership(.query_engine, null);
-    try std.testing.expect(owned.is_owned_by(.query_engine));
+    // Transfer ownership using new safe method
+    var transferred = owned.transfer(.query_engine, null);
+    try std.testing.expect(transferred.is_owned_by(.query_engine));
 
     // New owner can access
-    _ = owned.read(.query_engine);
-    _ = owned.write(.query_engine);
+    _ = transferred.read(.query_engine);
+    _ = transferred.write(.query_engine);
 }
 
 test "OwnedBlock cloning with ownership" {
@@ -841,14 +826,12 @@ test "OwnedBlockCollection management" {
     var owned1 = OwnedBlock.init(block1, .temporary, null);
     var owned2 = OwnedBlock.init(block2, .temporary, null);
 
-    // Add blocks to collection
     try collection.add_block(&owned1);
     try collection.add_block(&owned2);
 
     try std.testing.expect(collection.length() == 2);
     try std.testing.expect(!collection.is_empty());
 
-    // Find blocks
     const found = collection.find_block(block1.id, .storage_engine);
     try std.testing.expect(found != null);
     try std.testing.expect(found.?.id.eql(block1.id));
@@ -866,30 +849,25 @@ test "OwnershipTracker functionality" {
     // Safety: Valid hex string is statically verified
     const block_id = BlockId.from_hex("ABCDEF1234567890FEDCBA0987654321") catch unreachable;
 
-    // Track allocation
     tracker.track_allocation(block_id, .memtable_manager);
     try std.testing.expect(tracker.query_owner_for_block(block_id) == .memtable_manager);
 
-    // Track transfer
     tracker.track_transfer(block_id, .memtable_manager, .sstable_manager);
     try std.testing.expect(tracker.query_owner_for_block(block_id) == .sstable_manager);
 
     tracker.validate_access(block_id, .sstable_manager); // Should pass
     tracker.validate_access(block_id, .temporary); // Should pass
 
-    // Track deallocation
     tracker.track_deallocation(block_id);
     try std.testing.expect(tracker.query_owner_for_block(block_id) == null);
 }
 
 test "compile-time ownership validation" {
-    // This would fail at compile time if uncommented:
     // const BadStruct = struct {
     //     raw_block: ContextBlock, // Should use OwnedBlock
     // };
     // validate_ownership_usage(BadStruct);
 
-    // This should pass
     const GoodStruct = struct {
         owned_block: OwnedBlock,
         block_collection: OwnedBlockCollection,

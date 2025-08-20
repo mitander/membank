@@ -516,19 +516,9 @@ pub const StorageEngine = struct {
 
     /// Write a ContextBlock to storage with automatic ownership transfer.
     /// Convenience method that wraps the block with memtable_manager ownership.
-    pub fn put_block_raw(self: *StorageEngine, block: ContextBlock) !void {
+    pub fn put_block(self: *StorageEngine, block: ContextBlock) !void {
         const owned_block = OwnedBlock.take_ownership(block, .memtable_manager);
         return self.put_block_owned(owned_block);
-    }
-
-    /// Legacy compatibility method - delegates to type-safe overloads.
-    /// DEPRECATED: Use put_block_owned() or put_block_raw() for clarity.
-    pub fn put_block(self: *StorageEngine, block: anytype) !void {
-        switch (@TypeOf(block)) {
-            OwnedBlock => return self.put_block_owned(block),
-            ContextBlock => return self.put_block_raw(block),
-            else => @compileError("put_block() accepts OwnedBlock or ContextBlock only"),
-        }
     }
 
     /// Find a Context Block by ID with ownership-aware semantics.

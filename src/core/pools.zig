@@ -224,7 +224,6 @@ pub fn ObjectPoolType(comptime T: type) type {
         fn validate_pool_ownership(self: *const Self, item: *T) void {
             _ = self; // Pool context available for future validation enhancements
             if (comptime builtin.mode == .Debug) {
-                // Check if pointer is within our allocated range
                 const node: *PoolNode = @alignCast(@fieldParentPtr("item", item));
                 const node_addr = @intFromPtr(node);
 
@@ -441,7 +440,6 @@ test "ObjectPool basic allocation and release" {
     var pool = try ObjectPoolType(u64).init(testing.allocator, 4);
     defer pool.deinit();
 
-    // Test acquisition
     const item1 = pool.acquire() orelse return error.PoolExhausted;
     const item2 = pool.acquire() orelse return error.PoolExhausted;
 
@@ -452,11 +450,9 @@ test "ObjectPool basic allocation and release" {
     try testing.expect(item2.* == 84);
     try testing.expect(pool.active_count() == 2);
 
-    // Test release
     pool.release(item1);
     try testing.expect(pool.active_count() == 1);
 
-    // Test reacquisition
     const item3 = pool.acquire() orelse return error.PoolExhausted;
     item3.* = 126;
     try testing.expect(item3.* == 126);
@@ -471,7 +467,6 @@ test "ObjectPool exhaustion handling" {
     var pool = try ObjectPoolType(u32).init(testing.allocator, 2);
     defer pool.deinit();
 
-    // Acquire all items
     const item1 = pool.acquire();
     const item2 = pool.acquire();
 
@@ -517,7 +512,6 @@ test "ObjectPool with initialization function" {
 test "StackPool basic operations" {
     var pool = StackPoolType(u32, 8).init();
 
-    // Test acquisition
     const item1 = pool.acquire() orelse return error.StackExhausted;
     const item2 = pool.acquire() orelse return error.StackExhausted;
 
@@ -528,7 +522,6 @@ test "StackPool basic operations" {
     try testing.expect(item2.* == 200);
     try testing.expect(pool.active_count() == 2);
 
-    // Test release
     pool.release(item1);
     try testing.expect(pool.active_count() == 1);
 
@@ -583,7 +576,6 @@ test "PoolManager template functionality" {
     // Test utilization
     try testing.expect(!pool_manager.has_high_utilization(0.5));
 
-    // Test release
     pool_manager.release_first(item1);
     pool_manager.release_second(item2);
 }

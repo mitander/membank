@@ -21,7 +21,6 @@ Initial release. Core storage and query engine.
 ### Known Limitations
 
 - Single-node only
-- No persistence across restarts
 - Basic query operations only
 - No authentication
 

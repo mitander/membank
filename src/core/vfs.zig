@@ -391,34 +391,13 @@ pub const VFile = struct {
                 const verify_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.FileClosed;
                 const written_slice = verify_file_data.content.items[write_start_pos..sim.position];
 
-                if (false) {
-                    std.debug.print("=== VFS WRITE VERIFICATION: pos={}, size={} ===\n", .{ write_start_pos, actual_write_size });
-                    std.debug.print("Expected first 20 bytes: ", .{});
-                    for (data[0..@min(20, data.len)], 0..) |byte, i| {
-                        std.debug.print("{}:0x{X} ", .{ i, byte });
-                    }
-                    std.debug.print("\n", .{});
-                    std.debug.print("Actual first 20 bytes:   ", .{});
-                    for (written_slice[0..@min(20, written_slice.len)], 0..) |byte, i| {
-                        std.debug.print("{}:0x{X} ", .{ i, byte });
-                    }
-                    std.debug.print("\n", .{});
-
-                    const debug_file_data = sim.file_data_fn(sim.vfs_ptr, sim.handle_id) orelse return VFileError.FileClosed;
-                    std.debug.print("=== FULL FILE CONTENT (first 64 bytes) ===\n", .{});
-                    for (debug_file_data.content.items[0..@min(64, debug_file_data.content.items.len)], 0..) |byte, i| {
-                        std.debug.print("{}:0x{X} ", .{ i, byte });
-                        if (i > 0 and (i + 1) % 16 == 0) std.debug.print("\n", .{});
-                    }
-                    if (debug_file_data.content.items.len % 16 != 0) std.debug.print("\n", .{});
-                }
-
                 if (!std.mem.eql(u8, written_slice, data[0..actual_write_size])) {
-                    std.debug.print("VFS write corruption detected: written data mismatch at pos {}\n", .{write_start_pos});
                     if (actual_write_size >= 8) {
                         const expected = std.mem.readInt(u64, data[0..8], .little);
                         const actual = std.mem.readInt(u64, written_slice[0..8], .little);
-                        std.debug.print("VFS corruption: expected 0x{X}, got 0x{X}\n", .{ expected, actual });
+                        assert_mod.fatal_assert(false, "VFS write corruption detected at pos {}: expected 0x{X}, got 0x{X}", .{ write_start_pos, expected, actual });
+                    } else {
+                        assert_mod.fatal_assert(false, "VFS write corruption detected: written data mismatch at pos {}", .{write_start_pos});
                     }
                     return VFileError.IoError;
                 }

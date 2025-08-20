@@ -46,7 +46,6 @@ pub const Simulation = struct {
             .logger = if (builtin.mode == .Debug) DeterministicLogger{ .sim = undefined } else null,
         };
 
-        // Set the self-reference if logger exists
         if (sim.logger) |*logger| {
             logger.sim = &sim;
         }

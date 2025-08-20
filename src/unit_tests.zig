@@ -111,12 +111,8 @@ test {
                 .flags = .{ .exclusive = false, .truncate = true },
             });
         } else {
-            std.debug.print("unit_tests.zig needs updating.\n", .{});
-            std.debug.print(
-                "Rerun with SNAP_UPDATE=1 environmental variable to update the contents.\n",
-                .{},
-            );
-            assert(false);
+            // Unit test contents need updating - use SNAP_UPDATE=1 to regenerate
+            @panic("unit_tests.zig needs updating. Rerun with SNAP_UPDATE=1 environmental variable to update the contents.");
         }
     }
 }

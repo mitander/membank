@@ -128,38 +128,25 @@ pub const WALEntry = struct {
     /// Create WAL entry for a ContextBlock with direct serialization.
     /// Most efficient method for raw block data.
     pub fn create_put_block_raw(allocator: std.mem.Allocator, block: ContextBlock) WALError!WALEntry {
-        return create_put_block_internal(allocator, block);
+        return create_put_block(allocator, block);
     }
 
     /// Create WAL entry for a StorageEngineBlock with ownership validation.
     /// Reads the block data through the storage engine ownership system.
     pub fn create_put_block_storage(allocator: std.mem.Allocator, block: StorageEngineBlock) WALError!WALEntry {
         const context_block_data = block.read(.storage_engine);
-        return create_put_block_internal(allocator, context_block_data);
+        return create_put_block(allocator, context_block_data);
     }
 
     /// Create WAL entry for an OwnedBlock with ownership validation.
     /// Reads the block data through the ownership system.
     pub fn create_put_block_owned(allocator: std.mem.Allocator, block: OwnedBlock) WALError!WALEntry {
         const context_block_data = block.read(.storage_engine);
-        return create_put_block_internal(allocator, context_block_data);
+        return create_put_block(allocator, context_block_data);
     }
 
-    /// Legacy compatibility method - delegates to type-safe overloads.
-    /// DEPRECATED: Use create_put_block_raw(), create_put_block_storage(), or create_put_block_owned().
-    pub fn create_put_block(allocator: std.mem.Allocator, block: anytype) WALError!WALEntry {
-        const BlockType = @TypeOf(block);
-        switch (BlockType) {
-            ContextBlock => return create_put_block_raw(allocator, block),
-            StorageEngineBlock => return create_put_block_storage(allocator, block),
-            OwnedBlock => return create_put_block_owned(allocator, block),
-            else => @compileError("create_put_block() accepts ContextBlock, StorageEngineBlock, or OwnedBlock only"),
-        }
-    }
-
-    /// Internal implementation for WAL entry creation.
-    /// Common logic shared by all type-safe overloads.
-    fn create_put_block_internal(allocator: std.mem.Allocator, context_block_data: ContextBlock) WALError!WALEntry {
+    /// Create WAL entry from a Context Block (most common case).
+    pub fn create_put_block(allocator: std.mem.Allocator, context_block_data: ContextBlock) WALError!WALEntry {
         const payload_size = context_block_data.serialized_size();
 
         // Zero-size blocks indicate serialization logic failure, not data corruption

@@ -281,8 +281,7 @@ pub const SSTable = struct {
         };
 
         if (!supported_block_write) {
-            std.debug.print("DEBUG: write_blocks() called with unsupported type: {s}\n", .{@typeName(BlocksType)});
-            @panic("write_blocks() accepts []const ContextBlock, []ContextBlock, []const SSTableBlock, []SSTableBlock, []const OwnedBlock, or []OwnedBlock only");
+            @compileError("write_blocks() called with unsupported type '" ++ @typeName(BlocksType) ++ "'. Accepts []const ContextBlock, []ContextBlock, []const SSTableBlock, []SSTableBlock, []const OwnedBlock, or []OwnedBlock only");
         }
         assert_mod.assert_not_empty(blocks, "Cannot write empty blocks array", .{});
         assert_mod.assert_fmt(blocks.len <= 1000000, "Too many blocks for single SSTable: {}", .{blocks.len});

@@ -118,7 +118,6 @@ pub fn BoundedArrayType(
 
             const item = self.items[index];
 
-            // Shift elements left
             if (index < self.len - 1) {
                 stdx.copy_left(T, self.items[index .. self.len - 1], self.items[index + 1 .. self.len]);
             }
@@ -250,7 +249,8 @@ pub fn BoundedHashMapType(comptime K: type, comptime V: type, comptime max_size:
         @compileError("BoundedHashMapType max_size too large: " ++ std.fmt.comptimePrint("{}", .{max_size}) ++ " (max: 32768)");
     }
 
-    // Hash table size is next power of 2 >= max_size * 1.5 for good performance
+    // Hash table load factor of 66% balances memory efficiency with probe distance
+    // Power-of-2 sizing enables fast modulo via bitwise AND for hash distribution
     const table_size = std.math.ceilPowerOfTwoAssert(usize, max_size + max_size / 2);
 
     return struct {
@@ -287,11 +287,9 @@ pub fn BoundedHashMapType(comptime K: type, comptime V: type, comptime max_size:
                     },
                     .occupied => |*occupied| {
                         if (std.meta.eql(occupied.key, key)) {
-                            // Update existing
                             occupied.value = value;
                             return;
                         }
-                        // Continue probing
                         index = (index + 1) % TABLE_SIZE;
                     },
                 }
@@ -308,9 +306,7 @@ pub fn BoundedHashMapType(comptime K: type, comptime V: type, comptime max_size:
             while (probes < TABLE_SIZE) {
                 switch (self.entries[index]) {
                     .empty => return null,
-                    .deleted => {
-                        // Continue probing
-                    },
+                    .deleted => {},
                     .occupied => |occupied| {
                         if (std.meta.eql(occupied.key, key)) {
                             return occupied.value;
@@ -334,9 +330,7 @@ pub fn BoundedHashMapType(comptime K: type, comptime V: type, comptime max_size:
             while (probes < TABLE_SIZE) {
                 switch (self.entries[index]) {
                     .empty => return false,
-                    .deleted => {
-                        // Continue probing
-                    },
+                    .deleted => {},
                     .occupied => |occupied| {
                         if (std.meta.eql(occupied.key, key)) {
                             self.entries[index] = Entry.deleted;
@@ -540,7 +534,6 @@ comptime {
 test "BoundedArrayType basic operations" {
     var array = BoundedArrayType(u32, 5){};
 
-    // Test append
     try array.append(1);
     try array.append(2);
     try array.append(3);
@@ -549,13 +542,11 @@ test "BoundedArrayType basic operations" {
     try std.testing.expect(!array.is_empty());
     try std.testing.expect(!array.is_full());
 
-    // Test get
     try std.testing.expect(array.get(0) == 1);
     try std.testing.expect(array.get(1) == 2);
     try std.testing.expect(array.get(2) == 3);
     try std.testing.expect(array.get(3) == null);
 
-    // Test at
     try std.testing.expect(array.at(0) == 1);
     try std.testing.expect(array.at(2) == 3);
 }
@@ -563,14 +554,12 @@ test "BoundedArrayType basic operations" {
 test "BoundedArrayType overflow behavior" {
     var array = BoundedArrayType(u8, 3){};
 
-    // Fill to capacity
     try array.append(1);
     try array.append(2);
     try array.append(3);
 
     try std.testing.expect(array.is_full());
 
-    // Should overflow
     try std.testing.expectError(error.Overflow, array.append(4));
 }
 
@@ -587,7 +576,6 @@ test "BoundedArrayType slice operations" {
     try std.testing.expect(slice[1] == 20);
     try std.testing.expect(slice[2] == 30);
 
-    // Mutable slice
     const mut_slice = array.slice_mut();
     mut_slice[1] = 25;
     try std.testing.expect(array.at(1) == 25);
@@ -608,7 +596,6 @@ test "BoundedArrayType remove operations" {
     try std.testing.expect(array.at(1) == 3); // Shifted left
     try std.testing.expect(array.at(2) == 4);
 
-    // Pop from back
     const popped = array.pop();
     try std.testing.expect(popped == 4);
     try std.testing.expect(array.length() == 2);
@@ -630,7 +617,6 @@ test "BoundedArrayType search operations" {
 test "BoundedQueueType basic operations" {
     var queue = BoundedQueueType(u32, 4){};
 
-    // Test enqueue
     try queue.enqueue(1);
     try queue.enqueue(2);
     try queue.enqueue(3);
@@ -639,11 +625,9 @@ test "BoundedQueueType basic operations" {
     try std.testing.expect(!queue.is_empty());
     try std.testing.expect(!queue.is_full());
 
-    // Test peek
     try std.testing.expect(queue.peek() == 1);
     try std.testing.expect(queue.peek_back() == 3);
 
-    // Test dequeue
     try std.testing.expect(queue.dequeue() == 1);
     try std.testing.expect(queue.dequeue() == 2);
     try std.testing.expect(queue.length() == 1);
@@ -654,7 +638,6 @@ test "BoundedQueueType basic operations" {
 test "BoundedQueueType wrap-around" {
     var queue = BoundedQueueType(u8, 3){};
 
-    // Fill queue
     try queue.enqueue(1);
     try queue.enqueue(2);
     try queue.enqueue(3);
@@ -662,7 +645,6 @@ test "BoundedQueueType wrap-around" {
     try std.testing.expect(queue.dequeue() == 1);
     try queue.enqueue(4);
 
-    // Check order is preserved
     try std.testing.expect(queue.dequeue() == 2);
     try std.testing.expect(queue.dequeue() == 3);
     try std.testing.expect(queue.dequeue() == 4);
@@ -672,20 +654,17 @@ test "BoundedQueueType wrap-around" {
 test "BoundedHashMapType basic operations" {
     var map = BoundedHashMapType(u32, []const u8, 8){};
 
-    // Test put
     try map.put(1, "one");
     try map.put(2, "two");
     try map.put(3, "three");
 
     try std.testing.expect(map.length() == 3);
 
-    // Test get
     try std.testing.expectEqualStrings("one", map.get(1).?);
     try std.testing.expectEqualStrings("two", map.get(2).?);
     try std.testing.expectEqualStrings("three", map.get(3).?);
     try std.testing.expect(map.get(999) == null);
 
-    // Test update
     try map.put(2, "TWO");
     try std.testing.expectEqualStrings("TWO", map.get(2).?);
     try std.testing.expect(map.length() == 3); // Should not increase
@@ -732,7 +711,6 @@ test "compile-time validation catches oversized collections" {
     // const TooLarge = BoundedArrayType(u8, 100000); // Too large
     // const ZeroSize = BoundedArrayType(u8, 0); // Zero size not allowed
 
-    // This should pass
     const Reasonable = BoundedArrayType(u8, 100);
     try std.testing.expect(Reasonable.max_length() == 100);
 }
@@ -740,20 +718,17 @@ test "compile-time validation catches oversized collections" {
 test "BoundedArrayType extend and copy operations" {
     var array = BoundedArrayType(u32, 10){};
 
-    // Test extend from slice
     const data = [_]u32{ 1, 2, 3 };
     try array.extend_from_slice(&data);
     try std.testing.expect(array.length() == 3);
     try std.testing.expect(array.at(0) == 1);
     try std.testing.expect(array.at(2) == 3);
 
-    // Test copy from another array
     var other = BoundedArrayType(u32, 10){};
     try other.copy_from(&array);
     try std.testing.expect(other.length() == 3);
     try std.testing.expect(other.at(1) == 2);
 
-    // Test overflow on extend
     const big_data = [_]u32{ 4, 5, 6, 7, 8, 9, 10, 11 }; // 8 more items, total would be 11
     try std.testing.expectError(error.Overflow, array.extend_from_slice(&big_data));
 }
@@ -771,7 +746,6 @@ test "BoundedArrayType iterator functionality" {
     try std.testing.expect(iter.next() == 30);
     try std.testing.expect(iter.next() == null);
 
-    // Reset and iterate again
     iter.reset();
     try std.testing.expect(iter.next() == 10);
 }

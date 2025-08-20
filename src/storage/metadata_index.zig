@@ -334,12 +334,10 @@ test "metadata field index basic operations" {
         .content = "const Test = struct {};",
     };
 
-    // Add blocks to index
     try index.put_block(block1);
     try index.put_block(block2);
     try index.put_block(block3);
 
-    // Test lookup
     const function_blocks = index.find_blocks_by_value("function");
     try testing.expect(function_blocks != null);
     try testing.expectEqual(@as(usize, 2), function_blocks.?.len);
@@ -351,7 +349,6 @@ test "metadata field index basic operations" {
     const missing_blocks = index.find_blocks_by_value("enum");
     try testing.expect(missing_blocks == null);
 
-    // Test statistics
     const stats = index.statistics();
     try testing.expectEqual(@as(u32, 2), stats.unique_values); // "function", "struct"
     try testing.expectEqual(@as(u32, 3), stats.total_blocks);
@@ -369,7 +366,6 @@ test "metadata index manager integration" {
     var manager = MetadataIndexManager.init(allocator, &arena_coordinator);
     defer manager.deinit();
 
-    // Add indexes for common fields
     try manager.add_field_index("unit_type");
 
     const test_block = ContextBlock{
@@ -389,7 +385,6 @@ test "metadata index manager integration" {
     try testing.expect(test_blocks != null);
     try testing.expectEqual(@as(usize, 1), test_blocks.?.len);
 
-    // Test removal
     try manager.remove_block(test_block);
     const after_removal = unit_type_index.?.find_blocks_by_value("test");
     try testing.expect(after_removal == null);

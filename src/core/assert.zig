@@ -147,7 +147,6 @@ pub fn comptime_no_padding(comptime T: type) void {
             .@"struct" => |struct_info| {
                 var expected_size: usize = 0;
 
-                // Calculate expected size by summing field sizes
                 for (struct_info.fields) |field| {
                     expected_size += @sizeOf(field.type);
                 }
@@ -274,7 +273,6 @@ pub fn safe_slice(buffer: []const u8, offset: usize, size: usize, comptime opera
 
     fatal_assert(size <= buffer.len - offset, operation ++ ": slice size {} from offset {} exceeds buffer bounds (buffer: {})", .{ size, offset, buffer.len });
 
-    // Check for arithmetic overflow in offset + size
     const end_pos = std.math.add(usize, offset, size) catch {
         fatal_assert(false, operation ++ ": arithmetic overflow in slice bounds {} + {}", .{ offset, size });
         unreachable;
@@ -295,7 +293,6 @@ pub fn safe_slice_mut(buffer: []u8, offset: usize, size: usize, comptime operati
 
     fatal_assert(size <= buffer.len - offset, operation ++ ": slice size {} from offset {} exceeds buffer bounds (buffer: {})", .{ size, offset, buffer.len });
 
-    // Check for arithmetic overflow in offset + size
     const end_pos = std.math.add(usize, offset, size) catch {
         fatal_assert(false, operation ++ ": arithmetic overflow in slice bounds {} + {}", .{ offset, size });
         unreachable;
@@ -338,13 +335,10 @@ pub fn assert_aligned(buffer: []const u8, alignment: usize, comptime operation: 
 }
 
 test "assert basic functionality" {
-    // Simple assert should not panic
     assert(true);
 
-    // Rich assert should not panic
     assert_fmt(true, "This should not fail", .{});
 
-    // Test with formatting
     const value = 42;
     assert_fmt(value == 42, "Expected 42, got {}", .{value});
 }
@@ -395,7 +389,6 @@ test "comptime_assert functionality" {
 }
 
 test "assertions_enabled utility" {
-    // Should be true in debug builds
     const enabled = assertions_enabled();
     if (builtin.mode == .Debug) {
         try std.testing.expect(enabled);
@@ -421,31 +414,26 @@ test "assert_stride_positive functionality" {
 test "safe buffer operations" {
     const test_data = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
 
-    // Test safe_slice with valid bounds
     const slice1 = try safe_slice(&test_data, 0, 4, "test slice");
     try std.testing.expectEqualSlices(u8, &[_]u8{ 1, 2, 3, 4 }, slice1);
 
     const slice2 = try safe_slice(&test_data, 2, 3, "test slice");
     try std.testing.expectEqualSlices(u8, &[_]u8{ 3, 4, 5 }, slice2);
 
-    // Test safe_slice_mut
     var mutable_data = [_]u8{ 10, 20, 30, 40, 50 };
     const mut_slice = try safe_slice_mut(&mutable_data, 1, 3, "test mutable slice");
     try std.testing.expectEqualSlices(u8, &[_]u8{ 20, 30, 40 }, mut_slice);
 
-    // Test safe_copy
     var dest = [_]u8{ 0, 0, 0, 0 };
     const src = [_]u8{ 100, 101, 102, 103 };
     safe_copy(&dest, &src, "test copy");
     try std.testing.expectEqualSlices(u8, &src, &dest);
 
-    // Test assert_aligned with properly aligned buffer
     const aligned_data align(64) = [_]u8{ 1, 2, 3, 4 };
     assert_aligned(&aligned_data, 64, "test alignment");
 }
 
 test "comptime_no_padding functionality" {
-    // Test struct with no padding
     const PackedStruct = packed struct {
         a: u8,
         b: u8,
@@ -453,7 +441,6 @@ test "comptime_no_padding functionality" {
     };
     comptime_no_padding(PackedStruct);
 
-    // Test struct with natural alignment (no padding needed)
     const AlignedStruct = struct {
         a: u32,
         b: u32,
@@ -471,12 +458,10 @@ test "assertion behavior matches documentation" {
     try std.testing.expectEqual(debug_mode, assertions_enabled());
     try std.testing.expectEqual(debug_mode, expensive_check_enabled());
 
-    // Test that debug assertions work when conditions are true
     // (These should be no-ops in release, active in debug)
     assert(true);
     assert_fmt(true, "Debug assertion with valid condition", .{});
 
-    // Test that fatal assertions always work regardless of build mode
     fatal_assert(true, "Fatal assertion should always be active", .{});
 
     // This test validates our fix to P0.2: Assertion Framework Inconsistency

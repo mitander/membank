@@ -14,6 +14,7 @@ const std = @import("std");
 
 const concurrency = @import("../core/concurrency.zig");
 const context_block = @import("../core/types.zig");
+const error_context = @import("../core/error_context.zig");
 const memory = @import("../core/memory.zig");
 const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
@@ -388,19 +389,46 @@ pub const SSTableManager = struct {
         // Read and validate the header to get block count safely
         var header_buffer: [64]u8 = undefined; // SSTable.HEADER_SIZE = 64
         const bytes_read = try file.read(&header_buffer);
-        if (bytes_read < 64) return error.InvalidSSTableHeader;
+        if (bytes_read < 64) {
+            const context = error_context.StorageContext{
+                .operation = "sstable_header_read",
+                .file_path = file_path,
+                .expected_value = 64,
+                .actual_value = @intCast(bytes_read),
+            };
+            error_context.log_storage_error(error.InvalidSSTableHeader, context);
+            return error.InvalidSSTableHeader;
+        }
 
         // Validate magic number and version (same as SSTable.Header.deserialize)
         var offset: usize = 0;
 
         // Check magic number to ensure this is a valid SSTable
         const magic = header_buffer[offset .. offset + 4];
-        if (!std.mem.eql(u8, magic, "SSTB")) return error.InvalidMagic;
+        if (!std.mem.eql(u8, magic, "SSTB")) {
+            const context = error_context.StorageContext{
+                .operation = "sstable_magic_validation",
+                .file_path = file_path,
+                .expected_value = std.mem.readInt(u32, "SSTB", .little),
+                .actual_value = std.mem.readInt(u32, @ptrCast(magic), .little),
+            };
+            error_context.log_storage_error(error.InvalidMagic, context);
+            return error.InvalidMagic;
+        }
         offset += 4;
 
         // Check version compatibility
         const format_version = std.mem.readInt(u16, header_buffer[offset..][0..2], .little);
-        if (format_version > 1) return error.UnsupportedVersion;
+        if (format_version > 1) {
+            const context = error_context.StorageContext{
+                .operation = "sstable_version_check",
+                .file_path = file_path,
+                .expected_value = 1,
+                .actual_value = format_version,
+            };
+            error_context.log_storage_error(error.UnsupportedVersion, context);
+            return error.UnsupportedVersion;
+        }
         offset += 2;
 
         // Skip flags (2 bytes) and index_offset (8 bytes)
