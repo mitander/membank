@@ -1,15 +1,13 @@
-//! Connection lifecycle management for KausalDB TCP server.
+//! Connection lifecycle coordinator for TCP server operations.
 //!
-//! Owns all connection state and I/O polling logic following the coordinator
-//! pattern. Server delegates connection concerns to this manager, which provides
-//! a clean, high-level interface for connection operations.
+//! Manages connection state, I/O polling, and socket lifecycle through
+//! poll()-based event loop. Provides high-level interface while handling
+//! low-level socket state transitions and file descriptor management.
 //!
-//! Memory Model: Arena-per-subsystem with O(1) bulk cleanup when connections
-//! are closed. Connection objects are arena-allocated to prevent leaks from
-//! complex connection graphs during error conditions.
-//!
-//! I/O Model: Non-blocking I/O with poll()-based event loop. Manages poll_fds
-//! array and socket state transitions without exposing low-level details.
+//! Design rationale: Coordinator pattern centralizes connection concerns
+//! and prevents state scattered across server components. Arena allocation
+//! enables O(1) bulk cleanup during connection termination while preventing
+//! memory leaks from complex error recovery scenarios.
 
 const std = @import("std");
 

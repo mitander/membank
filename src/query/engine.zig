@@ -1,8 +1,12 @@
 //! Query engine coordination and public interface for KausalDB.
 //!
-//! Provides the main QueryEngine struct that coordinates between different
-//! query operation modules. Handles metrics, statistics, and provides a
-//! unified public API for all query types.
+//! Coordinates query operations across caching, filtering, traversal, and storage
+//! subsystems. Provides unified API for block lookups, graph traversal, and
+//! relationship queries while managing query-specific metrics and statistics.
+//!
+//! Design rationale: Single coordinator eliminates query state scattered across
+//! modules and enables centralized performance monitoring. Integrates with storage
+//! engine through ownership system to ensure memory safety across subsystem boundaries.
 
 const builtin = @import("builtin");
 const std = @import("std");

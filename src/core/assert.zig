@@ -1,7 +1,13 @@
-//! Assertion framework for KausalDB defensive programming.
+//! Assertion framework for defensive programming and bug detection.
 //!
-//! Provides runtime checks that help catch bugs early in development
-//! while being compiled out in release builds for performance.
+//! Provides debug-only runtime checks that catch programming errors early
+//! while compiling to zero cost in release builds. Includes standard assertions,
+//! formatted assertions with context, and fatal assertions for unrecoverable errors.
+//!
+//! Design rationale: Debug-only assertions enable aggressive bug detection during
+//! development without performance penalty in production. Fatal assertions handle
+//! corruption scenarios where continuing execution would cause data loss or
+//! security vulnerabilities.
 
 const builtin = @import("builtin");
 const std = @import("std");

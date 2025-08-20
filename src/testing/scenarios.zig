@@ -1,7 +1,12 @@
-//! Scenario-driven fault injection testing framework
+//! Fault injection scenarios for hostile condition testing.
 //!
-//! Provides systematic fault injection following explicitness-over-magic philosophy.
-//! All scenario parameters declared upfront for reproducible hostile condition testing.
+//! Provides systematic fault injection patterns for storage corruption, network
+//! failures, and memory pressure scenarios. All parameters declared explicitly
+//! for deterministic and reproducible testing across simulation environments.
+//!
+//! Design rationale: Explicit scenario parameters enable precise reproduction
+//! of failure conditions. Centralized scenarios prevent ad-hoc fault injection
+//! scattered across tests and ensure consistent hostile condition coverage.
 
 const std = @import("std");
 

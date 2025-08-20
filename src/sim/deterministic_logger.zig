@@ -1,8 +1,12 @@
-//! Deterministic logger for the simulation environment.
+//! Deterministic logger for reproducible simulation testing.
 //!
-//! This logger uses the simulation's logical clock (tick count) instead of
-//! real-world timestamps to ensure log outputs are reproducible across runs.
-//! Enabled only in debug builds to maintain zero overhead in release builds.
+//! Uses simulation logical clock (tick count) instead of real timestamps
+//! to ensure identical log output across test runs. Compiles to zero cost
+//! in release builds while providing consistent debugging in simulation.
+//!
+//! Design rationale: Deterministic logging enables precise test reproduction
+//! and failure analysis. Logical timestamps eliminate timing-dependent output
+//! variations that make simulation tests flaky or unreproducible.
 
 const builtin = @import("builtin");
 const std = @import("std");

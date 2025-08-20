@@ -1,10 +1,11 @@
-//! KausalDB standard extensions providing safer alternatives to std library functions
-//! and additional concurrency primitives.
+//! Standard library extensions with defensive programming checks.
 //!
-//! Design rationale: These wrappers add defensive programming checks and
-//! consistent naming conventions across the codebase. They prevent common
-//! memory safety issues by enforcing explicit buffer validation and providing
-//! safe concurrency primitives.
+//! Provides safer alternatives to std library functions and thread-safe primitives
+//! with explicit buffer validation and consistent error handling patterns.
+//!
+//! Design rationale: Wrappers prevent common memory safety issues while maintaining
+//! zero-cost abstractions. Consistent naming and validation patterns reduce bugs
+//! across subsystem boundaries.
 
 const std = @import("std");
 

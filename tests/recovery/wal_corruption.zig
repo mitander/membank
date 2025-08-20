@@ -1,8 +1,8 @@
-//! WAL corruption detection and recovery tests.
+//! WAL corruption detection and recovery validation tests.
 //!
-//! Test coverage for WAL corruption scenarios including
-//! systematic corruption detection, magic number corruption, checksum
-//! failures, and recovery boundary conditions under hostile environments.
+//! Tests WAL recovery behavior under systematic corruption including magic
+//! number corruption, checksum failures, partial writes, and segment boundary
+//! corruption. Validates graceful degradation and data integrity preservation.
 
 const std = @import("std");
 

@@ -1,8 +1,13 @@
-//! Tiered Performance Assertion Framework
+//! Performance assertions with environment-aware thresholds.
 //!
-//! Provides environment-aware performance validation with different thresholds
-//! for local development vs CI environments. Enables strict performance standards
+//! Provides tiered performance validation with different thresholds for
+//! development vs CI environments. Enables strict performance standards
 //! in production while allowing reasonable tolerance for local development.
+//!
+//! Design rationale: Environment-aware thresholds prevent flaky performance
+//! tests in development while maintaining strict standards in CI. Tiered
+//! approach enables performance regression detection without blocking
+//! development workflow on resource-constrained machines.
 
 const builtin = @import("builtin");
 const std = @import("std");

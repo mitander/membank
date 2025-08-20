@@ -1,9 +1,12 @@
-//! Internal Testing API
+//! Testing and development API with internal component access.
 //!
-//! Drop-in replacement for the public API with additional internal components
-//! for testing, debugging, and development.
+//! Drop-in replacement for public API with additional internal components
+//! including simulation framework, debugging utilities, and test harnesses.
+//! Used by test files and development tooling for system validation.
 //!
-//! Import as @import("kausaldb") in test files.
+//! Design rationale: Separate testing API prevents internal components from
+//! leaking into public interface while enabling comprehensive testing access.
+//! Drop-in compatibility ensures tests can import "kausaldb" without changes.
 
 const std = @import("std");
 

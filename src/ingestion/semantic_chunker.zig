@@ -1,16 +1,13 @@
-//! Semantic Chunker
+//! Semantic chunker for converting parsed units into ContextBlocks.
 //!
-//! Implements the Chunker interface for converting parsed semantic units
-//! into ContextBlocks. This chunker preserves the semantic structure
-//! extracted by parsers and creates meaningful context blocks with
-//! proper metadata and relationships.
+//! Converts parsed semantic units (functions, structs, comments) into
+//! ContextBlocks with proper metadata and deterministic IDs. Preserves
+//! semantic structure and relationships extracted during parsing phase.
 //!
-//! Design Notes:
-//! - Converts ParsedUnit structures to ContextBlock structures
-//! - Preserves all semantic metadata as JSON
-//! - Creates deterministic block IDs based on content and location
-//! - Arena-based memory management for lifecycle safety
-//! - Single-threaded execution model
+//! Design rationale: Deterministic block IDs based on content and location
+//! enable incremental ingestion and change detection. Arena allocation
+//! ensures efficient batch processing of large codebases without manual
+//! memory management overhead.
 
 const std = @import("std");
 

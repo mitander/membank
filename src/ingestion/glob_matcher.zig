@@ -1,7 +1,12 @@
-//! Glob pattern matcher for file path filtering
+//! Glob pattern matcher for ingestion file filtering.
 //!
-//! Supports common glob patterns for include/exclude file matching
-//! with performance optimized for typical repository scanning patterns.
+//! Supports standard glob patterns (* ? []) for include/exclude file matching
+//! during repository scanning. Optimized for common patterns like "*.zig" and
+//! directory exclusions like "target/*" and ".git/*".
+//!
+//! Design rationale: Simple pattern matching avoids regex complexity while
+//! supporting typical development workflow filtering needs. Performance
+//! optimized for large repository traversal with minimal allocation overhead.
 
 const std = @import("std");
 

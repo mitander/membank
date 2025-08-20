@@ -1,8 +1,13 @@
-//! Query result caching system for KausalDB.
+//! LRU query result cache for storage lookup optimization.
 //!
-//! Provides LRU-based query result caching to reduce expensive storage lookups
-//! and traversals. Follows arena-per-subsystem memory model with explicit
-//! cache invalidation on data mutations for correctness guarantees.
+//! Caches expensive query results including block lookups and graph traversals
+//! to reduce storage I/O and computation overhead. Uses explicit invalidation
+//! on mutations to maintain correctness guarantees.
+//!
+//! Design rationale: LRU eviction suits query access patterns where recent
+//! results have higher reuse probability. Arena allocation enables efficient
+//! bulk cache clearing during system updates while maintaining predictable
+//! memory usage patterns.
 
 const std = @import("std");
 

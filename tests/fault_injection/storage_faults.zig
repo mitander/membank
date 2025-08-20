@@ -1,10 +1,8 @@
-//! Storage Engine Fault Injection Tests
+//! Storage engine fault injection tests for crash recovery validation.
 //!
-//! Tests storage engine behavior under various fault conditions including:
-//! - Mid-compaction crashes
-//! - WAL corruption during write
-//! - SSTable corruption during read
-//! - Disk full during compaction
+//! Tests storage engine behavior under disk corruption, write failures,
+//! and crash scenarios including mid-compaction interruption, WAL corruption,
+//! and SSTable read errors. Validates graceful degradation and data integrity.
 
 const std = @import("std");
 

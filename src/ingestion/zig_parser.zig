@@ -1,14 +1,13 @@
-//! Zig Source Code Parser
+//! Zig source code parser for semantic structure extraction.
 //!
-//! Implements the Parser interface for Zig source files. Extracts semantic
-//! units like functions, structs, enums, constants, and comments along with
-//! their relationships.
+//! Extracts functions, structs, enums, constants, and their relationships
+//! from Zig source files using tokenization-based parsing. Produces
+//! structured context blocks suitable for LLM knowledge ingestion.
 //!
-//! Design Notes:
-//! - Uses simple tokenization rather than full AST parsing
-//! - Focuses on extracting meaningful code structure for LLM context
-//! - Arena-based memory management for lifecycle safety
-//! - Single-threaded execution model
+//! Design rationale: Simple tokenization avoids full AST complexity while
+//! capturing semantic structure needed for code understanding. Arena allocation
+//! enables efficient batch processing of large codebases without manual
+//! memory management overhead.
 
 const std = @import("std");
 

@@ -1,8 +1,13 @@
-//! WAL Core Management
+//! WAL core operations and segment management.
 //!
-//! Main WAL struct and core operations including initialization, write operations,
-//! segment management, and coordination with recovery subsystem. This module
-//! provides the primary interface for WAL operations.
+//! Provides primary WAL interface for write operations, segment rotation,
+//! and recovery coordination. Manages 64MB segment files with automatic
+//! rotation and streaming recovery support.
+//!
+//! Design rationale: Segmented architecture enables parallel recovery
+//! and prevents individual files from becoming unmanageably large.
+//! Streaming writes with fsync coordination ensure durability without
+//! blocking the entire system on each operation.
 
 const builtin = @import("builtin");
 const std = @import("std");

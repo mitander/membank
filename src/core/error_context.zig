@@ -1,7 +1,13 @@
-//! Structured error handling with debugging context for KausalDB.
+//! Structured error context for debugging and operational monitoring.
 //!
-//! Provides rich debugging information in debug builds while maintaining
-//! zero runtime overhead in release builds.
+//! Provides rich debugging context for error scenarios including operation
+//! details, file paths, line numbers, and expected vs actual values. Context
+//! collection compiles to zero cost in release builds.
+//!
+//! Design rationale: Structured context enables precise error diagnosis without
+//! performance penalty in production. Centralized error wrapping ensures consistent
+//! debugging information across all subsystems while maintaining KausalDB's
+//! zero-cost abstraction principles.
 
 const builtin = @import("builtin");
 const std = @import("std");

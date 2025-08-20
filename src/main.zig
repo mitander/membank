@@ -1,4 +1,12 @@
-//! Main entry point and CLI interface.
+//! KausalDB main entry point and CLI interface.
+//!
+//! Orchestrates server startup, storage engine initialization, and signal handling
+//! following KausalDB's single-threaded async I/O model. Coordinates two-phase
+//! initialization and graceful shutdown across all subsystems.
+//!
+//! Design rationale: Single main thread eliminates data races and enables
+//! deterministic behavior. Arena-per-subsystem memory management ensures
+//! predictable cleanup during shutdown sequences.
 
 const std = @import("std");
 

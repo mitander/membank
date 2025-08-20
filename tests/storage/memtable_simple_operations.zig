@@ -1,7 +1,8 @@
-//! MemtableManager unit tests
+//! MemtableManager isolated functionality tests.
 //!
-//! Tests individual MemtableManager functionality in isolation.
-//! Focus: basic operations, memory management, block lifecycle.
+//! Tests basic insert, lookup, delete operations and memory management
+//! patterns in MemtableManager without storage engine integration.
+//! Validates block lifecycle and arena allocation behavior.
 
 const std = @import("std");
 

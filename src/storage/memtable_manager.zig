@@ -1,13 +1,13 @@
-//! Manages the complete in-memory write buffer (memtable) for blocks and edges.
+//! In-memory write buffer management for blocks and graph edges.
 //!
-//! Encapsulates both BlockIndex and GraphEdgeIndex to provide a single,
-//! cohesive interface for all in-memory state management. Follows the
-//! arena-per-subsystem pattern for O(1) bulk cleanup during memtable flushes.
-//! This is a state-oriented subsystem that owns the complete in-memory view
-//! of the database, as opposed to scattered coordination logic.
+//! Coordinates BlockIndex and GraphEdgeIndex with WAL durability guarantees.
+//! Provides unified interface for memtable operations including WAL-first writes,
+//! flush coordination, and arena-based memory management.
 //!
-//! **Architectural Responsibility**: Owns WAL for durability guarantees.
-//! All mutations go through WAL-first pattern before updating in-memory state.
+//! Design rationale: Single memtable coordinator prevents state inconsistencies
+//! between block and edge indexes. WAL ownership ensures all mutations are
+//! durable before in-memory updates. Arena-per-subsystem enables O(1) bulk
+//! cleanup during memtable flushes to SSTable.
 
 const builtin = @import("builtin");
 const std = @import("std");

@@ -1,7 +1,12 @@
-//! Public API
+//! KausalDB public API for application integration.
 //!
-//! Clean, minimal interface for the knowledge graph database.
-//! For testing and internal APIs, use @import("kausaldb_test.zig").
+//! Provides clean, minimal interface for knowledge graph database operations
+//! including context block storage, graph traversal, and semantic queries.
+//! Exports core types, storage engine, query engine, and server components.
+//!
+//! Design rationale: Single entry point prevents API sprawl and enables
+//! controlled evolution of public interfaces. Separation from testing_api.zig
+//! maintains clean boundaries between production and development usage.
 
 const builtin = @import("builtin");
 const std = @import("std");

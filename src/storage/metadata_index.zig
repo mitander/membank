@@ -1,8 +1,12 @@
-//! Secondary metadata index for fast filtering by metadata fields.
+//! Secondary metadata index for fast query filtering and optimization.
 //!
-//! Provides O(log n) lookup performance for filtered queries on common metadata fields
-//! like unit_type. Uses arena allocation for memory management and integrates with
-//! the QueryPlan optimization system.
+//! Provides O(log n) lookup performance for filtered queries on metadata fields
+//! like unit_type, language, and semantic categories. Enables query plan optimization
+//! by pre-filtering result sets before expensive traversal operations.
+//!
+//! Design rationale: Secondary indexes avoid full storage scans for common
+//! filter patterns while maintaining manageable memory overhead. Arena allocation
+//! enables efficient index rebuilds during compaction without fragmentation concerns.
 
 const std = @import("std");
 

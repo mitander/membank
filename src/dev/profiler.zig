@@ -1,8 +1,11 @@
-//! Memory profiler for RSS measurement and tracking.
+//! Memory profiler for RSS measurement and performance monitoring.
 //!
-//! Provides platform-specific RSS (Resident Set Size) measurement
-//! capabilities for performance monitoring and memory usage analysis.
-//! Used by benchmarks and profiling tests to track memory efficiency.
+//! Provides platform-specific RSS (Resident Set Size) tracking with peak
+//! usage detection for benchmarks and memory efficiency analysis.
+//!
+//! Design rationale: Direct RSS measurement avoids overhead of complex profiling
+//! tools while providing precise memory usage data. Platform-specific implementation
+//! ensures accuracy across Linux, macOS, and Windows deployment targets.
 
 const builtin = @import("builtin");
 const std = @import("std");

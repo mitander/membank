@@ -1,14 +1,12 @@
-//! Fixed-size object pools for predictable allocation performance.
+//! Fixed-size object pools for zero-fragmentation allocation.
 //!
-//! Provides pre-allocated pools for frequently created/destroyed objects to eliminate
-//! allocation overhead and memory fragmentation. Designed for KausalDB's high-performance
-//! requirements where microsecond-level operations cannot tolerate allocation latency.
+//! Pre-allocated pools for frequently created objects eliminate allocation
+//! overhead and memory fragmentation. Single-threaded design provides
+//! predictable sub-10ns allocation performance.
 //!
-//! **Design Principles:**
-//! - Zero fragmentation through fixed-size allocation
-//! - Predictable allocation performance (< 10ns per operation)
-//! - Debug tracking for leak detection and usage analysis
-//! - Single-threaded optimization (no synchronization overhead)
+//! Design rationale: Microsecond-scale operations cannot tolerate allocation
+//! latency or fragmentation. Fixed-size pools provide deterministic performance
+//! while debug tracking enables leak detection without runtime overhead.
 
 const builtin = @import("builtin");
 const std = @import("std");

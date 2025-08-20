@@ -1,4 +1,12 @@
-//! Shell command execution for git operations and tidy checks.
+//! Shell command execution utilities for development tooling.
+//!
+//! Provides arena-based command execution for git operations, tidy checks,
+//! and other development workflow automation. Commands run synchronously
+//! with captured output and proper error handling.
+//!
+//! Design rationale: Arena allocation simplifies command output management
+//! and enables batch execution without manual cleanup. Synchronous execution
+//! model aligns with KausalDB's single-threaded development tools philosophy.
 
 const std = @import("std");
 

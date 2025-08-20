@@ -1,13 +1,12 @@
-//! KausalDB TCP Server Implementation
+//! TCP server for client-server communication.
 //!
-//! Provides a simple, high-performance TCP server for client-server communication.
-//! Orchestrates the async I/O event loop and manages multiple client connections.
-//! Follows KausalDB architectural principles:
-//! - Single-threaded with async I/O event loop
-//! - Connection state machines for non-blocking I/O
-//! - Arena-per-connection memory management
-//! - Explicit allocator parameters
-//! - Deterministic testing support via abstracted networking
+//! Single-threaded async I/O event loop managing multiple client connections
+//! through connection state machines. Uses arena-per-connection memory management
+//! and abstracted networking for deterministic testing.
+//!
+//! Design rationale: Single-threaded model eliminates data races and enables
+//! deterministic behavior. Connection state machines handle non-blocking I/O
+//! without callback complexity or hidden control flow.
 
 const std = @import("std");
 

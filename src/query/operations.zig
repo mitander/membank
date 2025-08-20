@@ -1,8 +1,12 @@
-//! Basic query operations for KausalDB context retrieval.
+//! Query operations for block lookup and context retrieval.
 //!
-//! Provides fundamental block lookup operations including direct ID-based
-//! retrieval, batch operations, and semantic search. Handles memory management,
-//! error recovery, and result formatting for basic query patterns.
+//! Provides direct ID-based lookups, batch operations, and semantic search
+//! with ownership-safe memory management and structured error handling.
+//! Coordinates with storage engine through ownership system for safe access.
+//!
+//! Design rationale: Centralized query operations ensure consistent error
+//! handling and memory management across query patterns. Ownership integration
+//! prevents cross-subsystem memory access violations during result processing.
 
 const builtin = @import("builtin");
 const std = @import("std");

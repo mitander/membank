@@ -1,8 +1,12 @@
-//! Storage engine configuration validation and management.
+//! Storage engine configuration with validation and safe defaults.
 //!
-//! Provides type-safe configuration with validation to prevent common
-//! operational issues like OOM crashes from oversized memtables or
-//! excessive flush overhead from undersized memtables.
+//! Provides type-safe configuration parameters for memtable sizing, compaction
+//! thresholds, and SSTable management. Validates settings to prevent OOM from
+//! oversized memtables and excessive I/O from undersized buffers.
+//!
+//! Design rationale: Compile-time validation catches configuration errors early.
+//! Conservative defaults prevent operational issues while allowing tuning for
+//! specific workloads through explicit parameter overrides.
 
 const std = @import("std");
 

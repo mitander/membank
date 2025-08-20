@@ -1,7 +1,13 @@
-//! Deterministic simulation harness for KausalDB testing.
+//! Deterministic simulation framework for system-wide testing.
 //!
-//! Provides a framework for running the entire KausalDB system
-//! in a controlled, deterministic environment for testing.
+//! Runs complete KausalDB system in controlled environment with deterministic
+//! I/O, networking, and timing for reproducible failure scenario testing.
+//! Enables byte-for-byte identical test execution across platforms and runs.
+//!
+//! Design rationale: Deterministic simulation enables precise reproduction
+//! of complex failure scenarios without flaky tests. Running actual production
+//! code in simulation avoids mocking artifacts while providing hostile
+//! condition testing capabilities impossible with real systems.
 
 const builtin = @import("builtin");
 const std = @import("std");

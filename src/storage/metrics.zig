@@ -1,9 +1,12 @@
-//! Storage engine performance metrics and observability.
+//! Storage engine performance metrics for monitoring and debugging.
 //!
-//! Provides atomic counters and analytics for storage operations to enable
-//! performance monitoring, capacity planning, and operational debugging.
-//! All counters use thread-safe coordination primitives to support safe
-//! concurrent access from monitoring threads without impacting storage performance.
+//! Provides atomic counters for storage operations including reads, writes,
+//! compactions, and cache hits. Enables performance monitoring and capacity
+//! planning without impacting microsecond-scale operation latency.
+//!
+//! Design rationale: Atomic counters provide thread-safe access for monitoring
+//! tools while maintaining zero overhead in hot paths. Metrics collection
+//! focuses on operational indicators rather than detailed profiling data.
 
 const std = @import("std");
 

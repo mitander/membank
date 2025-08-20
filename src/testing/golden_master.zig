@@ -1,8 +1,13 @@
-//! Golden Master Testing Framework
+//! Golden master testing for deterministic output validation.
 //!
-//! Provides deterministic reference output validation for recovery tests.
-//! Captures database state as canonical snapshots that can be compared
-//! across test runs to ensure recovery behavior is consistent and regression-free.
+//! Captures database state as canonical snapshots for comparing recovery
+//! behavior across test runs. Enables regression detection in complex
+//! recovery scenarios where manual validation is impractical.
+//!
+//! Design rationale: Golden master approach provides comprehensive validation
+//! of recovery correctness without requiring detailed assertions for every
+//! possible state combination. Deterministic snapshots enable precise
+//! regression detection across system changes.
 
 const std = @import("std");
 

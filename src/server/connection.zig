@@ -1,16 +1,13 @@
-//! Client Connection State Machine for Async I/O
+//! Client connection state machine for non-blocking request processing.
 //!
-//! Manages individual client connections as non-blocking state machines.
-//! Handles the complete request/response lifecycle:
-//! - Header parsing and validation
-//! - Payload reading with partial I/O support
-//! - Request processing coordination
-//! - Response writing with flow control
+//! Manages complete request/response lifecycle including header parsing,
+//! payload reading with partial I/O support, request processing coordination,
+//! and response writing with flow control through explicit state transitions.
 //!
-//! Follows KausalDB architectural principles:
-//! - Arena-per-connection memory management
-//! - Explicit error handling with ctx
-//! - Non-blocking I/O with proper state transitions
+//! Design rationale: State machine approach eliminates callback complexity
+//! while providing deterministic non-blocking I/O behavior. Arena-per-connection
+//! allocation enables efficient cleanup and prevents memory leaks from
+//! connection handling errors.
 
 const std = @import("std");
 

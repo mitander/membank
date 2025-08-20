@@ -1,7 +1,13 @@
-//! KausalDB fuzzing entry point.
+//! Fuzzing coordinator for bug discovery and system hardening.
 //!
-//! Coordinates modular fuzzing system with specialized modules for different
-//! components. Provides backward compatibility while delegating to focused modules.
+//! Coordinates specialized fuzzing modules targeting storage, query, network,
+//! and serialization subsystems. Uses deterministic simulation framework
+//! to enable reproducible bug discovery with precise failure reproduction.
+//!
+//! Design rationale: Modular fuzzing architecture enables focused testing
+//! of individual subsystems while maintaining integration test coverage.
+//! Deterministic execution ensures bugs can be reliably reproduced and
+//! validated after fixes.
 
 const fuzz_main = @import("fuzz/main.zig");
 

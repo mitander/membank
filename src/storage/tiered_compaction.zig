@@ -1,8 +1,13 @@
 //! Tiered compaction strategy for KausalDB LSM-Tree.
 //!
-//! Implements a size-tiered compaction strategy to minimize write amplification
-//! while maintaining read performance. Based on Cassandra's size-tiered approach
-//! with optimizations for KausalDB's workload characteristics.
+//! Implements size-tiered compaction to minimize write amplification while
+//! maintaining read performance. Groups SSTables by size tiers and compacts
+//! within tiers when thresholds are exceeded.
+//!
+//! Design rationale: Size-tiered compaction suits KausalDB's write-heavy workload
+//! better than leveled compaction. Lower write amplification reduces I/O pressure
+//! during ingestion bursts. Simpler than leveled compaction while providing
+//! predictable performance characteristics for microsecond-scale operations.
 
 const std = @import("std");
 

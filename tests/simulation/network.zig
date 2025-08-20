@@ -1,8 +1,8 @@
-//! Simulation test cases for network failures and hostile environments.
+//! Network failure simulation tests for distributed system validation.
 //!
-//! These tests demonstrate deterministic, byte-for-byte reproducible testing
-//! of complex failure scenarios including network partitions, disk corruption,
-//! memory pressure, and systematic failures using KausalDB's simulation framework.
+//! Tests network partitions, connection drops, and message reordering scenarios
+//! using deterministic simulation framework. Validates system behavior under
+//! hostile network conditions with byte-for-byte reproducible test execution.
 
 const builtin = @import("builtin");
 const std = @import("std");

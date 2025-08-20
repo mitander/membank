@@ -1,15 +1,12 @@
-//! Debug allocator for allocation tracking and memory safety validation.
+//! Debug allocator wrapper for memory safety validation and leak detection.
 //!
-//! Provides enhanced debugging capabilities for memory allocation issues:
-//! - Allocation/deallocation tracking with stack traces
-//! - Alignment verification and corruption detection
-//! - Double-free detection and use-after-free protection
-//! - Buffer overflow/underflow detection with guard pages
-//! - Statistical analysis of allocation patterns
+//! Wraps any underlying allocator with tracking for double-free detection,
+//! use-after-free protection, buffer overflow detection, and allocation
+//! statistics. Compiles to zero overhead in release builds.
 //!
-//! This allocator wraps any underlying allocator and adds debugging.
-//! All debug features are controlled by compile-time flags and can be disabled
-//! in release builds for zero overhead.
+//! Design rationale: Wrapper approach enables debugging any allocator without
+//! modifying allocation sites. Compile-time feature flags provide comprehensive
+//! debugging in development while maintaining production performance guarantees.
 
 const builtin = @import("builtin");
 const std = @import("std");

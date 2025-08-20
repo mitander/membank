@@ -1,10 +1,13 @@
-//! Manages the collection of on-disk SSTable files for the LSM-tree.
+//! SSTable collection management for LSM-tree storage.
 //!
-//! Provides a single ownership boundary for all on-disk storage state including
-//! SSTable discovery, read coordination, and compaction management. Follows
-//! two-phase initialization pattern with I/O operations separated from object
-//! creation for testability. Coordinates with TieredCompactionManager to
-//! maintain optimal read performance through background compaction.
+//! Manages on-disk SSTable discovery, read coordination, and compaction
+//! integration. Provides single ownership boundary for all persistent
+//! storage state with two-phase initialization for deterministic testing.
+//!
+//! Design rationale: Centralized SSTable management prevents ownership
+//! conflicts between read and compaction operations. Two-phase initialization
+//! enables simulation testing while maintaining clean separation between
+//! object creation and I/O operations.
 
 const builtin = @import("builtin");
 const std = @import("std");

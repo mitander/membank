@@ -1,3 +1,14 @@
+//! Bloom filter implementation for fast SSTable membership testing.
+//!
+//! Provides probabilistic membership testing for BlockId lookups in SSTables
+//! to avoid expensive disk I/O for non-existent keys. Uses double hashing
+//! with Wyhash for optimal distribution and performance characteristics.
+//!
+//! Design rationale: Bloom filters reduce read amplification by eliminating
+//! unnecessary SSTable scans. Double hashing provides excellent distribution
+//! while requiring only two hash computations regardless of filter size.
+//! Wyhash chosen for speed and quality on 64-bit systems.
+
 const std = @import("std");
 
 const context_block = @import("../core/types.zig");
