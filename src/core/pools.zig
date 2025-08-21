@@ -341,12 +341,6 @@ pub fn PoolManagerType(comptime PoolType1: type, comptime PoolType2: type) type 
                 self.pool2.utilization() > threshold;
         }
 
-        /// Reset all pools to initial state.
-        pub fn reset_all(self: *Self) void {
-            self.pool1.reset();
-            self.pool2.reset();
-        }
-
         /// Deinitialize all pools.
         pub fn deinit(self: *Self) void {
             self.pool1.deinit();

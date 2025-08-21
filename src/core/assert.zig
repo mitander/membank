@@ -172,29 +172,13 @@ pub fn assert_not_null(ptr: anytype, comptime format: []const u8, args: anytype)
 }
 
 /// Assert that two values are equal.
-/// # Examples
-/// ```zig
-/// assert_equal(actual, expected, "Values not equal: {} != {}", .{ actual, expected });
-/// ```
 pub fn assert_equal(
     actual: anytype,
     expected: @TypeOf(actual),
     comptime format: []const u8,
     args: anytype,
 ) void {
-    const T = @TypeOf(actual);
-    const type_info = @typeInfo(T);
-
-    const equal = switch (type_info) {
-        .array => |array_info| std.mem.eql(array_info.child, &actual, &expected),
-        .pointer => |ptr_info| switch (ptr_info.size) {
-            .slice => std.mem.eql(ptr_info.child, actual, expected),
-            else => actual == expected,
-        },
-        else => actual == expected,
-    };
-
-    assert_fmt(equal, format, args);
+    assert_fmt(actual == expected, format, args);
 }
 
 /// Assert that a slice is not empty.
@@ -238,23 +222,6 @@ pub fn assert_no_overlap(
     const dst_end = dst_ptr + dst_len;
     const no_overlap = (src_end <= dst_ptr) or (dst_end <= src_ptr);
     assert_fmt(no_overlap, format, args);
-}
-
-/// Utility to check if assertions are enabled.
-/// Useful for conditional code that should only run when assertions are active.
-pub fn assertions_enabled() bool {
-    return builtin.mode == .Debug;
-}
-
-/// Utility to perform expensive checks only when assertions are enabled.
-/// # Examples
-/// ```zig
-/// if (expensive_check_enabled()) {
-///     assert(validate_data_structure(data), "Data structure is invalid");
-/// }
-/// ```
-pub fn expensive_check_enabled() bool {
-    return assertions_enabled();
 }
 
 /// Re-export main thread assertion from concurrency module.
@@ -389,7 +356,7 @@ test "comptime_assert functionality" {
 }
 
 test "assertions_enabled utility" {
-    const enabled = assertions_enabled();
+    const enabled = builtin.mode == .Debug;
     if (builtin.mode == .Debug) {
         try std.testing.expect(enabled);
     }
@@ -455,8 +422,7 @@ test "assertion behavior matches documentation" {
     const debug_mode = builtin.mode == .Debug;
 
     // Verify assertion enablement utilities match build mode
-    try std.testing.expectEqual(debug_mode, assertions_enabled());
-    try std.testing.expectEqual(debug_mode, expensive_check_enabled());
+    try std.testing.expectEqual(debug_mode, builtin.mode == .Debug);
 
     // (These should be no-ops in release, active in debug)
     assert(true);

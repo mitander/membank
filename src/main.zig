@@ -59,8 +59,6 @@ pub fn main() !void {
         try run_list_blocks(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "query")) {
         try run_query(allocator, args[2..]);
-    } else if (std.mem.eql(u8, command, "analyze")) {
-        try run_analyze(allocator);
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
         try print_usage();
@@ -147,7 +145,15 @@ fn run_server(allocator: std.mem.Allocator, args: [][:0]u8) !void {
         }
     }
 
-    try signals.setup_signal_handlers();
+    // Setup signal handlers for graceful shutdown
+    const action = std.posix.Sigaction{
+        .handler = .{ .handler = signals.signal_handler },
+        .mask = std.mem.zeroes(std.posix.sigset_t),
+        .flags = 0,
+    };
+    _ = std.posix.sigaction(std.posix.SIG.INT, &action, null);
+    _ = std.posix.sigaction(std.posix.SIG.TERM, &action, null);
+    std.log.info("Signal handlers installed for SIGINT and SIGTERM", .{});
 
     var prod_vfs = production_vfs.ProductionVFS.init(allocator);
     const vfs_interface = prod_vfs.vfs();
@@ -643,183 +649,6 @@ fn run_status_prometheus(allocator: std.mem.Allocator, data_dir: []const u8) !vo
     std.debug.print("# HELP kausaldb_traversal_queries_total Total number of traversal queries\n", .{});
     std.debug.print("# TYPE kausaldb_traversal_queries_total counter\n", .{});
     std.debug.print("kausaldb_traversal_queries_total {}\n", .{query_stats.traversal_queries});
-}
-
-fn run_analyze(allocator: std.mem.Allocator) !void {
-    std.debug.print("KausalDB Self-Analysis\n\n", .{});
-    std.debug.print("Analyzing KausalDB source code using its own storage and query engine.\n\n", .{});
-
-    var prod_vfs = production_vfs.ProductionVFS.init(allocator);
-    const vfs_interface = prod_vfs.vfs();
-
-    // Create temporary analysis database
-    const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
-    defer allocator.free(cwd);
-    const analysis_dir = try std.fs.path.join(allocator, &[_][]const u8{ cwd, "self_analysis_data" });
-    defer allocator.free(analysis_dir);
-
-    vfs_interface.mkdir_all(analysis_dir) catch |err| switch (err) {
-        vfs.VFSError.FileExists => {},
-        else => return err,
-    };
-
-    var storage_engine = try StorageEngine.init_default(allocator, vfs_interface, analysis_dir);
-    defer storage_engine.deinit();
-
-    try storage_engine.startup();
-    std.debug.print("Analysis database initialized\n", .{});
-
-    var query_eng = QueryEngine.init(allocator, &storage_engine);
-    defer query_eng.deinit();
-    query_eng.startup();
-
-    // Phase 1: Ingest core modules
-    std.debug.print("\nINGESTING SOURCE CODE\n", .{});
-
-    const core_modules = [_]struct { name: []const u8, path: []const u8 }{
-        .{ .name = "StorageEngine", .path = "src/storage/engine.zig" },
-        .{ .name = "QueryEngine", .path = "src/query/engine.zig" },
-        .{ .name = "ContextBlock", .path = "src/core/types.zig" },
-        .{ .name = "VFS", .path = "src/core/vfs.zig" },
-        .{ .name = "ArenaCoordinator", .path = "src/core/memory.zig" },
-        .{ .name = "MessageHeader", .path = "src/server/connection.zig" },
-    };
-
-    var block_count: u32 = 0;
-    for (core_modules) |module| {
-        // Create deterministic BlockId from module name hash
-        var hex_buf: [32]u8 = undefined;
-        const name_hash = std.hash_map.hashString(module.name);
-        _ = try std.fmt.bufPrint(&hex_buf, "{x:0>32}", .{name_hash});
-        const block_id = try BlockId.from_hex(&hex_buf);
-        const metadata_json = try std.fmt.allocPrint(allocator, "{{\"type\":\"module\",\"language\":\"zig\",\"name\":\"{s}\"}}", .{module.name});
-        defer allocator.free(metadata_json);
-
-        const source_uri = try std.fmt.allocPrint(allocator, "git://github.com/kausaldb/kausaldb.git/{s}", .{module.path});
-        defer allocator.free(source_uri);
-
-        const content = try std.fmt.allocPrint(allocator, "// {s} - Core module in KausalDB\n// Provides: {s} functionality", .{ module.name, module.name });
-        defer allocator.free(content);
-
-        const block = ContextBlock{
-            .id = block_id,
-            .version = 1,
-            .source_uri = source_uri,
-            .metadata_json = metadata_json,
-            .content = content,
-        };
-
-        try storage_engine.put_block(block);
-        block_count += 1;
-        std.debug.print("  Ingested {s}\n", .{module.name});
-    }
-
-    // Phase 2: Create dependency relationships
-    std.debug.print("\nCREATING DEPENDENCY GRAPH\n", .{});
-    const GraphEdge = context_block.GraphEdge;
-
-    // StorageEngine depends on VFS and ArenaCoordinator
-    const storage_id = try BlockId.from_hex("53746f72616765456e67696e65000000");
-    const vfs_id = try BlockId.from_hex("56465300000000000000000000000000");
-    const memory_id = try BlockId.from_hex("4172656e61436f6f7264696e61746f72");
-
-    try storage_engine.put_edge(GraphEdge{
-        .source_id = storage_id,
-        .target_id = vfs_id,
-        .edge_type = .imports,
-    });
-
-    try storage_engine.put_edge(GraphEdge{
-        .source_id = storage_id,
-        .target_id = memory_id,
-        .edge_type = .imports,
-    });
-
-    // QueryEngine depends on StorageEngine
-    const query_id = try BlockId.from_hex("5175657279456e67696e650000000000");
-    try storage_engine.put_edge(GraphEdge{
-        .source_id = query_id,
-        .target_id = storage_id,
-        .edge_type = .imports,
-    });
-
-    std.debug.print("  Created 3 dependency edges\n", .{});
-
-    // Query phase demonstrates graph traversal and dependency analysis capabilities
-    std.debug.print("\nRUNNING ANALYSIS QUERIES\n", .{});
-
-    // Find most connected modules (potential coupling issues)
-    std.debug.print("\nDependency Analysis:\n", .{});
-    const storage_deps = try query_eng.traverse_outgoing(storage_id, 1);
-    defer storage_deps.deinit();
-
-    std.debug.print("  StorageEngine dependencies: {}\n", .{storage_deps.blocks.len});
-    std.debug.print("    Uses VFS for file operations\n", .{});
-    std.debug.print("    Uses ArenaCoordinator for memory management\n", .{});
-
-    const query_deps = try query_eng.traverse_outgoing(query_id, 2);
-    defer query_deps.deinit();
-    std.debug.print("  QueryEngine total dependencies: {}\n", .{query_deps.blocks.len});
-
-    // Phase 4: Architectural insights
-    std.debug.print("\nARCHITECTURAL ANALYSIS\n", .{});
-    std.debug.print("  Clean separation: QueryEngine -> StorageEngine -> VFS\n", .{});
-    std.debug.print("  Memory safety: ArenaCoordinator used throughout\n", .{});
-    std.debug.print("  I/O abstraction: All disk access through VFS\n", .{});
-    std.debug.print("  Single responsibility: Each module has clear purpose\n", .{});
-
-    // Phase 5: Demonstrate hot-path query performance
-    std.debug.print("\nQUERY PERFORMANCE\n", .{});
-
-    // Warm up the cache with multiple iterations
-    var warmup_i: u32 = 0;
-    while (warmup_i < 10) : (warmup_i += 1) {
-        _ = try query_eng.find_block(storage_id);
-        const warmup_result = try query_eng.traverse_outgoing(storage_id, 1);
-        warmup_result.deinit();
-    }
-
-    // Measure hot-path block read performance (multiple iterations)
-    const read_iterations: u32 = 100;
-    const read_start = std.time.nanoTimestamp();
-    var read_i: u32 = 0;
-    while (read_i < read_iterations) : (read_i += 1) {
-        _ = try query_eng.find_block(storage_id);
-    }
-    const read_total = std.time.nanoTimestamp() - read_start;
-    const read_avg_ns = @divTrunc(read_total, read_iterations);
-
-    // Measure hot-path traversal performance (multiple iterations)
-    const traversal_iterations: u32 = 50;
-    const traverse_start = std.time.nanoTimestamp();
-    var traverse_i: u32 = 0;
-    while (traverse_i < traversal_iterations) : (traverse_i += 1) {
-        const result = try query_eng.traverse_outgoing(storage_id, 1);
-        result.deinit();
-    }
-    const traverse_total = std.time.nanoTimestamp() - traverse_start;
-    const traverse_avg_ns = @divTrunc(traverse_total, traversal_iterations);
-
-    std.debug.print("  Block read (hot):     {}ns  (avg of {} iterations)\n", .{ read_avg_ns, read_iterations });
-    std.debug.print("  Graph traversal:      {}ns  (avg of {} iterations)\n", .{ traverse_avg_ns, traversal_iterations });
-    std.debug.print("\nPerformance Context:\n", .{});
-    std.debug.print("  Demo runs in DEBUG mode with safety checks enabled\n", .{});
-    std.debug.print("  Production benchmarks use RELEASE mode (-O ReleaseFast)\n", .{});
-    std.debug.print("  BENCHMARKS.md shows: 23ns reads, 130ns traversal (release)\n", .{});
-    std.debug.print("  Debug overhead is 100-1000x slower but validates correctness\n", .{});
-    std.debug.print("  Run './zig/zig build bench' for optimized measurements\n", .{});
-
-    // Summary
-    std.debug.print("\nSUMMARY\n", .{});
-    std.debug.print("  Ingested {} modules from KausalDB source\n", .{block_count});
-    std.debug.print("  Created dependency graph with 3 edges\n", .{});
-    std.debug.print("  Identified clean architectural patterns\n", .{});
-    std.debug.print("  Validated query performance characteristics\n", .{});
-    std.debug.print("\nCapabilities demonstrated:\n", .{});
-    std.debug.print("  Code modeling as queryable context graphs\n", .{});
-    std.debug.print("  Architectural dependency analysis\n", .{});
-    std.debug.print("  Real-time insights for AI reasoning systems\n", .{});
-    std.debug.print("  Scalable performance on production codebases\n", .{});
 }
 
 test "main module tests" {}

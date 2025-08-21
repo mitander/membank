@@ -136,15 +136,6 @@ pub const SingleThreadedAllocator = struct {
     }
 };
 
-/// Documentation and enforcement of KausalDB's concurrency model.
-/// CONCURRENCY MODEL: Single-threaded + async I/O.
-/// Thread safety enforced through design rather than locks.
-pub const ConcurrencyModel = struct {
-    comptime {
-        // This serves as documentation and compile-time enforcement
-    }
-};
-
 test "main thread detection" {
     // Initialize from test thread
     init();

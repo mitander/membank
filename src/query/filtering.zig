@@ -250,10 +250,10 @@ pub const FilteredQueryIterator = struct {
             if (try self.query.expression.matches(block, self.allocator)) {
                 self.total_matches += 1;
 
-                // Skip offset results
+                // Pagination requires skipping initial matches to implement offset functionality
                 if (self.total_matches <= self.query.offset) continue;
 
-                // Check if we've returned enough results
+                // Prevent unbounded memory usage by enforcing result set size limits
                 if (self.results_returned >= self.query.max_results) {
                     self.finished = true;
                     return null;

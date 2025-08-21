@@ -113,21 +113,21 @@ test "system liveness under fault conditions" {
     defer TestData.cleanup_test_block(allocator, recovery_block_2);
 
     // These operations MUST succeed - this is the liveness guarantee
-    try harness.storage_engine().put_block(recovery_block_1);
-    try harness.storage_engine().put_block(recovery_block_2);
+    try harness.storage().put_block(recovery_block_1);
+    try harness.storage().put_block(recovery_block_2);
 
     // Verify we can read back the data we just wrote
-    const found_block_1 = try harness.storage_engine().find_block(recovery_block_1.id, .query_engine);
+    const found_block_1 = try harness.storage().find_block(recovery_block_1.id, .query_engine);
     try testing.expect(found_block_1 != null);
     try testing.expectEqualStrings(recovery_block_1.content, found_block_1.?.block.content);
 
-    const found_block_2 = try harness.storage_engine().find_block(recovery_block_2.id, .query_engine);
+    const found_block_2 = try harness.storage().find_block(recovery_block_2.id, .query_engine);
     try testing.expect(found_block_2 != null);
     try testing.expectEqualStrings(recovery_block_2.content, found_block_2.?.block.content);
 
     // Create an edge relationship to test graph operations under partial faults
     const test_edge = TestData.create_test_edge_from_indices(10, 11, .calls);
-    try harness.storage_engine().put_edge(test_edge);
+    try harness.storage().put_edge(test_edge);
 
     // Verify graph traversal works under partial fault conditions
     const traversal_result = try harness.query_engine().traverse_outgoing(recovery_block_1.id, 1);
@@ -164,9 +164,9 @@ test "multi-node liveness under network partitions" {
     defer TestData.cleanup_test_block(allocator, node3_block);
 
     // Successfully store initial data (no faults yet)
-    try harness.storage_engine().put_block(node1_block);
-    try harness.storage_engine().put_block(node2_block);
-    try harness.storage_engine().put_block(node3_block);
+    try harness.storage().put_block(node1_block);
+    try harness.storage().put_block(node2_block);
+    try harness.storage().put_block(node3_block);
 
     // Phase 2: Network partition simulation - fault injection already configured
     harness.tick(1); // Advance simulation to trigger faults
@@ -206,15 +206,15 @@ test "multi-node liveness under network partitions" {
     harness.disable_all_faults();
 
     // All read operations MUST succeed after healing
-    const recovered_node1 = try harness.storage_engine().find_block(node1_block.id, .query_engine);
+    const recovered_node1 = try harness.storage().find_block(node1_block.id, .query_engine);
     try testing.expect(recovered_node1 != null);
     try testing.expectEqualStrings(node1_block.content, recovered_node1.?.block.content);
 
-    const recovered_node2 = try harness.storage_engine().find_block(node2_block.id, .query_engine);
+    const recovered_node2 = try harness.storage().find_block(node2_block.id, .query_engine);
     try testing.expect(recovered_node2 != null);
     try testing.expectEqualStrings(node2_block.content, recovered_node2.?.block.content);
 
-    const recovered_node3 = try harness.storage_engine().find_block(node3_block.id, .query_engine);
+    const recovered_node3 = try harness.storage().find_block(node3_block.id, .query_engine);
     try testing.expect(recovered_node3 != null);
     try testing.expectEqualStrings(node3_block.content, recovered_node3.?.block.content);
 
@@ -222,9 +222,9 @@ test "multi-node liveness under network partitions" {
     const post_heal_block = try TestData.create_test_block_with_content(allocator, 400, "post_healing_data");
     defer TestData.cleanup_test_block(allocator, post_heal_block);
 
-    try harness.storage_engine().put_block(post_heal_block);
+    try harness.storage().put_block(post_heal_block);
 
-    const verified_post_heal = try harness.storage_engine().find_block(post_heal_block.id, .query_engine);
+    const verified_post_heal = try harness.storage().find_block(post_heal_block.id, .query_engine);
     try testing.expect(verified_post_heal != null);
     try testing.expectEqualStrings(post_heal_block.content, verified_post_heal.?.block.content);
 }

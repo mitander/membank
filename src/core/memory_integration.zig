@@ -9,7 +9,6 @@
 //! - Level 2: Arena coordinators for subsystem memory management
 //! - Level 3: Data-oriented storage layouts for cache optimization
 //! - Level 4: Zero-copy query paths for allocation-free reads
-//! - Level 5: Type-safe coordinators eliminating *anyopaque patterns
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -228,7 +227,7 @@ pub const IntegratedMemorySystem = struct {
             .sstable_pool = try ObjectPoolType(MockSSTable).init(backing_allocator, 32),
             .iterator_pool = try ObjectPoolType(MockIterator).init(backing_allocator, 64),
             .temp_buffer_pool = StackPoolType(TempBuffer, 16).init(),
-            .storage_coordinator = undefined, // Will be set after construction
+            .storage_coordinator = undefined,
             .block_metadata = BlockMetadataSOA.init(backing_allocator),
             .query_session = QuerySession.init(),
             .allocation_metrics = AllocationMetrics.init(),
@@ -279,19 +278,14 @@ pub const IntegratedMemorySystem = struct {
         self.allocation_metrics.zero_copy_accesses += 1;
         std.log.info("   - Validated zero-copy query session", .{});
 
-        // Type-safe coordinators eliminate *anyopaque patterns for compile-time validation
-        std.log.info("6. Type-Safe Coordinator Demonstration", .{});
-        self.storage_coordinator.validate_coordinator();
-        std.log.info("   - Validated typed storage coordinator", .{});
-
         // SOA scans demonstrate cache performance benefits over AOS layouts
-        std.log.info("7. Cache-Optimal Scan Demonstration", .{});
+        std.log.info("6. Cache-Optimal Scan Demonstration", .{});
         const recent_blocks = try self.block_metadata.find_recent_blocks(0, self.backing_allocator);
         defer self.backing_allocator.free(recent_blocks);
         self.allocation_metrics.cache_hits += recent_blocks.len;
         std.log.info("   - Found {} recent blocks via SOA scan", .{recent_blocks.len});
 
-        // 8. Performance Metrics
+        // 7. Performance Metrics
         self.allocation_metrics.report();
 
         // Cleanup demonstration

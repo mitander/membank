@@ -155,7 +155,7 @@ pub fn ZeroCopyQueryInterfaceType(comptime StorageEngineType: type) type {
 
         /// Check if block exists without loading content.
         /// Optimized existence check for ID-only queries.
-        pub fn block_exists_zero_copy(self: *const Self, block_id: BlockId) bool {
+        pub fn block_exists(self: *const Self, block_id: BlockId) bool {
             self.coordinator.validate_coordinator();
 
             // Implementation deferred - storage engine should provide existence check
@@ -165,7 +165,7 @@ pub fn ZeroCopyQueryInterfaceType(comptime StorageEngineType: type) type {
 
         /// Get block version without loading content.
         /// Cache-optimal version access for version-based filtering.
-        pub fn query_block_version_zero_copy(self: *const Self, block_id: BlockId) ?u64 {
+        pub fn query_block_version(self: *const Self, block_id: BlockId) ?u64 {
             self.coordinator.validate_coordinator();
 
             // Implementation deferred - storage engine should provide version-only access
@@ -268,7 +268,7 @@ pub const ZeroCopyResultIterator = struct {
 
 /// Benchmark zero-copy vs cloning performance.
 /// Measures the performance difference between allocation-based and zero-copy access.
-pub fn benchmark_zero_copy_performance(
+pub fn benchmark_performance(
     allocator: std.mem.Allocator,
     block_count: u32,
     iterations: u32,

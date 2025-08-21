@@ -28,7 +28,7 @@ pub fn request_shutdown() void {
 }
 
 /// Signal handler for SIGINT and SIGTERM
-fn signal_handler(sig: c_int) callconv(.c) void {
+pub fn signal_handler(sig: c_int) callconv(.c) void {
     switch (sig) {
         std.posix.SIG.INT => {
             shutdown_requested = true;
@@ -42,20 +42,6 @@ fn signal_handler(sig: c_int) callconv(.c) void {
             log.warn("Received unexpected signal: {d}", .{sig});
         },
     }
-}
-
-/// Setup signal handlers for graceful shutdown
-pub fn setup_signal_handlers() !void {
-    const action = std.posix.Sigaction{
-        .handler = .{ .handler = signal_handler },
-        .mask = std.mem.zeroes(std.posix.sigset_t),
-        .flags = 0,
-    };
-
-    _ = std.posix.sigaction(std.posix.SIG.INT, &action, null);
-    _ = std.posix.sigaction(std.posix.SIG.TERM, &action, null);
-
-    log.info("Signal handlers installed for SIGINT and SIGTERM", .{});
 }
 
 /// Reset shutdown state (for testing)

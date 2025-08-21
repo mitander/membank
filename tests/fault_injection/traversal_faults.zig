@@ -327,60 +327,6 @@ fn calculate_expected_path(
     }
 }
 
-// Setup storage engine with test graph data
-fn setup_test_storage(
-    allocator: std.mem.Allocator,
-    sim_vfs: *SimulationVFS,
-    test_graph: TestGraph,
-    fault_config: TraversalFaultConfig,
-) !struct { storage: StorageEngine, query: QueryEngine } {
-    var storage_engine = try StorageEngine.init_default(allocator, sim_vfs.vfs(), "traversal_fault_test");
-    errdefer storage_engine.deinit();
-
-    // Initialize storage first without fault injection to ensure basic functionality
-    try storage_engine.startup();
-
-    // Configure simulation VFS with fault injection parameters AFTER successful initialization
-    if (fault_config.block_read_failure_rate > 0) {
-        const failure_per_thousand = @as(u32, @intFromFloat(fault_config.block_read_failure_rate * 1000.0));
-        sim_vfs.enable_io_failures(failure_per_thousand, .{ .read = true, .write = false }); // Only read failures during traversal
-    }
-
-    if (fault_config.memory_limit_bytes) |limit| {
-        sim_vfs.configure_disk_space_limit(limit);
-    }
-
-    // Insert test blocks
-    for (test_graph.blocks) |block| {
-        _ = try storage_engine.put_block(block);
-    }
-
-    // Insert test edges
-    for (test_graph.edges) |edge| {
-        try storage_engine.put_edge(edge);
-    }
-
-    // Initialize query engine
-    const query_eng = QueryEngine.init(allocator, &storage_engine);
-
-    return .{ .storage = storage_engine, .query = query_eng };
-}
-
-// Validate that traversal failure is handled gracefully
-fn validate_graceful_failure(result: anyerror) void {
-    // Ensure we get appropriate error types, not crashes
-    switch (result) {
-        TraversalError.BlockNotFound, TraversalError.TooManyResults, TraversalError.NotInitialized => {
-            // These are expected graceful failure modes
-        },
-        else => {
-            // Other error types should also be handled gracefully
-            // but we log them for investigation
-            std.debug.print("Unexpected traversal error: {}\n", .{result});
-        },
-    }
-}
-
 // Validate resource cleanup after traversal operations
 fn validate_resource_cleanup(allocator: std.mem.Allocator) !void {
     // For arena allocators, we can't directly check leaks,

@@ -213,14 +213,6 @@ pub const TypedFileHandle = struct {
         return self.id.is_valid() and self.state.is_open();
     }
 
-    /// Force update file size (for VFS implementations).
-    pub fn update_size(self: *TypedFileHandle, new_size: u64) void {
-        if (builtin.mode == .Debug) {
-            std.log.debug("Updating file size: {} -> {} for {s}", .{ self.file_size, new_size, self.path });
-        }
-        self.file_size = new_size;
-    }
-
     /// Validate file handle consistency in debug builds.
     pub fn validate_consistency(self: *const TypedFileHandle) void {
         if (builtin.mode == .Debug) {
@@ -526,12 +518,6 @@ pub const FileInfo = struct {
     /// Check if file is writable.
     pub fn is_writable(self: FileInfo) bool {
         return self.state.can_write() and self.access_mode.can_write();
-    }
-
-    /// Get remaining bytes to read.
-    pub fn remaining_bytes(self: FileInfo) u64 {
-        if (self.position >= self.size) return 0;
-        return self.size - self.position;
     }
 };
 

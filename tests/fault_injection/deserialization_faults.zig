@@ -214,6 +214,7 @@ test "random bit flips in contextblock" {
                 error.InvalidMagic,
                 error.UnsupportedVersion,
                 error.InvalidChecksum,
+                error.ChecksumMismatch,
                 error.BufferTooSmall,
                 error.IncompleteData,
                 error.InvalidReservedBytes,

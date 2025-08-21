@@ -259,18 +259,6 @@ pub const StorageEngine = struct {
         }
     }
 
-    /// Arena Coordinator Pattern: Safe storage allocation through stable interface.
-    /// Coordinator interface remains valid across arena operations, eliminating temporal coupling.
-    pub fn allocate_storage(self: *StorageEngine, comptime T: type, n: usize) ![]T {
-        return self.arena_coordinator.alloc(T, n);
-    }
-
-    /// Safe storage duplication through coordinator interface.
-    /// Used by subcomponents for cloning string content with guaranteed stability.
-    pub fn duplicate_storage(self: *StorageEngine, comptime T: type, slice: []const T) ![]T {
-        return self.arena_coordinator.duplicate_slice(T, slice);
-    }
-
     /// Reset all storage memory in O(1) time through coordinator pattern.
     /// Clears ALL storage subsystem memory (blocks, edges, paths, etc.) in constant time.
     /// Coordinator interface remains stable after reset, eliminating temporal coupling.
@@ -769,13 +757,6 @@ pub const StorageEngine = struct {
         };
     }
 
-    /// Configure WAL immediate sync behavior for performance optimization.
-    /// WARNING: Disabling immediate sync reduces durability guarantees.
-    /// Should only be used for benchmarking or testing purposes.
-    pub fn configure_wal_immediate_sync(self: *StorageEngine, enable: bool) void {
-        self.memtable_manager.configure_wal_immediate_sync(enable);
-    }
-
     /// Memory usage information structure for testing and monitoring
     pub const MemoryUsage = struct {
         total_bytes: u64,
@@ -1047,12 +1028,6 @@ pub const TypedStorageCoordinator = struct {
         return TypedStorageCoordinator{ .storage_engine = storage_engine };
     }
 
-    /// Allocate storage-owned memory for block content.
-    /// Uses storage engine's arena for content that lives until next flush.
-    pub fn duplicate_storage_content(self: TypedStorageCoordinator, comptime T: type, slice: []const T) ![]T {
-        return self.storage_engine.storage_arena.allocator().dupe(T, slice);
-    }
-
     /// Get storage arena allocator for subsystem operations.
     /// Memory allocated from this arena is freed on next memtable flush.
     pub fn storage_allocator(self: TypedStorageCoordinator) std.mem.Allocator {
@@ -1087,47 +1062,6 @@ pub const TypedStorageCoordinator = struct {
     /// Provides safe interface for subsystems to query storage state.
     pub fn query_metrics(self: TypedStorageCoordinator) *const StorageMetrics {
         return self.storage_engine.query_metrics();
-    }
-
-    /// Acquire SSTable from pool for temporary operations.
-    /// Returns null if pool is exhausted - caller should fall back to heap allocation.
-    pub fn acquire_pooled_sstable(self: TypedStorageCoordinator) ?*SSTable {
-        return self.storage_engine.sstable_pool.acquire();
-    }
-
-    /// Release SSTable back to pool for reuse.
-    /// CRITICAL: Caller must not access SSTable after release.
-    pub fn release_pooled_sstable(self: TypedStorageCoordinator, table: *SSTable) void {
-        table.deinit();
-        self.storage_engine.sstable_pool.release(table);
-    }
-
-    /// Acquire BlockIterator from pool for temporary iteration.
-    /// Returns null if pool is exhausted - caller should fall back to heap allocation.
-    pub fn acquire_pooled_iterator(self: TypedStorageCoordinator) ?*StorageEngine.BlockIterator {
-        return self.storage_engine.iterator_pool.acquire();
-    }
-
-    /// Release BlockIterator back to pool for reuse.
-    /// CRITICAL: Caller must not access iterator after release.
-    pub fn release_pooled_iterator(self: TypedStorageCoordinator, iterator: *StorageEngine.BlockIterator) void {
-        self.storage_engine.iterator_pool.release(iterator);
-    }
-
-    /// Get pool utilization statistics for monitoring.
-    /// High utilization indicates potential need for pool size increases.
-    pub fn pool_utilization_stats(self: TypedStorageCoordinator) struct {
-        sstable_utilization: f32,
-        iterator_utilization: f32,
-        sstables_active: u32,
-        iterators_active: u32,
-    } {
-        return .{
-            .sstable_utilization = self.storage_engine.sstable_pool.utilization(),
-            .iterator_utilization = self.storage_engine.iterator_pool.utilization(),
-            .sstables_active = self.storage_engine.sstable_pool.active_count(),
-            .iterators_active = self.storage_engine.iterator_pool.active_count(),
-        };
     }
 
     /// Check for compaction opportunities and execute if beneficial.

@@ -62,10 +62,6 @@ pub fn run_single_queries(allocator: std.mem.Allocator) !BenchmarkResult {
     defer storage_engine.deinit();
     try storage_engine.startup();
 
-    // Disable immediate sync for performance testing
-    // WARNING: This reduces durability guarantees but allows measuring optimal performance
-    storage_engine.configure_wal_immediate_sync(false);
-
     var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();
     query_eng.startup();
@@ -87,10 +83,6 @@ pub fn run_batch_queries(allocator: std.mem.Allocator) !BenchmarkResult {
     var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_batch_queries");
     defer storage_engine.deinit();
     try storage_engine.startup();
-
-    // Disable immediate sync for performance testing
-    // WARNING: This reduces durability guarantees but allows measuring optimal performance
-    storage_engine.configure_wal_immediate_sync(false);
 
     var query_eng = QueryEngine.init(allocator, &storage_engine);
     defer query_eng.deinit();

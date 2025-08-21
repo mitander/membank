@@ -303,31 +303,6 @@ pub const ClientConnection = struct {
         self.response_bytes_written = 0;
         self.state = .writing_response;
     }
-
-    /// Write a message to the client (legacy blocking method - kept for compatibility)
-    pub fn write_message(
-        self: *ClientConnection,
-        msg_type: MessageType,
-        payload: []const u8,
-        config: ServerConfig,
-    ) !void {
-        if (payload.len > config.max_response_size) {
-            return ConnectionError.ResponseTooLarge;
-        }
-
-        const header = MessageHeader{
-            .msg_type = msg_type,
-            .payload_length = @intCast(payload.len),
-        };
-
-        var header_bytes: [MessageHeader.HEADER_SIZE]u8 = undefined;
-        header.encode(&header_bytes);
-        _ = try self.stream.writeAll(&header_bytes);
-
-        if (payload.len > 0) {
-            _ = try self.stream.writeAll(payload);
-        }
-    }
 };
 
 // Compile-time guarantees for network protocol stability

@@ -110,7 +110,7 @@ test "server config validation" {
     defer harness.deinit();
 
     for (config_tests) |test_case| {
-        var server = Server.init(allocator, test_case.config, harness.storage_engine(), harness.query_engine);
+        var server = Server.init(allocator, test_case.config, harness.storage(), harness.query_engine);
         defer server.deinit();
 
         if (test_case.should_initialize) {
@@ -230,7 +230,7 @@ test "concurrent server configuration" {
     };
 
     for (configs) |config| {
-        var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
+        var server = Server.init(allocator, config, harness.storage(), harness.query_engine);
         defer server.deinit();
 
         // Verify server initializes correctly with different configurations

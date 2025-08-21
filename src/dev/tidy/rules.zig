@@ -70,17 +70,6 @@ pub const RuleContext = struct {
         return std.mem.indexOf(u8, self.file_path, layer) != null;
     }
 
-    /// Check if a function uses arena allocation patterns
-    pub fn function_uses_arena(self: *const RuleContext, func_name: []const u8) bool {
-        // Look for arena-related patterns near function
-        const func_start = self.find_function_start(func_name) orelse return false;
-        const func_end = self.find_function_end(func_start);
-        const func_body = self.source[func_start..func_end];
-
-        return std.mem.indexOf(u8, func_body, "arena") != null or
-            std.mem.indexOf(u8, func_body, "Arena") != null;
-    }
-
     fn find_function_start(self: *const RuleContext, func_name: []const u8) ?usize {
         const pattern = std.fmt.allocPrint(self.allocator, "fn {s}(", .{func_name}) catch return null;
         defer self.allocator.free(pattern);
@@ -746,7 +735,14 @@ fn has_safety_comment_nearby(source: []const u8, line_start: usize, line_end: us
     while (lines_checked < 3 and check_line_start > 0) {
         // Find the previous line
         check_line_start = find_previous_line_start(source, check_line_start);
-        const prev_line_end = find_next_newline_or_end(source, check_line_start);
+        const prev_line_end = blk: {
+            for (source[check_line_start..], check_line_start..) |char, i| {
+                if (char == '\n') {
+                    break :blk i;
+                }
+            }
+            break :blk source.len;
+        };
 
         if (prev_line_end > check_line_start) {
             const prev_line = source[check_line_start..prev_line_end];
@@ -772,15 +768,6 @@ fn find_line_end(source: []const u8, line_start: usize) usize {
 }
 
 /// Find the next newline or end of source
-fn find_next_newline_or_end(source: []const u8, start: usize) usize {
-    for (source[start..], start..) |char, i| {
-        if (char == '\n') {
-            return i;
-        }
-    }
-    return source.len;
-}
-
 /// Rule: Check for control characters (carriage returns and tabs)
 fn check_control_characters(context: *RuleContext) []const Rule.RuleViolation {
     var violations = std.array_list.Managed(Rule.RuleViolation).init(context.allocator);

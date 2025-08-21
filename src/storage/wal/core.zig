@@ -52,9 +52,6 @@ pub const WAL = struct {
     segment_size: u64,
     allocator: std.mem.Allocator,
     stats: WALStats,
-    /// Performance optimization: disable immediate sync for benchmarking
-    /// WARNING: Setting this to false reduces durability guarantees
-    enable_immediate_sync: bool,
 
     comptime {
         assert(@sizeOf(u32) == 4);
@@ -78,7 +75,6 @@ pub const WAL = struct {
             .segment_size = 0,
             .allocator = allocator,
             .stats = WALStats.init(),
-            .enable_immediate_sync = true, // Default to safe/durable behavior
         };
     }
 
@@ -141,10 +137,7 @@ pub const WAL = struct {
         bytes_written += try self.write_streaming_block_header(block);
         bytes_written += try self.write_streaming_block_content(block);
 
-        // Conditional sync for durability - only sync the WAL file, not entire filesystem
-        if (self.enable_immediate_sync) {
-            self.active_file.?.flush() catch return WALError.IoError;
-        }
+        self.active_file.?.flush() catch return WALError.IoError;
 
         self.update_write_stats(bytes_written);
     }
@@ -228,10 +221,7 @@ pub const WAL = struct {
             return WALError.IoError;
         }
 
-        // Conditional sync for performance optimization
-        if (self.enable_immediate_sync) {
-            self.active_file.?.flush() catch return WALError.IoError;
-        }
+        self.active_file.?.flush() catch return WALError.IoError;
 
         // Write verification enabled only in debug builds for performance
         // In release builds, WAL corruption is detected during recovery
@@ -276,13 +266,6 @@ pub const WAL = struct {
         assert(self.segment_size <= MAX_SEGMENT_SIZE);
         assert(self.stats.entries_written > 0);
         assert(self.stats.bytes_written >= bytes_written);
-    }
-
-    /// Configure immediate sync behavior for performance optimization.
-    /// WARNING: Disabling immediate sync reduces durability guarantees.
-    /// Should only be used for benchmarking or in environments with other durability mechanisms.
-    pub fn configure_immediate_sync(self: *WAL, enable: bool) void {
-        self.enable_immediate_sync = enable;
     }
 
     /// Recover all entries from WAL segments in chronological order.

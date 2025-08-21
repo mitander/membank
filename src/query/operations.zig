@@ -386,7 +386,7 @@ pub fn execute_keyword_query(
 }
 
 /// Check if a block exists in storage
-pub fn block_exists(storage_engine: *StorageEngine, block_id: BlockId) bool {
+pub fn has_block(storage_engine: *StorageEngine, block_id: BlockId) bool {
     const result = storage_engine.find_block(block_id, .query_engine) catch return false;
     return result != null;
 }
@@ -409,7 +409,7 @@ pub fn count_existing_blocks(
 ) usize {
     var count: usize = 0;
     for (block_ids) |block_id| {
-        if (block_exists(storage_engine, block_id)) {
+        if (has_block(storage_engine, block_id)) {
             count += 1;
         }
     }

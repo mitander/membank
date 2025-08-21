@@ -31,12 +31,6 @@ const StorageHarness = kausaldb.StorageHarness;
 // WAL constants from corruption_tracker.zig
 const WAL_MAGIC_NUMBER: u32 = 0x574C4147; // "WLAG"
 
-// Dummy callback for recovery operations that we don't need to process
-fn dummy_recovery_callback(entry: WALEntry, context: *anyopaque) WALError!void {
-    _ = entry;
-    _ = context;
-    // Just ignore the recovered entries for corruption detection tests
-}
 const WAL_ENTRY_MAGIC: u32 = 0x57454E54; // "WENT"
 const MAX_SEGMENT_SIZE: u64 = 64 * 1024 * 1024; // 64MB
 

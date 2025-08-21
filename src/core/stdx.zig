@@ -100,12 +100,6 @@ pub fn copy_left(comptime T: type, dest: []T, source: []const T) void {
 /// Use this for buffer compaction where source and destination overlap.
 /// Specifically handles the case where destination starts before source,
 /// which is safe with left-to-right copying semantics.
-pub fn copy_overlapping(comptime T: type, dest: []T, source: []const T) void {
-    assert(dest.len >= source.len);
-    // Allow overlapping buffers - this is the key difference from copy_left
-    std.mem.copyForwards(T, dest, source);
-}
-
 /// Copy memory from source to destination with right-to-left ordering
 ///
 /// Use this instead of std.mem.copyBackwards for explicit directional semantics.
@@ -123,19 +117,6 @@ pub fn copy_right(comptime T: type, dest: []T, source: []const T) void {
 /// Use this instead of std.mem.copy for explicit non-overlap semantics.
 /// This function asserts that buffers do not overlap, preventing subtle
 /// corruption bugs that can occur with overlapping copies.
-pub fn copy_disjoint(comptime T: type, dest: []T, source: []const T) void {
-    assert(dest.len >= source.len);
-
-    // Defensive check: ensure buffers do not overlap
-    const dest_start = @intFromPtr(dest.ptr);
-    const dest_end = dest_start + dest.len * @sizeOf(T);
-    const source_start = @intFromPtr(source.ptr);
-    const source_end = source_start + source.len * @sizeOf(T);
-
-    assert(dest_end <= source_start or source_end <= dest_start);
-    @memcpy(dest[0..source.len], source);
-}
-
 /// Safe wrapper around std.StaticBitSet with consistent naming conventions
 ///
 /// Use this instead of std.StaticBitSet for consistent snake_case method names

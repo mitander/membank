@@ -80,23 +80,10 @@ pub fn BoundedArrayType(
         }
 
         /// Get element at index with bounds checking.
-        /// Panics in debug mode if index out of bounds.
+        /// Panics if index out of bounds.
         pub fn at(self: *const BoundedArray, index: usize) T {
-            if (builtin.mode == .Debug) {
-                assert_fmt(index < self.len, "BoundedArrayType index out of bounds: {} >= {}", .{ index, self.len });
-            }
             fatal_assert(index < self.len, "BoundedArrayType index out of bounds: {} >= {}", .{ index, self.len });
             return self.items[index];
-        }
-
-        /// Get mutable reference with bounds checking.
-        /// Panics in debug mode if index out of bounds.
-        pub fn at_mut(self: *BoundedArray, index: usize) *T {
-            if (builtin.mode == .Debug) {
-                assert_fmt(index < self.len, "BoundedArrayType index out of bounds: {} >= {}", .{ index, self.len });
-            }
-            fatal_assert(index < self.len, "BoundedArrayType index out of bounds: {} >= {}", .{ index, self.len });
-            return &self.items[index];
         }
 
         /// Remove and return the last element.

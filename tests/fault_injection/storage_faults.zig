@@ -77,7 +77,7 @@ test "fault injection disk full during compaction" {
             .content = "Storage fault test block content",
         };
 
-        harness.storage_engine().put_block(block) catch {
+        harness.storage().put_block(block) catch {
             // Any error during storage indicates resource exhaustion
             break;
         };
@@ -116,16 +116,16 @@ test "fault injection read corruption during query" {
         .content = "Read corruption test block content",
     };
 
-    try harness.storage_engine().put_block(test_block);
+    try harness.storage().put_block(test_block);
 
     // Force flush to SSTable to ensure data goes to disk
-    try harness.storage_engine().flush_memtable_to_sstable();
+    try harness.storage().flush_memtable_to_sstable();
 
     // Advance simulation time to trigger fault injection
     harness.tick(5);
 
     // Try to read the block - may succeed or fail due to fault injection
-    const found_block = harness.storage_engine().find_block(test_block.id, .query_engine) catch |err| {
+    const found_block = harness.storage().find_block(test_block.id, .query_engine) catch |err| {
         // I/O failures during read are expected with fault injection
         try testing.expect(err == error.IOFailure or err == error.Corruption);
         return;

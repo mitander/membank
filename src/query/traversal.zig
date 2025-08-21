@@ -295,26 +295,31 @@ pub const TraversalResult = struct {
     }
 
     /// Clone traversal result for caching
-    pub fn clone(self: TraversalResult, allocator: std.mem.Allocator) !TraversalResult {
-        const cloned_blocks = try allocator.alloc(QueryEngineBlock, self.blocks.len);
+    pub fn clone(self: TraversalResult, backing_allocator: std.mem.Allocator) !TraversalResult {
+        // Create arena for this cloned result - all allocations will be in the arena
+        var query_arena = std.heap.ArenaAllocator.init(backing_allocator);
+        errdefer query_arena.deinit();
+        const arena_allocator = query_arena.allocator();
+
+        const cloned_blocks = try arena_allocator.alloc(QueryEngineBlock, self.blocks.len);
         for (self.blocks, 0..) |block, i| {
             const ctx_block = block.read(.query_engine);
             const cloned_ctx_block = ContextBlock{
                 .id = ctx_block.id,
                 .version = ctx_block.version,
-                .source_uri = try allocator.dupe(u8, ctx_block.source_uri),
-                .metadata_json = try allocator.dupe(u8, ctx_block.metadata_json),
-                .content = try allocator.dupe(u8, ctx_block.content),
+                .source_uri = try arena_allocator.dupe(u8, ctx_block.source_uri),
+                .metadata_json = try arena_allocator.dupe(u8, ctx_block.metadata_json),
+                .content = try arena_allocator.dupe(u8, ctx_block.content),
             };
             cloned_blocks[i] = QueryEngineBlock.init(cloned_ctx_block);
         }
 
-        const cloned_paths = try allocator.alloc([]const BlockId, self.paths.len);
+        const cloned_paths = try arena_allocator.alloc([]const BlockId, self.paths.len);
         for (self.paths, 0..) |path, i| {
-            cloned_paths[i] = try allocator.dupe(BlockId, path);
+            cloned_paths[i] = try arena_allocator.dupe(BlockId, path);
         }
 
-        const cloned_depths = try allocator.dupe(u32, self.depths);
+        const cloned_depths = try arena_allocator.dupe(u32, self.depths);
 
         return TraversalResult{
             .blocks = cloned_blocks,
@@ -322,8 +327,8 @@ pub const TraversalResult = struct {
             .depths = cloned_depths,
             .blocks_traversed = self.blocks_traversed,
             .max_depth_reached = self.max_depth_reached,
-            .allocator = allocator,
-            .query_arena = std.heap.ArenaAllocator.init(allocator),
+            .allocator = backing_allocator,
+            .query_arena = query_arena,
         };
     }
 };

@@ -109,7 +109,7 @@ test "server initialization" {
         .max_connections = 10,
     };
 
-    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
+    var server = Server.init(allocator, config, harness.storage(), harness.query_engine);
     defer server.deinit();
 
     // Verify initial state
@@ -184,7 +184,7 @@ test "connection limit configuration" {
         .max_connections = 2, // Very low limit for testing
     };
 
-    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
+    var server = Server.init(allocator, config, harness.storage(), harness.query_engine);
     defer server.deinit();
 
     // Verify configuration
@@ -201,7 +201,7 @@ test "stats initial values" {
 
     const config = ServerConfig{};
 
-    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
+    var server = Server.init(allocator, config, harness.storage(), harness.query_engine);
     defer server.deinit();
 
     // Verify initial stats
@@ -267,11 +267,11 @@ test "engine references basic" {
 
     const config = ServerConfig{};
 
-    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
+    var server = Server.init(allocator, config, harness.storage(), harness.query_engine);
     defer server.deinit();
 
     // Test that server maintains valid references
-    try testing.expect(@intFromPtr(server.storage_engine) == @intFromPtr(harness.storage_engine()));
+    try testing.expect(@intFromPtr(server.storage_engine) == @intFromPtr(harness.storage()));
     try testing.expect(@intFromPtr(server.query_engine) == @intFromPtr(harness.query_engine));
 
     // Verify configuration is properly copied

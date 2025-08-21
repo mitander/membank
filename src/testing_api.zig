@@ -38,7 +38,6 @@ pub const SemanticQuery = kausaldb_public.SemanticQuery;
 pub const SemanticQueryResult = kausaldb_public.SemanticQueryResult;
 pub const SemanticResult = kausaldb_public.SemanticResult;
 pub const FilteredQuery = kausaldb_public.FilteredQuery;
-pub const FilteredQueryResult = kausaldb_public.FilteredQueryResult;
 pub const FilterCondition = kausaldb_public.FilterCondition;
 pub const FilterExpression = kausaldb_public.FilterExpression;
 pub const FilterOperator = kausaldb_public.FilterOperator;
@@ -124,10 +123,6 @@ pub const test_config = struct {
 
     /// Query current test log level from build options
     const build_options_mod = @import("build_options");
-
-    pub fn query_log_level() std.log.Level {
-        return if (build_options_mod.debug_tests) .debug else .warn;
-    }
 
     /// Check if debug mode is enabled
     pub fn is_debug_enabled() bool {

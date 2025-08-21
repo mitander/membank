@@ -52,9 +52,9 @@ fn create_disconnected_components(harness: *QueryHarness, _: std.mem.Allocator) 
         .content = "Disconnected component A3 test block content",
     };
 
-    try harness.storage_engine().put_block(a1_block);
-    try harness.storage_engine().put_block(a2_block);
-    try harness.storage_engine().put_block(a3_block);
+    try harness.storage().put_block(a1_block);
+    try harness.storage().put_block(a2_block);
+    try harness.storage().put_block(a3_block);
 
     const edge_a1_a2 = GraphEdge{
         .source_id = a1_block.id,
@@ -66,8 +66,8 @@ fn create_disconnected_components(harness: *QueryHarness, _: std.mem.Allocator) 
         .target_id = a3_block.id,
         .edge_type = EdgeType.calls,
     };
-    try harness.storage_engine().put_edge(edge_a1_a2);
-    try harness.storage_engine().put_edge(edge_a2_a3);
+    try harness.storage().put_edge(edge_a1_a2);
+    try harness.storage().put_edge(edge_a2_a3);
 
     // Component B: Linear chain B1 -> B2 -> B3
     const b1_block = ContextBlock{
@@ -92,9 +92,9 @@ fn create_disconnected_components(harness: *QueryHarness, _: std.mem.Allocator) 
         .content = "Disconnected component B3 test block content",
     };
 
-    try harness.storage_engine().put_block(b1_block);
-    try harness.storage_engine().put_block(b2_block);
-    try harness.storage_engine().put_block(b3_block);
+    try harness.storage().put_block(b1_block);
+    try harness.storage().put_block(b2_block);
+    try harness.storage().put_block(b3_block);
 
     const edge_b1_b2 = GraphEdge{
         .source_id = b1_block.id,
@@ -106,8 +106,8 @@ fn create_disconnected_components(harness: *QueryHarness, _: std.mem.Allocator) 
         .target_id = b3_block.id,
         .edge_type = EdgeType.imports,
     };
-    try harness.storage_engine().put_edge(edge_b1_b2);
-    try harness.storage_engine().put_edge(edge_b2_b3);
+    try harness.storage().put_edge(edge_b1_b2);
+    try harness.storage().put_edge(edge_b2_b3);
 
     // Isolated node with no connections
     const isolated_block = ContextBlock{
@@ -117,7 +117,7 @@ fn create_disconnected_components(harness: *QueryHarness, _: std.mem.Allocator) 
         .metadata_json = "{\"test\":\"disconnected_components\",\"component\":\"isolated\"}",
         .content = "Isolated node test block content",
     };
-    try harness.storage_engine().put_block(isolated_block);
+    try harness.storage().put_block(isolated_block);
 
     return .{
         .component_a = [3]BlockId{ a1_block.id, a2_block.id, a3_block.id },
@@ -154,9 +154,9 @@ fn create_cyclic_graph(harness: *QueryHarness, _: std.mem.Allocator) !struct {
         .content = "Cyclic graph C3 test block content",
     };
 
-    try harness.storage_engine().put_block(c1_block);
-    try harness.storage_engine().put_block(c2_block);
-    try harness.storage_engine().put_block(c3_block);
+    try harness.storage().put_block(c1_block);
+    try harness.storage().put_block(c2_block);
+    try harness.storage().put_block(c3_block);
 
     const edge_c1_c2 = GraphEdge{
         .source_id = c1_block.id,
@@ -173,9 +173,9 @@ fn create_cyclic_graph(harness: *QueryHarness, _: std.mem.Allocator) !struct {
         .target_id = c1_block.id,
         .edge_type = EdgeType.calls,
     };
-    try harness.storage_engine().put_edge(edge_c1_c2);
-    try harness.storage_engine().put_edge(edge_c2_c3);
-    try harness.storage_engine().put_edge(edge_c3_c1);
+    try harness.storage().put_edge(edge_c1_c2);
+    try harness.storage().put_edge(edge_c2_c3);
+    try harness.storage().put_edge(edge_c3_c1);
 
     // Acyclic branch: B1 -> B2
     const b1_block = ContextBlock{
@@ -193,15 +193,15 @@ fn create_cyclic_graph(harness: *QueryHarness, _: std.mem.Allocator) !struct {
         .content = "Acyclic branch B2 test block content",
     };
 
-    try harness.storage_engine().put_block(b1_block);
-    try harness.storage_engine().put_block(b2_block);
+    try harness.storage().put_block(b1_block);
+    try harness.storage().put_block(b2_block);
 
     const edge_b1_b2 = GraphEdge{
         .source_id = b1_block.id,
         .target_id = b2_block.id,
         .edge_type = EdgeType.imports,
     };
-    try harness.storage_engine().put_edge(edge_b1_b2);
+    try harness.storage().put_edge(edge_b1_b2);
 
     return .{
         .cycle = [3]BlockId{ c1_block.id, c2_block.id, c3_block.id },
@@ -245,7 +245,7 @@ test "A* search disconnected component edge cases" {
     query_component_a.algorithm = .astar_search;
     query_component_a.max_depth = 20;
 
-    var result_component_a = try execute_traversal(allocator, harness.storage_engine(), query_component_a);
+    var result_component_a = try execute_traversal(allocator, harness.storage(), query_component_a);
     defer result_component_a.deinit();
 
     try testing.expectEqual(@as(usize, 3), result_component_a.paths.len);
@@ -255,7 +255,7 @@ test "A* search disconnected component edge cases" {
     query_isolated.algorithm = .astar_search;
     query_isolated.max_depth = 50;
 
-    var result_isolated = try execute_traversal(allocator, harness.storage_engine(), query_isolated);
+    var result_isolated = try execute_traversal(allocator, harness.storage(), query_isolated);
     defer result_isolated.deinit();
 
     try testing.expectEqual(@as(usize, 1), result_isolated.paths.len);
@@ -298,7 +298,7 @@ test "bidirectional search disconnected component scenarios" {
     query_isolated_bfs.algorithm = .breadth_first;
     query_isolated_bfs.max_depth = 5;
 
-    var result_isolated_bfs = try execute_traversal(allocator, harness.storage_engine(), query_isolated_bfs);
+    var result_isolated_bfs = try execute_traversal(allocator, harness.storage(), query_isolated_bfs);
     defer result_isolated_bfs.deinit();
 
     try testing.expectEqual(@as(usize, 1), result_isolated_bfs.paths.len);
@@ -348,7 +348,7 @@ test "SCC detection self loop edge cases" {
         .metadata_json = "{\"test\":\"scc_detection\",\"component\":\"self_loop\"}",
         .content = "Self loop SCC test block content",
     };
-    try harness.storage_engine().put_block(self_loop_block);
+    try harness.storage().put_block(self_loop_block);
 
     // Note: Self-loop edges are not supported by the storage engine
     // Testing SCC detection with valid multi-node cycles instead
@@ -368,8 +368,8 @@ test "SCC detection self loop edge cases" {
         .metadata_json = "{\"test\":\"scc_detection\",\"component\":\"two_node_2\"}",
         .content = "Two node SCC test block 2 content",
     };
-    try harness.storage_engine().put_block(scc1_block);
-    try harness.storage_engine().put_block(scc2_block);
+    try harness.storage().put_block(scc1_block);
+    try harness.storage().put_block(scc2_block);
 
     const edge_1_2 = GraphEdge{
         .source_id = scc1_block.id,
@@ -381,8 +381,8 @@ test "SCC detection self loop edge cases" {
         .target_id = scc1_block.id,
         .edge_type = EdgeType.imports,
     };
-    try harness.storage_engine().put_edge(edge_1_2);
-    try harness.storage_engine().put_edge(edge_2_1);
+    try harness.storage().put_edge(edge_1_2);
+    try harness.storage().put_edge(edge_2_1);
 
     // Test SCC detection using traversal algorithm
     var scc_query = TraversalQuery.init(self_loop_block.id, TraversalDirection.bidirectional);
@@ -424,7 +424,7 @@ test "algorithm robustness malformed input edge cases" {
         .metadata_json = "{\"test\":\"malformed_input_edge_cases\",\"component\":\"single\"}",
         .content = "Single node graph test block content",
     };
-    try harness.storage_engine().put_block(single_block);
+    try harness.storage().put_block(single_block);
 
     // Test topological sort on single node
     var single_topo_query = TraversalQuery.init(single_block.id, TraversalDirection.outgoing);
@@ -468,7 +468,7 @@ test "algorithm performance edge case timing validation" {
             .metadata_json = "{\"test\":\"edge_case_dense_graph\"}",
             .content = "Edge case dense graph test block content",
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
         try nodes.append(block.id);
     }
 
@@ -479,7 +479,7 @@ test "algorithm performance edge case timing validation" {
             .target_id = nodes.items[i + 1],
             .edge_type = EdgeType.calls,
         };
-        try harness.storage_engine().put_edge(edge);
+        try harness.storage().put_edge(edge);
 
         // Add some cross-connections every 10 nodes
         if (i % 10 == 0 and i + 5 < graph_size) {
@@ -488,7 +488,7 @@ test "algorithm performance edge case timing validation" {
                 .target_id = nodes.items[i + 5],
                 .edge_type = EdgeType.imports,
             };
-            try harness.storage_engine().put_edge(cross_edge);
+            try harness.storage().put_edge(cross_edge);
         }
     }
 

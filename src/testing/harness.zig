@@ -90,7 +90,7 @@ pub const TestData = struct {
     }
 
     /// Create BlockId from index for use in queries and edge creation
-    pub fn block_id_from_index(index: u32) BlockId {
+    pub fn create_block_id(index: u32) BlockId {
         return deterministic_block_id(index);
     }
 
@@ -208,7 +208,7 @@ pub const QueryHarness = struct {
     }
 
     /// Access storage engine through harness coordinator
-    pub fn storage_engine(self: *Self) *StorageEngine {
+    pub fn storage(self: *Self) *StorageEngine {
         return self.storage_harness.storage_engine;
     }
 
@@ -256,7 +256,7 @@ pub const ProductionHarness = struct {
     }
 
     /// Access storage engine through harness coordinator
-    pub fn storage_engine(self: *Self) *StorageEngine {
+    pub fn storage(self: *Self) *StorageEngine {
         return self.storage_harness.storage_engine;
     }
 
@@ -532,7 +532,7 @@ pub const FaultInjectionHarness = struct {
     }
 
     /// Access storage engine through harness
-    pub fn storage_engine(self: *Self) *StorageEngine {
+    pub fn storage(self: *Self) *StorageEngine {
         return self.simulation_harness.storage_engine;
     }
 
@@ -597,24 +597,5 @@ pub const FaultInjectionHarness = struct {
         };
 
         node_vfs.enable_io_failures(rate_per_thousand, vfs_operations);
-    }
-
-    /// Enable memory allocation failures with specified rate
-    /// Note: This is a placeholder - memory failures are simulated through allocation patterns
-    pub fn enable_memory_failures(self: *Self, rate_per_thousand: u32) void {
-        _ = self;
-        _ = rate_per_thousand;
-        // Memory failures are simulated through test allocator configuration
-        // This method is provided for API completeness but actual implementation
-        // would require coordination with test allocator
-    }
-
-    /// Disable memory allocation failures
-    /// Note: This is a placeholder - memory failures are simulated through allocation patterns
-    pub fn disable_memory_failures(self: *Self) void {
-        _ = self;
-        // Memory failures are simulated through test allocator configuration
-        // This method is provided for API completeness but actual implementation
-        // would require coordination with test allocator
     }
 };

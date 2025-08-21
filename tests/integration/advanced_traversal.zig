@@ -59,7 +59,7 @@ test "A* search integration with storage engine" {
             .metadata_json = try std.fmt.allocPrint(allocator, "{{\"id\":{},\"content\":\"{s}\"}}", .{ block_info.id, block_info.content }),
             .content = block_info.content,
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
     }
 
     // Create edges forming a more complex graph
@@ -75,7 +75,7 @@ test "A* search integration with storage engine" {
 
     for (edges) |edge_info| {
         const edge = TestData.create_test_edge_from_indices(edge_info.from, edge_info.to, edge_info.edge_type);
-        try harness.storage_engine().put_edge(edge);
+        try harness.storage().put_edge(edge);
     }
 
     // Test A* search using standardized block ID generation
@@ -91,7 +91,7 @@ test "A* search integration with storage engine" {
     };
 
     // Execute A* search (use testing.allocator for result to ensure proper cleanup detection)
-    const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage_engine(), astar_query);
+    const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage(), astar_query);
     defer result.deinit();
 
     // Verify A* found optimal paths
@@ -132,7 +132,7 @@ test "bidirectional search integration and performance" {
             .metadata_json = try std.fmt.allocPrint(allocator, "{{\"large_graph_test\":{}}}", .{i}),
             .content = try std.fmt.allocPrint(allocator, "Large graph test block {}", .{i}),
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
     }
 
     // Create a connected graph structure using TestData
@@ -140,12 +140,12 @@ test "bidirectional search integration and performance" {
     while (i < block_count) : (i += 1) {
         // Create forward edges
         const edge_forward = TestData.create_test_edge_from_indices(i, i + 1, .calls);
-        try harness.storage_engine().put_edge(edge_forward);
+        try harness.storage().put_edge(edge_forward);
 
         // Create some backward references
         if (i % 3 == 0 and i > 3) {
             const edge_back = TestData.create_test_edge_from_indices(i, i - 3, .references);
-            try harness.storage_engine().put_edge(edge_back);
+            try harness.storage().put_edge(edge_back);
         }
     }
 
@@ -161,7 +161,7 @@ test "bidirectional search integration and performance" {
     };
 
     const start_time = std.time.nanoTimestamp();
-    const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage_engine(), bidirectional_query);
+    const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage(), bidirectional_query);
     defer result.deinit();
     const end_time = std.time.nanoTimestamp();
 
@@ -200,7 +200,7 @@ test "algorithm comparison BFS vs DFS vs A* vs Bidirectional" {
             .metadata_json = try std.fmt.allocPrint(allocator, "{{\"performance_test\":{}}}", .{i}),
             .content = try std.fmt.allocPrint(allocator, "Performance test block {}", .{i}),
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
     }
 
     // Create a binary tree-like structure using TestData
@@ -209,12 +209,12 @@ test "algorithm comparison BFS vs DFS vs A* vs Bidirectional" {
         // Left child
         if (i * 2 <= graph_size) {
             const edge_left = TestData.create_test_edge_from_indices(i, i * 2, .calls);
-            try harness.storage_engine().put_edge(edge_left);
+            try harness.storage().put_edge(edge_left);
         }
         // Right child
         if (i * 2 + 1 <= graph_size) {
             const edge_right = TestData.create_test_edge_from_indices(i, i * 2 + 1, .calls);
-            try harness.storage_engine().put_edge(edge_right);
+            try harness.storage().put_edge(edge_right);
         }
     }
 
@@ -234,7 +234,7 @@ test "algorithm comparison BFS vs DFS vs A* vs Bidirectional" {
         };
 
         const start_time = std.time.nanoTimestamp();
-        const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage_engine(), traversal_query);
+        const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage(), traversal_query);
         defer result.deinit();
         const end_time = std.time.nanoTimestamp();
 
@@ -269,7 +269,7 @@ test "large graph traversal with new algorithms" {
     while (i <= large_graph_size) : (i += 1) {
         const block = try TestData.create_test_block(allocator, i);
         defer TestData.cleanup_test_block(allocator, block);
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
     }
 
     // Create a sparse graph structure using TestData
@@ -279,13 +279,13 @@ test "large graph traversal with new algorithms" {
         var j: u32 = 1;
         while (j <= 3 and i + j <= large_graph_size) : (j += 1) {
             const edge = TestData.create_test_edge_from_indices(i, i + j, .calls);
-            try harness.storage_engine().put_edge(edge);
+            try harness.storage().put_edge(edge);
         }
 
         // Connect to some previous nodes for richness
         if (i > 10 and i % 5 == 0) {
             const edge_back = TestData.create_test_edge_from_indices(i, i - 5, .references);
-            try harness.storage_engine().put_edge(edge_back);
+            try harness.storage().put_edge(edge_back);
         }
     }
 
@@ -304,7 +304,7 @@ test "large graph traversal with new algorithms" {
     };
 
     const start_time = std.time.nanoTimestamp();
-    const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage_engine(), astar_query);
+    const result = try kausaldb.query.traversal.execute_traversal(testing.allocator, harness.storage(), astar_query);
     defer result.deinit();
     const end_time = std.time.nanoTimestamp();
 

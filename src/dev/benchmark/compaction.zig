@@ -48,10 +48,6 @@ pub fn run_compaction_benchmark(allocator: std.mem.Allocator) !BenchmarkResult {
 
     try storage_engine.startup();
 
-    // Disable immediate sync for performance testing
-    // WARNING: This reduces durability guarantees but allows measuring optimal performance
-    storage_engine.configure_wal_immediate_sync(false);
-
     return benchmark_compaction_operations(&storage_engine, allocator);
 }
 

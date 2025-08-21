@@ -623,16 +623,6 @@ fn create_convenience_commands(
     const demo_step = b.step("demo", "Run KausalDB storage and query demonstration");
     demo_step.dependOn(&demo_cmd.step);
 
-    // Analyze command: ./zig build analyze
-    const analyze_cmd = b.addRunArtifact(exe);
-    analyze_cmd.step.dependOn(b.getInstallStep());
-    analyze_cmd.addArg("analyze");
-    if (b.args) |args| {
-        analyze_cmd.addArgs(args);
-    }
-    const analyze_step = b.step("analyze", "Run KausalDB self-analysis demo");
-    analyze_step.dependOn(&analyze_cmd.step);
-
     // Performance validation: ./zig build perf
     const perf_cmd = create_performance_validation_step(b, target, optimize, modules);
     const perf_step = b.step("perf", "Validate performance thresholds");

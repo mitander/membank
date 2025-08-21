@@ -44,7 +44,7 @@ test "complex graph traversal scenarios" {
         .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"main_func\"}",
         .content = "Complex traversal main function",
     };
-    try harness.storage_engine().put_block(main_func);
+    try harness.storage().put_block(main_func);
 
     // Process function
     const process_func = ContextBlock{
@@ -54,7 +54,7 @@ test "complex graph traversal scenarios" {
         .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"process_func\"}",
         .content = "Complex traversal process function",
     };
-    try harness.storage_engine().put_block(process_func);
+    try harness.storage().put_block(process_func);
 
     // Validation function
     const validate_func = ContextBlock{
@@ -64,7 +64,7 @@ test "complex graph traversal scenarios" {
         .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"validate_func\"}",
         .content = "Complex traversal validation function",
     };
-    try harness.storage_engine().put_block(validate_func);
+    try harness.storage().put_block(validate_func);
 
     // Render function
     const render_func = ContextBlock{
@@ -74,7 +74,7 @@ test "complex graph traversal scenarios" {
         .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"render_func\"}",
         .content = "Complex traversal render function",
     };
-    try harness.storage_engine().put_block(render_func);
+    try harness.storage().put_block(render_func);
 
     // Utility functions
     const draw_func = ContextBlock{
@@ -84,7 +84,7 @@ test "complex graph traversal scenarios" {
         .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"draw_func\"}",
         .content = "Complex traversal draw function",
     };
-    try harness.storage_engine().put_block(draw_func);
+    try harness.storage().put_block(draw_func);
 
     const display_func = ContextBlock{
         .id = TestData.deterministic_block_id(6),
@@ -93,30 +93,30 @@ test "complex graph traversal scenarios" {
         .metadata_json = "{\"test\":\"complex_traversal\",\"type\":\"display_func\"}",
         .content = "Complex traversal display function",
     };
-    try harness.storage_engine().put_block(display_func);
+    try harness.storage().put_block(display_func);
 
     // Create call graph edges using explicit construction
-    try harness.storage_engine().put_edge(GraphEdge{
+    try harness.storage().put_edge(GraphEdge{
         .source_id = TestData.deterministic_block_id(1),
         .target_id = TestData.deterministic_block_id(2),
         .edge_type = EdgeType.calls,
     }); // main -> process
-    try harness.storage_engine().put_edge(GraphEdge{
+    try harness.storage().put_edge(GraphEdge{
         .source_id = TestData.deterministic_block_id(2),
         .target_id = TestData.deterministic_block_id(3),
         .edge_type = EdgeType.calls,
     }); // process -> validate
-    try harness.storage_engine().put_edge(GraphEdge{
+    try harness.storage().put_edge(GraphEdge{
         .source_id = TestData.deterministic_block_id(2),
         .target_id = TestData.deterministic_block_id(4),
         .edge_type = EdgeType.calls,
     }); // process -> render
-    try harness.storage_engine().put_edge(GraphEdge{
+    try harness.storage().put_edge(GraphEdge{
         .source_id = TestData.deterministic_block_id(4),
         .target_id = TestData.deterministic_block_id(5),
         .edge_type = EdgeType.calls,
     }); // render -> draw
-    try harness.storage_engine().put_edge(GraphEdge{
+    try harness.storage().put_edge(GraphEdge{
         .source_id = TestData.deterministic_block_id(4),
         .target_id = TestData.deterministic_block_id(6),
         .edge_type = EdgeType.calls,
@@ -169,7 +169,7 @@ test "query optimization strategy validation" {
             .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"optimization_test\":{}}}", .{i}),
             .content = content,
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
     }
 
     // Test small query (should use direct strategy)
@@ -180,7 +180,7 @@ test "query optimization strategy validation" {
         },
     };
 
-    var small_result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), small_query);
+    var small_result = try query.operations.execute_find_blocks(allocator, harness.storage(), small_query);
     defer small_result.deinit();
 
     // Test large query (should use optimized strategy)
@@ -196,7 +196,7 @@ test "query optimization strategy validation" {
         .block_ids = large_block_ids.items,
     };
 
-    var large_result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), large_query);
+    var large_result = try query.operations.execute_find_blocks(allocator, harness.storage(), large_query);
     defer large_result.deinit();
 
     // Both should complete successfully with appropriate results
@@ -235,7 +235,7 @@ test "query performance under memory pressure" {
             .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"memory_pressure_test\":{}}}", .{i}),
             .content = owned_content,
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
     }
 
     // Perform multiple queries to test memory efficiency
@@ -255,7 +255,7 @@ test "query performance under memory pressure" {
             .block_ids = query_block_ids.items,
         };
 
-        var result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), find_query);
+        var result = try query.operations.execute_find_blocks(allocator, harness.storage(), find_query);
         defer result.deinit();
 
         // Consume results to test memory handling
@@ -297,7 +297,7 @@ test "complex filtering and search scenarios" {
             .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"filtering_test\":{}}}", .{idx}),
             .content = owned_content,
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
     }
 
     // Test content-based queries (when filtering is implemented)
@@ -314,7 +314,7 @@ test "complex filtering and search scenarios" {
         .block_ids = all_block_ids.items,
     };
 
-    var result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), find_query);
+    var result = try query.operations.execute_find_blocks(allocator, harness.storage(), find_query);
     defer result.deinit();
 
     var found_count: u32 = 0;
@@ -340,7 +340,7 @@ test "graph traversal with cycle detection" {
         .metadata_json = "{\"test\":\"cycle_detection\",\"function\":\"A\"}",
         .content = "Function A calls B",
     };
-    try harness.storage_engine().put_block(block_a);
+    try harness.storage().put_block(block_a);
 
     const block_b = ContextBlock{
         .id = TestData.deterministic_block_id(2),
@@ -349,7 +349,7 @@ test "graph traversal with cycle detection" {
         .metadata_json = "{\"test\":\"cycle_detection\",\"function\":\"B\"}",
         .content = "Function B calls C",
     };
-    try harness.storage_engine().put_block(block_b);
+    try harness.storage().put_block(block_b);
 
     const block_c = ContextBlock{
         .id = TestData.deterministic_block_id(3),
@@ -358,7 +358,7 @@ test "graph traversal with cycle detection" {
         .metadata_json = "{\"test\":\"cycle_detection\",\"function\":\"C\"}",
         .content = "Function C calls A",
     };
-    try harness.storage_engine().put_block(block_c);
+    try harness.storage().put_block(block_c);
 
     // Create cycle: A -> B -> C -> A
     const edge = GraphEdge{
@@ -366,19 +366,19 @@ test "graph traversal with cycle detection" {
         .target_id = TestData.deterministic_block_id(2),
         .edge_type = EdgeType.calls,
     };
-    try harness.storage_engine().put_edge(edge);
+    try harness.storage().put_edge(edge);
     const edge2 = GraphEdge{
         .source_id = TestData.deterministic_block_id(2),
         .target_id = TestData.deterministic_block_id(3),
         .edge_type = EdgeType.calls,
     };
-    try harness.storage_engine().put_edge(edge2);
+    try harness.storage().put_edge(edge2);
     const edge3 = GraphEdge{
         .source_id = TestData.deterministic_block_id(3),
         .target_id = TestData.deterministic_block_id(1),
         .edge_type = EdgeType.calls,
     };
-    try harness.storage_engine().put_edge(edge3);
+    try harness.storage().put_edge(edge3);
 
     // Traversal should handle cycle gracefully
     const traversal_query = TraversalQuery{
@@ -427,7 +427,7 @@ test "batch query operations and efficiency" {
             .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"batch_test\":{}}}", .{i}),
             .content = content,
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
     }
 
     const start_time = std.time.nanoTimestamp();
@@ -449,7 +449,7 @@ test "batch query operations and efficiency" {
             .block_ids = batch_block_ids.items,
         };
 
-        var result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), batch_query);
+        var result = try query.operations.execute_find_blocks(allocator, harness.storage(), batch_query);
         defer result.deinit();
 
         // Verify batch results
@@ -489,7 +489,7 @@ test "query error handling and recovery" {
         .block_ids = nonexistent_ids.items,
     };
 
-    var result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), missing_query);
+    var result = try query.operations.execute_find_blocks(allocator, harness.storage(), missing_query);
     defer result.deinit();
 
     // Should handle missing blocks gracefully (return empty results)
@@ -543,7 +543,7 @@ test "mixed query workload simulation" {
             .metadata_json = try std.fmt.allocPrint(arena_allocator, "{{\"mixed_workload_test\":{},\"type\":\"{s}\"}}", .{ i, if (i % 2 == 0) "function" else "struct" }),
             .content = content,
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
 
         // Add some edges for traversal testing
         // Skip creating edge for first block (i==0) to avoid negative index
@@ -553,7 +553,7 @@ test "mixed query workload simulation" {
                 .target_id = TestData.deterministic_block_id(@intCast(i)),
                 .edge_type = EdgeType.calls,
             };
-            try harness.storage_engine().put_edge(edge);
+            try harness.storage().put_edge(edge);
         }
     }
 
@@ -561,12 +561,12 @@ test "mixed query workload simulation" {
     var workload_round: u32 = 0;
     while (workload_round < 5) : (workload_round += 1) {
         // Single block lookup
-        const single_id = TestData.block_id_from_index(workload_round);
+        const single_id = TestData.create_block_id(workload_round);
         const single_query = FindBlocksQuery{
             .block_ids = &[_]BlockId{single_id},
         };
 
-        var single_result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), single_query);
+        var single_result = try query.operations.execute_find_blocks(allocator, harness.storage(), single_query);
         defer single_result.deinit();
 
         // Batch lookup
@@ -575,14 +575,14 @@ test "mixed query workload simulation" {
         defer batch_ids.deinit();
         i = workload_round * 5;
         while (i < (workload_round + 1) * 5) : (i += 1) {
-            try batch_ids.append(TestData.block_id_from_index(i));
+            try batch_ids.append(TestData.create_block_id(i));
         }
 
         const batch_query = FindBlocksQuery{
             .block_ids = batch_ids.items,
         };
 
-        var batch_result = try query.operations.execute_find_blocks(allocator, harness.storage_engine(), batch_query);
+        var batch_result = try query.operations.execute_find_blocks(allocator, harness.storage(), batch_query);
         defer batch_result.deinit();
 
         // Graph traversal

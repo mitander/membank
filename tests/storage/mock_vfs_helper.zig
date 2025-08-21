@@ -38,24 +38,6 @@ pub const MockVFS = struct {
         return self.sim_vfs.vfs();
     }
 
-    /// Configure failure injection for testing error paths
-    pub fn inject_failures(self: *MockVFS, config: FailureConfig) void {
-        self.fail_next_create = config.fail_create;
-        self.fail_next_write = config.fail_write;
-        self.fail_next_read = config.fail_read;
-        self.disk_full = config.disk_full;
-
-        if (config.disk_full) {
-            self.sim_vfs.set_disk_limit(0); // No space available
-        }
-        if (config.create_failure_rate > 0.0) {
-            self.sim_vfs.set_create_failure_rate(config.create_failure_rate);
-        }
-        if (config.enable_torn_writes) {
-            self.sim_vfs.enable_torn_writes(1.0, 0.5); // 100% torn, 50% completion
-        }
-    }
-
     /// Create a pre-populated filesystem for testing
     pub fn setup_test_filesystem(self: *MockVFS) !void {
         // Create standard directory structure
@@ -126,33 +108,6 @@ pub const MockVFS = struct {
     pub fn restore_disk_space(self: *MockVFS) void {
         self.sim_vfs.set_disk_limit(1024 * 1024 * 1024); // 1GB limit
     }
-
-    /// Enable corruption simulation for testing recovery
-    pub fn enable_corruption(self: *MockVFS) void {
-        self.sim_vfs.enable_read_corruption(0.1); // 10% corruption rate
-    }
-
-    /// Disable all failure injection
-    pub fn disable_failures(self: *MockVFS) void {
-        self.fail_next_create = false;
-        self.fail_next_write = false;
-        self.fail_next_read = false;
-        self.disk_full = false;
-        self.restore_disk_space();
-        self.sim_vfs.set_create_failure_rate(0.0);
-        self.sim_vfs.disable_torn_writes();
-        self.sim_vfs.disable_read_corruption();
-    }
-};
-
-/// Configuration for failure injection testing
-pub const FailureConfig = struct {
-    fail_create: bool = false,
-    fail_write: bool = false,
-    fail_read: bool = false,
-    disk_full: bool = false,
-    create_failure_rate: f64 = 0.0,
-    enable_torn_writes: bool = false,
 };
 
 /// Helper to create isolated test environment for storage components
@@ -160,27 +115,6 @@ pub fn create_isolated_test_env(allocator: std.mem.Allocator) !MockVFS {
     var mock_vfs = try MockVFS.init(allocator);
     try mock_vfs.setup_test_filesystem(allocator);
     return mock_vfs;
-}
-
-/// Verify that two filesystem states are equivalent
-pub fn verify_filesystem_state_equal(
-    vfs1: VFS,
-    vfs2: VFS,
-    allocator: std.mem.Allocator,
-    path: []const u8,
-) !void {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-
-    const entries1 = vfs1.list_directory(path, arena.allocator()) catch &[_][]const u8{};
-    const entries2 = vfs2.list_directory(path, arena.allocator()) catch &[_][]const u8{};
-
-    try testing.expectEqual(entries1.len, entries2.len);
-
-    // Simple verification - in real scenarios, would need deeper comparison
-    for (entries1, entries2) |entry1, entry2| {
-        try testing.expectEqualStrings(entry1, entry2);
-    }
 }
 
 // Tests for the mock VFS helper itself

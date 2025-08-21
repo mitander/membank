@@ -357,11 +357,13 @@ pub const CacheStatistics = struct {
     memory_usage_estimate: u64,
 
     /// Check if cache is performing well
+    /// TODO: Integrate into admin interface for cache monitoring
     pub fn is_effective(self: *const CacheStatistics) bool {
         return self.hit_rate > 0.2 and self.current_entries > (self.max_entries / 4);
     }
 
     /// Check if cache needs tuning (too many evictions)
+    /// TODO: Integrate into admin interface for performance alerts
     pub fn needs_tuning(self: *const CacheStatistics) bool {
         const total_operations = self.hits + self.misses;
         if (total_operations == 0) return false;

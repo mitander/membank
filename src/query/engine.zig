@@ -411,9 +411,9 @@ pub const QueryEngine = struct {
     }
 
     /// Check if a block exists without retrieving its content
-    pub fn block_exists(self: *QueryEngine, block_id: BlockId) bool {
+    pub fn has_block(self: *QueryEngine, block_id: BlockId) bool {
         if (!self.state.can_query()) return false;
-        return operations.block_exists(self.storage_engine, block_id);
+        return operations.has_block(self.storage_engine, block_id);
     }
 
     /// Execute a graph traversal query with caching for expensive operations
@@ -938,14 +938,14 @@ test "query engine block_exists check" {
     const existing_id = try BlockId.from_hex("44444444444444444444444444444444");
     const missing_id = try BlockId.from_hex("55555555555555555555555555555555");
 
-    try testing.expect(!query_engine.block_exists(existing_id));
-    try testing.expect(!query_engine.block_exists(missing_id));
+    try testing.expect(!query_engine.has_block(existing_id));
+    try testing.expect(!query_engine.has_block(missing_id));
 
     const test_block = create_test_block(existing_id, "existence test");
     try storage_engine.put_block(test_block);
 
-    try testing.expect(query_engine.block_exists(existing_id));
-    try testing.expect(!query_engine.block_exists(missing_id));
+    try testing.expect(query_engine.has_block(existing_id));
+    try testing.expect(!query_engine.has_block(missing_id));
 }
 
 test "query engine uninitialized error handling" {

@@ -118,7 +118,7 @@ test "large block storage engine performance" {
 
             // Disable immediate sync for performance testing
             // WARNING: This reduces durability guarantees but allows measuring optimal performance
-            harness.storage_engine().configure_wal_immediate_sync(false);
+            harness.storage().configure_wal_immediate_sync(false);
 
             // Profile WAL entry creation separately
             const wal_start = std.time.nanoTimestamp();
@@ -128,7 +128,7 @@ test "large block storage engine performance" {
 
             // Measure full write time
             const write_start = std.time.nanoTimestamp();
-            try harness.storage_engine().put_block(test_block);
+            try harness.storage().put_block(test_block);
             const write_end = std.time.nanoTimestamp();
 
             // Calculate breakdown
@@ -145,7 +145,7 @@ test "large block storage engine performance" {
             const read_timing_start = std.time.nanoTimestamp();
 
             for (0..read_iterations) |_| {
-                const retrieved = try harness.storage_engine().find_block(test_block.id, .query_engine);
+                const retrieved = try harness.storage().find_block(test_block.id, .query_engine);
                 try testing.expect(retrieved != null);
                 // Prevent optimization from eliminating the read
                 std.mem.doNotOptimizeAway(retrieved);

@@ -240,11 +240,6 @@ pub const SimulationVFS = struct {
             }
         }
 
-        /// Check if write would exceed disk space limit
-        pub fn check_disk_space(self: *const FaultInjectionState, additional_bytes: usize) bool {
-            return self.used_disk_space + additional_bytes <= self.max_disk_space;
-        }
-
         /// Update disk usage tracking
         pub fn update_disk_usage(self: *FaultInjectionState, old_size: usize, new_size: usize) void {
             // Prevent underflow when old_size > used_disk_space

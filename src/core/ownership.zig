@@ -158,17 +158,6 @@ pub const OwnedBlock = struct {
         return &self.block;
     }
 
-    /// Get write access with runtime ownership validation - backward compatibility.
-    /// Use this during transition period when ownership is not compile-time known.
-    /// Prefer write() with comptime ownership for zero-cost hot paths.
-    pub fn write_runtime(self: *OwnedBlock, accessor: BlockOwnership) *ContextBlock {
-        fatal_assert(self.state == .valid, "Attempted to write moved-from block {}", .{self.block.id});
-        if (comptime builtin.mode == .Debug) {
-            self.validate_write_access(accessor);
-        }
-        return &self.block;
-    }
-
     /// Clone block with new ownership for transfer between subsystems.
     /// The original block remains valid and owned by the original subsystem.
     pub fn clone_with_ownership(
@@ -341,24 +330,6 @@ pub const MemtableBlock = ComptimeOwnedBlockType(.memtable_manager);
 pub const SSTableBlock = ComptimeOwnedBlockType(.sstable_manager);
 pub const QueryEngineBlock = ComptimeOwnedBlockType(.query_engine);
 pub const TemporaryBlock = ComptimeOwnedBlockType(.temporary);
-
-/// Create a compile-time owned block with storage engine ownership.
-/// Zero runtime cost - preferred for hot path block operations.
-pub fn create_storage_owned_block(block: ContextBlock) StorageEngineBlock {
-    return StorageEngineBlock.init(block);
-}
-
-/// Create a compile-time owned block with memtable ownership.
-/// Zero runtime cost - use for memtable operations.
-pub fn create_memtable_owned_block(block: ContextBlock) MemtableBlock {
-    return MemtableBlock.init(block);
-}
-
-/// Create a compile-time owned block with temporary ownership.
-/// Zero runtime cost - use for temporary operations and transfers.
-pub fn create_temporary_owned_block(block: ContextBlock) TemporaryBlock {
-    return TemporaryBlock.init(block);
-}
 
 /// Collection of owned blocks with batch operations.
 /// Provides type-safe batch operations while maintaining ownership tracking.
@@ -935,12 +906,12 @@ test "zero-cost compile-time ownership system" {
     try std.testing.expect(!StorageEngineBlock.is_owned_by(.memtable_manager));
     try std.testing.expect(StorageEngineBlock.query_owner() == .storage_engine);
 
-    // Test helper functions
-    var helper_block = create_storage_owned_block(test_block);
+    // Test direct block creation
+    var helper_block = StorageEngineBlock.init(test_block);
     const helper_read = helper_block.read(.storage_engine);
     try std.testing.expect(helper_read.content.len > 0);
 
-    var temp_block = create_temporary_owned_block(test_block);
+    var temp_block = TemporaryBlock.init(test_block);
     const temp_access = temp_block.read(.temporary);
     try std.testing.expect(temp_access.id.eql(block_id));
 

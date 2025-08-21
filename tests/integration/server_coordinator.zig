@@ -35,7 +35,7 @@ test "server decomposition maintains coordinator pattern" {
         .connection_timeout_sec = 30,
     };
 
-    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
+    var server = Server.init(allocator, config, harness.storage(), harness.query_engine);
     defer server.deinit();
 
     // Verify server has ConnectionManager
@@ -86,7 +86,7 @@ test "server coordinator delegates to connection manager" {
         .connection_timeout_sec = 5,
     };
 
-    var server = Server.init(allocator, config, harness.storage_engine(), harness.query_engine);
+    var server = Server.init(allocator, config, harness.storage(), harness.query_engine);
     defer server.deinit();
 
     // Test that server properly initializes manager

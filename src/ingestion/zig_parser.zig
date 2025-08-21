@@ -106,12 +106,6 @@ const ParseContext = struct {
         return char;
     }
 
-    fn peek_ahead(self: *const ParseContext, offset: usize) ?u8 {
-        const pos = self.position + offset;
-        if (pos >= self.source.len) return null;
-        return self.source[pos];
-    }
-
     fn skip_whitespace(self: *ParseContext) void {
         while (self.current_char()) |char| {
             if (char == ' ' or char == '\t' or char == '\r') {

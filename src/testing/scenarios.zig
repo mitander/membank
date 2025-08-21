@@ -389,15 +389,6 @@ pub fn run_compaction_crash_scenario(allocator: std.mem.Allocator, scenario: Com
 }
 
 /// Batch execution of related scenarios for comprehensive validation
-pub fn run_all_wal_scenarios(allocator: std.mem.Allocator) !void {
-    const scenario_count = @typeInfo(WalDurabilityScenario).@"enum".fields.len;
-    std.debug.print("Running all WAL durability scenarios ({d} total)...\n", .{scenario_count});
-    inline for (@typeInfo(WalDurabilityScenario).@"enum".fields) |field| {
-        const scenario = @as(WalDurabilityScenario, @enumFromInt(field.value));
-        try run_wal_durability_scenario(allocator, scenario);
-    }
-}
-
 pub fn run_all_compaction_scenarios(allocator: std.mem.Allocator) !void {
     const scenario_count = @typeInfo(CompactionCrashScenario).@"enum".fields.len;
     std.debug.print("Running all compaction crash scenarios ({d} total)...\n", .{scenario_count});

@@ -659,15 +659,15 @@ test "ingestion pipeline fault tolerance with systematic corruption" {
     try pipeline.register_chunker(mock_chunker.chunker());
 
     // Execute pipeline under fault conditions
-    const storage_ref = harness.storage_engine();
+    const storage_ref = harness.storage();
     const initial_stats = storage_ref.metrics();
     const initial_blocks = initial_stats.blocks_written.load();
 
-    const exec_storage = harness.storage_engine();
+    const exec_storage = harness.storage();
     try pipeline.execute_with_backpressure(exec_storage);
 
     // Validate that despite faults, some data was successfully ingested
-    const final_storage = harness.storage_engine();
+    const final_storage = harness.storage();
     const final_stats = final_storage.metrics();
     const blocks_ingested = final_stats.blocks_written.load() - initial_blocks;
 
@@ -702,7 +702,7 @@ test "ingestion pipeline fault tolerance with systematic corruption" {
         try cycle_pipeline.register_parser(parser.parser());
         try cycle_pipeline.register_chunker(chunker.chunker());
 
-        const cycle_storage = harness.storage_engine();
+        const cycle_storage = harness.storage();
         try cycle_pipeline.execute_with_backpressure(cycle_storage);
 
         const stats = cycle_pipeline.stats();
@@ -720,7 +720,7 @@ test "ingestion pipeline fault tolerance with systematic corruption" {
 
         // Force compaction periodically to simulate real workload
         if (cycle % 2 == 1) {
-            const flush_storage = harness.storage_engine();
+            const flush_storage = harness.storage();
             try flush_storage.flush_memtable_to_sstable();
         }
     }
@@ -737,7 +737,7 @@ test "ingestion pipeline fault tolerance with systematic corruption" {
     try testing.expect(max_observed_batch_size > 0);
 
     // Final memory usage should be manageable
-    const usage_storage = harness.storage_engine();
+    const usage_storage = harness.storage();
     const final_usage = usage_storage.memory_usage();
     try testing.expect(final_usage.total_bytes > 0); // Did meaningful work
     try testing.expect(final_usage.block_count > 0); // Processed meaningful data

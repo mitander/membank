@@ -35,7 +35,6 @@ pub const SemanticQuery = query_engine.SemanticQuery;
 pub const SemanticQueryResult = query_engine.SemanticQueryResult;
 pub const SemanticResult = query_engine.SemanticResult;
 pub const FilteredQuery = query_engine.FilteredQuery;
-pub const FilteredQueryResult = query_engine.FilteredQueryResult;
 pub const FilterCondition = query_engine.FilterCondition;
 pub const FilterExpression = query_engine.FilterExpression;
 pub const FilterOperator = query_engine.FilterOperator;

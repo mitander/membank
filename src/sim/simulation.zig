@@ -157,7 +157,7 @@ pub const Simulation = struct {
         is_enabled: bool,
         violation_count: u32,
     } {
-        const stats = self.ownership_injector.query_violation_stats();
+        const stats = self.ownership_injector.violation_stats();
         return .{
             .injection_rate = stats.injection_rate,
             .is_enabled = stats.is_enabled,
@@ -581,7 +581,7 @@ pub const OwnershipViolationInjector = struct {
     }
 
     /// Query statistics about injected violations for test validation.
-    pub fn query_violation_stats(self: *const Self) struct {
+    pub fn violation_stats(self: *const Self) struct {
         injection_rate: f32,
         is_enabled: bool,
         violation_count: u32,

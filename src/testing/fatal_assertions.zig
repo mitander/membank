@@ -280,8 +280,3 @@ pub fn fatal_assert_resource_limit(
 
 /// Enhanced fatal assertions with better error messages
 pub const fatal_assert = fatal_assert_ctx;
-
-/// Example usage and test helpers
-pub fn fatal_assert_simple(condition: bool, comptime message: []const u8) void {
-    fatal_assert_ctx(condition, .logic_error, "Generic", "assertion", @src(), message, .{});
-}

@@ -118,12 +118,6 @@ pub const WALEntryStream = struct {
 
             const current_position = self.file.tell() catch return StreamError.IoError;
 
-            // Defensive check: prevent infinite loops from corruption (very high threshold)
-            if (self.read_iterations > MAX_READ_ITERATIONS) {
-                log.err("WAL stream exceeded maximum read iterations: {d}", .{MAX_READ_ITERATIONS});
-                return StreamError.IoError;
-            }
-
             const position_before_fill = self.file.tell() catch return StreamError.IoError;
             const available = try self.fill_process_buffer();
             const position_after_fill = self.file.tell() catch return StreamError.IoError;

@@ -314,16 +314,6 @@ pub fn OwnedPtrType(comptime T: type) type {
     };
 }
 
-// Backward compatibility aliases for external usage
-// Enables gradual migration from convenience names to explicit Type suffixes
-pub fn TypedArenaCompatibilityType(comptime T: type, comptime Owner: type) type {
-    return TypedArenaType(T, Owner);
-}
-
-pub fn OwnedPtrCompatibilityType(comptime T: type) type {
-    return OwnedPtrType(T);
-}
-
 // Compile-time validation
 comptime {
     // Validate ownership enum has reasonable number of variants

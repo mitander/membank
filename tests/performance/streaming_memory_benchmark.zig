@@ -49,7 +49,7 @@ test "memory efficiency during large dataset operations" {
     defer harness.deinit();
 
     // Disable immediate sync for performance testing
-    harness.storage_engine().configure_wal_immediate_sync(false);
+    harness.storage().configure_wal_immediate_sync(false);
 
     // Phase 1: Memory baseline establishment - add a small block to establish non-zero baseline
     const baseline_block = ContextBlock{
@@ -59,11 +59,11 @@ test "memory efficiency during large dataset operations" {
         .metadata_json = "{\"test\":\"baseline_memory_measurement\"}",
         .content = "Baseline memory measurement block",
     };
-    try harness.storage_engine().put_block(baseline_block);
+    try harness.storage().put_block(baseline_block);
 
     // Phase 2: Streaming query formation with varying result sizes
     const result_sizes = [_]usize{ 10, 50, 100, 500, 1000 };
-    const baseline_memory = harness.storage_engine().memory_usage().total_bytes;
+    const baseline_memory = harness.storage().memory_usage().total_bytes;
     var peak_memory: u64 = baseline_memory;
     var total_streaming_time: i64 = 0;
     var total_streamed_count: usize = 0;
@@ -86,7 +86,7 @@ test "memory efficiency during large dataset operations" {
                 .content = content,
             };
 
-            try harness.storage_engine().put_block(block);
+            try harness.storage().put_block(block);
             try block_ids.append(block.id);
         }
 
@@ -94,7 +94,7 @@ test "memory efficiency during large dataset operations" {
         const start_time = std.time.nanoTimestamp();
 
         const query = FindBlocksQuery{ .block_ids = block_ids.items };
-        var result = try operations.execute_find_blocks(allocator, harness.storage_engine(), query);
+        var result = try operations.execute_find_blocks(allocator, harness.storage(), query);
 
         // Stream through results
         var streamed_count: usize = 0;
@@ -102,7 +102,7 @@ test "memory efficiency during large dataset operations" {
             streamed_count += 1;
 
             // Track peak memory during streaming
-            const current_memory = harness.storage_engine().memory_usage().total_bytes;
+            const current_memory = harness.storage().memory_usage().total_bytes;
             peak_memory = @max(peak_memory, current_memory);
 
             // Verify block integrity
@@ -119,7 +119,7 @@ test "memory efficiency during large dataset operations" {
         result.deinit();
 
         // Flush memtable to prevent memory accumulation across iterations
-        try harness.storage_engine().flush_memtable_to_sstable();
+        try harness.storage().flush_memtable_to_sstable();
     }
 
     // Phase 3: Memory efficiency validation
@@ -171,7 +171,7 @@ test "query engine performance benchmark" {
     defer harness.deinit();
 
     // Disable immediate sync for performance testing
-    harness.storage_engine().configure_wal_immediate_sync(false);
+    harness.storage().configure_wal_immediate_sync(false);
 
     test_config.debug_print("DEBUG: Harness initialized successfully\n", .{});
 
@@ -193,7 +193,7 @@ test "query engine performance benchmark" {
             .content = "Memory efficiency benchmark test block content",
         };
 
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
         try block_ids.append(block.id);
 
         if (i % 100 == 0) {
@@ -212,7 +212,7 @@ test "query engine performance benchmark" {
             .target_id = TestData.deterministic_block_id(@intCast(i + 1)),
             .edge_type = EdgeType.calls,
         };
-        try harness.storage_engine().put_edge(edge);
+        try harness.storage().put_edge(edge);
 
         if (i % 100 == 0) {
             test_config.debug_print("DEBUG: Created {} edges so far\n", .{i + 1});
@@ -230,7 +230,7 @@ test "query engine performance benchmark" {
         const target_id = block_ids.items[random_index];
 
         const start_time = std.time.nanoTimestamp();
-        const found_block = try harness.storage_engine().find_block(target_id, .query_engine);
+        const found_block = try harness.storage().find_block(target_id, .query_engine);
         const end_time = std.time.nanoTimestamp();
 
         try testing.expect(found_block != null);
@@ -245,7 +245,7 @@ test "query engine performance benchmark" {
     defer batch_measurement.deinit();
 
     // Debug: Print database state for performance analysis
-    const db_stats = harness.storage_engine().memory_usage();
+    const db_stats = harness.storage().memory_usage();
     std.debug.print("DB_STATE: blocks={}, edges={}, total_bytes={}\n", .{ db_stats.block_count, db_stats.edge_count, db_stats.total_bytes });
 
     const batch_sizes = [_]usize{ 5, 10, 25, 50 };
@@ -260,7 +260,7 @@ test "query engine performance benchmark" {
 
         const start_time = std.time.nanoTimestamp();
         const query = FindBlocksQuery{ .block_ids = batch_ids };
-        var result = try operations.execute_find_blocks(allocator, harness.storage_engine(), query);
+        var result = try operations.execute_find_blocks(allocator, harness.storage(), query);
         defer result.deinit();
 
         var found_count: usize = 0;
@@ -303,7 +303,7 @@ test "storage engine write throughput measurement" {
 
     // Disable immediate sync for performance testing
     // WARNING: This reduces durability guarantees but allows measuring optimal performance
-    harness.storage_engine().configure_wal_immediate_sync(false);
+    harness.storage().configure_wal_immediate_sync(false);
 
     // Initialize performance assertion framework
 
@@ -329,7 +329,7 @@ test "storage engine write throughput measurement" {
     // Pure storage engine performance measurement
     for (0..write_iterations) |i| {
         const start_time = std.time.nanoTimestamp();
-        try harness.storage_engine().put_block(test_blocks[i]);
+        try harness.storage().put_block(test_blocks[i]);
         const end_time = std.time.nanoTimestamp();
 
         try write_measurement.add_measurement(@intCast(end_time - start_time));
@@ -359,10 +359,10 @@ test "storage engine write throughput measurement" {
     for (0..100) |i| {
         const target_block = try TestData.create_test_block(allocator, @intCast(i + 2000));
         defer TestData.cleanup_test_block(allocator, target_block);
-        try harness.storage_engine().put_block(target_block);
+        try harness.storage().put_block(target_block);
 
         const start_time = std.time.nanoTimestamp();
-        const found_block = try harness.storage_engine().find_block(target_block.id, .query_engine);
+        const found_block = try harness.storage().find_block(target_block.id, .query_engine);
         const end_time = std.time.nanoTimestamp();
 
         try testing.expect(found_block != null);
@@ -396,7 +396,7 @@ test "streaming query result formatting performance" {
     defer harness.deinit();
 
     // Disable immediate sync for performance testing
-    harness.storage_engine().configure_wal_immediate_sync(false);
+    harness.storage().configure_wal_immediate_sync(false);
 
     // Phase 1: Setup diverse dataset
     const dataset_size = 200;
@@ -417,7 +417,7 @@ test "streaming query result formatting performance" {
             .content = content,
         };
 
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
         try block_ids.append(block.id);
     }
 
@@ -433,7 +433,7 @@ test "streaming query result formatting performance" {
         const start_time = std.time.nanoTimestamp();
 
         const query = FindBlocksQuery{ .block_ids = chunk_ids };
-        var result = try operations.execute_find_blocks(allocator, harness.storage_engine(), query);
+        var result = try operations.execute_find_blocks(allocator, harness.storage(), query);
         defer result.deinit();
 
         var formatted_count: usize = 0;
@@ -482,12 +482,12 @@ test "memory usage growth patterns under load" {
     defer harness.deinit();
 
     // Disable immediate sync for performance testing
-    harness.storage_engine().configure_wal_immediate_sync(false);
+    harness.storage().configure_wal_immediate_sync(false);
 
     // Prevent unused variable warning until memory assertions are implemented
     _ = perf_assertion;
 
-    const baseline_memory = harness.storage_engine().memory_usage().total_bytes;
+    const baseline_memory = harness.storage().memory_usage().total_bytes;
     var memory_samples = std.array_list.Managed(u64).init(allocator);
     defer memory_samples.deinit();
     try memory_samples.ensureTotalCapacity(5);
@@ -503,14 +503,14 @@ test "memory usage growth patterns under load" {
                 .metadata_json = "{\"test\":\"fragmentation_benchmark\"}",
                 .content = "Fragmentation benchmark test block content",
             };
-            try harness.storage_engine().put_block(block);
+            try harness.storage().put_block(block);
         }
 
-        const current_memory = harness.storage_engine().memory_usage().total_bytes;
+        const current_memory = harness.storage().memory_usage().total_bytes;
         try memory_samples.append(current_memory);
 
         // Flush memtable after each phase to isolate memory growth patterns
-        try harness.storage_engine().flush_memtable_to_sstable();
+        try harness.storage().flush_memtable_to_sstable();
     }
 
     // Phase 2: Memory growth analysis

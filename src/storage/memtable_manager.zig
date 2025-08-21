@@ -101,13 +101,6 @@ pub const MemtableManager = struct {
         try self.wal.startup();
     }
 
-    /// Configure WAL sync behavior for performance optimization.
-    /// WARNING: Disabling immediate sync reduces durability guarantees.
-    /// Should only be used for benchmarking or testing purposes.
-    pub fn configure_wal_immediate_sync(self: *MemtableManager, enable: bool) void {
-        self.wal.configure_immediate_sync(enable);
-    }
-
     /// Clean up all memtable resources including arena-allocated memory.
     /// Must be called to prevent memory leaks. Coordinates cleanup of
     /// both block and edge indexes atomically plus WAL cleanup.
@@ -154,10 +147,9 @@ pub const MemtableManager = struct {
         // Validate WAL operation succeeded before proceeding to memtable
         fatal_assert(wal_succeeded, "WAL write did not complete successfully before memtable update", .{});
 
-        // Additional validation for immediate sync mode (production safety)
-        if (builtin.mode == .Debug and self.wal.enable_immediate_sync) {
-            // In immediate sync mode, data should be durable at this point
-            // This catches cases where durability ordering could be violated
+        // Additional durability validation in debug mode
+        if (builtin.mode == .Debug) {
+            self.validate_invariants();
         }
 
         try self.block_index.put_block(block);

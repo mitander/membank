@@ -70,9 +70,9 @@ pub const BlockId = struct {
         var bytes: [16]u8 = undefined;
 
         // Use counter as seed for deterministic generation
-        // Split 64-bit counter across the 128-bit ID space
+        // Split counter across 128-bit space
         std.mem.writeInt(u64, bytes[0..8], counter_value, .little);
-        std.mem.writeInt(u64, bytes[8..16], counter_value ^ 0xDEADBEEFCAFEBABE, .little);
+        std.mem.writeInt(u64, bytes[8..16], counter_value >> 32, .little);
 
         return BlockId{ .bytes = bytes };
     }
@@ -148,10 +148,8 @@ pub const ContextBlock = struct {
                 @sizeOf(u64) + @sizeOf(u32) + @sizeOf(u32) + @sizeOf(u64) + @sizeOf(u32) + 12 == 64, "BlockHeader field sizes must sum to exactly 64 bytes");
         }
 
-        /// Serialize block header to binary format for on-disk storage
-        ///
-        /// Writes the complete header structure to the buffer in little-endian format.
-        /// Essential for maintaining cross-platform compatibility of stored data.
+        /// Serialize block header to binary buffer in little-endian format.
+        /// Returns number of bytes written or error if buffer too small.
         pub fn serialize(self: BlockHeader, buffer: []u8) !usize {
             if (buffer.len < SIZE) return error.BufferTooSmall;
 
@@ -181,10 +179,8 @@ pub const ContextBlock = struct {
             return offset;
         }
 
-        /// Deserialize block header from binary format during block loading
-        ///
-        /// Reads the complete header structure from buffer and validates magic number and version.
-        /// Critical for ensuring data integrity when loading blocks from storage.
+        /// Deserialize block header from binary buffer with validation.
+        /// Returns parsed header or error if invalid format or data corruption.
         pub fn deserialize(buffer: []const u8) !BlockHeader {
             if (buffer.len < SIZE) return error.BufferTooSmall;
 
@@ -265,6 +261,21 @@ pub const ContextBlock = struct {
         // This optimization reduces memset from 1MB+ to just 64 bytes for large blocks
         @memset(buffer[0..@min(BlockHeader.SIZE, required_size)], 0);
 
+        // Compute checksum of variable-length data (excluding header)
+        const data_start = BlockHeader.SIZE;
+        const data_end = data_start + self.source_uri.len + self.metadata_json.len + self.content.len;
+
+        // Serialize data section to compute checksum
+        var data_offset = data_start;
+        @memcpy(buffer[data_offset .. data_offset + self.source_uri.len], self.source_uri);
+        data_offset += self.source_uri.len;
+        @memcpy(buffer[data_offset .. data_offset + self.metadata_json.len], self.metadata_json);
+        data_offset += self.metadata_json.len;
+        @memcpy(buffer[data_offset .. data_offset + self.content.len], self.content);
+
+        // Compute CRC32 of variable data section
+        const data_checksum = std.hash.Crc32.hash(buffer[data_start..data_end]);
+
         const header = BlockHeader{
             .magic = MAGIC,
             .format_version = FORMAT_VERSION,
@@ -274,23 +285,14 @@ pub const ContextBlock = struct {
             .source_uri_len = @intCast(self.source_uri.len),
             .metadata_json_len = @intCast(self.metadata_json.len),
             .content_len = self.content.len,
-            .checksum = 0, // Computed later
+            .checksum = data_checksum,
             .reserved = std.mem.zeroes([12]u8),
         };
 
         var offset = try header.serialize(buffer);
 
-        if (offset + self.source_uri.len > buffer.len) return error.BufferTooSmall;
-        @memcpy(buffer[offset .. offset + self.source_uri.len], self.source_uri);
-        offset += self.source_uri.len;
-
-        if (offset + self.metadata_json.len > buffer.len) return error.BufferTooSmall;
-        @memcpy(buffer[offset .. offset + self.metadata_json.len], self.metadata_json);
-        offset += self.metadata_json.len;
-
-        if (offset + self.content.len > buffer.len) return error.BufferTooSmall;
-        @memcpy(buffer[offset .. offset + self.content.len], self.content);
-        offset += self.content.len;
+        // Data was already serialized for checksum computation, just update offset
+        offset += self.source_uri.len + self.metadata_json.len + self.content.len;
 
         assert_fmt(offset == required_size, "Serialization size mismatch: expected {}, got {}", .{ required_size, offset });
         if (offset != required_size) return error.SerializationSizeMismatch;
@@ -322,6 +324,18 @@ pub const ContextBlock = struct {
         if (offset + header.content_len > buffer.len) return error.IncompleteData;
         const content = try allocator.dupe(u8, buffer[offset .. offset + header.content_len]);
 
+        // Validate checksum to detect data corruption
+        const data_start = BlockHeader.SIZE;
+        const data_end = data_start + header.source_uri_len + header.metadata_json_len + header.content_len;
+        const computed_checksum = std.hash.Crc32.hash(buffer[data_start..data_end]);
+        if (computed_checksum != header.checksum) {
+            // Free allocated memory before returning error
+            allocator.free(source_uri);
+            allocator.free(metadata_json);
+            allocator.free(content);
+            return error.ChecksumMismatch;
+        }
+
         return ContextBlock{
             .id = BlockId{ .bytes = header.id },
             .version = header.block_version,
@@ -340,18 +354,8 @@ pub const ContextBlock = struct {
         allocator.free(self.content);
     }
 
-    /// Validate the internal consistency and format of this ContextBlock.
-    ///
-    /// Performs structural validation suitable for all contexts:
-    /// - JSON syntax validation for metadata
-    /// - UTF-8 encoding validation for text fields
-    /// - Basic invariant checks (positive version)
-    ///
-    /// This is a lightweight check focused on preventing system crashes
-    /// rather than enforcing business rules or semantic constraints.
-    ///
-    /// For business logic validation (non-empty constraints, semantic rules),
-    /// use validate_for_ingestion() or implement domain-specific checks.
+    /// Validate ContextBlock structural integrity and field constraints.
+    /// Checks memory pointers, size limits, and UTF-8 encoding compliance.
     pub fn validate(self: ContextBlock, allocator: std.mem.Allocator) !void {
         assert_fmt(@intFromPtr(allocator.ptr) != 0, "Allocator cannot be null", .{});
 
@@ -398,14 +402,8 @@ pub const ContextBlock = struct {
         }
     }
 
-    /// Strict validation for ingestion contexts where business rules apply.
-    ///
-    /// This enforces constraints appropriate for data coming from external sources:
-    /// - Non-empty source_uri (must identify origin)
-    /// - Non-empty content (must have meaningful data)
-    /// - Valid JSON metadata with required fields
-    ///
-    /// Use this at ingestion boundaries, not for internal storage operations.
+    /// Validate ContextBlock for ingestion pipeline with business rules.
+    /// Performs structural validation plus ingestion-specific requirements.
     pub fn validate_for_ingestion(self: ContextBlock, allocator: std.mem.Allocator) !void {
         // First perform basic structural validation
         try self.validate(allocator);
@@ -694,14 +692,11 @@ test "ContextBlock checksum validation" {
 
     _ = try block.serialize(buffer);
 
+    // Corrupt the last byte of content
     buffer[buffer.len - 1] ^= 0xFF;
 
-    // Should still deserialize but checksum would be wrong
-    // (checksum validation would be implemented in higher-level code)
-    const deserialized = try ContextBlock.deserialize(allocator, buffer);
-    defer deserialized.deinit(allocator);
-
-    try std.testing.expect(block.id.eql(deserialized.id));
+    // Should now fail with checksum mismatch
+    try std.testing.expectError(error.ChecksumMismatch, ContextBlock.deserialize(allocator, buffer));
 }
 
 test "ContextBlock size computation from buffer" {

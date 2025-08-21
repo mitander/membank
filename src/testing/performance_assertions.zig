@@ -13,7 +13,9 @@ const builtin = @import("builtin");
 const std = @import("std");
 const build_options = @import("build_options");
 
+const types = @import("../core/types.zig");
 const testing = std.testing;
+const BlockId = types.BlockId;
 
 /// Performance assertion tier configuration
 pub const PerformanceTier = enum {
@@ -250,43 +252,6 @@ pub const PerformanceAssertion = struct {
             });
         }
     }
-
-    /// Measure and assert performance of a function call
-    pub fn measure_and_assert_latency(
-        self: PerformanceAssertion,
-        base_requirement_ns: u64,
-        operation_description: []const u8,
-        operation_fn: anytype,
-        args: anytype,
-    ) !void {
-        const start_time = std.time.nanoTimestamp();
-        _ = @call(.auto, operation_fn, args);
-        const end_time = std.time.nanoTimestamp();
-
-        const duration_ns: u64 = if (end_time >= start_time)
-            @as(u64, @intCast(end_time - start_time))
-        else
-            1; // Minimum measurable duration when time goes backwards
-        try self.assert_latency(duration_ns, base_requirement_ns, operation_description);
-    }
-
-    /// Assert that mean latency is within target
-    pub fn assert_mean_latency_within_target(
-        self: PerformanceAssertion,
-        actual_mean_ns: u64,
-        target_ns: u64,
-    ) !void {
-        try self.assert_latency(actual_mean_ns, target_ns, "mean latency");
-    }
-
-    /// Assert that P99 latency is acceptable
-    pub fn assert_p99_latency_acceptable(
-        self: PerformanceAssertion,
-        actual_p99_ns: u64,
-        acceptable_ns: u64,
-    ) !void {
-        try self.assert_latency(actual_p99_ns, acceptable_ns, "P99 latency");
-    }
 };
 
 /// Convenience macros for common performance assertions
@@ -343,11 +308,6 @@ pub const BatchPerformanceMeasurement = struct {
 
     pub fn add_measurement(self: *BatchPerformanceMeasurement, duration_ns: u64) !void {
         try self.measurements.append(duration_ns);
-    }
-
-    /// Alias for add_measurement for compatibility with test code
-    pub fn record_latency_ns(self: *BatchPerformanceMeasurement, duration_ns: u64) !void {
-        try self.add_measurement(duration_ns);
     }
 
     /// Calculate basic statistics for the measurements
@@ -589,19 +549,19 @@ pub const StatisticalResult = struct {
 pub const WarmupUtils = struct {
     /// Standard warmup for storage operations
     pub fn warmup_storage_engine(storage_engine: anytype, allocator: std.mem.Allocator) !void {
+        _ = allocator; // Placeholder for warmup block creation when needed
         if (builtin.mode == .Debug) {
-            std.debug.print("[WARMUP] Warming up storage engine with test data...\n", .{});
+            std.debug.print("[WARMUP] Warming up storage engine with test operations...\n", .{});
         }
 
-        // Fill OS page cache and warm up storage paths
-        for (0..100) |i| {
-            const test_block = create_warmup_block(allocator, i) catch continue;
-            defer free_warmup_block(allocator, test_block);
-            storage_engine.put_block(test_block) catch continue;
+        // Warm up storage paths and caches
+        for (0..25) |i| {
+            const test_id = create_warmup_block_id(i);
+            _ = storage_engine.find_block(test_id) catch continue;
         }
 
-        // Let OS settle and CPU frequencies stabilize
-        std.Thread.sleep(50 * std.time.ns_per_ms);
+        // Storage subsystem settling delay
+        std.Thread.sleep(25 * std.time.ns_per_ms);
     }
 
     /// Standard warmup for query operations
@@ -621,21 +581,8 @@ pub const WarmupUtils = struct {
         std.Thread.sleep(25 * std.time.ns_per_ms);
     }
 
-    fn create_warmup_block(allocator: std.mem.Allocator, index: usize) !@TypeOf(undefined) {
-        // This would need to be adapted to the actual ContextBlock type
-        _ = allocator;
-        _ = index;
-        return error.NotImplemented; // Placeholder
-    }
-
-    fn free_warmup_block(allocator: std.mem.Allocator, block: anytype) void {
-        _ = allocator;
-        _ = block;
-        // Placeholder for actual cleanup
-    }
-
-    fn create_warmup_block_id(index: usize) @TypeOf(undefined) {
-        _ = index;
-        return undefined; // Placeholder for actual BlockId creation
+    fn create_warmup_block_id(index: usize) BlockId {
+        // Generate deterministic test block ID for warmup
+        return @as(BlockId, @intCast(0x1000_0000 + index));
     }
 };

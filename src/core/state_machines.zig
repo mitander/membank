@@ -240,11 +240,6 @@ pub const QueryState = enum {
             else => false,
         };
     }
-
-    /// Assert that query engine can execute queries.
-    pub fn assert_can_query(self: QueryState) void {
-        fatal_assert(self.can_query(), "Cannot execute queries in state: {}", .{self});
-    }
 };
 
 /// Generic state machine validation for custom enum states.
@@ -335,9 +330,6 @@ pub fn StateMachineTracerType(comptime StateEnum: type) type {
 
 // Backward compatibility alias for gradual migration
 // Provides transition path from convenience name to explicit Type suffix
-pub fn StateMachineTracerCompatibilityType(comptime StateEnum: type) type {
-    return StateMachineTracerType(StateEnum);
-}
 
 /// Compile-time validation for state machine exhaustiveness.
 /// Ensures all enum variants are handled in transition logic.

@@ -404,33 +404,7 @@ pub fn checksum_context(
 }
 
 /// Helper to create WAL context for entry operations.
-pub fn wal_entry_context(
-    operation: []const u8,
-    file_path: []const u8,
-    entry_offset: u64,
-    entry_type: u8,
-) WALContext {
-    return WALContext{
-        .operation = operation,
-        .file_path = file_path,
-        .entry_offset = entry_offset,
-        .entry_type = entry_type,
-    };
-}
-
 /// Helper to create buffer context for size mismatches.
-pub fn buffer_size_context(
-    operation: []const u8,
-    required: usize,
-    available: usize,
-) BufferContext {
-    return BufferContext{
-        .operation = operation,
-        .required_size = required,
-        .available_size = available,
-    };
-}
-
 /// Helper to create ingestion context for repository operations.
 pub fn repository_context(operation: []const u8, repository_path: []const u8) IngestionContext {
     return IngestionContext{

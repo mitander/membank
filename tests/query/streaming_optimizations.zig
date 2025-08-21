@@ -48,13 +48,13 @@ test "streaming query results with large datasets" {
             .content = "Streaming optimization test block content",
         };
 
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
         try stored_block_ids.append(block.id);
     }
 
     // Query all blocks using streaming
     const query = FindBlocksQuery{ .block_ids = stored_block_ids.items };
-    var result = try operations.execute_find_blocks(allocator, harness.storage_engine(), query);
+    var result = try operations.execute_find_blocks(allocator, harness.storage(), query);
     defer result.deinit();
 
     // Verify streaming behavior with memory efficiency
@@ -96,9 +96,9 @@ test "query result caching with identical queries" {
         .content = "Paged queries test block 3 content",
     };
 
-    try harness.storage_engine().put_block(block1);
-    try harness.storage_engine().put_block(block2);
-    try harness.storage_engine().put_block(block3);
+    try harness.storage().put_block(block1);
+    try harness.storage().put_block(block2);
+    try harness.storage().put_block(block3);
 
     // Create edges for graph traversal
     const edge1_2 = GraphEdge{
@@ -111,8 +111,8 @@ test "query result caching with identical queries" {
         .target_id = block3.id,
         .edge_type = EdgeType.calls,
     };
-    try harness.storage_engine().put_edge(edge1_2);
-    try harness.storage_engine().put_edge(edge2_3);
+    try harness.storage().put_edge(edge1_2);
+    try harness.storage().put_edge(edge2_3);
 
     // Execute identical traversal queries
     var query1 = TraversalQuery.init(block1.id, .outgoing);
@@ -173,7 +173,7 @@ test "memory efficient graph traversal with depth limits" {
             .metadata_json = "{\"test\":\"concurrent_streaming\"}",
             .content = "Concurrent streaming test block content",
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
         try nodes.append(block.id);
 
         // Connect to previous node
@@ -183,7 +183,7 @@ test "memory efficient graph traversal with depth limits" {
                 .target_id = TestData.deterministic_block_id(@intCast(i)),
                 .edge_type = EdgeType.calls,
             };
-            try harness.storage_engine().put_edge(edge);
+            try harness.storage().put_edge(edge);
         }
     }
 
@@ -244,7 +244,7 @@ test "query optimization with different algorithms" {
             .metadata_json = "{\"test\":\"result_ordering\"}",
             .content = "Result ordering test block content",
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
         try nodes.append(block.id);
     }
 
@@ -256,7 +256,7 @@ test "query optimization with different algorithms" {
             .target_id = TestData.deterministic_block_id(@intCast(i + 1)),
             .edge_type = EdgeType.calls,
         };
-        try harness.storage_engine().put_edge(edge);
+        try harness.storage().put_edge(edge);
     }
 
     // Shortcut path: 0 -> 5 -> 9
@@ -270,8 +270,8 @@ test "query optimization with different algorithms" {
         .target_id = nodes.items[9],
         .edge_type = EdgeType.imports,
     };
-    try harness.storage_engine().put_edge(shortcut1);
-    try harness.storage_engine().put_edge(shortcut2);
+    try harness.storage().put_edge(shortcut1);
+    try harness.storage().put_edge(shortcut2);
 
     // Test breadth-first search
     var bfs_query = TraversalQuery.init(nodes.items[0], .outgoing);
@@ -363,13 +363,13 @@ test "streaming result pagination and memory bounds" {
             .metadata_json = "{\"test\":\"memory_stress\"}",
             .content = "Memory stress test block content",
         };
-        try harness.storage_engine().put_block(block);
+        try harness.storage().put_block(block);
         try block_ids.append(block.id);
     }
 
     // Test streaming with result limits
     const query = FindBlocksQuery{ .block_ids = block_ids.items };
-    var result = try operations.execute_find_blocks(allocator, harness.storage_engine(), query);
+    var result = try operations.execute_find_blocks(allocator, harness.storage(), query);
     defer result.deinit();
 
     // Count streamed results
@@ -423,7 +423,7 @@ test "complex graph scenario performance characteristics" {
                 .metadata_json = "{\"test\":\"large_result_set\"}",
                 .content = "Large result set test block content",
             };
-            try harness.storage_engine().put_block(block);
+            try harness.storage().put_block(block);
             try component_nodes.append(block.id);
 
             if (i == 0) {
@@ -438,7 +438,7 @@ test "complex graph scenario performance characteristics" {
                 .target_id = component_nodes.items[i],
                 .edge_type = EdgeType.calls,
             };
-            try harness.storage_engine().put_edge(edge);
+            try harness.storage().put_edge(edge);
         }
     }
 

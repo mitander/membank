@@ -148,16 +148,6 @@ pub const ArenaCoordinator = struct {
             pub fn is_valid(self: *const Self) bool {
                 return self.generation == self.coordinator.generation;
             }
-
-            /// Debug validation - panics if generation is invalid.
-            /// Only active in debug builds.
-            pub fn debug_validate(self: *const Self) void {
-                if (comptime builtin.mode == .Debug) {
-                    if (!self.is_valid()) {
-                        fatal_assert(false, "GenerationSlice access after arena reset: slice gen {} != current gen {}", .{ self.generation, self.coordinator.generation });
-                    }
-                }
-            }
         };
     }
 
@@ -234,6 +224,71 @@ pub const ArenaCoordinator = struct {
     }
 };
 
+/// Type-safe storage coordinator interface template.
+/// Replaces *anyopaque patterns with compile-time validated subsystem interactions.
+/// Provides minimal interface for storage operations while maintaining clear dependencies.
+pub fn TypedStorageCoordinatorType(comptime StorageEngineType: type) type {
+    return struct {
+        const Self = @This();
+
+        storage_engine: *StorageEngineType,
+
+        /// Initialize coordinator with storage engine reference.
+        /// Storage engine must outlive all coordinators.
+        pub fn init(storage_engine: *StorageEngineType) Self {
+            return Self{
+                .storage_engine = storage_engine,
+            };
+        }
+
+        /// Duplicate storage content with type safety.
+        /// Uses storage engine's allocator for consistent memory management.
+        pub fn duplicate_storage_content(self: Self, comptime T: type, slice: []const T) ![]T {
+            const storage_allocator = self.storage_engine.allocator();
+            return try storage_allocator.dupe(T, slice);
+        }
+
+        /// Get storage engine's allocator.
+        /// Provides consistent allocator access across subsystems.
+        pub fn allocator(self: Self) std.mem.Allocator {
+            return self.storage_engine.allocator();
+        }
+
+        /// Validate coordinator is still connected to valid storage engine.
+        /// Debug-only validation to catch use-after-free and corruption.
+        pub fn validate_coordinator(self: Self) void {
+            if (comptime builtin.mode == .Debug) {
+                fatal_assert(@intFromPtr(self.storage_engine) != 0, "Storage coordinator has null engine reference", .{});
+                // Additional validation can be added by implementers
+            }
+        }
+    };
+}
+
+/// Legacy StorageCoordinator for backward compatibility.
+/// Use TypedStorageCoordinatorType for new code to get full type safety.
+pub const StorageCoordinator = struct {
+    storage_engine: *anyopaque, // StorageEngine type resolved at usage site
+
+    /// Initialize coordinator with storage engine reference.
+    /// Storage engine must outlive all coordinators.
+    pub fn init(storage_engine: anytype) StorageCoordinator {
+        return StorageCoordinator{
+            .storage_engine = @ptrCast(storage_engine),
+        };
+    }
+
+    /// Duplicate storage content with runtime type resolution.
+    /// Less efficient than TypedStorageCoordinatorType but maintains compatibility.
+    pub fn duplicate_storage_content(self: StorageCoordinator, comptime T: type, slice: []const T) ![]T {
+        // This requires storage engine to have a standard allocator() method
+        const storage_ptr: *anyopaque = self.storage_engine;
+        _ = storage_ptr; // Placeholder - actual implementation needs proper casting
+        _ = slice; // Unused in placeholder implementation
+        return error.NotImplemented;
+    }
+};
+
 /// Debug information structure for coordinator diagnostics.
 pub const ArenaCoordinatorDebugInfo = struct {
     arena_address: usize,
@@ -241,14 +296,6 @@ pub const ArenaCoordinatorDebugInfo = struct {
     is_valid: bool,
     allocation_count: usize,
     bytes_allocated: usize,
-
-    /// Format debug info for logging.
-    pub fn format_summary(self: ArenaCoordinatorDebugInfo) []const u8 {
-        if (builtin.mode == .Debug) {
-            return std.fmt.allocPrint(std.heap.page_allocator, "Arena[0x{x}] Coordinator[0x{x}] Valid:{} Allocs:{} Bytes:{}", .{ self.arena_address, self.coordinator_address, self.is_valid, self.allocation_count, self.bytes_allocated }) catch "Debug info formatting failed";
-        }
-        return "Debug info not available in release builds";
-    }
 };
 
 /// Arena allocation tracker for debug builds.
@@ -330,74 +377,6 @@ pub const ArenaAllocationTracker = struct {
         }
     }
 };
-
-/// Type-safe storage coordinator interface template.
-/// Replaces *anyopaque patterns with compile-time validated subsystem interactions.
-/// Provides minimal interface for storage operations while maintaining clear dependencies.
-pub fn TypedStorageCoordinatorType(comptime StorageEngineType: type) type {
-    return struct {
-        const Self = @This();
-
-        storage_engine: *StorageEngineType,
-
-        /// Initialize coordinator with storage engine reference.
-        /// Storage engine must outlive all coordinators.
-        pub fn init(storage_engine: *StorageEngineType) Self {
-            return Self{ .storage_engine = storage_engine };
-        }
-
-        /// Allocate storage-owned memory through the engine's arena.
-        /// Provides type-safe access to storage memory without circular imports.
-        pub fn duplicate_storage_content(self: Self, comptime T: type, slice: []const T) ![]T {
-            // Assumes StorageEngine has a method like `get_storage_allocator()`
-            // Implementation will be completed at usage sites with actual StorageEngine
-            _ = self;
-            _ = slice;
-            return error.NotImplemented; // Implementation deferred to usage site
-        }
-
-        /// Get allocator from storage engine for temporary allocations.
-        /// Returns the underlying allocator used by the storage engine.
-        pub fn allocator(self: Self) std.mem.Allocator {
-            // Implementation deferred - different storage engines may expose allocators differently
-            _ = self;
-            @panic("get_allocator must be implemented at usage site");
-        }
-
-        /// Validate coordinator is still connected to valid storage engine.
-        /// Debug-only validation to catch use-after-free and corruption.
-        pub fn validate_coordinator(self: Self) void {
-            if (comptime builtin.mode == .Debug) {
-                fatal_assert(@intFromPtr(self.storage_engine) != 0, "Storage coordinator has null engine reference", .{});
-                // Additional validation can be added by implementers
-            }
-        }
-    };
-}
-
-/// Legacy StorageCoordinator for backward compatibility.
-/// Use TypedStorageCoordinatorType for new code to get full type safety.
-pub const StorageCoordinator = struct {
-    storage_engine: *anyopaque, // StorageEngine type resolved at usage site
-
-    /// Initialize coordinator with storage engine reference.
-    /// Storage engine must outlive all coordinators.
-    pub fn init(storage_engine: anytype) StorageCoordinator {
-        return StorageCoordinator{ .storage_engine = storage_engine };
-    }
-
-    /// Allocate storage-owned memory for block content.
-    /// Implementation deferred to usage site to avoid circular imports.
-    pub fn duplicate_storage_content(self: StorageCoordinator, comptime T: type, slice: []const T) ![]T {
-        // Type-erased call - actual implementation at usage site
-        const engine: *anyopaque = self.storage_engine;
-        _ = engine;
-        _ = slice;
-        return error.NotImplemented; // Placeholder - override at usage site
-    }
-};
-
-// Note: StorageCoordinator interface deferred to usage sites to avoid circular imports
 
 // Tests for ArenaCoordinator functionality
 const testing = std.testing;
@@ -521,21 +500,6 @@ test "multiple coordinators for same arena" {
     try testing.expect(slice2.len == 3);
     try testing.expect(slice3.len == 10);
     try testing.expect(slice4.len == 20);
-}
-
-test "storage coordinator type safety" {
-    // This test verifies the coordinator provides type-safe access
-    // Note: Can't test with real StorageEngine due to circular imports
-    // The type safety is validated at compile time through the interface
-
-    // Verify the coordinator interface exists and has expected methods
-    const coordinator_type = @TypeOf(StorageCoordinator.init);
-    try testing.expect(coordinator_type != void);
-
-    // Verify method signatures exist (compile-time check)
-    const has_duplicate_method = @hasDecl(StorageCoordinator, "duplicate_storage_content");
-
-    try testing.expect(has_duplicate_method);
 }
 
 test "Week 1 memory safety improvements comprehensive validation" {
