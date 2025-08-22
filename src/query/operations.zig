@@ -22,7 +22,7 @@ const assert = assert_mod.assert;
 const BlockId = context_block.BlockId;
 const BlockOwnership = ownership.BlockOwnership;
 const ContextBlock = context_block.ContextBlock;
-const QueryEngineBlock = ownership.QueryEngineBlock;
+const OwnedQueryEngineBlock = ownership.OwnedQueryEngineBlock;
 const StorageEngine = storage.StorageEngine;
 const TemporaryBlock = ownership.TemporaryBlock;
 
@@ -122,7 +122,7 @@ pub const QueryResult = struct {
     /// Get next block from the result set. Returns null when exhausted.
     /// Returns zero-cost owned block - no cleanup required.
     /// Block reference valid until next call to next() or deinit().
-    pub fn next(self: *QueryResult) QueryError!?QueryEngineBlock {
+    pub fn next(self: *QueryResult) QueryError!?OwnedQueryEngineBlock {
         // Reset arena every 100 iterations to prevent unbounded growth
         if (self.consumed_count % 100 == 0 and self.consumed_count > 0) {
             _ = self.temp_arena.reset(.retain_capacity);
@@ -192,7 +192,7 @@ const QueryBlockIterator = struct {
         };
     }
 
-    fn next(self: *QueryBlockIterator) QueryError!?QueryEngineBlock {
+    fn next(self: *QueryBlockIterator) QueryError!?OwnedQueryEngineBlock {
         while (self.current_index < self.block_ids.len) {
             const block_id = self.block_ids[self.current_index];
             self.current_index += 1;
@@ -261,7 +261,7 @@ pub const SemanticQuery = struct {
 
 /// Single result from semantic search with similarity score
 pub const SemanticResult = struct {
-    block: QueryEngineBlock,
+    block: OwnedQueryEngineBlock,
     similarity_score: f32,
 };
 
@@ -279,7 +279,7 @@ pub const SemanticQueryResult = struct {
         const owned_results = try allocator.alloc(SemanticResult, results.len);
         for (results, 0..) |result, i| {
             owned_results[i] = SemanticResult{
-                .block = QueryEngineBlock.init(try clone_block(allocator, result.block.block)),
+                .block = OwnedQueryEngineBlock.init(try clone_block(allocator, result.block.block)),
                 .similarity_score = result.similarity_score,
             };
         }
@@ -372,7 +372,7 @@ pub fn execute_keyword_query(
 
             if (results.items.len < query.max_results) {
                 try results.append(SemanticResult{
-                    .block = QueryEngineBlock.init(block),
+                    .block = OwnedQueryEngineBlock.init(block),
                     .similarity_score = similarity,
                 });
             }

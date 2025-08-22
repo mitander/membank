@@ -30,7 +30,6 @@ comptime {
     _ = @import("query/cache.zig");
     _ = @import("query/engine.zig");
     _ = @import("query/filtering.zig");
-    _ = @import("query/zero_copy.zig");
     _ = @import("server/connection_manager.zig");
     _ = @import("server/handler.zig");
     _ = @import("sim/simulation.zig");

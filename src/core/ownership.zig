@@ -328,7 +328,7 @@ pub fn ComptimeOwnedBlockType(comptime owner: BlockOwnership) type {
 pub const StorageEngineBlock = ComptimeOwnedBlockType(.storage_engine);
 pub const MemtableBlock = ComptimeOwnedBlockType(.memtable_manager);
 pub const SSTableBlock = ComptimeOwnedBlockType(.sstable_manager);
-pub const QueryEngineBlock = ComptimeOwnedBlockType(.query_engine);
+pub const OwnedQueryEngineBlock = ComptimeOwnedBlockType(.query_engine);
 pub const TemporaryBlock = ComptimeOwnedBlockType(.temporary);
 
 /// Collection of owned blocks with batch operations.

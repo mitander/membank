@@ -20,7 +20,7 @@ const BlockOwnership = ownership.BlockOwnership;
 const ContextBlock = context_block.ContextBlock;
 const EdgeType = context_block.EdgeType;
 const GraphEdge = context_block.GraphEdge;
-const QueryEngineBlock = ownership.QueryEngineBlock;
+const OwnedQueryEngineBlock = ownership.OwnedQueryEngineBlock;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = storage.StorageEngine;
 
@@ -244,7 +244,7 @@ pub const TraversalQuery = struct {
 /// Result from graph traversal containing blocks and path information
 pub const TraversalResult = struct {
     /// Retrieved context blocks in traversal order with zero-cost ownership
-    blocks: []const QueryEngineBlock,
+    blocks: []const OwnedQueryEngineBlock,
     /// Paths from start block to each result block
     paths: []const []const BlockId,
     /// Depths of each block from start block
@@ -261,7 +261,7 @@ pub const TraversalResult = struct {
     /// Create traversal result
     pub fn init(
         allocator: std.mem.Allocator,
-        blocks: []const QueryEngineBlock,
+        blocks: []const OwnedQueryEngineBlock,
         paths: []const []const BlockId,
         depths: []const u32,
         blocks_traversed: u32,
@@ -301,7 +301,7 @@ pub const TraversalResult = struct {
         errdefer query_arena.deinit();
         const arena_allocator = query_arena.allocator();
 
-        const cloned_blocks = try arena_allocator.alloc(QueryEngineBlock, self.blocks.len);
+        const cloned_blocks = try arena_allocator.alloc(OwnedQueryEngineBlock, self.blocks.len);
         for (self.blocks, 0..) |block, i| {
             const ctx_block = block.read(.query_engine);
             const cloned_ctx_block = ContextBlock{
@@ -311,7 +311,7 @@ pub const TraversalResult = struct {
                 .metadata_json = try arena_allocator.dupe(u8, ctx_block.metadata_json),
                 .content = try arena_allocator.dupe(u8, ctx_block.content),
             };
-            cloned_blocks[i] = QueryEngineBlock.init(cloned_ctx_block);
+            cloned_blocks[i] = OwnedQueryEngineBlock.init(cloned_ctx_block);
         }
 
         const cloned_paths = try arena_allocator.alloc([]const BlockId, self.paths.len);
@@ -371,7 +371,7 @@ fn traverse_breadth_first(
     defer visited.deinit();
     try visited.visited_ids.ensureTotalCapacity(@min(query.max_results, 1000));
 
-    var result_blocks = std.array_list.Managed(QueryEngineBlock).init(allocator);
+    var result_blocks = std.array_list.Managed(OwnedQueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
     defer result_blocks.deinit();
 
@@ -476,7 +476,7 @@ fn traverse_depth_first(
     defer visited.deinit();
     try visited.visited_ids.ensureTotalCapacity(@min(query.max_results, 1000));
 
-    var result_blocks = std.array_list.Managed(QueryEngineBlock).init(allocator);
+    var result_blocks = std.array_list.Managed(OwnedQueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
     defer result_blocks.deinit();
 
@@ -704,7 +704,7 @@ fn traverse_astar_search(
     defer visited.deinit();
     try visited.visited_ids.ensureTotalCapacity(@min(query.max_results, 1000));
 
-    var result_blocks = std.array_list.Managed(QueryEngineBlock).init(allocator);
+    var result_blocks = std.array_list.Managed(OwnedQueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
     defer result_blocks.deinit();
 
@@ -825,7 +825,7 @@ fn traverse_bidirectional_search(
     defer visited_backward.deinit();
     try visited_backward.visited_ids.ensureTotalCapacity(@min(query.max_results / 2, 500));
 
-    var result_blocks = std.array_list.Managed(QueryEngineBlock).init(allocator);
+    var result_blocks = std.array_list.Managed(OwnedQueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results);
     defer result_blocks.deinit();
 
@@ -1004,7 +1004,7 @@ fn traverse_topological_sort(
     storage_engine: *StorageEngine,
     query: TraversalQuery,
 ) !TraversalResult {
-    var result_blocks = std.array_list.Managed(QueryEngineBlock).init(allocator);
+    var result_blocks = std.array_list.Managed(OwnedQueryEngineBlock).init(allocator);
     try result_blocks.ensureTotalCapacity(query.max_results); // Pre-allocate for expected result size
     defer result_blocks.deinit();
 

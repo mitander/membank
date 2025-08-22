@@ -15,6 +15,7 @@ const cache = @import("cache.zig");
 const context_block = @import("../core/types.zig");
 const error_context = @import("../core/error_context.zig");
 const filtering = @import("filtering.zig");
+const memory = @import("../core/memory.zig");
 const operations = @import("operations.zig");
 const ownership = @import("../core/ownership.zig");
 const simulation_vfs = @import("../sim/simulation_vfs.zig");
@@ -26,14 +27,16 @@ const storage_config_mod = @import("../storage/config.zig");
 const assert_mod = @import("../core/assert.zig");
 
 const assert = assert_mod.assert;
+const fatal_assert = assert_mod.fatal_assert;
 const testing = std.testing;
+const TypedStorageCoordinatorType = memory.TypedStorageCoordinatorType;
 
 const Config = storage_config_mod.Config;
 const BlockId = context_block.BlockId;
 const BlockOwnership = ownership.BlockOwnership;
 const ContextBlock = context_block.ContextBlock;
 const OwnedBlock = ownership.OwnedBlock;
-const QueryEngineBlock = ownership.QueryEngineBlock;
+const OwnedQueryEngineBlock = ownership.OwnedQueryEngineBlock;
 const QueryState = state_machines.QueryState;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngine = storage.StorageEngine;
@@ -48,6 +51,27 @@ pub const TraversalAlgorithm = traversal.TraversalAlgorithm;
 pub const EdgeTypeFilter = traversal.EdgeTypeFilter;
 
 pub const SemanticQuery = operations.SemanticQuery;
+
+/// Block reference for allocation-free queries.
+/// Lifetime is tied to the storage engine that created it.
+pub const QueryEngineBlock = struct {
+    /// Direct pointer to block in storage - zero allocation
+    block_ptr: *const ContextBlock,
+
+    /// Block ID for validation
+    block_id: BlockId,
+
+    /// Access block data without allocation.
+    /// Returns direct reference to storage engine data.
+    pub fn read_block(self: *const QueryEngineBlock) *const ContextBlock {
+        return self.block_ptr;
+    }
+
+    /// Get block ID without dereferencing full block.
+    pub fn read_id(self: *const QueryEngineBlock) BlockId {
+        return self.block_id;
+    }
+};
 pub const SemanticQueryResult = operations.SemanticQueryResult;
 pub const SemanticResult = operations.SemanticResult;
 
@@ -396,24 +420,91 @@ pub const QueryEngine = struct {
         }
     }
 
-    /// Find a single block by ID with direct storage access for maximum performance
-    /// Returns QueryEngineBlock with ownership transfer to caller
+    /// Find a single block by ID for maximum performance
+    /// Returns direct pointer to storage data without allocation
     pub fn find_block(self: *QueryEngine, block_id: BlockId) !?QueryEngineBlock {
         if (!self.state.can_query()) return EngineError.NotInitialized;
 
         const start_time = std.time.nanoTimestamp();
         defer self.record_direct_query(start_time);
 
-        return self.storage_engine.find_block(block_id, .query_engine) catch |err| {
+        // Check memtable first for direct access
+        if (self.storage_engine.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
+            return QueryEngineBlock{
+                .block_ptr = block_ptr,
+                .block_id = block_id,
+            };
+        }
+
+        // For SSTables, we need to load into cache first, then return reference
+        // This maintains direct access semantics for the caller while handling disk I/O internally
+        const owned_block = self.storage_engine.find_block(block_id, .query_engine) catch |err| {
             error_context.log_storage_error(err, error_context.block_context("query_find_block", block_id));
             return err;
+        } orelse return null;
+
+        // Store in query cache and return reference
+        const cached_block = try self.cache_block_for_access(owned_block);
+        return QueryEngineBlock{
+            .block_ptr = cached_block,
+            .block_id = block_id,
         };
     }
 
-    /// Check if a block exists without retrieving its content
-    pub fn has_block(self: *QueryEngine, block_id: BlockId) bool {
+    /// Check if a block exists without loading its content
+    pub fn block_exists(self: *QueryEngine, block_id: BlockId) bool {
         if (!self.state.can_query()) return false;
+
+        // Check memtable first for direct access
+        if (self.storage_engine.memtable_manager.find_block_in_memtable(block_id)) |_| {
+            return true;
+        }
+
+        // Check SSTables (may require index lookup but no content loading)
         return operations.has_block(self.storage_engine, block_id);
+    }
+
+    /// Get block version without loading full content - optimized for version queries
+    pub fn query_block_version(self: *QueryEngine, block_id: BlockId) ?u64 {
+        if (!self.state.can_query()) return null;
+
+        // Check memtable first for direct access
+        if (self.storage_engine.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
+            return block_ptr.version;
+        }
+
+        // For SSTables, this would require loading metadata only
+        // Implementation deferred - storage engine should provide version-only access
+        return null;
+    }
+
+    /// Cache block for direct access - internal method
+    fn cache_block_for_access(self: *QueryEngine, owned_block: OwnedQueryEngineBlock) !*const ContextBlock {
+        _ = self; // Internal caching not implemented yet
+        // For now, return the block pointer directly
+        // In future, this should cache in query-specific memory pool
+        return owned_block.read(.query_engine);
+    }
+
+    /// Find multiple blocks - batch operation
+    /// Returns array of block references without allocations
+    pub fn find_blocks(
+        self: *QueryEngine,
+        block_ids: []const BlockId,
+        result_buffer: []QueryEngineBlock,
+    ) !u32 {
+        if (!self.state.can_query()) return EngineError.NotInitialized;
+        fatal_assert(result_buffer.len >= block_ids.len, "Result buffer too small for batch query", .{});
+
+        var found_count: u32 = 0;
+        for (block_ids) |block_id| {
+            if (try self.find_block(block_id)) |query_engine_block| {
+                result_buffer[found_count] = query_engine_block;
+                found_count += 1;
+            }
+        }
+
+        return found_count;
     }
 
     /// Execute a graph traversal query with caching for expensive operations
@@ -778,7 +869,7 @@ test "query engine statistics tracking" {
     const found_block = try query_engine.find_block(test_id);
 
     try testing.expect(found_block != null);
-    try testing.expect(found_block.?.block.id.eql(test_id));
+    try testing.expect(found_block.?.read_block().id.eql(test_id));
 
     const updated_stats = query_engine.statistics();
     try testing.expectEqual(@as(u64, 1), updated_stats.queries_executed);
@@ -913,7 +1004,7 @@ test "query engine find_block convenience method" {
 
     try testing.expect(result != null);
     const found_block = result.?;
-    try testing.expect(found_block.block.id.eql(test_id));
+    try testing.expect(found_block.read_block().id.eql(test_id));
 }
 
 test "query engine block_exists check" {
@@ -938,14 +1029,14 @@ test "query engine block_exists check" {
     const existing_id = try BlockId.from_hex("44444444444444444444444444444444");
     const missing_id = try BlockId.from_hex("55555555555555555555555555555555");
 
-    try testing.expect(!query_engine.has_block(existing_id));
-    try testing.expect(!query_engine.has_block(missing_id));
+    try testing.expect(!query_engine.block_exists(existing_id));
+    try testing.expect(!query_engine.block_exists(missing_id));
 
     const test_block = create_test_block(existing_id, "existence test");
     try storage_engine.put_block(test_block);
 
-    try testing.expect(query_engine.has_block(existing_id));
-    try testing.expect(!query_engine.has_block(missing_id));
+    try testing.expect(query_engine.block_exists(existing_id));
+    try testing.expect(!query_engine.block_exists(missing_id));
 }
 
 test "query engine uninitialized error handling" {
@@ -1052,8 +1143,8 @@ test "query engine ownership transfer from storage" {
     const found_block = maybe_block.?;
 
     const block_data = found_block;
-    try testing.expect(block_data.block.id.eql(test_id));
-    try testing.expect(std.mem.eql(u8, block_data.block.content, "ownership transfer test"));
+    try testing.expect(block_data.read_block().id.eql(test_id));
+    try testing.expect(std.mem.eql(u8, block_data.read_block().content, "ownership transfer test"));
 
     // Ownership is properly transferred via find_block(.query_engine) parameter
 }
@@ -1078,9 +1169,9 @@ test "query engine zero-copy read operations" {
     defer query_engine.deinit();
 
     const test_blocks = [_]ContextBlock{
-        create_test_block(try BlockId.from_hex("11111111111111111111111111111111"), "zero copy test 1"),
-        create_test_block(try BlockId.from_hex("22222222222222222222222222222222"), "zero copy test 2"),
-        create_test_block(try BlockId.from_hex("33333333333333333333333333333333"), "zero copy test 3"),
+        create_test_block(try BlockId.from_hex("11111111111111111111111111111111"), "batch test 1"),
+        create_test_block(try BlockId.from_hex("22222222222222222222222222222222"), "batch test 2"),
+        create_test_block(try BlockId.from_hex("33333333333333333333333333333333"), "batch test 3"),
     };
 
     for (test_blocks) |block| {
@@ -1099,14 +1190,14 @@ test "query engine zero-copy read operations" {
     try testing.expect(found_block3 != null);
 
     const block1_data = found_block1.?;
-    try testing.expect(block1_data.block.id.eql(test_blocks[0].id));
-    try testing.expect(std.mem.eql(u8, block1_data.block.content, "zero copy test 1"));
+    try testing.expect(block1_data.read_block().id.eql(test_blocks[0].id));
+    try testing.expect(std.mem.eql(u8, block1_data.read_block().content, "batch test 1"));
 
     const block2_data = found_block2.?;
     const block3_data = found_block3.?;
 
-    try testing.expect(std.mem.eql(u8, block2_data.block.content, "zero copy test 2"));
-    try testing.expect(std.mem.eql(u8, block3_data.block.content, "zero copy test 3"));
+    try testing.expect(std.mem.eql(u8, block2_data.read_block().content, "batch test 2"));
+    try testing.expect(std.mem.eql(u8, block3_data.read_block().content, "batch test 3"));
 
     try testing.expect(failing_allocator.allocations == 0);
 }

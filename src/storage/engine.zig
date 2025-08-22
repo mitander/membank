@@ -50,7 +50,7 @@ const GraphEdge = context_block.GraphEdge;
 const MemtableBlock = ownership.MemtableBlock;
 const OwnedBlock = ownership.OwnedBlock;
 const OwnedGraphEdge = graph_edge_index.OwnedGraphEdge;
-const QueryEngineBlock = ownership.QueryEngineBlock;
+const OwnedQueryEngineBlock = ownership.OwnedQueryEngineBlock;
 const SSTableBlock = ownership.SSTableBlock;
 const SimulationVFS = simulation_vfs.SimulationVFS;
 const StorageEngineBlock = ownership.StorageEngineBlock;
@@ -643,13 +643,13 @@ pub const StorageEngine = struct {
     /// Zero-cost query engine block lookup for cross-subsystem access.
     /// Enables fast block transfer to query engine with compile-time safety.
     /// Find a Context Block by ID with zero-cost ownership for query operations
-    pub fn find_query_block(self: *StorageEngine, block_id: BlockId) !?QueryEngineBlock {
+    pub fn find_query_block(self: *StorageEngine, block_id: BlockId) !?OwnedQueryEngineBlock {
         if (comptime builtin.mode == .Debug) {
             fatal_assert(@intFromPtr(self) != 0, "StorageEngine corrupted", .{});
         }
 
         if (self.memtable_manager.find_block_in_memtable(block_id)) |block_ptr| {
-            return QueryEngineBlock.init(block_ptr.*);
+            return OwnedQueryEngineBlock.init(block_ptr.*);
         }
 
         const sstable_result = self.sstable_manager.find_block_in_sstables(block_id, .query_engine, self.query_cache_arena.allocator()) catch |err| switch (err) {
@@ -661,7 +661,7 @@ pub const StorageEngine = struct {
         };
 
         if (sstable_result) |owned_block| {
-            return QueryEngineBlock.init(owned_block.block);
+            return OwnedQueryEngineBlock.init(owned_block.block);
         }
 
         return null;

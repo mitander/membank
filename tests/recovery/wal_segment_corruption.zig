@@ -32,6 +32,13 @@ const StorageHarness = kausaldb.StorageHarness;
 const WAL_MAGIC_NUMBER: u32 = 0x574C4147; // "WLAG"
 
 const WAL_ENTRY_MAGIC: u32 = 0x57454E54; // "WENT"
+
+/// Dummy recovery callback for corruption testing - simply counts entries
+fn dummy_recovery_callback(entry: WALEntry, context: *anyopaque) WALError!void {
+    _ = entry;
+    const counter = @as(*i32, @ptrCast(@alignCast(context)));
+    counter.* += 1;
+}
 const MAX_SEGMENT_SIZE: u64 = 64 * 1024 * 1024; // 64MB
 
 test "segment header magic corruption detection" {
