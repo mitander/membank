@@ -109,18 +109,25 @@ pub const ParsedUnit = struct {
     metadata: std.StringHashMap([]const u8),
 
     pub fn deinit(self: *ParsedUnit, allocator: std.mem.Allocator) void {
-        self.edges.deinit();
-
-        // Note: HashMap keys are string literals and should not be freed
-        var iterator = self.metadata.iterator();
-        while (iterator.next()) |entry| {
-            allocator.free(entry.value_ptr.*);
-        }
-        self.metadata.deinit();
-
+        // Clean up unit data owned by caller's allocator
         allocator.free(self.id);
         allocator.free(self.unit_type);
         allocator.free(self.content);
+        allocator.free(self.location.file_path);
+
+        // Clean up edges
+        for (self.edges.items) |*edge| {
+            edge.deinit(allocator);
+        }
+        self.edges.deinit();
+
+        // Clean up metadata
+        var metadata_iter = self.metadata.iterator();
+        while (metadata_iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        self.metadata.deinit();
     }
 };
 
@@ -148,6 +155,12 @@ pub const ParsedEdge = struct {
     metadata: std.StringHashMap([]const u8),
 
     pub fn deinit(self: *ParsedEdge, allocator: std.mem.Allocator) void {
+        // Free metadata keys and values before destroying HashMap
+        var iterator = self.metadata.iterator();
+        while (iterator.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
         self.metadata.deinit();
         allocator.free(self.target_id);
     }

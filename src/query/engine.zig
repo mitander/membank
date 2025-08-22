@@ -691,7 +691,7 @@ pub const QueryEngine = struct {
         if (!self.state.can_query()) return EngineError.NotInitialized;
 
         const query_id = self.generate_query_id();
-        const plan = self.create_query_plan(.semantic, query.max_results orelse 100);
+        const plan = self.create_query_plan(.semantic, query.max_results);
         var context = QueryContext.create(query_id, plan);
 
         const result = switch (plan.execution_strategy) {
@@ -699,7 +699,7 @@ pub const QueryEngine = struct {
                 self.execute_semantic_query_indexed(query, &context)
             else
                 operations.execute_keyword_query(self.allocator, self.storage_engine, query),
-            .streaming_scan => self.execute_semantic_query_streaming(query, &context),
+            .streaming_scan => self.execute_semantic_query_indexed(query, &context),
             else => operations.execute_keyword_query(self.allocator, self.storage_engine, query),
         } catch |err| {
             error_context.log_storage_error(err, error_context.StorageContext{

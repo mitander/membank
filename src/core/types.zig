@@ -89,6 +89,9 @@ pub const EdgeType = enum(u16) {
     implements = 6, // A implements B (interface relationship)
     calls = 7, // A calls B (invocation relationship)
     depends_on = 8, // A depends on B (dependency relationship)
+    method_of = 9, // A is a method of struct B (method ownership relationship)
+    calls_method = 10, // A calls method B (method invocation relationship)
+    calls_function = 11, // A calls free function B (function invocation relationship)
 
     comptime {
         comptime_assert(@sizeOf(EdgeType) == 2, "EdgeType must be 2 bytes (u16)");

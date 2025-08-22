@@ -1154,8 +1154,8 @@ fn check_public_function_documentation(context: *RuleContext) []const Rule.RuleV
         const line_end = std.mem.indexOfScalarPos(u8, context.source, line_start, '\n') orelse context.source.len;
         const line = context.source[line_start..line_end];
 
-        // Look for public function declarations
-        if (std.mem.indexOf(u8, line, "pub fn ") != null) {
+        // Look for public function declarations (skip string literals and comments)
+        if (std.mem.indexOf(u8, line, "pub fn ") != null and !is_comment_or_string_line(line)) {
             if (find_function_definition(line)) |func_name| {
                 // Skip functions that don't need documentation:
                 // - Standard lifecycle functions
