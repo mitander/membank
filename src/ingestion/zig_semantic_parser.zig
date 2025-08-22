@@ -29,13 +29,11 @@ const SourceContent = ingestion.SourceContent;
 const SourceLocation = ingestion.SourceLocation;
 
 /// Configuration for semantic parsing behavior
-pub const ZigParserConfig = struct {
+pub const SemanticParserConfig = struct {
     /// Whether to include function bodies or just signatures
     include_function_bodies: bool = true,
     /// Whether to extract private (non-pub) definitions
     include_private: bool = true,
-    /// Whether to extract inline comments (compatibility - ignored in semantic parser)
-    include_inline_comments: bool = false,
     /// Whether to extract test blocks
     include_tests: bool = true,
     /// Maximum size of extracted unit content
@@ -53,7 +51,7 @@ const SemanticContext = struct {
     /// File path for location tracking
     file_path: []const u8,
     /// Parser configuration
-    config: ZigParserConfig,
+    config: SemanticParserConfig,
     /// Current container scope (struct/enum/union name)
     current_container: ?[]const u8 = null,
     /// Container declaration node for scope tracking
@@ -64,7 +62,7 @@ const SemanticContext = struct {
         allocator: std.mem.Allocator,
         ast: std.zig.Ast,
         file_path: []const u8,
-        config: ZigParserConfig,
+        config: SemanticParserConfig,
     ) SemanticContext {
         return SemanticContext{
             .ast = ast,
@@ -98,26 +96,25 @@ const SemanticContext = struct {
 };
 
 /// Professional Zig semantic parser using stdlib AST
-pub const ZigParser = struct {
+pub const ZigSemanticParser = struct {
     /// Parser configuration
-    config: ZigParserConfig,
+    config: SemanticParserConfig,
 
-    /// Initialize Zig semantic parser (compatibility interface)
-    pub fn init(allocator: std.mem.Allocator, config: ZigParserConfig) ZigParser {
-        _ = allocator; // Not used in semantic parser
-        return ZigParser{
+    /// Initialize Zig semantic parser
+    pub fn init(config: SemanticParserConfig) ZigSemanticParser {
+        return ZigSemanticParser{
             .config = config,
         };
     }
 
     /// Clean up parser resources
-    pub fn deinit(self: *ZigParser) void {
+    pub fn deinit(self: *ZigSemanticParser) void {
         _ = self;
         // No resources to clean up in this implementation
     }
 
     /// Create Parser interface wrapper
-    pub fn parser(self: *ZigParser) Parser {
+    pub fn parser(self: *ZigSemanticParser) Parser {
         return Parser{
             .ptr = self,
             .vtable = &.{
@@ -131,7 +128,7 @@ pub const ZigParser = struct {
 
     /// Parse Zig source using stdlib AST parser
     fn parse_content(
-        self: *ZigParser,
+        self: *ZigSemanticParser,
         allocator: std.mem.Allocator,
         content: SourceContent,
     ) IngestionError![]ParsedUnit {
@@ -173,7 +170,7 @@ pub const ZigParser = struct {
     }
 
     /// Extract semantic units from AST by walking all nodes
-    fn extract_semantic_units(self: *ZigParser, context: *SemanticContext) !void {
+    fn extract_semantic_units(self: *ZigSemanticParser, context: *SemanticContext) !void {
         const root_decls = context.ast.rootDecls();
 
         // Process all top-level declarations
@@ -183,7 +180,7 @@ pub const ZigParser = struct {
     }
 
     /// Process a declaration node and extract semantic information
-    fn process_declaration(self: *ZigParser, context: *SemanticContext, node: std.zig.Ast.Node.Index) !void {
+    fn process_declaration(self: *ZigSemanticParser, context: *SemanticContext, node: std.zig.Ast.Node.Index) !void {
         const node_tag = context.ast.nodeTag(node);
 
         switch (node_tag) {
@@ -211,7 +208,7 @@ pub const ZigParser = struct {
 
     /// Process function declaration node
     fn process_function_declaration(
-        self: *ZigParser,
+        self: *ZigSemanticParser,
         context: *SemanticContext,
         node: std.zig.Ast.Node.Index,
     ) !void {
@@ -299,7 +296,7 @@ pub const ZigParser = struct {
 
     /// Check if a variable declaration is actually a container declaration
     fn is_container_declaration(
-        self: *ZigParser,
+        self: *ZigSemanticParser,
         context: *SemanticContext,
         node: std.zig.Ast.Node.Index,
     ) bool {
@@ -314,7 +311,7 @@ pub const ZigParser = struct {
 
     /// Process container declaration (struct, enum, union)
     fn process_container_declaration(
-        self: *ZigParser,
+        self: *ZigSemanticParser,
         context: *SemanticContext,
         node: std.zig.Ast.Node.Index,
     ) !void {
@@ -416,7 +413,7 @@ pub const ZigParser = struct {
 
     /// Process variable declaration
     fn process_variable_declaration(
-        self: *ZigParser,
+        self: *ZigSemanticParser,
         context: *SemanticContext,
         node: std.zig.Ast.Node.Index,
     ) !void {
@@ -433,7 +430,7 @@ pub const ZigParser = struct {
 
     /// Process test declaration
     fn process_test_declaration(
-        self: *ZigParser,
+        self: *ZigSemanticParser,
         context: *SemanticContext,
         node: std.zig.Ast.Node.Index,
     ) !void {
@@ -487,7 +484,7 @@ pub const ZigParser = struct {
 
     /// Recursively process child nodes
     fn process_child_nodes(
-        self: *ZigParser,
+        self: *ZigSemanticParser,
         context: *SemanticContext,
         node: std.zig.Ast.Node.Index,
     ) IngestionError!void {
@@ -509,7 +506,7 @@ pub const ZigParser = struct {
 
     /// Process container body to find member functions
     fn process_container_body(
-        self: *ZigParser,
+        self: *ZigSemanticParser,
         context: *SemanticContext,
         container_node: std.zig.Ast.Node.Index,
     ) IngestionError!void {
@@ -536,7 +533,7 @@ pub const ZigParser = struct {
 
     /// Analyze function calls within a function body
     fn analyze_function_calls(
-        self: *ZigParser,
+        self: *ZigSemanticParser,
         context: *SemanticContext,
         func_node: std.zig.Ast.Node.Index,
         caller_id: []const u8,
@@ -554,7 +551,7 @@ pub const ZigParser = struct {
 
     // Parser interface implementations
     fn parse_impl(ptr: *anyopaque, allocator: std.mem.Allocator, content: SourceContent) IngestionError![]ParsedUnit {
-        const self: *ZigParser = @ptrCast(@alignCast(ptr));
+        const self: *ZigSemanticParser = @ptrCast(@alignCast(ptr));
         return self.parse_content(allocator, content);
     }
 
@@ -570,7 +567,7 @@ pub const ZigParser = struct {
 
     fn deinit_impl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         _ = allocator;
-        const self: *ZigParser = @ptrCast(@alignCast(ptr));
+        const self: *ZigSemanticParser = @ptrCast(@alignCast(ptr));
         self.deinit();
     }
 };
@@ -581,11 +578,11 @@ test "semantic parser basic functionality verification" {
     const testing = std.testing;
 
     // Simple test to verify the parser can be created and has basic functionality
-    const config = ZigParserConfig{};
-    var zig_parser = ZigParser.init(testing.allocator, config);
-    defer zig_parser.deinit();
+    const config = SemanticParserConfig{};
+    var semantic_parser = ZigSemanticParser.init(config);
+    defer semantic_parser.deinit();
 
-    const parser = zig_parser.parser();
+    const parser = semantic_parser.parser();
 
     // Verify parser interface works
     try testing.expect(parser.supports("text/zig"));
@@ -594,11 +591,11 @@ test "semantic parser basic functionality verification" {
 test "semantic parser creation and cleanup" {
     const testing = std.testing;
 
-    const config = ZigParserConfig{};
-    var zig_parser = ZigParser.init(testing.allocator, config);
-    defer zig_parser.deinit();
+    const config = SemanticParserConfig{};
+    var semantic_parser = ZigSemanticParser.init(config);
+    defer semantic_parser.deinit();
 
-    const parser = zig_parser.parser();
+    const parser = semantic_parser.parser();
     try testing.expect(parser.supports("text/zig"));
     try testing.expect(!parser.supports("text/rust"));
     try testing.expectEqualStrings("Professional Zig Semantic Parser", parser.describe());
@@ -611,11 +608,11 @@ test "function vs method distinction" {
         .data =
         \\const Calculator = struct {
         \\    value: f64,
-        \\
+        \\    
         \\    pub fn init(value: f64) Calculator {
         \\        return Calculator{ .value = value };
         \\    }
-        \\
+        \\    
         \\    pub fn add(self: *Calculator, x: f64) void {
         \\        self.value += x;
         \\    }
@@ -636,7 +633,7 @@ test "function vs method distinction" {
         .timestamp_ns = 0,
     };
 
-    var parser = ZigParser.init(testing.allocator, ZigParserConfig{});
+    var parser = ZigSemanticParser.init(SemanticParserConfig{});
     defer parser.deinit();
 
     const parsed_units = try parser.parse_content(testing.allocator, source_content);
@@ -678,11 +675,11 @@ test "method ownership edges" {
         .data =
         \\const Database = struct {
         \\    name: []const u8,
-        \\
+        \\    
         \\    pub fn connect(name: []const u8) Database {
         \\        return Database{ .name = name };
         \\    }
-        \\
+        \\    
         \\    pub fn query(self: *Database, sql: []const u8) void {
         \\        _ = self;
         \\        _ = sql;
@@ -694,7 +691,7 @@ test "method ownership edges" {
         .timestamp_ns = 0,
     };
 
-    var parser = ZigParser.init(testing.allocator, ZigParserConfig{});
+    var parser = ZigSemanticParser.init(SemanticParserConfig{});
     defer parser.deinit();
 
     const parsed_units = try parser.parse_content(testing.allocator, source_content);
