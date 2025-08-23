@@ -25,7 +25,7 @@ comptime {
     _ = @import("ingestion/glob_matcher.zig");
     _ = @import("ingestion/pipeline.zig");
     _ = @import("ingestion/semantic_chunker.zig");
-    _ = @import("ingestion/zig_parser.zig");
+    _ = @import("ingestion/zig/parser.zig");
     _ = @import("kausaldb.zig");
     _ = @import("query/cache.zig");
     _ = @import("query/engine.zig");

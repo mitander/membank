@@ -118,9 +118,9 @@ fn run_single_iteration(allocator: std.mem.Allocator, random: std.Random) !commo
     const config = ZigParserConfig{
         .include_function_bodies = random.boolean(),
         .include_private = random.boolean(),
-        .include_inline_comments = random.boolean(),
+        .include_comments = random.boolean(),
         .include_tests = random.boolean(),
-        .max_unit_size = random.intRangeAtMost(u32, 100, 10000),
+        .max_nesting_depth = random.intRangeAtMost(u32, 16, 128),
     };
 
     var parser = ZigParser.init(allocator, config);
