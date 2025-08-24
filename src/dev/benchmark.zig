@@ -7,6 +7,7 @@
 const std = @import("std");
 
 const compaction_benchmarks = @import("benchmark/compaction.zig");
+const parsing_benchmarks = @import("benchmark/parsing.zig");
 const query_benchmarks = @import("benchmark/query.zig");
 const storage_benchmarks = @import("benchmark/storage.zig");
 
@@ -145,6 +146,10 @@ pub fn main() !void {
         var storage_results = try storage_benchmarks.run_all(allocator);
         defer storage_results.deinit();
         try results.appendSlice(storage_results.items);
+    } else if (std.mem.eql(u8, benchmark_name, "parsing")) {
+        var parsing_results = try parsing_benchmarks.run_all(allocator);
+        defer parsing_results.deinit();
+        try results.appendSlice(parsing_results.items);
     } else if (std.mem.eql(u8, benchmark_name, "query")) {
         var query_results = try query_benchmarks.run_all(allocator);
         defer query_results.deinit();
@@ -195,6 +200,10 @@ fn run_all_benchmarks(allocator: std.mem.Allocator, results: *std.array_list.Man
     defer storage_results.deinit();
     try results.appendSlice(storage_results.items);
 
+    var parsing_results = try parsing_benchmarks.run_all(allocator);
+    defer parsing_results.deinit();
+    try results.appendSlice(parsing_results.items);
+
     var query_results = try query_benchmarks.run_all(allocator);
     defer query_results.deinit();
     try results.appendSlice(query_results.items);
@@ -234,6 +243,7 @@ fn print_usage() void {
         \\Benchmark Types:
         \\  all            Run all benchmarks
         \\  storage        All storage engine benchmarks
+        \\  parsing        All parsing/ingestion benchmarks
         \\  query          All query engine benchmarks
         \\  compaction     All compaction benchmarks
         \\  block-write    Single block write operations

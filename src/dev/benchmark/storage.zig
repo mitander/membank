@@ -94,6 +94,9 @@ pub fn run_block_writes(allocator: std.mem.Allocator) !BenchmarkResult {
     const unique_dir = try std.fmt.allocPrint(allocator, "/tmp/kausaldb-tests/benchmark_writes_{}", .{timestamp});
     defer allocator.free(unique_dir);
 
+    // Ensure parent directory exists
+    try std.fs.cwd().makePath("/tmp/kausaldb-tests");
+
     var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), unique_dir);
     defer storage_engine.deinit();
     try storage_engine.startup();
@@ -125,6 +128,9 @@ pub fn run_block_reads(allocator: std.mem.Allocator) !BenchmarkResult {
     const unique_dir = try std.fmt.allocPrint(allocator, "/tmp/kausaldb-tests/benchmark_reads_{}", .{timestamp});
     defer allocator.free(unique_dir);
 
+    // Ensure parent directory exists
+    try std.fs.cwd().makePath("/tmp/kausaldb-tests");
+
     var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), unique_dir);
     defer storage_engine.deinit();
     try storage_engine.startup();
@@ -151,6 +157,9 @@ pub fn run_block_updates(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
+    // Ensure parent directory exists
+    try std.fs.cwd().makePath("/tmp/kausaldb-tests");
+
     var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_updates");
     defer storage_engine.deinit();
     try storage_engine.startup();
@@ -169,6 +178,9 @@ pub fn run_block_deletes(allocator: std.mem.Allocator) !BenchmarkResult {
     defer allocator.destroy(prod_vfs);
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
+
+    // Ensure parent directory exists
+    try std.fs.cwd().makePath("/tmp/kausaldb-tests");
 
     var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_deletes");
     defer storage_engine.deinit();
@@ -189,6 +201,9 @@ pub fn run_wal_flush(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
+    // Ensure parent directory exists
+    try std.fs.cwd().makePath("/tmp/kausaldb-tests");
+
     var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_wal");
     defer storage_engine.deinit();
     try storage_engine.startup();
@@ -204,6 +219,9 @@ pub fn run_zero_cost_ownership(allocator: std.mem.Allocator) !BenchmarkResult {
     defer allocator.destroy(prod_vfs);
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
+
+    // Ensure parent directory exists
+    try std.fs.cwd().makePath("/tmp/kausaldb-tests");
 
     var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_ownership");
     defer storage_engine.deinit();

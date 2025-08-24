@@ -43,12 +43,33 @@ pub fn run_compaction_benchmark(allocator: std.mem.Allocator) !BenchmarkResult {
     prod_vfs.* = production_vfs.ProductionVFS.init(allocator);
     defer prod_vfs.deinit();
 
-    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), "/tmp/kausaldb-tests/benchmark_compaction");
+    // Use unique directory to avoid conflicts with previous runs
+    const timestamp = std.time.microTimestamp();
+    const unique_dir = try std.fmt.allocPrint(allocator, "/tmp/kausaldb-tests/benchmark_compaction_{d}", .{timestamp});
+    defer allocator.free(unique_dir);
+
+    // Ensure parent directory exists
+    try std.fs.cwd().makePath("/tmp/kausaldb-tests");
+
+    var storage_engine = try StorageEngine.init_default(allocator, prod_vfs.vfs(), unique_dir);
     defer storage_engine.deinit();
 
     try storage_engine.startup();
 
-    return benchmark_compaction_operations(&storage_engine, allocator);
+    const result = benchmark_compaction_operations(&storage_engine, allocator);
+
+    // Validate SSTable integrity before cleanup
+    validate_sstable_integrity(allocator, unique_dir) catch |err| {
+        std.debug.print("ERROR: SSTable integrity validation failed: {any}\n", .{err});
+        // Don't fail the benchmark, but log the issue for investigation
+    };
+
+    // Clean up test directory (best effort)
+    std.fs.cwd().deleteTree(unique_dir) catch |err| {
+        std.debug.print("Warning: Failed to clean up compaction benchmark directory {s}: {any}\n", .{ unique_dir, err });
+    };
+
+    return result;
 }
 
 fn benchmark_compaction_operations(
@@ -128,17 +149,17 @@ fn create_compaction_test_block(allocator: std.mem.Allocator, index: usize) !Con
     defer allocator.free(block_id_hex);
 
     const block_id = try BlockId.from_hex(block_id_hex);
-    const source_uri = try std.fmt.allocPrint(allocator, "compaction://test_block_{}.zig", .{index});
-    const metadata_json = try std.fmt.allocPrint(allocator, "{{\"type\":\"compaction_test\",\"index\":{}}}", .{index});
+    const source_uri = try std.fmt.allocPrint(allocator, "compaction://test_block_{d}.zig", .{index});
+    const metadata_json = try std.fmt.allocPrint(allocator, "{{\"type\":\"compaction_test\",\"index\":{d}}}", .{index});
 
     const content = try std.fmt.allocPrint(allocator,
-        \\pub fn compaction_test_function_{}() void {{
+        \\pub fn compaction_test_function_{d}() void {{
         \\    // This is test content for compaction benchmarking
-        \\    // Index: {}
+        \\    // Index: {d}
         \\    // Content is intentionally verbose to simulate real blocks
         \\    var data: [100]u8 = undefined;
-        \\    for (data) |*byte, i| {{
-        \\        byte.* = @intCast(u8, i % 256);
+        \\    for (data, 0..) |*byte, i| {{
+        \\        byte.* = @as(u8, @intCast(i % 256));
         \\    }}
         \\    const result = data[0] + data[99];
         \\    assert(result >= 0);
@@ -204,4 +225,80 @@ fn analyze_timings(timings: []u64) struct {
         .median = median,
         .stddev = stddev,
     };
+}
+
+/// Validate integrity of all SSTable files in the directory
+///
+/// This function prevents silent SSTable corruption by validating headers
+/// and basic structure. Follows KausalDB principle: "Correctness is Not Negotiable"
+fn validate_sstable_integrity(allocator: std.mem.Allocator, test_dir: []const u8) !void {
+    var dir = std.fs.cwd().openDir(test_dir, .{ .iterate = true }) catch |err| {
+        // Directory might not exist if no SSTables were created
+        if (err == error.FileNotFound) return;
+        return err;
+    };
+    defer dir.close();
+
+    var sstable_count: u32 = 0;
+    var iterator = dir.iterate();
+    while (try iterator.next()) |entry| {
+        if (std.mem.endsWith(u8, entry.name, ".sstable")) {
+            sstable_count += 1;
+
+            const sstable_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ test_dir, entry.name });
+            defer allocator.free(sstable_path);
+
+            // Validate SSTable header using the same logic as SSTableManager.read_sstable_block_count
+            try validate_single_sstable_header(sstable_path);
+        }
+    }
+
+    if (sstable_count == 0) {
+        std.debug.print("Warning: No SSTables found in {s} - this may indicate a flush issue\n", .{test_dir});
+    }
+}
+
+/// Validate a single SSTable header for corruption
+///
+/// Replicates the exact validation logic from SSTableManager.read_sstable_block_count
+/// to catch the same errors that would cause "SSTable missing" warnings.
+fn validate_single_sstable_header(sstable_path: []const u8) !void {
+    var file = try std.fs.cwd().openFile(sstable_path, .{});
+    defer file.close();
+
+    // Read header exactly like SSTableManager.read_sstable_block_count
+    var header_buffer: [64]u8 = undefined; // SSTable.HEADER_SIZE = 64
+    const bytes_read = try file.readAll(&header_buffer);
+    if (bytes_read < 64) {
+        std.debug.print("CORRUPTION: SSTable {s} header too small: {d} < 64 bytes\n", .{ sstable_path, bytes_read });
+        return error.InvalidSSTableHeader;
+    }
+
+    // Validate magic number and version (same as SSTable.Header.deserialize)
+    var offset: usize = 0;
+
+    // Check magic number
+    const magic = header_buffer[offset .. offset + 4];
+    if (!std.mem.eql(u8, magic, "SSTB")) {
+        std.debug.print("CORRUPTION: SSTable {s} has invalid magic: expected 'SSTB', got '{s}'\n", .{ sstable_path, magic });
+        return error.InvalidMagic;
+    }
+    offset += 4;
+
+    // Check version compatibility
+    const format_version = std.mem.readInt(u16, header_buffer[offset..][0..2], .little);
+    if (format_version > 1) {
+        std.debug.print("ERROR: SSTable {s} unsupported version: {d} > 1\n", .{ sstable_path, format_version });
+        return error.UnsupportedVersion;
+    }
+    offset += 2;
+
+    // Skip flags (2 bytes) and index_offset (8 bytes)
+    offset += 10;
+
+    // Block count is at offset 16 for O(1) statistics without index loading
+    const block_count = std.mem.readInt(u32, header_buffer[offset..][0..4], .little);
+    if (block_count == 0) {
+        std.debug.print("WARNING: SSTable {s} has 0 blocks - this may indicate an empty flush\n", .{sstable_path});
+    }
 }
